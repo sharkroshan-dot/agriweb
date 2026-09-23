@@ -318,7 +318,8 @@ export default function CheckoutPage() {
   };
 
   const deliveryFeeValue = deliveryQuote?.fee ?? 0;
-  const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue);
+  const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
+  const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
 
   const handlePlaceOrder = async () => {
     const addressId = selectedAddressId || defaultAddress?.id;
@@ -333,7 +334,20 @@ export default function CheckoutPage() {
       return;
     }
 
+    const selectedAddress = addresses.find((a) => a.id === addressId);
+    if (selectedAddress && !/^\d{6}$/.test(selectedAddress.zip_code.trim())) {
+      toast.error("Please select an address with a valid 6-digit PIN code.");
+      return;
+    }
+
     setIsPlacing(true);
+
+    if (!idempotencyKeyRef.current) {
+      idempotencyKeyRef.current =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
 
     const invalidItems = items.filter((i) => !(i.originalPrice || i.price) || (i.originalPrice || i.price) <= 0);
     if (invalidItems.length > 0) {
@@ -784,7 +798,7 @@ export default function CheckoutPage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span>Platform fee</span>
-                  <span className="text-muted-foreground">5%</span>
+                  <span className="text-muted-foreground">{formatPrice(platformFeeValue)}</span>
                 </div>
               <div className="flex justify-between border-t pt-2 text-sm font-semibold">
                   <span>Estimated total</span>
