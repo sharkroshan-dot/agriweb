@@ -79,7 +79,7 @@ export function Header() {
   const showBackButton = true;
 
   return (
-    <header className="fixed left-0 right-0 top-0 z-50 border-b border-slate-200/70 bg-white/80 shadow-sm shadow-slate-900/5 backdrop-blur-xl">
+    <header className="sticky left-0 right-0 top-0 z-50 border-b border-slate-200/70 bg-white/80 shadow-sm shadow-slate-900/5 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {showBackButton && (
@@ -88,7 +88,7 @@ export function Header() {
               onClick={handleBack}
               aria-label="Go back to the previous page"
               title="Go back"
-              className="group fixed left-3 top-[76px] z-[60] inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-slate-700 shadow-md shadow-slate-900/10 transition-all hover:-translate-x-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:ring-offset-1 sm:left-4 lg:left-[224px] xl:left-[248px]"
+              className="group fixed right-4 top-[76px] z-[60] inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-slate-700 shadow-md shadow-slate-900/10 transition-all hover:-translate-x-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:ring-offset-1 sm:right-5"
             >
               <ArrowLeft
                 className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5"
