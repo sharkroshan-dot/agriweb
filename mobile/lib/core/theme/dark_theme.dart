@@ -48,19 +48,19 @@ class DarkTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surface,
-        indicatorColor: AppTheme.primaryGreen.withValues(alpha: 0.2),
+        indicatorColor: AppTheme.primaryGreen,
         surfaceTintColor: Colors.transparent,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 12,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? AppTheme.primaryLight : textSecondary,
+            color: selected ? Colors.white : textSecondary,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
-          return IconThemeData(color: selected ? AppTheme.primaryLight : textSecondary);
+          return IconThemeData(color: selected ? Colors.white : textSecondary);
         }),
         elevation: 12,
       ),
