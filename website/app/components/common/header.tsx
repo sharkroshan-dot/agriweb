@@ -45,21 +45,11 @@ export function Header() {
   );
 
   const handleBack = () => {
-    const referrer = document.referrer;
-
-    if (referrer) {
-      try {
-        const referrerUrl = new URL(referrer);
-        if (
-          referrerUrl.origin === window.location.origin &&
-          window.history.length > 1
-        ) {
-          router.back();
-          return;
-        }
-      } catch {
-        // Fall back to the dashboard/home route below.
-      }
+    // Go to the actual last page in browser history. This preserves the
+    // user's previous filters, scroll position, and page state when possible.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
     }
 
     router.push(session?.user ? dashboardHref : "/");
