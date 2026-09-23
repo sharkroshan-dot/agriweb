@@ -80,7 +80,7 @@ export const authOptions = {
     process.env.NEXTAUTH_SECRET ||
     process.env.AUTH_SECRET ||
     (() => {
-      if (process.env.NODE_ENV === "production") {
+      if (process.env.VERCEL_ENV === "production") {
         throw new Error("NEXTAUTH_SECRET is required in production. Set a strong random value.");
       }
       return "agriconnect-dev-secret";
