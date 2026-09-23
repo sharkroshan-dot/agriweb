@@ -1,8 +1,6 @@
 import re
 import logging
 import json
-import os
-import httpx
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -345,9 +343,11 @@ class DataAssistantService:
             return {"action":"chat_reply","response":PRIVATE_DATA_RESPONSE[lang],"intent":"private_data_blocked","data":None}
         plan=await _semantic_plan(text,conversation)
         if not plan:
+            # The scratch LLM is the semantic layer. Do not silently fall back
+            # to keyword QA because that can answer a different question.
             return {
                 "action": "chat_reply",
-                "response": "I couldn't understand that request with the AgriConnect AI model right now. Please try again.",
+                "response": "The AgriConnect AI model is not ready yet. Start the local model by training it with: python scripts/train_agriconnect_llm.py --epochs 8 --batch-size 8",
                 "intent": "semantic_unavailable",
                 "data": None,
             }
