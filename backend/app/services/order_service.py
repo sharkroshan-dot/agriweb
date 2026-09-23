@@ -379,10 +379,6 @@ class OrderService:
                         data.couponCode,
                         subtotal
                     )
-                    await coupon_repository.record_usage(
-                        data.couponCode,
-                        customer_id
-                    )
         
         is_pickup = data.deliveryType == DeliveryType.PICKUP
         delivery_charge = 0
@@ -476,6 +472,12 @@ class OrderService:
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to create order in database. order_data keys: {list(order_data.keys())}")
             raise OrderCreationError("Failed to save order to database")
+
+        if data.couponCode and discount > 0:
+            try:
+                await coupon_repository.record_usage(data.couponCode, customer_id)
+            except Exception as exc:
+                logger.warning("Order %s created but coupon usage recording failed: %s", order_id, exc)
 
         for item in data.items:
             if hasattr(item, 'reservationId') and item.reservationId:
