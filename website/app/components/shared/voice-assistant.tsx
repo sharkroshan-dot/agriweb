@@ -194,9 +194,14 @@ export function VoiceAssistant() {
       // Use the real AI Farm Assistant endpoint for both typed and voice
       // questions. It retrieves live marketplace/order/wallet data through
       // DataAssistantService instead of relying on a UI-only command route.
+      const conversation = state.messages
+        .slice(-8)
+        .map((message) => ({ role: message.role, content: message.content }));
+
       const response = await api.post("/ai/voice-assistant", {
         audioText: command,
         language: "english",
+        conversation,
       });
       const reply =
         response?.response ||
@@ -207,17 +212,27 @@ export function VoiceAssistant() {
       const intent = response?.intent || response?.data?.intent;
       const data = response?.data ?? response?.products;
 
-      addMessage("assistant", reply);
-      // Attach structured results to the just-created assistant message so the
-      // user can act on the answer instead of copying product names manually.
-      setState((prev) => {
-        const messages = [...prev.messages];
-        const last = messages[messages.length - 1];
-        if (last?.role === "assistant") {
-          messages[messages.length - 1] = { ...last, intent, data };
-        }
-        return { ...prev, messages };
-      });
+      const action = response?.action || response?.data?.action;
+      const route = response?.parameters?.route || response?.data?.parameters?.route;
+
+      const newMessage: VoiceMessage = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: reply,
+        timestamp: new Date(),
+        intent,
+        data,
+      };
+      setState((prev) => ({
+        ...prev,
+        messages: [...prev.messages, newMessage],
+      }));
+
+      if (action === "navigate" && route) {
+        window.location.assign(route);
+        return;
+      }
+
       await speak(reply);
     } catch {
       const errorMsg =
