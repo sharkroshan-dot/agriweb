@@ -267,8 +267,8 @@ export default function CustomerOrdersPage() {
               onClick={() => setActiveTab("delivery")}
               className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 activeTab === "delivery"
-                  ? "bg-white text-emerald-700 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "selection-item-active"
+                : "selection-item-inactive"
               }`}
             >
               <Home className="h-4 w-4" />
@@ -283,8 +283,8 @@ export default function CustomerOrdersPage() {
               onClick={() => setActiveTab("pickup")}
               className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
                 activeTab === "pickup"
-                  ? "bg-white text-emerald-700 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "selection-item-active"
+                : "selection-item-inactive"
               }`}
             >
               <Store className="h-4 w-4" />
@@ -321,8 +321,8 @@ export default function CustomerOrdersPage() {
                     onClick={() => setSubTab(t.key)}
                     className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition ${
                       subTab === t.key
-                        ? "bg-white text-emerald-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
+                      ? "selection-item-active"
+                      : "selection-item-inactive"
                     }`}
                   >
                     {t.label}
@@ -357,8 +357,8 @@ export default function CustomerOrdersPage() {
                     onClick={() => setSubTab(t.key)}
                     className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition ${
                       subTab === t.key
-                        ? "bg-white text-emerald-700 shadow-sm"
-                        : "text-slate-500 hover:text-slate-700"
+                      ? "selection-item-active"
+                      : "selection-item-inactive"
                     }`}
                   >
                     {t.label}
