@@ -94,6 +94,33 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
         "data": {"count": count}
     }
 
+@router.get("/{notification_id}")
+async def get_notification_detail(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Return one notification with all stored details for its owner."""
+    user_id = str(current_user["_id"])
+    notification = await notification_repository.get_by_id(notification_id)
+    if not notification:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found"
+        )
+    if str(notification["userId"]) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this notification"
+        )
+
+    notification["id"] = str(notification["_id"])
+    notification = _json_safe(notification)
+    return {
+        "success": True,
+        "data": {"notification": notification}
+    }
+
+
 @router.put("/{notification_id}/read")
 async def mark_notification_read(
     notification_id: str,
