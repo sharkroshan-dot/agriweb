@@ -264,8 +264,47 @@ class _AppShellState extends State<_AppShell> {
       (p) => _currentPath == p || (p.contains(':') && _pathMatches(_currentPath, p)),
     );
 
+    final isRoleDashboard = switch (widget.role) {
+      'farmer' => _currentPath == AppRoutes.farmerDashboard,
+      'delivery' => _currentPath == AppRoutes.deliveryDashboard,
+      _ => _currentPath == AppRoutes.customerHome,
+    };
+
     return Scaffold(
-      body: widget.child,
+      body: Stack(
+        children: [
+          widget.child,
+          if (!isRoleDashboard && context.canPop())
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 16,
+              child: Material(
+                color: Colors.white,
+                elevation: 3,
+                shadowColor: Colors.black26,
+                borderRadius: BorderRadius.circular(22),
+                child: InkWell(
+                  onTap: () => context.pop(),
+                  borderRadius: BorderRadius.circular(22),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.arrow_back_rounded, size: 18),
+                        SizedBox(width: 6),
+                        Text(
+                          'Back',
+                          style: TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: hideNav
           ? null
           : RoleBottomNav(
