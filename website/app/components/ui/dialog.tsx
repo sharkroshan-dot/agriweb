@@ -30,13 +30,13 @@ export function Dialog({ open = false, onOpenChange, wide = false, children }: D
         if (event.target === event.currentTarget) onOpenChange?.(false);
       }}
     >
-      <div className={`relative w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-lg border bg-white p-6 shadow-xl`}>
+      <div className={`relative w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl`}>
         {onOpenChange && (
           <button
             type="button"
             aria-label="Close"
             onClick={() => onOpenChange(false)}
-            className="absolute right-4 top-4 rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            className="absolute right-4 top-4 rounded-full p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
           >
             <X className="h-4 w-4" />
           </button>
