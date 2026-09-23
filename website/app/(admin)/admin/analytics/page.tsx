@@ -3,17 +3,18 @@
 import { useQuery } from "@tanstack/react-query";
 import { TrendingUp, Users, Package, DollarSign, Truck, CheckCircle, Activity, Loader2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
+import { PageErrorState } from "../../../components/common/page-state";
 import { api } from "../../../lib/api/client";
 
 const inr = (v: number) => `Rs ${Number(v || 0).toLocaleString("en-IN")}`;
 
 export default function AdminAnalyticsPage() {
-  const { data: overviewData, isLoading } = useQuery({
+  const { data: overviewData, isLoading, isError: overviewError, refetch: refetchOverview } = useQuery({
     queryKey: ["adminAnalyticsOverview"],
     queryFn: () => api.get("/analytics/overview"),
   });
 
-  const { data: deliveryAnalytics } = useQuery({
+  const { data: deliveryAnalytics, isError: deliveryError, refetch: refetchDelivery } = useQuery({
     queryKey: ["adminDeliveryAnalytics"],
     queryFn: () => api.get("/analytics/delivery"),
     refetchInterval: 30000,
@@ -35,13 +36,19 @@ export default function AdminAnalyticsPage() {
   const topFarmers: any[] = overview.topFarmers ?? [];
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="page-container">
       <div>
         <h1 className="text-2xl font-semibold">Analytics</h1>
         <p className="text-sm text-muted-foreground">Platform-wide performance metrics and insights</p>
       </div>
 
-      {isLoading ? (
+      {overviewError ? (
+        <PageErrorState
+          title="Analytics data is unavailable"
+          description="The analytics service did not return the platform metrics. Retry when the service is available."
+          retry={() => { void refetchOverview(); void refetchDelivery(); }}
+        />
+      ) : isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
