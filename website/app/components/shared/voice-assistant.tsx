@@ -1,10 +1,19 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Mic, MicOff, Bot, X, Settings, Volume2, VolumeX, Send, Loader2 } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import {
+  Mic,
+  MicOff,
+  Bot,
+  X,
+  Volume2,
+  VolumeX,
+  Send,
+  Loader2,
+} from "lucide-react";
 import { api } from "../../lib/api/client";
 import { cn } from "../../lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { CardHeader } from "../ui/card";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { ScrollArea } from "../ui/scroll-area";
@@ -50,8 +59,6 @@ export function VoiceAssistant() {
     volume: 1,
   });
   const [isOpen, setIsOpen] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -61,7 +68,9 @@ export function VoiceAssistant() {
 
   useEffect(() => {
     if ("webkitSpeechRecognition" in window || "SpeechRecognition" in window) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = false;
       recognitionRef.current.interimResults = true;
@@ -99,9 +108,7 @@ export function VoiceAssistant() {
       };
 
       recognitionRef.current.onend = () => {
-        if (state.isListening) {
-          recognitionRef.current?.start();
-        }
+        setState((prev) => ({ ...prev, isListening: false }));
       };
     }
 
@@ -110,11 +117,11 @@ export function VoiceAssistant() {
     };
   }, []);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const addMessage = (role: VoiceMessage["role"], content: string, audioUrl?: string) => {
+  const addMessage = (
+    role: VoiceMessage["role"],
+    content: string,
+    audioUrl?: string
+  ) => {
     const newMessage: VoiceMessage = {
       id: Date.now().toString(),
       role,
@@ -122,7 +129,11 @@ export function VoiceAssistant() {
       timestamp: new Date(),
       audioUrl,
     };
-    setState((prev) => ({ ...prev, messages: [...prev.messages, newMessage] }));
+
+    setState((prev) => ({
+      ...prev,
+      messages: [...prev.messages, newMessage],
+    }));
   };
 
   const speak = async (text: string) => {
@@ -138,9 +149,14 @@ export function VoiceAssistant() {
 
     const voices = speechSynthesis.getVoices();
     const preferredVoice = voices.find(
-      (v) => v.lang.includes("en") && (v.name.includes("Google") || v.name.includes("Microsoft"))
+      (voice) =>
+        voice.lang.includes("en") &&
+        (voice.name.includes("Google") || voice.name.includes("Microsoft"))
     );
-    if (preferredVoice) utterance.voice = preferredVoice;
+
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
 
     utterance.onend = () => {
       setState((prev) => ({ ...prev, isSpeaking: false }));
@@ -157,16 +173,23 @@ export function VoiceAssistant() {
     if (!command.trim()) return;
 
     addMessage("user", command);
-    setState((prev) => ({ ...prev, isProcessing: true, transcript: "" }));
+    setState((prev) => ({
+      ...prev,
+      isProcessing: true,
+      transcript: "",
+    }));
 
     try {
       const response = await api.post("/ai/voice/process", { command });
-      const reply = response.response || "I'm not sure how to help with that.";
-      
+      const reply =
+        response.response || "I'm not sure how to help with that.";
+
       addMessage("assistant", reply);
       await speak(reply);
-    } catch (error) {
-      const errorMsg = "Sorry, I couldn't process that request. Please try again.";
+    } catch {
+      const errorMsg =
+        "Sorry, I couldn't process that request. Please try again.";
+
       addMessage("assistant", errorMsg);
       await speak(errorMsg);
       toast.error("Voice command failed");
@@ -189,14 +212,18 @@ export function VoiceAssistant() {
     if (state.isListening) {
       recognitionRef.current.stop();
       setState((prev) => ({ ...prev, isListening: false }));
-    } else {
-      recognitionRef.current.start();
-      setState((prev) => ({ ...prev, isListening: true }));
+      return;
     }
+
+    recognitionRef.current.start();
+    setState((prev) => ({ ...prev, isListening: true }));
   };
 
   const toggleVolume = () => {
-    setState((prev) => ({ ...prev, volume: prev.volume > 0 ? 0 : 1 }));
+    setState((prev) => ({
+      ...prev,
+      volume: prev.volume > 0 ? 0 : 1,
+    }));
   };
 
   const quickCommands = [
@@ -212,34 +239,47 @@ export function VoiceAssistant() {
     return (
       <Button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-xl bg-emerald-600 hover:bg-emerald-700"
+        className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full bg-emerald-600 shadow-xl hover:bg-emerald-700"
         aria-label="Open Voice Assistant"
+        title="Open AI Farm Assistant"
       >
-        <Bot className="h-7 w-7 text-white" />
+        <Bot
+          className="h-7 w-7 shrink-0 text-white"
+          stroke="currentColor"
+          strokeWidth={2}
+          aria-hidden="true"
+        />
       </Button>
     );
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-full max-w-md h-[500px] lg:h-[600px] bg-white rounded-2xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden animate-slide-up">
-      <CardHeader className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-emerald-600 to-emerald-700 text-white rounded-t-2xl">
+    <div className="fixed bottom-6 right-6 z-50 flex h-[500px] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-slide-up lg:h-[600px]">
+      <CardHeader className="flex items-center justify-between rounded-t-2xl border-b bg-gradient-to-r from-emerald-600 to-emerald-700 p-4 text-white">
         <div className="flex items-center gap-2">
-          <Bot className="h-5 w-5" />
+          <Bot className="h-5 w-5 shrink-0" aria-hidden="true" />
           <span className="font-semibold">AI Farm Assistant</span>
           <Badge variant="secondary" className="bg-white/20 text-white">
             Voice Enabled
           </Badge>
         </div>
+
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="text-white hover:bg-white/10"
             onClick={toggleVolume}
-            aria-label={state.volume > 0 ? "Mute" : "Unmute"}
+            aria-label={state.volume > 0 ? "Mute assistant voice" : "Unmute assistant voice"}
+            title={state.volume > 0 ? "Mute assistant voice" : "Unmute assistant voice"}
           >
-            {state.volume > 0 ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            {state.volume > 0 ? (
+              <Volume2 className="h-4 w-4 shrink-0 text-white" stroke="currentColor" strokeWidth={2} aria-hidden="true" />
+            ) : (
+              <VolumeX className="h-4 w-4 shrink-0 text-white" stroke="currentColor" strokeWidth={2} aria-hidden="true" />
+            )}
           </Button>
+
           <Button
             variant="ghost"
             size="icon"
@@ -248,12 +288,12 @@ export function VoiceAssistant() {
             aria-label="Close AI Farm Assistant"
             title="Close assistant"
           >
-            <X className="h-4 w-4 text-white" strokeWidth={2.5} />
+            <X className="h-4 w-4 shrink-0 text-white" stroke="currentColor" strokeWidth={2.5} aria-hidden="true" />
           </Button>
         </div>
       </CardHeader>
 
-      <ScrollArea className="flex-1 p-4 space-y-3">
+      <ScrollArea className="flex-1 space-y-3 p-4">
         {state.messages.map((message) => (
           <div
             key={message.id}
@@ -264,7 +304,7 @@ export function VoiceAssistant() {
           >
             <div
               className={cn(
-                "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium",
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-medium",
                 message.role === "user"
                   ? "bg-emerald-100 text-emerald-700"
                   : message.role === "assistant"
@@ -272,40 +312,61 @@ export function VoiceAssistant() {
                   : "bg-gray-100 text-gray-500"
               )}
             >
-              {message.role === "user" ? "U" : message.role === "assistant" ? "AI" : "S"}
+              {message.role === "user"
+                ? "U"
+                : message.role === "assistant"
+                ? "AI"
+                : "S"}
             </div>
+
             <div
               className={cn(
-                "max-w-[75%] px-4 py-2 rounded-2xl text-sm",
+                "max-w-[75%] rounded-2xl px-4 py-2 text-sm",
                 message.role === "user"
-                  ? "bg-emerald-600 text-white rounded-br-none"
+                  ? "rounded-br-none bg-emerald-600 text-white"
                   : message.role === "assistant"
-                  ? "bg-gray-100 text-gray-900 rounded-bl-none"
-                  : "bg-amber-50 text-amber-800 border border-amber-200"
+                  ? "rounded-bl-none bg-gray-100 text-gray-900"
+                  : "rounded-bl-none border border-amber-200 bg-amber-50 text-amber-800"
               )}
             >
               <p className="whitespace-pre-wrap">{message.content}</p>
-              <p className={cn("text-xs mt-1 opacity-70", message.role === "user" ? "text-emerald-100" : "text-gray-500")}>
-                {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              <p
+                className={cn(
+                  "mt-1 text-xs opacity-70",
+                  message.role === "user"
+                    ? "text-emerald-100"
+                    : "text-gray-500"
+                )}
+              >
+                {message.timestamp.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </p>
+
               {message.audioUrl && (
-                <audio controls src={message.audioUrl} className="mt-2 w-full" />
+                <audio
+                  controls
+                  src={message.audioUrl}
+                  className="mt-2 w-full"
+                />
               )}
             </div>
           </div>
         ))}
+
         <div ref={messagesEndRef} />
       </ScrollArea>
 
       {state.isProcessing && (
-        <div className="px-4 py-2 flex items-center gap-2 text-sm text-gray-500 border-t">
-          <Loader2 className="h-4 w-4 animate-spin text-emerald-600" />
+        <div className="flex items-center gap-2 border-t px-4 py-2 text-sm text-gray-500">
+          <Loader2 className="h-4 w-4 text-emerald-600 animate-spin" aria-hidden="true" />
           AI is thinking...
         </div>
       )}
 
-      <div className="p-4 border-t space-y-3">
-        <div className="flex gap-2 flex-wrap">
+      <div className="space-y-3 border-t p-4">
+        <div className="flex flex-wrap gap-2">
           {quickCommands.map((cmd) => (
             <Button
               key={cmd}
@@ -326,64 +387,121 @@ export function VoiceAssistant() {
             disabled={state.isProcessing}
             variant={state.isListening ? "destructive" : "default"}
             size="lg"
-            className="h-12 w-12 rounded-full flex-shrink-0"
-            aria-label={state.isListening ? "Stop listening" : "Start voice input"}
-            title={state.isListening ? "Stop listening" : "Speak your question"}
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full p-0"
+            aria-label={
+              state.isListening
+                ? "Stop voice recording"
+                : "Start voice recording"
+            }
+            title={
+              state.isListening
+                ? "Stop voice recording"
+                : "Speak your question"
+            }
           >
             {state.isListening ? (
-              <MicOff className="h-6 w-6 text-white" strokeWidth={2.5} />
+              <MicOff
+                className="h-6 w-6 shrink-0 text-white"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                aria-hidden="true"
+              />
             ) : (
-              <Mic className="h-6 w-6 text-white" strokeWidth={2.5} />
+              <Mic
+                className="h-6 w-6 shrink-0 text-white"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                aria-hidden="true"
+              />
             )}
           </Button>
-          <div className="flex-1 relative">
+
+          <div className="relative flex-1">
             <input
               type="text"
               value={state.transcript}
-              onChange={(e) => setState((prev) => ({ ...prev, transcript: e.target.value }))}
-              onKeyDown={(e) => e.key === "Enter" && handleSendMessage(e.currentTarget.value)}
-              placeholder={state.isListening ? "Listening..." : "Type or speak your command..."}
-              className="w-full h-12 px-4 py-2 pl-12 rounded-full border border-gray-300 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 text-sm"
+              onChange={(e) =>
+                setState((prev) => ({
+                  ...prev,
+                  transcript: e.target.value,
+                }))
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleSendMessage(e.currentTarget.value);
+                }
+              }}
+              placeholder={
+                state.isListening
+                  ? "Listening..."
+                  : "Type or speak your command..."
+              }
+              className="h-12 w-full rounded-full border border-gray-300 px-4 py-2 text-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
               disabled={state.isProcessing}
+              aria-label="Ask the AI Farm Assistant"
             />
+
             {state.transcript && (
               <Button
                 variant="ghost"
                 size="icon"
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                onClick={() => setState((prev) => ({ ...prev, transcript: "" }))}
+                onClick={() =>
+                  setState((prev) => ({ ...prev, transcript: "" }))
+                }
+                aria-label="Clear question"
+                title="Clear question"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4 shrink-0" stroke="currentColor" aria-hidden="true" />
               </Button>
             )}
           </div>
+
           <Button
             onClick={() => handleSendMessage(state.transcript)}
             disabled={!state.transcript.trim() || state.isProcessing}
             size="lg"
-            className="h-12 w-12 rounded-full flex-shrink-0"
-            aria-label="Send message"
-            title="Send message"
+            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-600 p-0 text-white hover:bg-emerald-700 disabled:bg-emerald-300 disabled:text-white"
+            aria-label="Send question"
+            title="Send question"
           >
             {state.isProcessing ? (
-              <Loader2 className="h-5 w-5 animate-spin text-white" />
+              <Loader2
+                className="h-5 w-5 shrink-0 animate-spin text-white"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                aria-hidden="true"
+              />
             ) : (
-              <Send className="h-5 w-5 text-white" strokeWidth={2.5} />
+              <Send
+                className="h-5 w-5 shrink-0 text-white"
+                stroke="currentColor"
+                strokeWidth={2.5}
+                aria-hidden="true"
+              />
             )}
           </Button>
         </div>
 
         <div className="flex items-center gap-4 text-xs text-gray-500">
           <span className="flex items-center gap-1">
-            {state.isListening && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+            {state.isListening && (
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+            )}
             {state.isListening ? "Listening" : "Ready"}
           </span>
+
           <span className="flex items-center gap-1">
-            {state.isSpeaking && <Volume2 className="h-3 w-3 animate-pulse" />}
+            {state.isSpeaking && (
+              <Volume2 className="h-3 w-3 animate-pulse" aria-hidden="true" />
+            )}
             {state.isSpeaking ? "Speaking" : "Silent"}
           </span>
+
           <span className="flex items-center gap-1">
-            {state.isProcessing && <Loader2 className="h-3 w-3 animate-spin" />}
+            {state.isProcessing && (
+              <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            )}
             {state.isProcessing ? "Processing" : "Idle"}
           </span>
         </div>
