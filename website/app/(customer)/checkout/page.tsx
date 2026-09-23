@@ -13,6 +13,7 @@ import { api } from "../../lib/api/client";
 import { formatPrice } from "../../lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import toast from "react-hot-toast";
+import { PageErrorState } from "../../components/common/page-state";
 
 type DeliveryQuote = {
   method: string;
@@ -63,8 +64,9 @@ export default function CheckoutPage() {
   const queryClient = useQueryClient();
   const items = useCartStore((state) => state.items);
   const resolvedPickup = useRef<Set<string>>(new Set());
+  const idempotencyKeyRef = useRef<string | null>(null);
 
-  if (status === "loading") return <div className="p-6 text-sm text-slate-500">Loading...</div>;
+  if (status === "loading") return <div className="page-container"><div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200" /><div className="mt-6 h-40 animate-pulse rounded-2xl bg-slate-100" /></div>;
   if (status === "unauthenticated") {
     router.replace("/login");
     return null;
@@ -127,7 +129,7 @@ export default function CheckoutPage() {
     [items]
   );
 
-  const { data: addressesData } = useQuery({
+  const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
     queryFn: () => api.get("/users/me/addresses"),
     enabled: items.length > 0,
@@ -352,6 +354,7 @@ export default function CheckoutPage() {
         specialInstructions: specialInstructions || undefined,
         deliveryType: "delivery",
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
+        idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
       };
 
@@ -452,6 +455,14 @@ export default function CheckoutPage() {
           <p className="text-sm text-muted-foreground">{itemCount} items · {formatPrice(displayTotal)}</p>
         </div>
       </div>
+
+      {addressesError && (
+        <PageErrorState
+          title="Unable to load delivery addresses"
+          description="We need a valid delivery address before checkout can continue."
+          retry={() => { void refetchAddresses(); }}
+        />
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
