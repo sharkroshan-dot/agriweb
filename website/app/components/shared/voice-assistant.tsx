@@ -231,11 +231,9 @@ export function VoiceAssistant() {
         messages: [...prev.messages, newMessage],
       }));
 
-      if (action === "navigate" && route) {
-        window.location.assign(route);
-        return;
-      }
-
+      // Keep navigation as an explicit action button so the user can read
+      // the answer first and choose where to go. This also preserves browser
+      // history and avoids surprising redirects from ambiguous natural language.
       await speak(reply);
     } catch {
       const errorMsg =
@@ -305,7 +303,7 @@ export function VoiceAssistant() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex h-[500px] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-slide-up lg:h-[600px]">
+    <div className="fixed bottom-4 right-4 z-50 flex h-[min(600px,calc(100vh-5rem))] w-[calc(100vw-2rem)] max-w-md flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-slide-up lg:h-[600px]">
       <CardHeader className="flex items-center justify-between rounded-t-2xl border-b bg-gradient-to-r from-emerald-600 to-emerald-700 p-4 text-white">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5 shrink-0" aria-hidden="true" />
