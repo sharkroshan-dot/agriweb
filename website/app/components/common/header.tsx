@@ -7,6 +7,7 @@ import { User, LogOut, LayoutDashboard, Settings, Heart, ShoppingCart } from "lu
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
 import { NotificationBell } from "../customer/notification-bell";
+import { AICopilot } from "./ai-copilot";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -87,6 +88,7 @@ export function Header() {
                   </Link>
                 </>
               )}
+              <AICopilot />
               <NotificationBell />
               <DropdownMenu>
                 <DropdownMenuTrigger className="flex items-center gap-2 rounded-full p-1 transition hover:bg-slate-100">
