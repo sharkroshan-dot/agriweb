@@ -78,14 +78,14 @@ export function BusinessSidebar() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 rounded-lg bg-emerald-50 p-4 border border-emerald-100">
-          <div className="flex items-center gap-3">
+        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+          <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
               <Briefcase className="h-5 w-5 text-emerald-600" />
             </div>
-            <div>
-              <p className="truncate text-sm font-medium">{displayName}</p>
-              <p className="truncate text-xs text-gray-500">Procurement Console</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-slate-900" title={displayName}>{displayName}</p>
+              <p className="mt-0.5 truncate text-[11px] text-slate-500">Procurement Console</p>
             </div>
           </div>
         </div>
