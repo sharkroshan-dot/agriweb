@@ -127,7 +127,7 @@ export function CustomerSidebar() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-sm">
+        <div className="mb-6 flex min-w-0 items-start gap-3 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-sm">
           {userImage ? (
             <img
               src={userImage}
@@ -140,7 +140,7 @@ export function CustomerSidebar() {
               {initial}
             </div>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold leading-tight">{userName}</p>
             <p className="truncate text-xs text-emerald-50/90">{userPhone || userEmail}</p>
             {homeLine && (
