@@ -24,6 +24,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { Progress } from "../../components/ui/progress";
 import { cn, formatPrice } from "../../lib/utils";
+import { PageErrorState } from "../../components/common/page-state";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
@@ -73,7 +74,7 @@ export default function WarehouseStockPage() {
   const [stockForm, setStockForm] = useState(emptyStockForm);
   const [isSaving, setIsSaving] = useState(false);
 
-  const { data: stockData, isLoading, refetch } = useQuery({
+  const { data: stockData, isLoading, isError, refetch } = useQuery({
     queryKey: ["warehouseStock", statusFilter, categoryFilter],
     queryFn: () =>
       api.get("/warehouse/me/stock", {
@@ -128,7 +129,6 @@ export default function WarehouseStockPage() {
   };
 
   const buildStockPayload = () => ({
-    warehouseId: "current",
     productId: stockForm.productId.trim(),
     variantId: stockForm.variantId.trim() || undefined,
     quantity: Number(stockForm.quantity),
@@ -263,6 +263,15 @@ export default function WarehouseStockPage() {
     </form>
   );
 
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <div><h1 className="text-3xl font-bold">Stock Management</h1><p className="text-muted-foreground">Manage warehouse inventory</p></div>
+        <PageErrorState title="Unable to load warehouse stock" description="The warehouse inventory service did not return stock data. Retry without changing your inventory." retry={() => { void refetch(); }} />
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -272,11 +281,30 @@ export default function WarehouseStockPage() {
     );
   }
 
+  const inventorySummary = useMemo(() => {
+    const total = stockItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+    const low = stockItems.filter((item: any) => item.status === "low_stock" || Number(item.quantity || 0) <= Number(item.minThreshold || 0)).length;
+    const expired = stockItems.filter((item: any) => item.expiryDate && new Date(item.expiryDate).getTime() < Date.now()).length;
+    const reserved = stockItems.reduce((sum: number, item: any) => sum + Number(item.reservedQuantity || 0), 0);
+    return { total, low, expired, reserved };
+  }, [stockItems]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Stock Management</h1><p className="text-muted-foreground">{stockItems.length} items in inventory</p></div>
         <div className="flex items-center gap-2"><Button variant="outline" size="sm"><Download className="mr-2 h-4 w-4" />Export</Button><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button><Button onClick={openAddDialog}><Plus className="mr-2 h-4 w-4" />Add Stock</Button></div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["Total Stock", inventorySummary.total, "units"],
+          ["Low Stock", inventorySummary.low, "items"],
+          ["Expiring / Expired", inventorySummary.expired, "items"],
+          ["Reserved", inventorySummary.reserved, "units"],
+        ].map(([label, value, unit]) => (
+          <Card key={String(label)}><CardContent className="p-4"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-1 text-2xl font-bold text-slate-900">{value}</p><p className="text-xs text-slate-400">{unit}</p></CardContent></Card>
+        ))}
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
