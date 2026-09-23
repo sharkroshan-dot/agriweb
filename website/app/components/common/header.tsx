@@ -76,7 +76,7 @@ export function Header() {
   }, []);
 
   const avatarSrc = liveAvatar ?? session?.user?.image;
-  const showBackButton = true;
+  const showBackButton = pathname !== "/";
 
   return (
     <header className="sticky left-0 right-0 top-0 z-50 border-b border-slate-200/70 bg-white/80 shadow-sm shadow-slate-900/5 backdrop-blur-xl">
