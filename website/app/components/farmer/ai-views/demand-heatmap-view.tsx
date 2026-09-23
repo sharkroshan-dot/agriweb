@@ -10,6 +10,7 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import toast from "react-hot-toast";
+import { PageErrorState } from "../../../components/common/page-state";
 
 const STATES = ["Tamil Nadu", "Maharashtra", "Karnataka", "Uttar Pradesh", "Punjab", "Gujarat", "Kerala", "Delhi", "West Bengal", "Telangana", "Rajasthan", "Madhya Pradesh", "Bihar", "Odisha", "Assam", "Jharkhand"];
 const PERIODS = [
@@ -119,6 +120,15 @@ export function DemandHeatmapView() {
           <CardDescription>Choose what you grow and where you want to sell.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {summary.confidence != null && (
+            <Card className="border-emerald-200 bg-emerald-50/40">
+              <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                <div><p className="text-xs text-emerald-700">Forecast confidence</p><p className="text-lg font-semibold text-emerald-900">{Math.round(Number(summary.confidence) <= 1 ? Number(summary.confidence) * 100 : Number(summary.confidence))}%</p></div>
+                <p className="max-w-xl text-xs leading-5 text-emerald-800">{summary.confidenceReason || "Confidence reflects the available historical demand signal for this selection."}</p>
+              </CardContent>
+            </Card>
+          )}
+
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Where do you want to sell?</label>
@@ -190,6 +200,14 @@ export function DemandHeatmapView() {
           </Button>
         </CardContent>
       </Card>
+
+      {mutation.isError && (
+        <PageErrorState
+          title="Demand analysis is unavailable"
+          description="The demand service could not produce a forecast for this selection. Try another region or period."
+          retry={() => { mutation.reset(); mutation.mutate(); }}
+        />
+      )}
 
       {mutation.data && (
         <>
