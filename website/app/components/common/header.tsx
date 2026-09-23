@@ -37,8 +37,8 @@ export function Header() {
   const avatarSrc = liveAvatar ?? session?.user?.image;
 
   return (
-    <header className="fixed left-0 right-0 top-0 z-40 border-b border-emerald-100 bg-white/85 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+    <header className="fixed left-0 right-0 top-0 z-50 border-b border-slate-200/70 bg-white/80 shadow-sm shadow-slate-900/5 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-[1440px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <Link href="/" className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-emerald-500 to-green-700 text-lg font-bold text-white shadow-md shadow-emerald-200">
             A
@@ -49,11 +49,11 @@ export function Header() {
           </div>
         </Link>
 
-        <nav className="hidden items-center gap-6 text-sm font-medium text-slate-600 md:flex">
-          <Link href="/" className="transition hover:text-emerald-600">Home</Link>
-          <Link href="/marketplace" className="transition hover:text-emerald-600">Marketplace</Link>
-          <Link href="/nearby" className="transition hover:text-emerald-600">Nearby</Link>
-          <Link href="/roadmap" className="transition hover:text-emerald-600">Roadmap</Link>
+        <nav className="hidden items-center gap-1 rounded-full border border-slate-200/80 bg-slate-50/70 p-1 text-sm font-medium text-slate-600 md:flex">
+          <Link href="/" className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700">Home</Link>
+          <Link href="/marketplace" className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700">Marketplace</Link>
+          <Link href="/nearby" className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700">Nearby</Link>
+          <Link href="/roadmap" className="rounded-full px-3 py-1.5 transition hover:bg-white hover:text-emerald-700">Roadmap</Link>
         </nav>
 
         <div className="flex items-center gap-2 sm:gap-3">
@@ -62,7 +62,7 @@ export function Header() {
               <Link href="/search" className="hidden rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:border-emerald-200 hover:text-emerald-700 sm:inline-flex">
                 Browse
               </Link>
-              <Link href="/login" className="rounded-full bg-emerald-600 px-4 py-1.5 text-sm font-semibold text-white shadow-sm shadow-emerald-200 transition hover:bg-emerald-700">
+              <Link href="/login" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-200 transition hover:-translate-y-px hover:bg-emerald-700">
                 Sign In
               </Link>
             </>
