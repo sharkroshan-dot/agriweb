@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { CustomerSidebar } from "../components/customer/customer-sidebar";
 import { CustomerChatNotifications } from "../components/customer/customer-chat-notifications";
-import { Header } from "../components/common/header";
 import { Footer } from "../components/common/footer";
 import { BottomNav } from "../components/customer/bottom-nav";
 import ChatWidget from "../components/shared/chat-widget";
@@ -33,7 +32,6 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
 
   return (
     <div className="flex min-h-screen flex-col">
-      <Header />
       <div className="flex flex-1 bg-transparent">
         <CustomerSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
