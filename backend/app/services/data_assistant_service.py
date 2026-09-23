@@ -1,5 +1,8 @@
 import re
 import logging
+import json
+import os
+import httpx
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -252,7 +255,113 @@ def _clean_keywords(text: str) -> List[str]:
     return [t for t in tokens if t not in STOP_WORDS and len(t) > 1]
 
 
+SEMANTIC_ASSISTANT_SYSTEM = """You are the natural-language understanding layer for the AgriConnect AI Farm Assistant.
+Users may use broken, short, misspelled, mixed-language, or conversational English. Understand meaning, not exact keywords.
+Return ONLY valid JSON: {"requests":[{"intent":"product_search|cheapest_product|demand_forecast|navigate|project_information|general","query":"","product":"","days":7,"destination":"","open":false}]}.
+Rules:
+- "cheap tomato", "tomato cheaper", "lowest tomato price" => cheapest_product, product=tomato.
+- "go to tomato cheaper page", "open cheapest tomato to buy" => cheapest_product, product=tomato, open=true.
+- "show tomato", "need tomato", "where tomato", "tomato available" => product_search.
+- "tomato demand what this week", "how tomato sell this week", "tomato demand?" => demand_forecast.
+- "go marketplace", "take me to products", "open delivery route" => navigate.
+- "best price" in a shopping context means compare current public marketplace listings.
+- Several requests in one message must produce several requests.
+- Never invent IDs, prices, forecasts, or private data.
+"""
+
+def _semantic_api_config():
+    return (
+        os.getenv("AI_ASSISTANT_API_KEY") or os.getenv("OPENAI_API_KEY"),
+        os.getenv("AI_ASSISTANT_BASE_URL", "https://api.openai.com/v1/chat/completions"),
+        os.getenv("AI_ASSISTANT_MODEL", "gpt-5.6-luna"),
+    )
+
+async def _semantic_plan(text: str, conversation: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
+    key, base, model = _semantic_api_config()
+    if not key:
+        logger.warning("AI assistant API key is not configured")
+        return None
+    messages=[{"role":"system","content":SEMANTIC_ASSISTANT_SYSTEM}]
+    for item in (conversation or [])[-8:]:
+        if item.get("role") in {"user","assistant"} and item.get("content"):
+            messages.append({"role":item["role"],"content":str(item["content"])[:2000]})
+    messages.append({"role":"user","content":text[:4000]})
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            response=await client.post(base,headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"},json={"model":model,"messages":messages,"temperature":0,"response_format":{"type":"json_object"}})
+            response.raise_for_status()
+            payload=response.json()
+            content=payload.get("choices",[{}])[0].get("message",{}).get("content","")
+            plan=json.loads(content)
+            return plan if isinstance(plan,dict) and isinstance(plan.get("requests"),list) else None
+    except Exception as exc:
+        logger.exception("Semantic assistant request failed: %s",exc)
+        return None
+
+async def _semantic_products(query: str, cheapest: bool=False) -> List[Dict[str, Any]]:
+    from app.repositories.product_repository import product_repository
+    products=await product_repository.find_many({"isActive":True,"deletedAt":None,"isBasketOnly":{"$ne":True}},limit=200) or []
+    stop={"find","search","show","list","buy","need","want","give","me","the","a","an","product","products","available","fresh","cheap","cheapest","cheaper","lowest","price","best","for","to","from","some","please","can","you","i","get"}
+    tokens=[t for t in re.findall(r"[a-z0-9]+",(query or "").lower()) if t not in stop and len(t)>1]
+    scored=[]
+    for p in products:
+        hay=f"{p.get('name') or ''} {p.get('farmName') or p.get('farmerName') or ''}".lower()
+        score=sum(1 for t in tokens if t in hay)
+        if tokens and score==0: continue
+        scored.append((score,float(p.get("price",0) or 0),p))
+    scored.sort(key=lambda x:(x[1],-x[0]) if cheapest else (-x[0],x[1]))
+    return [{"_id":str(p.get("_id")),"id":str(p.get("_id")),"name":p.get("name"),"price":float(p.get("price",0) or 0),"unit":p.get("unit") or "kg","farmerName":p.get("farmerName") or p.get("farmName") or "Local Farmer","quantity":p.get("quantity") or p.get("availableQuantity")} for _,_,p in scored[:10]]
+
+def _semantic_route(destination: str) -> Optional[str]:
+    return {"marketplace":"/nearby","product":"/nearby","orders":"/orders","cart":"/cart","wishlist":"/wishlist","subscriptions":"/subscriptions","traceability":"/trace","wallet":"/wallet","farmer_dashboard":"/farmer/dashboard","delivery":"/delivery","route":"/delivery/route","analytics":"/farmer/analytics","ai_predictions":"/farmer/ai-predictions","home":"/"}.get((destination or "").lower())
+
+async def _execute_semantic_request(item: Dict[str, Any], language: str, user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    intent=item.get("intent","general")
+    product=str(item.get("product") or item.get("query") or "").strip()
+    query=str(item.get("query") or product).strip()
+    if intent in {"product_search","cheapest_product"}:
+        products=await _semantic_products(product or query, cheapest=intent=="cheapest_product")
+        if not products: return {"reply":f"I couldn't find a matching product for '{product or query}'.","intent":"product_search","data":None}
+        if intent=="cheapest_product":
+            p=products[0]
+            reply=f"The cheapest {product or 'matching'} product currently listed is {p['name']} at ₹{p['price']:g}/{p['unit']}."
+            if item.get("open"):
+                return {"reply":reply+" Opening it for you to buy.","intent":"navigate","data":products,"action":"navigate","parameters":{"route":f"/product/{p['_id']}","label":p["name"]}}
+            return {"reply":reply,"intent":"cheapest_product","data":products}
+        return {"reply":"I found these matching products:\n"+"\n".join(f"• {p['name']} — ₹{p['price']:g}/{p['unit']}" for p in products[:5]),"intent":"product_search","data":products}
+    if intent=="navigate":
+        route=_semantic_route(str(item.get("destination") or ""))
+        if not route: return {"reply":"I understood that you want to open a page, but I couldn't identify the page yet.","intent":"navigate","data":None}
+        return {"reply":f"Opening {str(item.get('destination')).replace('_',' ')}.","intent":"navigate","data":None,"action":"navigate","parameters":{"route":route}}
+    if intent=="demand_forecast":
+        demand=await _answer_demand_forecast(product or query,(product or query).lower(),language)
+        return demand or {"reply":"Which product should I forecast demand for?","intent":"demand_forecast","data":None}
+    if intent=="project_information":
+        return {"reply":_project_knowledge_reply(query.lower(),language) or PROJECT_SCOPE_RESPONSES[language]["help"],"intent":"project_knowledge","data":None}
+    return {"reply":PROJECT_SCOPE_RESPONSES[language]["help"],"intent":"project_help","data":None}
+
 class DataAssistantService:
+
+    @staticmethod
+    async def semantic_answer(message: str, language: str = "english", user: Optional[Dict[str, Any]] = None, conversation: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """Use an LLM to understand natural language, then execute controlled AgriConnect operations."""
+        lang=language.lower() if language else "english"
+        if lang not in HELP_RESPONSES: lang="english"
+        text=(message or "").strip()
+        if not text: return {"action":"chat_reply","response":HELP_RESPONSES[lang]["default"],"intent":"default","data":None}
+        low=text.lower()
+        if any(k in low for k in ["password","otp","private address","payment details","wallet balance","my order","my orders","another user","other user"]):
+            return {"action":"chat_reply","response":PRIVATE_DATA_RESPONSE[lang],"intent":"private_data_blocked","data":None}
+        plan=await _semantic_plan(text,conversation)
+        if not plan:
+            return {"action":"chat_reply","response":"I couldn't connect to the language-understanding model right now. Please configure the AI assistant model and try again.","intent":"semantic_unavailable","data":None}
+        results=[await _execute_semantic_request(i,lang,user) for i in plan.get("requests",[])[:5] if isinstance(i,dict)]
+        if not results: return {"action":"chat_reply","response":PROJECT_SCOPE_RESPONSES[lang]["help"],"intent":"project_help","data":None}
+        combined="\n\n".join(r.get("reply","") for r in results if r.get("reply"))
+        all_data=[x for r in results if isinstance(r.get("data"),list) for x in r["data"]]
+        navigation=next((r.get("parameters") for r in results if r.get("action")=="navigate"),None)
+        intents=[r.get("intent") for r in results]
+        return {"action":"navigate" if navigation else "chat_reply","response":combined,"parameters":navigation or {"intents":intents},"intent":intents[0] if len(intents)==1 else "multi_request","data":all_data or None}
 
     @staticmethod
     async def answer(message: str, language: str = "english", user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
