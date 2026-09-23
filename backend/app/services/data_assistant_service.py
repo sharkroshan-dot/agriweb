@@ -382,7 +382,12 @@ class DataAssistantService:
             return {"action":"chat_reply","response":PRIVATE_DATA_RESPONSE[lang],"intent":"private_data_blocked","data":None}
         plan=await _semantic_plan(text,conversation)
         if not plan:
-            return {"action":"chat_reply","response":"I couldn't connect to the language-understanding model right now. Please configure the AI assistant model and try again.","intent":"semantic_unavailable","data":None}
+            return {
+                "action": "chat_reply",
+                "response": "I couldn't understand that request with the AgriConnect AI model right now. Please try again.",
+                "intent": "semantic_unavailable",
+                "data": None,
+            }
         results=[await _execute_semantic_request(i,lang,user) for i in plan.get("requests",[])[:5] if isinstance(i,dict)]
         if not results: return {"action":"chat_reply","response":PROJECT_SCOPE_RESPONSES[lang]["help"],"intent":"project_help","data":None}
         combined="\n\n".join(r.get("reply","") for r in results if r.get("reply"))
