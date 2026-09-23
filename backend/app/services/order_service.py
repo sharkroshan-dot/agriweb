@@ -262,7 +262,13 @@ class OrderService:
     
     @staticmethod
     async def create_order(customer_id: str, data: OrderCreate) -> Optional[Dict[str, Any]]:
-        """Create a new order."""
+        """Create a new order with retry-safe idempotency when supplied."""
+        if data.idempotencyKey:
+            existing = await order_repository.get_by_idempotency_key(customer_id, data.idempotencyKey)
+            if existing:
+                existing["id"] = str(existing["_id"])
+                return existing
+
         items_data = []
         subtotal = 0
         farmer_id = None
@@ -426,6 +432,7 @@ class OrderService:
         
         order_data = {
             "customerId": ObjectId(customer_id),
+            "idempotencyKey": data.idempotencyKey,
             "farmerId": ObjectId(farmer_id),
             "warehouseId": ObjectId(warehouse_id) if warehouse_id else None,
             "items": items_data,
