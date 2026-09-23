@@ -104,7 +104,7 @@ export function NotificationBell() {
 
   const openDetail = async (notification: any) => {
     try {
-      const response = await api.get(`/notifications/${notification.id}`);
+      const response = await api.get(`/notifications/detail/${notification.id}`);
       const detail = (response as any)?.data?.notification;
       setSelectedNotification(detail || notification);
     } catch {
