@@ -45,26 +45,34 @@ class NotificationPreferencesRepository(BaseRepository):
             return False
 
     async def get_enabled_types(self, user_id: str) -> List[str]:
+        """Return enabled notification types with safe defaults for new types.
+
+        Older preference documents may not contain notification categories added
+        later (for example warehouse, farmer, admin, or security). Missing keys
+        are treated as enabled so users in every role continue receiving new
+        in-app notifications until they explicitly disable them.
+        """
+        default_preferences = {
+            "order": True,
+            "delivery": True,
+            "payment": True,
+            "promotion": True,
+            "system": True,
+            "chat": True,
+            "warehouse": True,
+            "farmer": True,
+            "customer": True,
+            "admin": True,
+            "security": True,
+        }
+
         preferences = await self.get_by_user_id(user_id)
         if not preferences:
-            return [
-                "order",
-                "delivery",
-                "payment",
-                "promotion",
-                "system",
-                "chat",
-                "warehouse",
-                "farmer",
-                "customer",
-                "admin",
-                "security"
-            ]
-        enabled = []
-        for type_, enabled_flag in preferences.get("preferences", {}).items():
-            if enabled_flag:
-                enabled.append(type_)
-        return enabled
+            return [key for key, enabled in default_preferences.items() if enabled]
+
+        stored = preferences.get("preferences") or {}
+        merged = {**default_preferences, **stored}
+        return [key for key, enabled in merged.items() if enabled]
 
 
 notification_preferences_repository = NotificationPreferencesRepository()
