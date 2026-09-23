@@ -280,7 +280,20 @@ class AIExtendedService:
                 "parameters": None
             }
 
-        if any(word in text for word in ["show", "display", "list", "orders", "ஆர்டர்கள்", "show orders"]):
+        # Only explicit order-history requests should navigate to Orders.
+        # Generic "show/list <product>" questions must go through the marketplace
+        # assistant so they return the requested products.
+        order_navigation = (
+            "my order" in text
+            or "my orders" in text
+            or "order history" in text
+            or "track my order" in text
+            or "track order" in text
+            or "order status" in text
+            or "என் ஆர்டர்" in text
+            or "मेरा ऑर्डर" in text
+        )
+        if order_navigation:
             return {
                 "action": "show_orders",
                 "response": "Opening your orders page...",
@@ -302,7 +315,12 @@ class AIExtendedService:
         return {
             "action": "chat_reply",
             "response": result.get("reply") or f"You said: {request.audioText}. How can I help you?",
-            "parameters": {"intent": result.get("intent", "unknown"), "language": lang}
+            "parameters": {
+                "intent": result.get("intent", "unknown"),
+                "language": lang,
+            },
+            "data": result.get("data"),
+            "intent": result.get("intent", "unknown"),
         }
 
     @staticmethod
