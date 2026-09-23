@@ -81,10 +81,10 @@ export default function AdminPaymentsPage() {
 
       <Tabs<"transactions" | "withdrawals"> defaultValue="transactions" onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="transactions" className={tab === "transactions" ? "bg-white text-slate-900 shadow-sm" : ""}>
+          <TabsTrigger value="transactions" className={tab === "transactions" ? "selection-item-active" : "selection-item-inactive"}>
             Transactions
           </TabsTrigger>
-          <TabsTrigger value="withdrawals" className={tab === "withdrawals" ? "bg-white text-slate-900 shadow-sm" : ""}>
+          <TabsTrigger value="withdrawals" className={tab === "withdrawals" ? "selection-item-active" : "selection-item-inactive"}>
             Withdrawals
           </TabsTrigger>
         </TabsList>
