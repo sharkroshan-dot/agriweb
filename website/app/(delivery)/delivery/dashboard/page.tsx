@@ -333,10 +333,15 @@ export default function DeliveryDashboardPage() {
     return liveOrigin ? [liveOrigin, ...destinationPoints] : [];
   }, [routeData, mapMarkers, liveOrigin]);
 
-  const firstMappedPoint = mapMarkers.find((m: any) => m.lat != null && m.lng != null);\n\n  const liveMapMarkers = useMemo(
-    () => liveOrigin
-      ? [{ id: "live-origin", ...liveOrigin, title: "Current location", info: "Route starting point" }, ...mapMarkers]
-      : mapMarkers,
+  const firstMappedPoint = mapMarkers.find((m: any) => m.lat != null && m.lng != null);
+
+  const liveMapMarkers = useMemo(
+    () => {
+      const validMarkers = mapMarkers.filter((m: any) => m.lat != null && m.lng != null);
+      return liveOrigin
+        ? [{ id: "live-origin", ...liveOrigin, title: "Current location", info: "Route starting point" }, ...validMarkers]
+        : validMarkers;
+    },
     [liveOrigin, mapMarkers]
   );
 
@@ -815,13 +820,11 @@ export default function DeliveryDashboardPage() {
             <CardDescription>Real-time tracking of your deliveries</CardDescription>
           </CardHeader>
           <CardContent>
-            {deliveryList.length === 0 && mapRoute.length === 0 ? (
-              <MapPlaceholder deliveries={deliveryList} />
+            {deliveryList.length === 0 || (!liveOrigin && !firstMappedPoint) ? (
+              <MapUnavailable deliveries={deliveryList} />
             ) : (
               <LiveRouteMap
-                center={
-                  liveOrigin || { lat: 28.7041, lng: 77.1025 }
-                }
+                center={liveOrigin || { lat: firstMappedPoint!.lat, lng: firstMappedPoint!.lng }}
                 trackUserLocation
                 userLocation={liveOrigin}
                 markers={liveMapMarkers}
