@@ -217,9 +217,10 @@ class AIService:
             forecast.append({
                 "day": i,
                 "date": (datetime.utcnow() + timedelta(days=i)).strftime("%Y-%m-%d"),
-                "temperature": float(25 + np.random.uniform(-5, 5)),
-                "rainfall": float(np.random.uniform(0, 10)),
-                "impact": "positive" if np.random.random() > 0.3 else "negative"
+                "temperature": None,
+                "rainfall": None,
+                "impact": "unknown",
+                "source": "unavailable"
             })
 
         return {
@@ -262,7 +263,7 @@ class AIService:
         cumulative_demand = 0.0
 
         for i in range(1, request.days + 1):
-            day_demand = avg_daily_demand * (1 + np.random.uniform(-0.2, 0.2))
+            day_demand = avg_daily_demand
             cumulative_demand += day_demand
             predicted_demand.append({
                 "day": i,
