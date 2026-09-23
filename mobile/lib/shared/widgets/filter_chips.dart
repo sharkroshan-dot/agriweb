@@ -37,9 +37,9 @@ class FilterChipBar extends StatelessWidget {
             labelStyle: TextStyle(
               fontSize: 13,
               fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-              color: isSelected ? AppTheme.primaryDark : AppTheme.textSecondary,
+              color: isSelected ? Colors.white : AppTheme.textSecondary,
             ),
-            selectedColor: AppTheme.primarySoft,
+            selectedColor: AppTheme.primaryGreen,
             backgroundColor: AppTheme.surface,
             side: BorderSide(
               color: isSelected ? AppTheme.primaryGreen : AppTheme.border,
