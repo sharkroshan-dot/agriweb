@@ -90,6 +90,20 @@ PRIVATE_DATA_RESPONSE = {
     "hindi": "सुरक्षा के लिए AI Farm Assistant निजी orders, payment, wallet, address, authentication या दूसरे users के records साझा नहीं करता। मैं AgriConnect workflow समझा सकता हूँ।"
 }
 
+async def _answer_price_prediction(product_name: str, language: str) -> Optional[Dict[str, Any]]:
+    name=(product_name or "").strip()
+    if not name:
+        return None
+    try:
+        from app.ai.services.prediction_service import prediction_service
+        result=await prediction_service.predict_price(name)
+        if isinstance(result,dict):
+            return {"reply":str(result.get("message") or result.get("prediction") or result),"language":language,"intent":"price_prediction","data":result}
+        return {"reply":str(result),"language":language,"intent":"price_prediction","data":result}
+    except Exception as exc:
+        logger.warning("Price prediction unavailable for %s: %s",name,exc)
+        return {"reply":f"I couldn't generate a price prediction for {name} right now.","language":language,"intent":"price_prediction","data":None}
+
 async def _answer_demand_forecast(text: str, low: str, lang: str) -> Optional[Dict[str, Any]]:
     """Answer natural-language product demand forecast questions with aggregate data only."""
     if not any(k in low for k in ["demand forecast", "demand prediction", "demand this week", "forecast demand", "demand for"]):
@@ -337,6 +351,9 @@ async def _execute_semantic_request(item: Dict[str, Any], language: str, user: O
     if intent=="marketplace_statistics":
         result=await DataAssistantService._answer_market_stats(query, query.lower(), language, user)
         return {"reply":result["reply"],"intent":"marketplace_statistics","data":result.get("data")}
+    if intent=="price_prediction":
+        prediction=await _answer_price_prediction(product or query, language)
+        return prediction or {"reply":"Which product would you like a price prediction for?","intent":"price_prediction","data":None}
     if intent=="delivery_information":
         return {"reply":PROJECT_SCOPE_RESPONSES[language]["delivery"],"intent":"delivery_information","data":None}
     if intent=="traceability":
