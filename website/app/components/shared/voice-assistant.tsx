@@ -25,6 +25,8 @@ interface VoiceMessage {
   content: string;
   timestamp: Date;
   audioUrl?: string;
+  intent?: string;
+  data?: unknown;
 }
 
 interface VoiceAssistantState {
@@ -169,6 +171,15 @@ export function VoiceAssistant() {
     speechSynthesis.speak(utterance);
   };
 
+  const productData = (data: unknown) => {
+    if (!Array.isArray(data)) return [] as Array<Record<string, unknown>>;
+    return data.filter((item): item is Record<string, unknown> => {
+      if (!item || typeof item !== "object") return false;
+      const p = item as Record<string, unknown>;
+      return Boolean(p.name) && (p.price !== undefined || p._id !== undefined || p.id !== undefined);
+    });
+  };
+
   const handleVoiceCommand = async (command: string) => {
     if (!command.trim()) return;
 
@@ -192,10 +203,27 @@ export function VoiceAssistant() {
         response?.reply ||
         response?.data?.response ||
         response?.data?.reply ||
-        "I couldn't find enough information to answer that. Try asking about products, prices, orders, your wallet, delivery, or farming.";
-
+        "I couldn't find enough information to answer that. Try asking about products, prices, delivery, traceability, AI features, or AgriConnect workflows.";
+      const intent = response?.intent || response?.data?.intent;
+      const data = response?.data?.data ?? response?.data?.products ?? response?.products;
 
       addMessage("assistant", reply);
+      setState((prev) => ({
+        ...prev,
+        messages: prev.messages.map((message) =>
+          message.id === String(Date.now()) ? message : message
+        ),
+      }));
+      // Attach structured results to the just-created assistant message so the
+      // user can act on the answer instead of copying product names manually.
+      setState((prev) => {
+        const messages = [...prev.messages];
+        const last = messages[messages.length - 1];
+        if (last?.role === "assistant") {
+          messages[messages.length - 1] = { ...last, intent, data };
+        }
+        return { ...prev, messages };
+      });
       await speak(reply);
     } catch {
       const errorMsg =
@@ -354,6 +382,36 @@ export function VoiceAssistant() {
                   minute: "2-digit",
                 })}
               </p>
+
+              {productData(message.data).length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {productData(message.data).slice(0, 5).map((product) => {
+                    const id = String(product._id ?? product.id ?? "");
+                    const name = String(product.name ?? "Product");
+                    const price = product.price !== undefined ? String(product.price) : "";
+                    const unit = String(product.unit ?? "kg");
+                    const farm = String(product.farmerName ?? product.farmName ?? "Local Farmer");
+                    if (!id) return null;
+                    return (
+                      <div key={id} className="rounded-xl border border-emerald-100 bg-white p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">{name}</p>
+                            <p className="text-xs text-slate-500">{farm}</p>
+                            <p className="mt-1 text-sm font-bold text-emerald-700">₹{price}/{unit}</p>
+                          </div>
+                          <a
+                            href={`/product/${id}`}
+                            className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700"
+                          >
+                            View & Buy
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {message.audioUrl && (
                 <audio
