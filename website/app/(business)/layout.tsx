@@ -33,8 +33,8 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
       <Header />
       <div className="flex flex-1 bg-transparent pt-16">
         <BusinessSidebar />
-        <main className="min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
+        <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
+          <div className="site-content mx-auto w-full max-w-[1440px]">{children}</div>
         </main>
       </div>
       <Footer />
