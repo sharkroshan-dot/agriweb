@@ -295,7 +295,7 @@ export default function CustomerDashboardPage() {
         </Card>
       </div>
 
-      <div className="flex items-center gap-1 rounded-lg border bg-white p-1 shadow-sm">
+      <div className="selection-control flex items-center gap-1 border shadow-sm">
         {PERIODS.map((p) => (
           <button
             key={p.key}
