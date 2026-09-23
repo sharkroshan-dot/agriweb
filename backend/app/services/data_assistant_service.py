@@ -313,7 +313,7 @@ async def _semantic_products(query: str, cheapest: bool=False) -> List[Dict[str,
     return [{"_id":str(p.get("_id")),"id":str(p.get("_id")),"name":p.get("name"),"price":float(p.get("price",0) or 0),"unit":p.get("unit") or "kg","farmerName":p.get("farmerName") or p.get("farmName") or "Local Farmer","quantity":p.get("quantity") or p.get("availableQuantity")} for _,_,p in scored[:10]]
 
 def _semantic_route(destination: str) -> Optional[str]:
-    return {"marketplace":"/nearby","product":"/nearby","orders":"/orders","cart":"/cart","wishlist":"/wishlist","subscriptions":"/subscriptions","traceability":"/trace","wallet":"/wallet","farmer_dashboard":"/farmer/dashboard","delivery":"/delivery","route":"/delivery/route","analytics":"/farmer/analytics","ai_predictions":"/farmer/ai-predictions","home":"/"}.get((destination or "").lower())
+    return {"marketplace":"/nearby","product":"/nearby","orders":"/orders","cart":"/cart","wishlist":"/wishlist","subscriptions":"/subscriptions","traceability":"/trace","wallet":"/wallet","farmer_dashboard":"/farmer/dashboard","delivery":"/delivery/delivery","route":"/delivery/deliveries","analytics":"/farmer/analytics","ai_predictions":"/farmer/ai-predictions","home":"/"}.get((destination or "").lower())
 
 async def _execute_semantic_request(item: Dict[str, Any], language: str, user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     intent=item.get("intent","general")
@@ -334,7 +334,7 @@ async def _execute_semantic_request(item: Dict[str, Any], language: str, user: O
         if not route: return {"reply":"I understood that you want to open a page, but I couldn't identify the page yet.","intent":"navigate","data":None}
         return {"reply":f"Opening {str(item.get('destination')).replace('_',' ')}.","intent":"navigate","data":None,"action":"navigate","parameters":{"route":route}}
     if intent=="demand_forecast":
-        demand=await _answer_demand_forecast(product or query,(product or query).lower(),language)
+        demand=await _answer_demand_forecast(f"{product or query} demand forecast",f"{product or query} demand forecast".lower(),language)
         return demand or {"reply":"Which product should I forecast demand for?","intent":"demand_forecast","data":None}
     if intent=="project_information":
         return {"reply":_project_knowledge_reply(query.lower(),language) or PROJECT_SCOPE_RESPONSES[language]["help"],"intent":"project_knowledge","data":None}
