@@ -67,10 +67,35 @@ export function Header() {
 
   const avatarSrc = liveAvatar ?? session?.user?.image;
   const showBackButton = pathname !== "/";
-  // Role layouts render a sidebar. Keep Back inside the main content area;
-  // public pages without a sidebar use the normal left page edge.
+  // Keep Back inside the actual content column whenever a role/customer
+  // sidebar is rendered. Customer marketplace routes such as /nearby and
+  // /cart live outside /customer/*, so route-prefix detection alone is not enough.
+  const customerSidebarRoutes = [
+    "/nearby",
+    "/marketplace/state",
+    "/marketplace/national",
+    "/trace",
+    "/cart",
+    "/orders",
+    "/delivery-slots",
+    "/wishlist",
+    "/bulk-orders",
+    "/subscriptions",
+    "/agripoints",
+    "/wallet",
+    "/payments",
+    "/refunds",
+    "/coupons",
+    "/reviews",
+    "/impact",
+    "/profile",
+  ];
+  const hasCustomerSidebar = customerSidebarRoutes.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`)
+  );
   const hasRoleSidebar = /^\/(customer|farmer|delivery|business|warehouse|admin)(\/|$)/.test(pathname);
-  const backButtonStyle = hasRoleSidebar
+  const hasSidebar = hasRoleSidebar || hasCustomerSidebar;
+  const backButtonStyle = hasSidebar
     ? { left: "280px" }
     : { left: "16px" };
 
