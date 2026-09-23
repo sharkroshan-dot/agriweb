@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 
 
-import { Star, ShoppingCart, ArrowLeft, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart } from "lucide-react";
+import { Star, ShoppingCart, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart } from "lucide-react";
 import Link from "next/link";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
@@ -310,10 +310,6 @@ export default function ProductDetailPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-6">
-      <Link href={backHref} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700">
-        <ArrowLeft className="h-4 w-4" />
-        Back to {backLabel}
-      </Link>
 
       <div className="rounded-3xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-green-50 p-4 shadow-sm shadow-emerald-100/60">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
