@@ -125,8 +125,8 @@ export function CustomerSidebar() {
   const walletBalance = Number((walletData as any)?.data?.balance || 0);
 
   return (
-    <aside className="hidden w-64 border-r bg-gray-50 md:block">
-      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4">
+    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
+      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 flex items-center gap-3 rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-500 to-teal-600 p-4 text-white shadow-sm">
           {userImage ? (
             <img
@@ -165,8 +165,8 @@ export function CustomerSidebar() {
                       key={item.name}
                       href={item.href}
                       className={cn(
-                        "flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                        isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+                        "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                        isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-slate-100"
                       )}
                     >
                       <div className="flex items-center gap-3">
