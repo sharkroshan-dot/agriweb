@@ -213,8 +213,6 @@ export function VoiceAssistant() {
       const intent = response?.intent || response?.data?.intent;
       const data = response?.data ?? response?.products;
 
-      const action = response?.action || response?.data?.action;
-      const route = response?.parameters?.route || response?.data?.parameters?.route;
       const uiActions = response?.uiActions || response?.data?.uiActions || response?.parameters?.uiActions || [];
 
       const newMessage: VoiceMessage = {
