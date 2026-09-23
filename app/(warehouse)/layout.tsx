@@ -37,7 +37,7 @@ export default function WarehouseLayout({
       <Header />
       <div className="flex flex-1 pt-16">
         <WarehouseSidebar />
-        <main className="flex-1 overflow-x-hidden px-4 py-6 md:px-8">
+        <main className="min-w-0 flex-1 overflow-x-hidden bg-slate-50/70 px-3 py-4 sm:px-4 sm:py-6 md:px-8">
           <div className="mx-auto max-w-7xl">{children}</div>
         </main>
       </div>

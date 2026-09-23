@@ -17,6 +17,13 @@ body {
   min-height: 100vh;
   background: linear-gradient(180deg, #f8fafc 0%, #effcf6 100%);
   color: #0f172a;
+  text-rendering: optimizeLegibility;
+}
+
+@media (max-width: 640px) {
+  body {
+    background: #f8fafc;
+  }
 }
 
 * {
