@@ -180,9 +180,20 @@ export function VoiceAssistant() {
     }));
 
     try {
-      const response = await api.post("/ai/voice/process", { command });
+      // Use the real AI Farm Assistant endpoint for both typed and voice
+      // questions. It retrieves live marketplace/order/wallet data through
+      // DataAssistantService instead of relying on a UI-only command route.
+      const response = await api.post("/ai/voice-assistant", {
+        audioText: command,
+        language: "english",
+      });
       const reply =
-        response.response || "I'm not sure how to help with that.";
+        response?.response ||
+        response?.reply ||
+        response?.data?.response ||
+        response?.data?.reply ||
+        "I couldn't find enough information to answer that. Try asking about products, prices, orders, your wallet, delivery, or farming.";
+
 
       addMessage("assistant", reply);
       await speak(reply);
