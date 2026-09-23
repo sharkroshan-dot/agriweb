@@ -300,10 +300,8 @@ export default function CustomerDashboardPage() {
           <button
             key={p.key}
             onClick={() => setPeriod(p.key)}
-            className={`flex-1 rounded-md px-4 py-2 text-sm font-semibold transition-all ${
-              period === p.key
-                ? "bg-emerald-600 text-white shadow-sm"
-                : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
+            className={`selection-item flex-1 rounded-md px-4 py-2 text-sm font-semibold ${
+              period === p.key ? "selection-item-active" : "selection-item-inactive"
             }`}
           >
             {p.label}
@@ -316,10 +314,8 @@ export default function CustomerDashboardPage() {
           <button
             key={tab.key}
             onClick={() => setStatusFilter(tab.key)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              statusFilter === tab.key
-                ? "bg-emerald-600 text-white"
-                : "text-slate-600 hover:bg-slate-100"
+            className={`selection-item rounded-full px-4 py-1.5 text-sm font-medium ${
+              statusFilter === tab.key ? "selection-item-active" : "selection-item-inactive"
             }`}
           >
             {tab.label}
