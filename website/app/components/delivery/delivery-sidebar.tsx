@@ -26,7 +26,11 @@ export function DeliverySidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
-  const userName = (session?.user as any)?.name || (session?.user as any)?.firstName + " " + (session?.user as any)?.lastName || "Delivery Partner";
+  const deliveryUser = session?.user as any;
+  const userName = deliveryUser?.name
+    || [deliveryUser?.firstName, deliveryUser?.lastName].filter(Boolean).join(" ")
+    || "Delivery Partner";
+  const userEmail = deliveryUser?.email || "";
 
   const { data: stats } = useQuery({
     queryKey: ["deliveryStats"],
@@ -79,21 +83,25 @@ export function DeliverySidebar() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 rounded-lg bg-primary/5 p-4 border border-primary/20">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-              <Truck className="h-5 w-5 text-primary" />
+        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+
+              <Truck className="h-5 w-5 text-emerald-600" />
             </div>
-            <div>
-              <p className="text-sm font-medium">{userName}</p>
-              <p className="text-xs text-muted-foreground">⭐ {averageRating} ({totalDeliveries} deliveries)</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-slate-900" title={userName}>{userName}</p>
+              {userEmail && (
+                <p className="mt-0.5 break-all text-[11px] leading-4 text-slate-500" title={userEmail}>{userEmail}</p>
+              )}
+              <p className="mt-1 truncate text-xs text-slate-500">⭐ {averageRating} ({totalDeliveries} deliveries)</p>
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Total Earnings</span>
-            <span className="font-bold text-primary">{new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(totalEarnings)}</span>
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-emerald-100 pt-3 text-sm">
+            <span className="text-slate-500">Total Earnings</span>
+            <span className="shrink-0 font-bold text-emerald-700">{new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(totalEarnings)}</span>
           </div>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-2">
             <Badge variant="success" className="w-full justify-center">
               {isAvailable ? "🟢 Available" : "🔴 Offline"}
             </Badge>
