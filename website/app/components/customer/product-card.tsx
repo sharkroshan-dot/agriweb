@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Star, ShoppingCart, Heart } from "lucide-react";
+import { Star, ShoppingCart, Heart, Plus } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
 import { cn, formatPrice } from "../../lib/utils";
@@ -62,8 +62,8 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 	if (compact) {
 		return (
 			<Link href={`/product/${product.id}`} className="group">
-				<div className="overflow-hidden rounded-lg border bg-white transition-all hover:shadow-md">
-					<div className="relative aspect-square overflow-hidden bg-gray-100">
+				<div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
+					<div className="relative aspect-square overflow-hidden bg-slate-100">
 						<Image
 							src={product.images?.[0] || "/images/placeholder.jpg"}
 							alt={product.name}
@@ -72,10 +72,14 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 						/>
 					</div>
 					<div className="p-3">
+						<div className="mb-2 flex items-start justify-between gap-2">
+							<span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-semibold text-emerald-700">Farm fresh</span>
+							<span className="text-xs text-slate-500">{product.unit}</span>
+						</div>
 						<h3 className="line-clamp-1 text-sm font-medium">{product.name}</h3>
-						<div className="mt-1 flex items-center justify-between">
-							<span className="font-bold text-emerald-600">{formatPrice(product.price) ?? "N/A"}</span>
-							<span className="text-xs text-gray-500">{product.unit}</span>
+						<div className="mt-2 flex items-center justify-between gap-2">
+							<span className="font-bold text-slate-900">{formatPrice(product.price) ?? "N/A"}</span>
+							<Button size="icon" className="h-8 w-8 rounded-full" onClick={handleAddToCart} aria-label={`Add ${product.name} to cart`} title="Add to cart"><Plus className="h-4 w-4" /></Button>
 						</div>
 						<div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
 							<Star className="h-3 w-3 text-yellow-500" />
@@ -91,7 +95,7 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 		<Link href={`/product/${product.id}`} className="group">
 			<Card className="overflow-hidden transition-all hover:shadow-lg">
 				<CardHeader className="p-0">
-					<div className="relative aspect-square overflow-hidden bg-gray-100">
+					<div className="relative aspect-square overflow-hidden bg-slate-100">
 						<Image
 							src={product.images?.[0] || "/images/placeholder.jpg"}
 							alt={product.name}
@@ -115,16 +119,16 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 					<div className="flex items-start justify-between gap-2">
 						<div className="flex-1 min-w-0">
 							<h3 className="line-clamp-1 text-sm font-medium group-hover:text-emerald-600">{product.name}</h3>
-							<p className="text-xs text-gray-500">{product.farmerName || "Local Farmer"}</p>
+							<p className="text-xs text-slate-500">{product.farmerName || "Local Farmer"}</p>
 						</div>
 						<div className="flex items-center gap-1 text-sm">
 							<Star className="h-3 w-3 text-yellow-500" />
 							<span>{product.rating || 4.5}</span>
 						</div>
 					</div>
-					<div className="mt-2 flex items-center justify-between">
+					<div className="mt-3 flex items-end justify-between gap-2">
 						<div>
-							<span className="text-lg font-bold text-emerald-600">{formatPrice(product.price) ?? "N/A"}</span>
+							<span className="text-lg font-bold text-slate-900">{formatPrice(product.price) ?? "N/A"}</span>
 							<span className="ml-1 text-xs text-gray-500">/{product.unit}</span>
 						</div>
 						<div className="text-xs text-gray-500">{product.quantity > 50 ? "In Stock" : `${product.quantity} left`}</div>
