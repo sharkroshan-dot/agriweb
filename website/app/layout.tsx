@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${inter.className} min-h-screen bg-slate-50 text-slate-900 antialiased`} suppressHydrationWarning>
         <Providers>
           <Header />
-          <div className="min-h-screen pt-16">{children}</div>
+          <div className="min-h-screen">{children}</div>
           <Toaster
             position="top-right"
             toastOptions={{
