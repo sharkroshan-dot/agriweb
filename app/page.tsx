@@ -206,13 +206,13 @@ export default function HomePage() {
                   </Button>
                 </Link>
                 <Link href="/register?role=farmer">
-                  <Button size="lg" variant="outline" className="gap-2 border-emerald-400/40 text-white hover:bg-emerald-700/50">
+                  <Button size="lg" variant="outline" className="!border-emerald-300/50 !bg-emerald-800/50 !text-white shadow-lg shadow-emerald-950/10 hover:!bg-emerald-700/70">
                     <Sprout className="h-5 w-5" />
                     Become a Farmer
                   </Button>
                 </Link>
                 <Link href="/register?role=business">
-                  <Button size="lg" variant="outline" className="gap-2 border-emerald-400/40 text-white hover:bg-emerald-700/50">
+                  <Button size="lg" variant="outline" className="!border-emerald-300/50 !bg-emerald-800/50 !text-white shadow-lg shadow-emerald-950/10 hover:!bg-emerald-700/70">
                     <Store className="h-5 w-5" />
                     Business Procurement
                   </Button>
@@ -743,7 +743,7 @@ export default function HomePage() {
               </Button>
             </Link>
             <Link href="/search">
-              <Button size="lg" variant="outline" className="gap-2 border-emerald-400/40 text-white hover:bg-emerald-700/50">
+              <Button size="lg" variant="outline" className="!border-emerald-300/50 !bg-emerald-800/50 !text-white shadow-lg shadow-emerald-950/10 hover:!bg-emerald-700/70">
                 <Eye className="h-5 w-5" />
                 Browse Products
               </Button>
