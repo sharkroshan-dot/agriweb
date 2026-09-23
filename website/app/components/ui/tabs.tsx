@@ -37,7 +37,7 @@ export function Tabs<T extends string>({ className, children, defaultValue, valu
 }
 
 export function TabsList({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("inline-flex rounded-full border border-slate-200 bg-slate-50 p-1", className)} {...props}>{children}</div>;
+  return <div className={cn("selection-control inline-flex rounded-full border border-slate-200", className)} {...props}>{children}</div>;
 }
 
 export function TabsTrigger<T extends string>({ className, value, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { value: T }) {
@@ -50,8 +50,8 @@ export function TabsTrigger<T extends string>({ className, value, ...props }: Re
       value={value}
       onClick={() => context?.onValueChange?.(value)}
       className={cn(
-        "rounded-full px-3 py-2 text-sm font-medium transition",
-        isActive ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:bg-white hover:text-slate-900",
+        "selection-item rounded-full px-3 py-2 text-sm font-medium",
+        isActive ? "selection-item-active" : "selection-item-inactive",
         className
       )}
       {...props}
