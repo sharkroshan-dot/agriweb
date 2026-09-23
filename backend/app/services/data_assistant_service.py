@@ -325,6 +325,13 @@ async def _execute_semantic_request(item: Dict[str, Any], language: str, user: O
     if intent=="demand_forecast":
         demand=await _answer_demand_forecast(f"{product or query} demand forecast",f"{product or query} demand forecast".lower(),language)
         return demand or {"reply":"Which product should I forecast demand for?","intent":"demand_forecast","data":None}
+    if intent=="marketplace_statistics":
+        result=await DataAssistantService._answer_market_stats(query, query.lower(), language, user)
+        return {"reply":result["reply"],"intent":"marketplace_statistics","data":result.get("data")}
+    if intent=="delivery_information":
+        return {"reply":PROJECT_SCOPE_RESPONSES[language]["delivery"],"intent":"delivery_information","data":None}
+    if intent=="traceability":
+        return {"reply":PROJECT_SCOPE_RESPONSES[language]["traceability"],"intent":"traceability","data":None}
     if intent=="project_information":
         return {"reply":_project_knowledge_reply(query.lower(),language) or PROJECT_SCOPE_RESPONSES[language]["help"],"intent":"project_knowledge","data":None}
     return {"reply":PROJECT_SCOPE_RESPONSES[language]["help"],"intent":"project_help","data":None}
@@ -357,7 +364,15 @@ class DataAssistantService:
         all_data=[x for r in results if isinstance(r.get("data"),list) for x in r["data"]]
         navigation=next((r.get("parameters") for r in results if r.get("action")=="navigate"),None)
         intents=[r.get("intent") for r in results]
-        return {"action":"navigate" if navigation else "chat_reply","response":combined,"parameters":navigation or {"intents":intents},"intent":intents[0] if len(intents)==1 else "multi_request","data":all_data or None}
+        ui_actions=[]
+        for r in results:
+            if r.get("action")=="navigate" and r.get("parameters"):
+                ui_actions.append({"type":"navigate","label":r["parameters"].get("label") or "Open page","route":r["parameters"].get("route")})
+            for p in (r.get("data") if isinstance(r.get("data"),list) else []):
+                if p.get("_id") or p.get("id"):
+                    pid=str(p.get("_id") or p.get("id"))
+                    ui_actions.append({"type":"product","label":"View & Buy","route":f"/product/{pid}","productId":pid})
+        return {"action":"navigate" if navigation else "chat_reply","response":combined,"parameters":navigation or {"intents":intents,"uiActions":ui_actions},"intent":intents[0] if len(intents)==1 else "multi_request","data":all_data or None,"uiActions":ui_actions}
 
     @staticmethod
     async def answer(message: str, language: str = "english", user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
