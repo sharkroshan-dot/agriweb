@@ -141,19 +141,19 @@ class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surface,
-        indicatorColor: primarySoft,
+        indicatorColor: primaryGreen,
         surfaceTintColor: Colors.transparent,
         labelTextStyle: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
           return TextStyle(
             fontSize: 12,
             fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-            color: selected ? primaryGreen : textSecondary,
+            color: selected ? Colors.white : textSecondary,
           );
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
-          return IconThemeData(color: selected ? primaryGreen : textSecondary);
+          return IconThemeData(color: selected ? Colors.white : textSecondary);
         }),
         elevation: 12,
       ),
