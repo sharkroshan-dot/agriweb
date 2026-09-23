@@ -265,6 +265,9 @@ Rules:
 - "tomato demand what this week", "how tomato sell this week", "tomato demand?" => demand_forecast.
 - "go marketplace", "take me to products", "open delivery route" => navigate.
 - "best price" in a shopping context means compare current public marketplace listings.
+- Always identify the specific product mentioned. "cheap tomato" is about tomato only, never all cheap products.
+- "open/go to/take me to ... to buy" means the user wants navigation to the specific product page, not a generic marketplace list.
+- For "cheap <product>" without navigation, return only listings for that product, sorted by price.
 - Several requests in one message must produce several requests.
 - Never invent IDs, prices, forecasts, or private data.
 """
@@ -298,6 +301,25 @@ async def _semantic_plan(text: str, conversation: Optional[List[Dict[str, Any]]]
         logger.exception("Semantic assistant request failed: %s",exc)
         return None
 
+
+async def _resolve_product_entity(query: str) -> Optional[str]:
+    """Resolve the product entity from the live marketplace, independent of wording."""
+    from app.repositories.product_repository import product_repository
+    products=await product_repository.find_many({"isActive":True,"deletedAt":None,"isBasketOnly":{"$ne":True}},limit=200) or []
+    low=(query or "").lower()
+    candidates=[]
+    for p in products:
+        name=str(p.get("name") or "").strip()
+        if not name: continue
+        name_low=name.lower()
+        if name_low in low:
+            candidates.append(name)
+            continue
+        words=[w for w in re.findall(r"[a-z0-9]+",name_low) if len(w)>2]
+        if words and all(w in low for w in words):
+            candidates.append(name)
+    return max(candidates,key=len) if candidates else None
+
 async def _semantic_products(query: str, cheapest: bool=False) -> List[Dict[str, Any]]:
     from app.repositories.product_repository import product_repository
     products=await product_repository.find_many({"isActive":True,"deletedAt":None,"isBasketOnly":{"$ne":True}},limit=200) or []
@@ -317,10 +339,16 @@ def _semantic_route(destination: str) -> Optional[str]:
 
 async def _execute_semantic_request(item: Dict[str, Any], language: str, user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     intent=item.get("intent","general")
-    product=str(item.get("product") or item.get("query") or "").strip()
-    query=str(item.get("query") or product).strip()
+    query=str(item.get("query") or item.get("product") or "").strip()
+    product=str(item.get("product") or "").strip()
+    if not product:
+        product=await _resolve_product_entity(query) or ""
     if intent in {"product_search","cheapest_product"}:
         products=await _semantic_products(product or query, cheapest=intent=="cheapest_product")
+        if product:
+            product_matches=[p for p in products if product.lower() in str(p.get("name") or "").lower()]
+            if product_matches:
+                products=sorted(product_matches,key=lambda p: float(p.get("price",0) or 0)) if intent=="cheapest_product" else product_matches
         if not products: return {"reply":f"I couldn't find a matching product for '{product or query}'.","intent":"product_search","data":None}
         if intent=="cheapest_product":
             p=products[0]
