@@ -20,7 +20,7 @@ export function Select({ className, value, onValueChange, children, ...props }: 
   return (
     <div className="relative">
       <select
-        className={cn("h-10 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 pr-8 text-sm shadow-sm focus:outline-none", className)}
+        className={cn("h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 py-2 pr-8 text-sm text-slate-700 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10", className)}
         value={value}
         onChange={(event) => onValueChange?.(event.target.value)}
         aria-label={props["aria-label"] ?? props.title ?? "Select an option"}
