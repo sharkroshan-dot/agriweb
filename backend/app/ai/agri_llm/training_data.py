@@ -49,6 +49,16 @@ def build_training_rows():
         ]:
             rows.append((text,plan("cheapest_product",text,p,7,"",True)))
 
+    tool_phrases=[
+        ("show marketplace statistics", plan("marketplace_statistics","marketplace statistics")),
+        ("how many products are there", plan("marketplace_statistics","how many products")),
+        ("tell me about delivery", plan("delivery_information","delivery")),
+        ("how does delivery work", plan("delivery_information","delivery")),
+        ("tell me about traceability", plan("traceability","traceability")),
+        ("how does traceability work", plan("traceability","traceability")),
+    ]
+    for text,answer in tool_phrases:
+        rows.append((text,answer))
     destinations=["marketplace","products","orders","cart","wishlist","subscriptions",
                   "traceability","home","farmer dashboard","analytics","ai predictions",
                   "delivery","route"]
