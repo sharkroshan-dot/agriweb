@@ -52,6 +52,25 @@ def build_training_rows():
     destinations=["marketplace","products","orders","cart","wishlist","subscriptions",
                   "traceability","home","farmer dashboard","analytics","ai predictions",
                   "delivery","route"]
+    # Multi-intent examples: one user message can produce multiple tool requests.
+    multi=[
+        ("cheap tomato and what is its demand this week", [
+            plan("cheapest_product","cheap tomato","tomato",7,"",False),
+            plan("demand_forecast","tomato demand this week","tomato",7,"",False),
+        ]),
+        ("find cheap onions then open the marketplace", [
+            plan("cheapest_product","cheap onions","onion",7,"",False),
+            plan("navigate","marketplace","","7","marketplace",True),
+        ]),
+        ("show tomato price and open the product", [
+            plan("product_search","tomato price","tomato",7,"",True),
+        ]),
+    ]
+    for text, requests in multi:
+        flat=[]
+        for item in requests: flat.extend(item["requests"])
+        rows.append((text, {"requests": flat}))
+
     for d in destinations:
         for verb in ["open","go to","take me to","show me","bring me to"]:
             rows.append((f"{verb} {d}",plan("navigate",d,"",7,d.replace(" ","_"),True)))
