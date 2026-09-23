@@ -76,8 +76,8 @@ export function BusinessSidebar() {
   const displayName = profileData?.data?.businessName || businessName;
 
   return (
-    <aside className="hidden w-64 border-r bg-gray-50 md:block">
-      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4">
+    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
+      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 rounded-lg bg-emerald-50 p-4 border border-emerald-100">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
@@ -102,8 +102,8 @@ export function BusinessSidebar() {
                       key={item.name}
                       href={item.href}
                       className={cn(
-                        "flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                        isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+                        "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
+                        isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-slate-100"
                       )}
                     >
                       <div className="flex items-center gap-3">
