@@ -550,7 +550,7 @@ export default function DeliveryDashboardPage() {
           <CardDescription>Switch between nearby, state, and national delivery modes</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="mb-6 flex gap-2 rounded-full border bg-muted/30 p-1 w-fit">
+          <div className="selection-control mb-6 flex w-fit gap-2 rounded-full border">
             {[
               { key: "nearby", label: "Nearby Delivery", icon: Map },
               { key: "state", label: "State Delivery", icon: Route },
@@ -563,10 +563,8 @@ export default function DeliveryDashboardPage() {
                   key={tab.key}
                   onClick={() => setActiveMode(tab.key as DeliveryMode)}
                   className={cn(
-                    "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all",
-                    isActive
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
+                    "selection-item inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium",
+                    isActive ? "selection-item-active" : "selection-item-inactive"
                   )}
                 >
                   <Icon className="h-4 w-4" />
