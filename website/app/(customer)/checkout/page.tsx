@@ -66,11 +66,6 @@ export default function CheckoutPage() {
   const resolvedPickup = useRef<Set<string>>(new Set());
   const idempotencyKeyRef = useRef<string | null>(null);
 
-  if (status === "loading") return <div className="page-container"><div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200" /><div className="mt-6 h-40 animate-pulse rounded-2xl bg-slate-100" /></div>;
-  if (status === "unauthenticated") {
-    router.replace("/login");
-    return null;
-  }
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const updateItem = useCartStore((state) => state.updateItem);
@@ -98,6 +93,7 @@ export default function CheckoutPage() {
   const [applyingCoupon, setApplyingCoupon] = useState(false);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
     const missing = items.filter(
       (i) => !i.pickupAvailable && !resolvedPickup.current.has(i.id)
     );
@@ -132,7 +128,7 @@ export default function CheckoutPage() {
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
     queryFn: () => api.get("/users/me/addresses"),
-    enabled: items.length > 0,
+    enabled: items.length > 0 && status === "authenticated",
   });
 
   const addresses: Address[] = useMemo(() => {
@@ -434,6 +430,12 @@ export default function CheckoutPage() {
       setIsPlacing(false);
     }
   };
+
+  if (status === "loading") return <div className="page-container"><div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200" /><div className="mt-6 h-40 animate-pulse rounded-2xl bg-slate-100" /></div>;
+  if (status === "unauthenticated") {
+    router.replace("/login");
+    return null;
+  }
 
   if (items.length === 0) {
     return (
