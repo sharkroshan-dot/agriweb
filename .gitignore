@@ -71,3 +71,6 @@ Thumbs.db
 .npm-cache/
 .pip-cache/
 .pub-cache/
+
+# Locally trained AgriConnect LLM checkpoint
+backend/models/agriconnect-llm/
