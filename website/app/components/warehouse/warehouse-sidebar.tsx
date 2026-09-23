@@ -34,18 +34,18 @@ export function WarehouseSidebar() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 rounded-lg bg-primary/5 p-4 border border-primary/20">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-              <Warehouse className="h-5 w-5 text-primary" />
+        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+              <Warehouse className="h-5 w-5 text-emerald-600" />
             </div>
-            <div>
-              <p className="text-sm font-medium">Delhi Central Warehouse</p>
-              <p className="text-xs text-muted-foreground">Capacity: 75% used</p>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-slate-900">Delhi Central Warehouse</p>
+              <p className="truncate text-[11px] text-slate-500">Capacity: 75% used</p>
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">Total Items</span>
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-emerald-100 pt-3 text-sm">
+            <span className="text-slate-500">Total Items</span>
             <span className="font-bold">1,245</span>
           </div>
           <div className="mt-2 flex items-center gap-2">
