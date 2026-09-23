@@ -334,7 +334,7 @@ export default function FarmerOrdersPage() {
                         <Button
                           size="sm"
                           variant="default"
-                          className="bg-emerald-600 hover:bg-emerald-700"
+                          
                           onClick={() => handleRouteSelfDeliver(route.orders)}
                         >
                           <UserCheck className="mr-1 h-3 w-3" /> Deliver Myself
@@ -598,7 +598,7 @@ export default function FarmerOrdersPage() {
                             </Button>
                             {getStatus(order) === "pending" && (
                               <>
-                                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
+                                <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
                                   <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Confirm
                                 </Button>
                                 <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
