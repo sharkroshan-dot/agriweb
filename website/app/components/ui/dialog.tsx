@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "../../lib/utils";
 
@@ -21,16 +22,17 @@ export function Dialog({ open = false, onOpenChange, wide = false, children }: D
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onOpenChange]);
 
-  if (!open) return null;
+  if (!open || typeof document === "undefined") return null;
 
-  return (
+  const dialog = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[1000] flex min-h-screen items-center justify-center bg-slate-950/55 p-4 backdrop-blur-[2px]"
+      role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onOpenChange?.(false);
       }}
     >
-      <div className={`relative w-full ${wide ? "max-w-2xl" : "max-w-lg"} rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl`}>
+      <div className={`relative max-h-[calc(100vh-2rem)] w-full ${wide ? "max-w-2xl" : "max-w-lg"} overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl sm:p-7`}>
         {onOpenChange && (
           <button
             type="button"
@@ -45,6 +47,8 @@ export function Dialog({ open = false, onOpenChange, wide = false, children }: D
       </div>
     </div>
   );
+
+  return createPortal(dialog, document.body);
 }
 
 export function DialogContent({ className, children }: React.HTMLAttributes<HTMLDivElement>) {
