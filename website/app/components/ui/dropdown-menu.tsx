@@ -23,7 +23,7 @@ export function DropdownMenu({ children }: DropdownMenuProps) {
       {React.cloneElement(trigger as React.ReactElement<any>, {
         onClick: () => setOpen((prev) => !prev),
       })}
-      {open ? <div className="absolute right-0 z-50 mt-2 min-w-[180px] rounded-md border bg-white p-1 shadow-lg">{content}</div> : null}
+      {open ? <div className="absolute right-0 z-50 mt-2 min-w-[180px] rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">{content}</div> : null}
     </div>
   );
 }
@@ -56,7 +56,7 @@ export function DropdownMenuItem({
   const Comp = asChild ? Slot : "button";
 
   return (
-    <Comp className={cn("flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 hover:bg-slate-100", className)} {...props}>
+    <Comp className={cn("flex w-full items-center rounded-lg px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-emerald-50 hover:text-emerald-700", className)} {...props}>
       {children}
     </Comp>
   );
