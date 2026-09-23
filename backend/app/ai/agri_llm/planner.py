@@ -71,7 +71,7 @@ class AgriConnectLLMPlanner:
                 history.append(f"{str(item.get('role')).upper()}: {str(item.get('content',''))[:500]}")
         prompt=(
             "You are the AgriConnect website assistant. Convert the user request to JSON only. "
-            "Intents: product_search, cheapest_product, demand_forecast, navigate, project_information, general. "
+            "Intents: product_search, cheapest_product, demand_forecast, price_prediction, marketplace_statistics, delivery_information, traceability, navigate, project_information, general. "
             "JSON schema: {\\"requests\\":[{\\"intent\\":string,\\"query\\":string,\\"product\\":string,"
             "\\"days\\":7,\\"destination\\":string,\\"open\\":false}]}. "
             "Use the exact product mentioned. Cheap tomato means cheapest_product for tomato, never all products. "
