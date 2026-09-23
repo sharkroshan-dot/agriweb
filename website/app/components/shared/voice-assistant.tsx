@@ -199,20 +199,6 @@ export function VoiceAssistant() {
     setState((prev) => ({ ...prev, volume: prev.volume > 0 ? 0 : 1 }));
   };
 
-  const clearHistory = () => {
-    setState((prev) => ({
-      ...prev,
-      messages: [
-        {
-          id: "welcome",
-          role: "assistant",
-          content: WELCOME_MESSAGES.join(" "),
-          timestamp: new Date(),
-        },
-      ],
-    }));
-  };
-
   const quickCommands = [
     "What's the tomato demand forecast?",
     "Best price for onions this week",
@@ -258,10 +244,11 @@ export function VoiceAssistant() {
             variant="ghost"
             size="icon"
             className="text-white hover:bg-white/10"
-            onClick={clearHistory}
-            aria-label="Clear history"
+            onClick={() => setIsOpen(false)}
+            aria-label="Close AI Farm Assistant"
+            title="Close assistant"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4 text-white" strokeWidth={2.5} />
           </Button>
         </div>
       </CardHeader>
@@ -340,12 +327,13 @@ export function VoiceAssistant() {
             variant={state.isListening ? "destructive" : "default"}
             size="lg"
             className="h-12 w-12 rounded-full flex-shrink-0"
-            aria-label={state.isListening ? "Stop listening" : "Start listening"}
+            aria-label={state.isListening ? "Stop listening" : "Start voice input"}
+            title={state.isListening ? "Stop listening" : "Speak your question"}
           >
             {state.isListening ? (
-              <MicOff className="h-6 w-6" />
+              <MicOff className="h-6 w-6 text-white" strokeWidth={2.5} />
             ) : (
-              <Mic className="h-6 w-6" />
+              <Mic className="h-6 w-6 text-white" strokeWidth={2.5} />
             )}
           </Button>
           <div className="flex-1 relative">
@@ -375,11 +363,12 @@ export function VoiceAssistant() {
             size="lg"
             className="h-12 w-12 rounded-full flex-shrink-0"
             aria-label="Send message"
+            title="Send message"
           >
             {state.isProcessing ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="h-5 w-5 animate-spin text-white" />
             ) : (
-              <Send className="h-5 w-5" />
+              <Send className="h-5 w-5 text-white" strokeWidth={2.5} />
             )}
           </Button>
         </div>
