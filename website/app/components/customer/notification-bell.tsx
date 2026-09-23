@@ -303,26 +303,6 @@ export function NotificationBell() {
             </div>
           )}
 
-              {selectedNotification.data?.podUrl && (
-                <img
-                  src={resolveBackendUrl(selectedNotification.data.podUrl)}
-                  alt="Proof of delivery"
-                  className="max-h-64 w-full rounded-xl border object-contain"
-                />
-              )}
-
-              {selectedNotification.actionUrl && (
-                <Link
-                  href={selectedNotification.actionUrl}
-                  onClick={closeDetail}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
-                >
-                  {selectedNotification.actionLabel || "Open related page"}
-                  <ExternalLink className="h-4 w-4" />
-                </Link>
-              )}
-            </div>
-          )}
         </DialogContent>
       </Dialog>
     </>
