@@ -81,9 +81,9 @@ export default function WarehouseDashboardPage() {
           <p className="text-muted-foreground">Delhi Central Warehouse • 75% capacity used</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border p-1">
+          <div className="selection-control flex rounded-lg border">
             {(["week","month","year"] as const).map((p) => (
-              <button key={p} onClick={() => setPeriod(p)} className={cn("rounded-md px-3 py-1.5 text-sm font-medium transition-colors", period === p ? "bg-primary text-primary-foreground" : "hover:bg-muted")}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
+              <button key={p} onClick={() => setPeriod(p)} className={cn("selection-item rounded-md px-3 py-1.5 text-sm font-medium", period === p ? "selection-item-active" : "selection-item-inactive")}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
             ))}
           </div>
           <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
