@@ -94,7 +94,7 @@ async def get_unread_count(current_user: dict = Depends(get_current_user)):
         "data": {"count": count}
     }
 
-@router.get("/{notification_id}")
+@router.get("/detail/{notification_id}")
 async def get_notification_detail(
     notification_id: str,
     current_user: dict = Depends(get_current_user)
