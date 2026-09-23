@@ -420,6 +420,41 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-**Built with ❤️ for Indian Agriculture**  
+**Built with ❤️ for Indian Agriculture**
 
-# agriweb
+## Current enhancement branch
+
+The production enhancement work is being developed on `feature/agriconnect-complete-enhancement` before merge to `main`. The branch adds CI quality gates, a role-aware AI Copilot widget, deterministic AI fallbacks, persisted forecasting models, and production implementation guidance.
+
+### Run the website locally
+
+```powershell
+cd website
+npm install
+npm run dev
+```
+
+Open **http://localhost:3000**.
+
+If the backend is running locally, create `website/.env.local` with:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=replace-with-a-long-random-secret
+```
+
+### Run the backend locally
+
+```powershell
+cd backend
+python -m venv venv
+venv/Scripts/Activate.ps1
+pip install -r requirements.txt
+python run.py
+```
+
+Backend: **http://localhost:8000**  
+Swagger: **http://localhost:8000/docs**
+
+> AI features that require historical data or external providers should report unavailable or insufficient data instead of fabricating observations. Model outputs are recommendations; users remain responsible for operational decisions.
