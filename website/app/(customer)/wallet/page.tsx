@@ -64,17 +64,17 @@ export default function CustomerWalletPage() {
         </Button>
       </div>
 
-      <Card className="border-emerald-200 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
-        <CardContent className="flex items-center gap-4 p-6">
-          <div className="rounded-full bg-white/20 p-3">
-            <Wallet className="h-8 w-8" />
+      <Card className="overflow-hidden border-emerald-200 bg-gradient-to-br from-emerald-500 to-teal-600 text-white">
+        <CardContent className="flex min-h-[116px] items-center gap-4 !p-6 sm:gap-5">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/20">
+            <Wallet className="h-7 w-7" />
           </div>
-          <div className="flex-1">
-            <p className="text-sm text-emerald-50">Wallet Balance</p>
-            <p className="text-3xl font-bold">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium leading-5 text-emerald-50">Wallet Balance</p>
+            <p className="text-3xl font-bold leading-tight tracking-tight">
               {isLoading ? "…" : formatPrice(wallet.balance)}
             </p>
-            <p className="mt-1 text-xs text-emerald-50/90">
+            <p className="text-xs leading-5 text-emerald-50/90">
               {wallet.isActive
                 ? "This balance can be used to pay for your orders"
                 : "Your wallet is currently inactive"}
