@@ -44,21 +44,16 @@ import { formatPrice, formatTime } from "../../../lib/utils";
 import toast from "react-hot-toast";
 import { Map as LiveRouteMap } from "../../../components/shared/map";
 
-const MapPlaceholder = ({ deliveries }: { deliveries: any[] }) => (
-  <div className="relative h-[400px] w-full overflow-hidden rounded-lg bg-gradient-to-br from-primary/10 to-primary/5">
-    <div className="absolute inset-0 flex items-center justify-center">
-      <div className="text-center">
-        <Truck className="mx-auto h-12 w-12 text-primary/50" />
-        <p className="mt-2 text-sm text-muted-foreground">Live Map View</p>
-        <p className="text-xs text-muted-foreground">Showing {deliveries.length} active deliveries</p>
-      </div>
+const MapUnavailable = ({ deliveries }: { deliveries: any[] }) => (
+  <div className="flex h-[400px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
+    <div className="max-w-sm text-center">
+      <MapPin className="mx-auto h-10 w-10 text-slate-400" />
+      <p className="mt-3 font-semibold text-slate-800">Live location is unavailable</p>
+      <p className="mt-1 text-sm leading-6 text-slate-500">
+        Enable location access or wait for delivery coordinates before starting live route tracking.
+        {deliveries.length > 0 ? ` ${deliveries.length} delivery record(s) are loaded.` : ""}
+      </p>
     </div>
-    <div className="absolute left-1/4 top-1/4 h-4 w-4 rounded-full bg-blue-500 animate-pulse" />
-    <div className="absolute right-1/3 top-1/3 h-4 w-4 rounded-full bg-green-500" />
-    <div className="absolute left-1/2 bottom-1/4 h-4 w-4 rounded-full bg-yellow-500 animate-pulse" />
-    <div className="absolute right-1/4 bottom-1/3 h-4 w-4 rounded-full bg-red-500" />
-    <div className="absolute left-1/4 top-1/4 h-0.5 w-32 rotate-12 bg-blue-500/30" />
-    <div className="absolute right-1/3 top-1/3 h-0.5 w-24 -rotate-12 bg-green-500/30" />
   </div>
 );
 
@@ -317,7 +312,7 @@ export default function DeliveryDashboardPage() {
         .map((d: any) => {
           const coords = d.deliveryAddress?.location?.coordinates;
           return {
-            id: d.id || d._id || String(d.orderId || Math.random()),
+            id: String(d.id || d._id || d.orderId || `delivery-${d.customerName || "stop"}-${formatAddress(d.deliveryAddress)}`),
             lat: coords?.[1],
             lng: coords?.[0],
             title: d.customerName || "Delivery stop",
@@ -338,7 +333,7 @@ export default function DeliveryDashboardPage() {
     return liveOrigin ? [liveOrigin, ...destinationPoints] : [];
   }, [routeData, mapMarkers, liveOrigin]);
 
-  const liveMapMarkers = useMemo(
+  const firstMappedPoint = mapMarkers.find((m: any) => m.lat != null && m.lng != null);\n\n  const liveMapMarkers = useMemo(
     () => liveOrigin
       ? [{ id: "live-origin", ...liveOrigin, title: "Current location", info: "Route starting point" }, ...mapMarkers]
       : mapMarkers,
