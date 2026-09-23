@@ -295,6 +295,12 @@ async def _semantic_products(query: str, cheapest: bool=False) -> List[Dict[str,
     scored.sort(key=lambda x:(x[1],-x[0]) if cheapest else (-x[0],x[1]))
     return [{"_id":str(p.get("_id")),"id":str(p.get("_id")),"name":p.get("name"),"price":float(p.get("price",0) or 0),"unit":p.get("unit") or "kg","farmerName":p.get("farmerName") or p.get("farmName") or "Local Farmer","quantity":p.get("quantity") or p.get("availableQuantity")} for _,_,p in scored[:10]]
 
+def _allowed_product_id(value: Any) -> Optional[str]:
+    try:
+        return str(ObjectId(str(value)))
+    except Exception:
+        return None
+
 def _semantic_route(destination: str) -> Optional[str]:
     return {"marketplace":"/nearby","product":"/nearby","orders":"/orders","cart":"/cart","wishlist":"/wishlist","subscriptions":"/subscriptions","traceability":"/trace","wallet":"/wallet","farmer_dashboard":"/farmer/dashboard","delivery":"/delivery/delivery","route":"/delivery/deliveries","analytics":"/farmer/analytics","ai_predictions":"/farmer/ai-predictions","home":"/"}.get((destination or "").lower())
 
@@ -315,7 +321,10 @@ async def _execute_semantic_request(item: Dict[str, Any], language: str, user: O
             p=products[0]
             reply=f"The cheapest {product or 'matching'} product currently listed is {p['name']} at ₹{p['price']:g}/{p['unit']}."
             if item.get("open"):
-                return {"reply":reply+" Opening it for you to buy.","intent":"navigate","data":products,"action":"navigate","parameters":{"route":f"/product/{p['_id']}","label":p["name"]}}
+                pid = _allowed_product_id(p.get("_id") or p.get("id"))
+                if not pid:
+                    return {"reply": reply, "intent": "cheapest_product", "data": products}
+                return {"reply":reply+" Opening it for you to buy.","intent":"navigate","data":products,"action":"navigate","parameters":{"route":f"/product/{pid}","label":p["name"]}}
             return {"reply":reply,"intent":"cheapest_product","data":products}
         return {"reply":"I found these matching products:\n"+"\n".join(f"• {p['name']} — ₹{p['price']:g}/{p['unit']}" for p in products[:5]),"intent":"product_search","data":products}
     if intent=="navigate":
@@ -370,8 +379,9 @@ class DataAssistantService:
                 ui_actions.append({"type":"navigate","label":r["parameters"].get("label") or "Open page","route":r["parameters"].get("route")})
             for p in (r.get("data") if isinstance(r.get("data"),list) else []):
                 if p.get("_id") or p.get("id"):
-                    pid=str(p.get("_id") or p.get("id"))
-                    ui_actions.append({"type":"product","label":"View & Buy","route":f"/product/{pid}","productId":pid})
+                    pid=_allowed_product_id(p.get("_id") or p.get("id"))
+                    if pid:
+                        ui_actions.append({"type":"product","label":"View & Buy","route":f"/product/{pid}","productId":pid})
         return {"action":"navigate" if navigation else "chat_reply","response":combined,"parameters":navigation or {"intents":intents,"uiActions":ui_actions},"intent":intents[0] if len(intents)==1 else "multi_request","data":all_data or None,"uiActions":ui_actions}
 
     @staticmethod
