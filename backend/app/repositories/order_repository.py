@@ -23,6 +23,18 @@ class OrderRepository(BaseRepository):
         random_suffix = ''.join(random.choices(string.digits, k=6))
         return f"{prefix}-{date}-{random_suffix}"
     
+    async def get_by_idempotency_key(self, customer_id: str, idempotency_key: str) -> Optional[Dict[str, Any]]:
+        """Return an existing order for a customer retry key."""
+        try:
+            return await self.find_one({
+                "customerId": ObjectId(customer_id),
+                "idempotencyKey": idempotency_key,
+                "deletedAt": None,
+            })
+        except Exception as e:
+            logger.error("Error finding order by idempotency key: %s", e)
+            return None
+
     async def create_order(self, order_data: Dict[str, Any]) -> Optional[str]:
         """Create a new order."""
         # Generate order number
