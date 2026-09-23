@@ -49,9 +49,16 @@ class VoiceAssistantRequest(BaseModel):
     context: str = "general"
     conversation: List[VoiceAssistantMessage] = Field(default_factory=list)
 
+class VoiceAssistantUIAction(BaseModel):
+    type: str
+    label: str
+    route: str
+    productId: Optional[str] = None
+
 class VoiceAssistantResponse(BaseModel):
     action: str
     response: str
     parameters: Optional[dict] = None
     intent: Optional[str] = None
     data: Optional[Any] = None
+    uiActions: List[VoiceAssistantUIAction] = Field(default_factory=list)
