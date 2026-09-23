@@ -39,12 +39,19 @@ class DiseaseDetectionResponse(BaseModel):
     prevention: str
     severity: str
 
+class VoiceAssistantMessage(BaseModel):
+    role: str
+    content: str
+
 class VoiceAssistantRequest(BaseModel):
     audioText: str
     language: str = "english"
     context: str = "general"
+    conversation: List[VoiceAssistantMessage] = Field(default_factory=list)
 
 class VoiceAssistantResponse(BaseModel):
     action: str
     response: str
     parameters: Optional[dict] = None
+    intent: Optional[str] = None
+    data: Optional[Any] = None
