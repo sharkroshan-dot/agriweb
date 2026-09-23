@@ -43,6 +43,75 @@ HELP_RESPONSES = {
     },
 }
 
+PROJECT_SCOPE_RESPONSES = {
+    "english": {
+        "overview": "AgriConnect is a farm-to-home marketplace connecting customers with farmers. It supports product discovery, farmer listings, ordering, delivery management, subscriptions, traceability, analytics and AI-assisted decisions.",
+        "ai": "AgriConnect includes AI for demand forecasting, price prediction, recommendations, delivery-risk analysis, route optimization, fraud and anomaly detection, quality assistance and the AI Farm Assistant.",
+        "roles": "AgriConnect supports customer, farmer, delivery partner, business, warehouse and admin workflows. Each role has separate screens and permissions.",
+        "delivery": "Delivery supports farmer self-delivery, delivery partners and logistics operations, with delivery slots, route planning, order assignment and QR pickup verification.",
+        "traceability": "Traceability connects produce with batch and quality information so the product journey can be followed from farm through marketplace and delivery.",
+        "subscriptions": "Farm baskets and subscriptions support recurring produce purchases, including weekly, bi-weekly and monthly plans.",
+        "b2b": "The B2B workflow supports business buyers and RFQs for larger agricultural product requirements.",
+        "security": "The AI Farm Assistant is restricted to project information and permitted public marketplace information. It does not expose private orders, payment details, wallet balances, addresses, authentication data or another user's records.",
+        "technology": "The project uses Next.js and TypeScript for the website, Flutter for mobile, FastAPI and Python for the backend, MongoDB for data storage and Redis services.",
+        "help": "Ask me about AgriConnect features, workflows, AI modules, roles, marketplace functions, delivery, traceability, subscriptions, B2B, security, architecture and technology. I can also answer permitted public marketplace questions such as product availability and listed prices."
+    },
+    "tamil": {
+        "overview": "AgriConnect என்பது விவசாயிகளையும் வாடிக்கையாளர்களையும் இணைக்கும் farm-to-home marketplace. Product discovery, farmer listings, ordering, delivery, subscriptions, traceability, analytics மற்றும் AI வசதிகள் இதில் உள்ளன.",
+        "ai": "AgriConnect-ல் demand forecasting, price prediction, recommendations, delivery-risk analysis, route optimization, fraud/anomaly detection, quality assistance மற்றும் AI Farm Assistant போன்ற AI வசதிகள் உள்ளன.",
+        "roles": "AgriConnect-ல் customer, farmer, delivery partner, business, warehouse மற்றும் admin workflows உள்ளன. ஒவ்வொரு role-க்கும் தனித்தனி permissions உள்ளன.",
+        "delivery": "Delivery-ல் farmer self-delivery, delivery partners, delivery slots, route planning, order assignment மற்றும் QR pickup verification போன்ற வசதிகள் உள்ளன.",
+        "traceability": "Traceability மூலம் batch மற்றும் quality தகவல்களை இணைத்து farm முதல் delivery வரை produce journey-ஐ பின்தொடர முடியும்.",
+        "subscriptions": "Farm baskets மற்றும் subscriptions மூலம் weekly, bi-weekly மற்றும் monthly recurring purchases செய்ய முடியும்.",
+        "b2b": "B2B workflow மூலம் business buyers RFQ அனுப்பி பெரிய அளவிலான agricultural product requirements-ஐ நிர்வகிக்க முடியும்.",
+        "security": "பாதுகாப்பிற்காக AI Farm Assistant தனிப்பட்ட orders, payment, wallet, address, authentication அல்லது மற்ற பயனர்களின் records-ஐ வெளியிடாது.",
+        "technology": "Website Next.js மற்றும் TypeScript, mobile Flutter, backend FastAPI/Python, MongoDB மற்றும் Redis services பயன்படுத்துகிறது.",
+        "help": "AgriConnect features, AI, roles, marketplace, delivery, traceability, subscriptions, B2B, security, architecture மற்றும் technology பற்றி கேட்கலாம்."
+    },
+    "hindi": {
+        "overview": "AgriConnect किसानों और ग्राहकों को जोड़ने वाला farm-to-home marketplace है। इसमें product discovery, farmer listings, ordering, delivery, subscriptions, traceability, analytics और AI सुविधाएं हैं.",
+        "ai": "AgriConnect में demand forecasting, price prediction, recommendations, delivery-risk analysis, route optimization, fraud/anomaly detection, quality assistance और AI Farm Assistant शामिल हैं.",
+        "roles": "AgriConnect में customer, farmer, delivery partner, business, warehouse और admin workflows हैं.",
+        "delivery": "Delivery में farmer self-delivery, delivery partners, delivery slots, route planning, order assignment और QR pickup verification शामिल हैं.",
+        "traceability": "Traceability batch और quality information को जोड़कर farm से delivery तक product journey दिखाती है.",
+        "subscriptions": "Farm baskets और subscriptions weekly, bi-weekly और monthly recurring purchases को support करते हैं.",
+        "b2b": "B2B workflow business buyers के RFQ और बड़े agricultural requirements को support करता है.",
+        "security": "सुरक्षा के लिए AI Farm Assistant निजी orders, payment, wallet, address, authentication या दूसरे users के records को साझा नहीं करता.",
+        "technology": "Website Next.js और TypeScript, mobile Flutter, backend FastAPI/Python, MongoDB और Redis services का उपयोग करता है.",
+        "help": "AgriConnect features, AI, roles, marketplace, delivery, traceability, subscriptions, B2B, security, architecture और technology के बारे में पूछें."
+    }
+}
+
+PRIVATE_DATA_RESPONSE = {
+    "english": "For security, I don't provide personal orders, order details, payment information, wallet balances, private addresses, authentication information or another user's records through the AI Farm Assistant. I can explain the AgriConnect workflow instead.",
+    "tamil": "பாதுகாப்பிற்காக AI Farm Assistant மூலம் தனிப்பட்ட orders, order details, payment, wallet, private address, authentication அல்லது மற்ற பயனர்களின் records வழங்கப்படாது. AgriConnect workflow பற்றி விளக்க முடியும்.",
+    "hindi": "सुरक्षा के लिए AI Farm Assistant निजी orders, payment, wallet, address, authentication या दूसरे users के records साझा नहीं करता। मैं AgriConnect workflow समझा सकता हूँ।"
+}
+
+def _project_knowledge_reply(low: str, lang: str) -> Optional[str]:
+    r = PROJECT_SCOPE_RESPONSES[lang]
+    if any(k in low for k in ["what is agriconnect", "about agriconnect", "project overview", "overview", "what is this project"]):
+        return r["overview"]
+    if any(k in low for k in ["ai feature", "ai features", "artificial intelligence", "machine learning", "ai model", "ai assistant", "forecast", "prediction"]):
+        return r["ai"]
+    if any(k in low for k in ["role", "roles", "customer", "farmer", "delivery partner", "warehouse", "business user", "admin"]):
+        return r["roles"]
+    if any(k in low for k in ["delivery", "route", "pickup", "qr pickup", "delivery slot"]):
+        return r["delivery"]
+    if any(k in low for k in ["traceability", "trace a lot", "batch", "quality inspection"]):
+        return r["traceability"]
+    if any(k in low for k in ["subscription", "subscriptions", "farm basket", "farm baskets"]):
+        return r["subscriptions"]
+    if any(k in low for k in ["b2b", "rfq", "business buyer", "bulk buyer"]):
+        return r["b2b"]
+    if any(k in low for k in ["security", "privacy", "private data", "data protection"]):
+        return r["security"]
+    if any(k in low for k in ["technology", "tech stack", "framework", "database", "mongodb", "fastapi", "next.js", "flutter", "redis"]):
+        return r["technology"]
+    if any(k in low for k in ["what can you do", "what can i ask", "help", "features", "modules"]):
+        return r["help"]
+    return None
+
 GREETING_RESPONSES = {
     "english": "Hello! I am your AgriConnect assistant. I use live data from the marketplace, so you can ask me about products, prices, farmers, your orders or your wallet.",
     "tamil": "வணக்கம்! நான் உங்கள் AgriConnect உதவியாளர். தயாரிப்புகள், விலைகள், விவசாயிகள், உங்கள் ஆர்டர்கள் அல்லது உங்கள் வாலட் பற்றி என்னிடம் கேளுங்கள்.",
@@ -130,14 +199,28 @@ class DataAssistantService:
         if any(w in low for w in ["thank", "thanks", "நன்றி", "धन्यवाद"]):
             return {"reply": THANKS_RESPONSES[lang], "language": lang, "intent": "thanks", "data": None}
 
-        order_number = _extract_order_number(text)
-        if order_number:
-            return await DataAssistantService._answer_order_by_number(order_number, lang)
+        private_request = (
+            await DataAssistantService._detect_my_orders(low)
+            or await DataAssistantService._detect_my_wallet(low)
+            or await DataAssistantService._detect_my_inventory(low)
+            or bool(_extract_order_number(text))
+            or any(k in low for k in [
+                "payment details", "payment information", "transaction details",
+                "account details", "address", "phone number", "email address",
+                "password", "otp", "private data", "another user", "other user",
+                "customer details", "farmer details", "personal details",
+            ])
+        )
+        if private_request:
+            return {"reply": PRIVATE_DATA_RESPONSE.get(lang, PRIVATE_DATA_RESPONSE["english"]),
+                    "language": lang, "intent": "private_data_blocked", "data": None}
 
+        project_reply = _project_knowledge_reply(low, lang)
+        if project_reply:
+            return {"reply": project_reply, "language": lang, "intent": "project_knowledge", "data": None}
+
+        # Personal order/wallet/inventory handlers are intentionally excluded.
         handlers = [
-            ("my_orders", DataAssistantService._detect_my_orders, DataAssistantService._answer_my_orders),
-            ("my_wallet", DataAssistantService._detect_my_wallet, DataAssistantService._answer_my_wallet),
-            ("my_inventory", DataAssistantService._detect_my_inventory, DataAssistantService._answer_my_inventory),
             ("market_stats", DataAssistantService._detect_market_stats, DataAssistantService._answer_market_stats),
             ("farmer_list", DataAssistantService._detect_farmer_list, DataAssistantService._answer_farmer_list),
             ("categories", DataAssistantService._detect_categories, DataAssistantService._answer_categories),
@@ -152,7 +235,7 @@ class DataAssistantService:
             if await detect(low):
                 return await handler(text, low, lang, user)
 
-        return {"reply": HELP_RESPONSES[lang]["default"], "language": lang, "intent": "default", "data": None}
+        return {"reply": PROJECT_SCOPE_RESPONSES[lang]["help"], "language": lang, "intent": "project_help", "data": None}
 
     # ---------- detection ----------
 
