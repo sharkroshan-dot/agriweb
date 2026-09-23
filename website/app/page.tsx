@@ -175,21 +175,21 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="min-h-screen bg-transparent text-slate-900">
       {/* Hero Banner */}
       <section className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-900">
         <div className="absolute inset-0 bg-[url('/images/hero-pattern.svg')] opacity-10" />
         <div className="absolute -top-24 -right-24 h-96 w-96 rounded-full bg-emerald-500/20 blur-3xl" />
         <div className="absolute -bottom-32 -left-32 h-80 w-80 rounded-full bg-green-500/20 blur-3xl" />
-        <div className="relative mx-auto max-w-7xl px-6 py-20 lg:px-8 lg:py-32">
-          <div className="grid items-center gap-12 lg:grid-cols-[1.3fr_1fr]">
-            <div className="space-y-8">
+        <div className="relative mx-auto max-w-[1440px] px-4 py-16 sm:px-6 sm:py-20 lg:px-10 lg:py-28">
+          <div className="grid items-center gap-10 lg:grid-cols-[1.15fr_.85fr]">
+            <div className="space-y-7">
               <div className="inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-4 py-1.5 text-sm font-medium text-emerald-200 backdrop-blur-sm">
                 <Sparkles className="h-4 w-4 text-emerald-300" />
                 India&apos;s Trusted Farm-to-Home Marketplace
               </div>
               <div className="space-y-6">
-                <h1 className="text-4xl font-bold leading-tight tracking-tight text-white sm:text-5xl lg:text-6xl">
+                <h1 className="text-4xl font-extrabold leading-[1.05] tracking-[-.04em] text-white sm:text-5xl lg:text-7xl">
                   Fresh from the Farm.
                   <br />
                   <span className="bg-gradient-to-r from-emerald-200 to-green-300 bg-clip-text text-transparent">Fair for Everyone.</span>
