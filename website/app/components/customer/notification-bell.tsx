@@ -236,36 +236,72 @@ export function NotificationBell() {
           </DialogHeader>
 
           {selectedNotification && (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="space-y-5">
+              <div className="flex items-start gap-3 rounded-2xl bg-emerald-50 p-4">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white">
+                  <Bell className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                    {typeLabels[selectedNotification.type] || "Notification"}
+                  </p>
+                  <h3 className="mt-1 text-lg font-bold leading-6 text-slate-900">
+                    {notificationTitle(selectedNotification)}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {selectedNotification.createdAt ? new Date(selectedNotification.createdAt).toLocaleString() : "Recently"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <h4 className="mb-2 text-sm font-semibold text-slate-900">Message</h4>
                 <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
                   {selectedNotification.message || "No additional message."}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <Clock className="h-4 w-4" />
-                <span>{selectedNotification.createdAt ? new Date(selectedNotification.createdAt).toLocaleString() : "Recently"}</span>
-              </div>
-
               {selectedNotification.data && Object.keys(selectedNotification.data).length > 0 && (
-                <>
-                  <Separator />
-                  <div>
-                    <h4 className="mb-2 text-sm font-semibold text-slate-900">Additional Details</h4>
-                    <div className="rounded-xl border border-slate-200 bg-white p-3">
-                      {Object.entries(selectedNotification.data).map(([key, value]) => (
-                        <div key={key} className="flex items-start justify-between gap-4 border-b border-slate-100 py-2 last:border-0">
-                          <span className="text-xs font-medium capitalize text-slate-500">{key.replace(/([A-Z])/g, " $1")}</span>
-                          <span className="max-w-[65%] break-words text-right text-xs text-slate-700">
-                            {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                <div>
+                  <h4 className="mb-2 text-sm font-semibold text-slate-900">Details</h4>
+                  <div className="overflow-hidden rounded-2xl border border-slate-200">
+                    {Object.entries(selectedNotification.data).map(([key, value]) => (
+                      <div key={key} className="grid grid-cols-1 gap-1 border-b border-slate-100 px-4 py-3 last:border-0 sm:grid-cols-[150px_1fr] sm:gap-4">
+                        <span className="text-xs font-semibold capitalize text-slate-500">
+                          {key.replace(/([A-Z])/g, " $1").replace(/_/g, " ")}
+                        </span>
+                        <span className="break-words text-sm text-slate-700">
+                          {typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                </>
+                </div>
               )}
+
+              {selectedNotification.data?.podUrl && (
+                <div>
+                  <h4 className="mb-2 text-sm font-semibold text-slate-900">Proof of Delivery</h4>
+                  <img
+                    src={resolveBackendUrl(selectedNotification.data.podUrl)}
+                    alt="Proof of delivery"
+                    className="max-h-72 w-full rounded-2xl border border-slate-200 object-contain bg-slate-50"
+                  />
+                </div>
+              )}
+
+              {selectedNotification.actionUrl && (
+                <Link
+                  href={selectedNotification.actionUrl}
+                  onClick={closeDetail}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                >
+                  {selectedNotification.actionLabel || "Open related page"}
+                  <ExternalLink className="h-4 w-4" />
+                </Link>
+              )}
+            </div>
+          )}
 
               {selectedNotification.data?.podUrl && (
                 <img
