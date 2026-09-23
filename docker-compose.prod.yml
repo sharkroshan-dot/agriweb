@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agriconnect-backend-prod
+    restart: always
+    environment:
+      - ENVIRONMENT=production
+      - MONGODB_URI=${MONGODB_URI_PROD}
+      - REDIS_URL=${REDIS_URL_PROD}
+      - JWT_SECRET=${JWT_SECRET_PROD}
+    networks:
+      - agriconnect-network
+
+  website:
+    build:
+      context: ./website
+      dockerfile: Dockerfile
+    container_name: agriconnect-website-prod
+    restart: always
+    environment:
+      - NEXT_PUBLIC_API_URL=${API_URL_PROD}
+    networks:
+      - agriconnect-network
+
+  mongodb:
+    image: mongo:7.0
+    container_name: agriconnect-mongodb-prod
+    restart: always
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGODB_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD_PROD}
+      - MONGO_INITDB_DATABASE=agri
+    volumes:
+      - mongodb_data_prod:/data/db
+    networks:
+      - agriconnect-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: agriconnect-redis-prod
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD_PROD}
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - agriconnect-network
+
+volumes:
+  mongodb_data_prod:
+  redis_data_prod:
+
+networks:
+  agriconnect-network:
+    driver: bridge

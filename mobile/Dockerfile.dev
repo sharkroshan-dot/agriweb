@@ -1,0 +1,12 @@
+FROM ghcr.io/cirruslabs/flutter:3.24.4
+
+WORKDIR /app
+
+# Copy source code
+COPY . /app
+
+# Get dependencies
+RUN flutter pub get
+
+# Run the application
+CMD ["flutter", "run", "-d", "web-server", "--web-port=8081", "--web-hostname=0.0.0.0"]

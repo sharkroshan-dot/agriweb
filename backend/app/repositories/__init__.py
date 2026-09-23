@@ -1,0 +1,8 @@
+# backend/app/repositories/__init__.py
+from app.repositories.base_repository import BaseRepository
+from app.repositories.user_repository import user_repository
+from app.repositories.product_repository import product_repository
+from app.repositories.order_repository import order_repository
+from app.repositories.price_history_repository import price_history_repository
+from app.repositories.inventory_repository import inventory_repository
+from app.repositories.product_review_repository import product_review_repository

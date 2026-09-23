@@ -1,0 +1,73 @@
+# Environment & secrets - NEVER commit these
+.env
+.env.*
+!.env.example
+*.local
+.env.local
+.env.prod
+.env.production
+
+# Backend
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+backend/uploads/
+uploads/
+logs/
+*.log
+
+# AI models / pickles (untrusted deserialization surface)
+ai/models/
+*.pkl
+*.joblib
+*.pt
+*.h5
+*.onnx
+
+# Website
+website/node_modules/
+website/.next/
+website/out/
+website/dist/
+website/public/uploads/
+next-env.d.ts
+*.tsbuildinfo
+
+# Mobile
+mobile/build/
+mobile/.dart_tool/
+mobile/.flutter-plugins*
+mobile/.packages
+mobile/.pub-cache/
+
+# Sensitive data files
+website/data/registered-users.json
+website/data/*.json
+!website/data/.gitkeep
+
+# Deployment / infra
+docker-compose*.yml.orig
+*.tfstate*
+*.pem
+*.key
+*.crt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Local dependency and tool caches
+.flutter-tmp/
+.npm-cache/
+.pip-cache/
+.pub-cache/
