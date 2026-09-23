@@ -290,8 +290,8 @@ export function HarvestSections({
           onClick={() => setActiveTab("harvested")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
             activeTab === "harvested"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
           }`}
         >
           <Flower2 className="h-4 w-4" />
@@ -306,8 +306,8 @@ export function HarvestSections({
           onClick={() => setActiveTab("preorder")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
             activeTab === "preorder"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
           }`}
         >
           <Sprout className="h-4 w-4" />
