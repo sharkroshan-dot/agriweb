@@ -567,8 +567,8 @@ function DesktopSidebar({
             className={cn(
               "w-full rounded-lg px-3 py-2 text-left text-sm transition",
               !selectedCategory
-                ? "bg-emerald-50 font-medium text-emerald-700"
-                : "text-slate-600 hover:bg-slate-100"
+                ? "bg-emerald-600 font-medium text-white"
+                : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
             )}
           >
             All Categories
@@ -580,8 +580,8 @@ function DesktopSidebar({
               className={cn(
                 "w-full rounded-lg px-3 py-2 text-left text-sm transition",
                 selectedCategory === cat
-                  ? "bg-emerald-50 font-medium text-emerald-700"
-                  : "text-slate-600 hover:bg-slate-100"
+                  ? "bg-emerald-600 font-medium text-white"
+                  : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
               )}
             >
               {cat}
