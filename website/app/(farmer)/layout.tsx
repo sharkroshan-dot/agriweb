@@ -32,7 +32,7 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
   return (
     <div className="flex min-h-screen flex-col">
       <Header />
-      <div className="flex flex-1 bg-transparent pt-16">
+      <div className="flex flex-1 bg-transparent">
         <FarmerSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
           <div className="site-content mx-auto w-full max-w-[1440px]">{children}</div>
