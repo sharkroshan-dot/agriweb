@@ -46,3 +46,9 @@ button { -webkit-tap-highlight-color: transparent; }
   .dashboard-grid { display:grid; gap:16px; grid-template-columns:repeat(12,minmax(0,1fr)); }
   .empty-state { border:1px dashed #cbd5e1; border-radius:16px; background:#fff; padding:40px 20px; text-align:center; }
 }
+
+/* Unified selection states: use these for tabs, segmented controls, filters, and view switches. */
+.selection-control { @apply rounded-xl bg-slate-100 p-1; }
+.selection-item { @apply transition-colors; }
+.selection-item-active { @apply bg-emerald-600 text-white shadow-sm; }
+.selection-item-inactive { @apply bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700; }
