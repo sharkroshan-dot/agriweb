@@ -71,7 +71,7 @@ export function Header() {
   // public pages without a sidebar use the normal left page edge.
   const hasRoleSidebar = /^\/(customer|farmer|delivery|business|warehouse|admin)(\/|$)/.test(pathname);
   const backButtonStyle = hasRoleSidebar
-    ? { left: "calc(208px + 24px)" }
+    ? { left: "280px" }
     : { left: "16px" };
 
   return (
