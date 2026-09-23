@@ -162,8 +162,8 @@ function CommunityBuyingInner() {
           className={cn(
             "rounded-xl px-5 py-2.5 text-sm font-medium transition",
             activeTab === "available"
-              ? "bg-emerald-600 text-white"
-              : "text-slate-600 hover:bg-slate-100",
+              ? "selection-item-active"
+              : "selection-item-inactive",
           )}
         >
           Available Group Buys
@@ -178,8 +178,8 @@ function CommunityBuyingInner() {
           className={cn(
             "rounded-xl px-5 py-2.5 text-sm font-medium transition",
             activeTab === "subscribed"
-              ? "bg-emerald-600 text-white"
-              : "text-slate-600 hover:bg-slate-100",
+              ? "selection-item-active"
+              : "selection-item-inactive",
           )}
         >
           My Subscriptions
