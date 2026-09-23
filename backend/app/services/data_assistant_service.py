@@ -255,51 +255,14 @@ def _clean_keywords(text: str) -> List[str]:
     return [t for t in tokens if t not in STOP_WORDS and len(t) > 1]
 
 
-SEMANTIC_ASSISTANT_SYSTEM = """You are the natural-language understanding layer for the AgriConnect AI Farm Assistant.
-Users may use broken, short, misspelled, mixed-language, or conversational English. Understand meaning, not exact keywords.
-Return ONLY valid JSON: {"requests":[{"intent":"product_search|cheapest_product|demand_forecast|navigate|project_information|general","query":"","product":"","days":7,"destination":"","open":false}]}.
-Rules:
-- "cheap tomato", "tomato cheaper", "lowest tomato price" => cheapest_product, product=tomato.
-- "go to tomato cheaper page", "open cheapest tomato to buy" => cheapest_product, product=tomato, open=true.
-- "show tomato", "need tomato", "where tomato", "tomato available" => product_search.
-- "tomato demand what this week", "how tomato sell this week", "tomato demand?" => demand_forecast.
-- "go marketplace", "take me to products", "open delivery route" => navigate.
-- "best price" in a shopping context means compare current public marketplace listings.
-- Always identify the specific product mentioned. "cheap tomato" is about tomato only, never all cheap products.
-- "open/go to/take me to ... to buy" means the user wants navigation to the specific product page, not a generic marketplace list.
-- For "cheap <product>" without navigation, return only listings for that product, sorted by price.
-- Several requests in one message must produce several requests.
-- Never invent IDs, prices, forecasts, or private data.
+SEMANTIC_ASSISTANT_SYSTEM = """AgriConnect local LLM planner. The model is trained locally from random initialization.
+The planner returns structured requests only; live data and actions are executed by the backend.
 """
 
-def _semantic_api_config():
-    return (
-        os.getenv("AI_ASSISTANT_API_KEY") or os.getenv("OPENAI_API_KEY"),
-        os.getenv("AI_ASSISTANT_BASE_URL", "https://api.openai.com/v1/chat/completions"),
-        os.getenv("AI_ASSISTANT_MODEL", "gpt-5.6-luna"),
-    )
-
 async def _semantic_plan(text: str, conversation: Optional[List[Dict[str, Any]]] = None) -> Optional[Dict[str, Any]]:
-    key, base, model = _semantic_api_config()
-    if not key:
-        logger.warning("AI assistant API key is not configured")
-        return None
-    messages=[{"role":"system","content":SEMANTIC_ASSISTANT_SYSTEM}]
-    for item in (conversation or [])[-8:]:
-        if item.get("role") in {"user","assistant"} and item.get("content"):
-            messages.append({"role":item["role"],"content":str(item["content"])[:2000]})
-    messages.append({"role":"user","content":text[:4000]})
-    try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            response=await client.post(base,headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"},json={"model":model,"messages":messages,"temperature":0,"response_format":{"type":"json_object"}})
-            response.raise_for_status()
-            payload=response.json()
-            content=payload.get("choices",[{}])[0].get("message",{}).get("content","")
-            plan=json.loads(content)
-            return plan if isinstance(plan,dict) and isinstance(plan.get("requests"),list) else None
-    except Exception as exc:
-        logger.exception("Semantic assistant request failed: %s",exc)
-        return None
+    # No API key, Ollama, or external model is used here.
+    from app.ai.agri_llm.planner import agri_llm_planner
+    return await agri_llm_planner.plan(text, conversation)
 
 
 async def _resolve_product_entity(query: str) -> Optional[str]:
