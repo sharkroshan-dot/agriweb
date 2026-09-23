@@ -27,6 +27,7 @@ interface VoiceMessage {
   audioUrl?: string;
   intent?: string;
   data?: unknown;
+  uiActions?: Array<{ type: string; label: string; route: string; productId?: string }>;
 }
 
 interface VoiceAssistantState {
@@ -214,6 +215,7 @@ export function VoiceAssistant() {
 
       const action = response?.action || response?.data?.action;
       const route = response?.parameters?.route || response?.data?.parameters?.route;
+      const uiActions = response?.uiActions || response?.data?.uiActions || response?.parameters?.uiActions || [];
 
       const newMessage: VoiceMessage = {
         id: Date.now().toString(),
@@ -222,6 +224,7 @@ export function VoiceAssistant() {
         timestamp: new Date(),
         intent,
         data,
+        uiActions: Array.isArray(uiActions) ? uiActions : [],
       };
       setState((prev) => ({
         ...prev,
@@ -391,6 +394,24 @@ export function VoiceAssistant() {
                   minute: "2-digit",
                 })}
               </p>
+
+              {message.uiActions && message.uiActions.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {message.uiActions.slice(0, 8).map((item, index) => {
+                    if (!item?.route) return null;
+                    const isProduct = item.type === "product";
+                    return (
+                      <a
+                        key={`${item.type}-${item.productId ?? index}-${item.route}`}
+                        href={item.route}
+                        className="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+                      >
+                        {item.label || (isProduct ? "View & Buy" : "Open")}
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
 
               {productData(message.data).length > 0 && (
                 <div className="mt-3 space-y-2">
