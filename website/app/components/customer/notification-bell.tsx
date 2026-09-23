@@ -103,7 +103,16 @@ export function NotificationBell() {
   };
 
   const openDetail = async (notification: any) => {
-    setSelectedNotification(notification);
+    try {
+      const response = await api.get(`/notifications/${notification.id}`);
+      const detail = (response as any)?.data?.notification;
+      setSelectedNotification(detail || notification);
+    } catch {
+      setSelectedNotification(notification);
+    }
+
+    setOpen(false);
+
     if (!notification.isRead) {
       await markRead(notification.id);
     }
@@ -212,7 +221,7 @@ export function NotificationBell() {
       </div>
 
       <Dialog open={Boolean(selectedNotification)} onOpenChange={(value) => !value && closeDetail()}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
           <DialogHeader className="pr-8">
             <DialogTitle>{selectedNotification ? notificationTitle(selectedNotification) : "Notification"}</DialogTitle>
             <button
