@@ -191,14 +191,14 @@ export default function FarmerDashboardPage() {
           <p className="text-gray-500">Welcome back, {userName}! Here's what's happening with your farm.</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border p-1">
+          <div className="selection-control flex rounded-lg border">
             {[("week" as const), ("month" as const), ("year" as const)].map((p) => (
               <button
                 key={p}
                 onClick={() => setPeriod(p)}
                 className={cn(
-                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                  period === p ? "bg-emerald-600 text-white" : "hover:bg-gray-100"
+                  "selection-item rounded-md px-3 py-1.5 text-sm font-medium",
+                  period === p ? "selection-item-active" : "selection-item-inactive"
                 )}
               >
                 {p.charAt(0).toUpperCase() + p.slice(1)}
