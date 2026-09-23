@@ -242,8 +242,8 @@ function NearbyInner() {
           className={cn(
             "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
             tab === "nearby"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700",
           )}
         >
           <MapPin className="h-4 w-4" />
@@ -259,8 +259,8 @@ function NearbyInner() {
           className={cn(
             "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
             tab === "all"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700",
           )}
         >
           <Globe className="h-4 w-4" />
@@ -332,8 +332,8 @@ function NearbyInner() {
                       className={cn(
                         "rounded-full border px-4 py-1.5 text-sm font-medium transition",
                         active
-                          ? "border-emerald-600 bg-emerald-50 text-emerald-700"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
+                          ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700",
                       )}
                     >
                       {r} km
