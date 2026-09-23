@@ -205,15 +205,9 @@ export function VoiceAssistant() {
         response?.data?.reply ||
         "I couldn't find enough information to answer that. Try asking about products, prices, delivery, traceability, AI features, or AgriConnect workflows.";
       const intent = response?.intent || response?.data?.intent;
-      const data = response?.data?.data ?? response?.data?.products ?? response?.products;
+      const data = response?.data ?? response?.products;
 
       addMessage("assistant", reply);
-      setState((prev) => ({
-        ...prev,
-        messages: prev.messages.map((message) =>
-          message.id === String(Date.now()) ? message : message
-        ),
-      }));
       // Attach structured results to the just-created assistant message so the
       // user can act on the answer instead of copying product names manually.
       setState((prev) => {
