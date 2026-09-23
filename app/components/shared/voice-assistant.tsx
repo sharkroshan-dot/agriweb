@@ -54,6 +54,7 @@ export function VoiceAssistant() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const listeningRef = useRef(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -95,12 +96,18 @@ export function VoiceAssistant() {
         if (event.error !== "no-speech") {
           toast.error(`Voice error: ${event.error}`);
         }
+        listeningRef.current = false;
         setState((prev) => ({ ...prev, isListening: false }));
       };
 
       recognitionRef.current.onend = () => {
-        if (state.isListening) {
-          recognitionRef.current?.start();
+        if (listeningRef.current) {
+          try {
+            recognitionRef.current?.start();
+          } catch {
+            listeningRef.current = false;
+            setState((prev) => ({ ...prev, isListening: false }));
+          }
         }
       };
     }
@@ -186,10 +193,12 @@ export function VoiceAssistant() {
       return;
     }
 
-    if (state.isListening) {
+    if (listeningRef.current) {
+      listeningRef.current = false;
       recognitionRef.current.stop();
       setState((prev) => ({ ...prev, isListening: false }));
     } else {
+      listeningRef.current = true;
       recognitionRef.current.start();
       setState((prev) => ({ ...prev, isListening: true }));
     }

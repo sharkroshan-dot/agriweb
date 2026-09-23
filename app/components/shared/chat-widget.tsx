@@ -126,7 +126,7 @@ export default function ChatWidget() {
   return (
     <div className="fixed bottom-5 right-5 z-50 flex flex-col items-end">
       {open && (
-        <div className="mb-3 flex h-[28rem] w-[22rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl">
+        <div className="mb-3 flex h-[min(28rem,calc(100dvh-7rem))] w-[calc(100vw-2rem)] max-w-[22rem] flex-col overflow-hidden rounded-2xl border bg-white shadow-2xl">
           <div className="flex items-center justify-between bg-gradient-to-r from-emerald-600 to-emerald-700 px-4 py-3 text-white">
             <div className="flex items-center gap-2">
               <Bot className="h-5 w-5" />
@@ -166,20 +166,7 @@ export default function ChatWidget() {
               {SUGGESTIONS.slice(0, 4).map((s) => (
                 <button
                   key={s}
-                  onClick={() => {
-                    setInput(s);
-                    setMessages((m) => [...m, { role: "user", text: s }]);
-                    setLoading(true);
-                    void api
-                      .post("/ai/chatbot", { message: s, language: "english" })
-                      .then((res: any) =>
-                        setMessages((m) => [...m, { role: "bot", text: res?.reply || "No reply." }])
-                      )
-                      .catch(() =>
-                        setMessages((m) => [...m, { role: "bot", text: "Sorry, something went wrong." }])
-                      )
-                      .finally(() => setLoading(false));
-                  }}
+                  onClick={() => void send(s)}
                   className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] text-emerald-700 transition hover:bg-emerald-100"
                 >
                   {s}
@@ -192,7 +179,12 @@ export default function ChatWidget() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && send()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
+                  e.preventDefault();
+                  void send();
+                }
+              }}
               placeholder="Ask anything…"
               className="flex-1 rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
