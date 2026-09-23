@@ -55,6 +55,7 @@ class OrderItemResponse(OrderItemBase):
         from_attributes = True
 
 class OrderBase(BaseModel):
+    idempotencyKey: Optional[str] = Field(None, min_length=16, max_length=100)
     items: List[OrderItemCreate]
     deliveryAddressId: Optional[str] = None
     specialInstructions: Optional[str] = None
