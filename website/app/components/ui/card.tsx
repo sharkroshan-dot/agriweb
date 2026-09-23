@@ -14,7 +14,7 @@ export function CardDescription({ className, ...props }: React.HTMLAttributes<HT
   return <p className={cn("mt-1 text-sm leading-5 text-slate-500", className)} {...props} />;
 }
 export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-5 pt-0 sm:p-6 sm:pt-0", className)} {...props} />;
+  return <div className={cn("p-5 sm:p-6", className)} {...props} />;
 }
 export function CardFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("p-5 pt-0 sm:p-6 sm:pt-0", className)} {...props} />;
