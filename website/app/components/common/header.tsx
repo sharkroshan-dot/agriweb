@@ -80,7 +80,8 @@ export function Header() {
               onClick={handleBack}
               aria-label="Go back to the previous page"
               title="Go back"
-              className="group fixed top-[76px] z-[60] inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-slate-700 shadow-md shadow-slate-900/10 transition-all hover:-translate-x-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:ring-offset-1"\n              style={backButtonStyle}
+              className="group fixed top-[76px] z-[60] inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-slate-700 shadow-md shadow-slate-900/10 transition-all hover:-translate-x-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:ring-offset-1"
+              style={backButtonStyle}
             >
               <ArrowLeft
                 className="h-4 w-4 shrink-0 transition-transform group-hover:-translate-x-0.5"
