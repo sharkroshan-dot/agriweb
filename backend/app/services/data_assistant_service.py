@@ -1,7 +1,8 @@
 import re
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
+from bson import ObjectId
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,79 @@ PRIVATE_DATA_RESPONSE = {
     "tamil": "பாதுகாப்பிற்காக AI Farm Assistant மூலம் தனிப்பட்ட orders, order details, payment, wallet, private address, authentication அல்லது மற்ற பயனர்களின் records வழங்கப்படாது. AgriConnect workflow பற்றி விளக்க முடியும்.",
     "hindi": "सुरक्षा के लिए AI Farm Assistant निजी orders, payment, wallet, address, authentication या दूसरे users के records साझा नहीं करता। मैं AgriConnect workflow समझा सकता हूँ।"
 }
+
+async def _answer_demand_forecast(text: str, low: str, lang: str) -> Optional[Dict[str, Any]]:
+    """Answer natural-language product demand forecast questions with aggregate data only."""
+    if not any(k in low for k in ["demand forecast", "demand prediction", "demand this week", "forecast demand", "demand for"]):
+        return None
+
+    product_name = next((p for p in sorted(PRODUCT_KEYWORDS, key=len, reverse=True) if p in low), None)
+    if not product_name:
+        return {
+            "reply": "Which product would you like a demand forecast for? For example: 'What is the tomato demand forecast for this week?'",
+            "language": lang, "intent": "demand_forecast", "data": None,
+        }
+
+    from app.repositories.product_repository import product_repository
+    from app.repositories.order_repository import order_repository
+    from app.ai.models.demand_forecast import demand_forecast_model
+
+    products = await product_repository.find_many(
+        {"deletedAt": None, "isActive": True, "isBasketOnly": {"$ne": True}}, limit=100
+    )
+    matches = [p for p in products if product_name in (p.get("name") or "").lower()]
+    if not matches:
+        return {
+            "reply": f"I couldn't find {product_name.title()} in the current marketplace.",
+            "language": lang, "intent": "demand_forecast", "data": None,
+        }
+
+    # Use aggregate delivered-order quantities, never customer identity/order details.
+    product = matches[0]
+    pid = product.get("_id")
+    orders = await order_repository.find_many({
+        "items.productId": pid,
+        "orderStatus": "delivered",
+        "deletedAt": None,
+    }, limit=1000)
+
+    history = []
+    for order in orders:
+        date = order.get("orderDate") or order.get("createdAt")
+        for item in order.get("items", []):
+            if str(item.get("productId")) == str(pid):
+                history.append({"date": date, "demand": float(item.get("quantity", 0) or 0)})
+
+    if not history:
+        return {
+            "reply": f"I found {product.get('name', product_name)} in the marketplace, but there is not enough historical demand data to produce a reliable forecast yet.",
+            "language": lang, "intent": "demand_forecast", "data": {"productId": str(pid), "productName": product.get("name")},
+        }
+
+    try:
+        prediction = demand_forecast_model.predict(history, 7)
+        predicted = prediction.get("predicted_demand", []) if prediction else []
+        current = prediction.get("current_demand", 0) if prediction else 0
+        confidence = prediction.get("confidence", 0) if prediction else 0
+        recommendation = prediction.get("recommendation", "Review current stock") if prediction else "Review current stock"
+        summary = ", ".join(str(round(float(x), 1)) for x in predicted[:7])
+        reply = (
+            f"Demand forecast for {product.get('name', product_name)} for the next 7 days:\n"
+            f"• Current demand: {round(float(current), 1)} units\n"
+            f"• Forecast: {summary or 'Unavailable'}\n"
+            f"• Confidence: {round(float(confidence) * 100)}%\n"
+            f"• Recommendation: {recommendation}"
+        )
+        return {
+            "reply": reply, "language": lang, "intent": "demand_forecast",
+            "data": {"productId": str(pid), "productName": product.get("name"), "predictedDemand": predicted, "confidence": confidence},
+        }
+    except Exception as exc:
+        logger.warning("Demand forecast failed for %s: %s", product_name, exc)
+        return {
+            "reply": f"I found {product.get('name', product_name)}, but its demand forecast is currently unavailable. Please try again after more sales data is available.",
+            "language": lang, "intent": "demand_forecast", "data": {"productId": str(pid), "productName": product.get("name")},
+        }
 
 def _project_knowledge_reply(low: str, lang: str) -> Optional[str]:
     r = PROJECT_SCOPE_RESPONSES[lang]
@@ -214,6 +288,10 @@ class DataAssistantService:
         if private_request:
             return {"reply": PRIVATE_DATA_RESPONSE.get(lang, PRIVATE_DATA_RESPONSE["english"]),
                     "language": lang, "intent": "private_data_blocked", "data": None}
+
+        demand_reply = await _answer_demand_forecast(text, low, lang)
+        if demand_reply:
+            return demand_reply
 
         project_reply = _project_knowledge_reply(low, lang)
         if project_reply:
