@@ -256,72 +256,14 @@ class AIExtendedService:
 
     @staticmethod
     async def voice_assistant(request, current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        text = request.audioText.lower()
-        lang = request.language.lower()
-
-        product_keywords = {
-            "tomato": "தக்காளி", "onion": "வெங்காயம்", "potato": "உருளைக்கிழங்கு",
-            "brinjal": "கத்தரிக்காய்", "chilli": "மிளகாய்", "banana": "வாழைப்பழம்",
-            "rice": "அரிசி", "wheat": "கோதுமை", "milk": "பால்"
-        }
-
-        if any(word in text for word in ["add", "சேர்க்க", "upload"]):
-            for product_en, product_ta in product_keywords.items():
-                if product_en in text or product_ta in text:
-                    return {
-                        "action": "add_product",
-                        "response": f"Adding {product_en.title()} to your products. Opening product form...",
-                        "parameters": {"product": product_en, "name": f"Fresh {product_en.title()}"}
-                    }
-
-            return {
-                "action": "add_product_prompt",
-                "response": "Which product would you like to add?",
-                "parameters": None
-            }
-
-        # Only explicit order-history requests should navigate to Orders.
-        # Generic "show/list <product>" questions must go through the marketplace
-        # assistant so they return the requested products.
-        order_navigation = (
-            "my order" in text
-            or "my orders" in text
-            or "order history" in text
-            or "track my order" in text
-            or "track order" in text
-            or "order status" in text
-            or "என் ஆர்டர்" in text
-            or "मेरा ऑर्डर" in text
-        )
-        if order_navigation:
-            return {
-                "action": "show_orders",
-                "response": "Opening your orders page...",
-                "parameters": None
-            }
-
-        if any(word in text for word in ["dashboard", "home", "டாஷ்போர்டு", "मुख्य पृष्ठ"]):
-            return {
-                "action": "go_dashboard",
-                "response": "Taking you to your dashboard...",
-                "parameters": None
-            }
-
-        result = await data_assistant_service.answer(
+        """LLM-first assistant. Navigation and data access are executed only through controlled backend actions."""
+        result = await data_assistant_service.semantic_answer(
             message=request.audioText,
-            language=lang,
+            language=request.language,
             user=current_user,
+            conversation=[m.model_dump() if hasattr(m, "model_dump") else {"role": m.role, "content": m.content} for m in request.conversation],
         )
-        return {
-            "action": "chat_reply",
-            "response": result.get("reply") or f"You said: {request.audioText}. How can I help you?",
-            "parameters": {
-                "intent": result.get("intent", "unknown"),
-                "language": lang,
-            },
-            "data": result.get("data"),
-            "intent": result.get("intent", "unknown"),
-        }
+        return result
 
     @staticmethod
     def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
