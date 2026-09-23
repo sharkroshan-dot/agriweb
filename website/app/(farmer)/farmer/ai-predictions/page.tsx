@@ -30,10 +30,10 @@ export default function AiPredictionsPage() {
             type="button"
             onClick={() => setTab(t.id)}
             className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
+              "selection-item flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium",
               tab === t.id
-                ? "bg-white text-emerald-700 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
+                ? "selection-item-active"
+                : "selection-item-inactive"
             )}
           >
             <t.icon className="h-4 w-4" /> {t.label}
