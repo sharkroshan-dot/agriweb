@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -43,8 +43,9 @@ type Address = {
 };
 
 const PAYMENT_METHODS = [
-  { value: "razorpay", label: "Pay Online", description: "UPI, Cards, Net Banking, Wallets", icon: "R" },
-  { value: "cash", label: "Cash on Delivery", description: "Pay when you receive", icon: "C" },
+  { value: "razorpay", label: "UPI & Cards", description: "Pay securely with Razorpay", icon: CreditCard, accent: "emerald" },
+  { value: "wallet", label: "AgriConnect Wallet", description: "Use your available wallet balance", icon: WalletCards, accent: "blue" },
+  { value: "cash", label: "Cash on Delivery", description: "Pay when your order arrives", icon: Banknote, accent: "amber" },
 ];
 
 const initialAddrForm = {
@@ -638,59 +639,35 @@ export default function CheckoutPage() {
             </Card>
 
           {/* Payment Method */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5" /> Payment Method
-              </CardTitle>
-              <CardDescription>Select how you want to pay</CardDescription>
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b bg-slate-50/70">
+              <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-emerald-600" /> Payment</CardTitle>
+              <CardDescription>Choose your preferred payment method. You will see the gateway options after placing the order.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {PAYMENT_METHODS.map((method) => (
-                  <label
-                    key={method.value}
-                    className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition ${
-                      paymentMethod === method.value
-                        ? "border-emerald-500 bg-emerald-50"
-                        : "hover:bg-gray-50"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="paymentMethod"
-                      value={method.value}
-                      checked={paymentMethod === method.value}
-                      onChange={(e) => setPaymentMethod(e.target.value)}
-                    />
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">
-                      {method.icon}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block text-sm font-medium">{method.label}</span>
-                      <span className="block text-xs text-muted-foreground">{method.description}</span>
-                    </span>
+            <CardContent className="p-5">
+              <div className="grid gap-3">
+                {PAYMENT_METHODS.map((method:any) => {
+                  const Icon=method.icon;
+                  const selected=paymentMethod===method.value;
+                  return <label key={method.value} className={`relative flex cursor-pointer items-center gap-4 rounded-xl border-2 p-4 transition hover:border-emerald-300 ${selected?"border-emerald-500 bg-emerald-50/60":"border-slate-200 bg-white"}`}>
+                    <input className="sr-only" type="radio" name="paymentMethod" value={method.value} checked={selected} onChange={(e)=>setPaymentMethod(e.target.value)}/>
+                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${selected?"bg-emerald-600 text-white":"bg-slate-100 text-slate-600"}`}><Icon className="h-5 w-5"/></span>
+                    <span className="min-w-0 flex-1"><span className="block font-semibold text-slate-900">{method.label}</span><span className="mt-1 block text-xs text-slate-500">{method.description}</span></span>
+                    {selected&&<CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600"/>}
                   </label>
-                ))}
+                })}
               </div>
 
-              {paymentMethod === "razorpay" && (
-                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/50 p-4 text-sm">
-                  <p className="flex items-center gap-2 font-medium text-emerald-800">
-                    <CreditCard className="h-4 w-4" /> Secure payments by Razorpay
-                  </p>
-                  <ul className="mt-2 space-y-1 text-xs text-emerald-700">
-                    <li>• UPI (GPay, PhonePe, Paytm, BHIM) — instant settlement</li>
-                    <li>• Credit / Debit Cards (Visa, Mastercard, RuPay, Amex)</li>
-                    <li>• Net Banking & all popular wallets</li>
-                    <li>• 100% encrypted, PCI-DSS compliant checkout</li>
-                  </ul>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+              {paymentMethod==="razorpay"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600"/><div><p className="font-semibold text-emerald-900">Secure online checkout</p><p className="mt-1 text-xs leading-5 text-emerald-800">UPI, credit/debit cards, net banking and supported wallets are available inside the secure Razorpay checkout.</p></div></div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 sm:grid-cols-4"><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><Smartphone className="h-4 w-4 text-emerald-600"/>UPI</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><CreditCard className="h-4 w-4 text-emerald-600"/>Cards</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><Landmark className="h-4 w-4 text-emerald-600"/>Banking</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><WalletCards className="h-4 w-4 text-emerald-600"/>Wallets</span></div>
+              </div>}
 
-          {/* Special Instructions */}
+              {paymentMethod==="wallet"&&<div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4"><p className="font-semibold text-blue-900">Wallet balance</p><p className="mt-1 text-sm text-blue-800">Your wallet will be checked when the payment is created. If the balance is insufficient, choose another method.</p></div>}
+
+              {paymentMethod==="cash"&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4"><div className="flex gap-3"><Banknote className="mt-0.5 h-5 w-5 text-amber-600"/><div><p className="font-semibold text-amber-900">Cash on delivery</p><p className="mt-1 text-xs leading-5 text-amber-800">Keep the exact amount ready. Payment remains pending until the delivery is completed and cash is collected.</p></div></div></div>}
+            </CardContent>
+          </Card>          {/* Special Instructions */}
           <Card>
             <CardHeader>
               <CardTitle>Special Instructions</CardTitle>
