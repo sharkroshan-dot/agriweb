@@ -78,7 +78,7 @@ export default function CheckoutPage() {
   );
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
-  const [paymentMethod, setPaymentMethod] = useState("razorpay");
+  const [paymentMethod, setPaymentMethod] = useState("upi");
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -473,6 +473,39 @@ export default function CheckoutPage() {
     return null;
   }
 
+  if (paymentStage === "success") {
+    return (
+      <div className="space-y-6 p-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
+          </Button>
+          <div>
+            <h1 className="text-2xl font-semibold">Order confirmation</h1>
+            <p className="text-sm text-muted-foreground">Your payment and order have been processed.</p>
+          </div>
+        </div>
+        <Card className="border-emerald-200 bg-emerald-50/70">
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div className="rounded-full bg-emerald-100 p-3"><CheckCircle2 className="h-7 w-7 text-emerald-600" /></div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-semibold text-emerald-950">Payment successful</h2>
+                <p className="mt-1 text-sm text-emerald-800">{paymentMessage}</p>
+                {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
+                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
+                  <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (items.length === 0) {
     return (
       <div className="space-y-6 p-6">
@@ -508,25 +541,7 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {paymentStage === "success" ? (
-        <Card className="border-emerald-200 bg-emerald-50/70">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-start gap-4">
-              <div className="rounded-full bg-emerald-100 p-3"><CheckCircle2 className="h-7 w-7 text-emerald-600" /></div>
-              <div className="min-w-0 flex-1">
-                <h2 className="text-lg font-semibold text-emerald-950">Payment successful</h2>
-                <p className="mt-1 text-sm text-emerald-800">{paymentMessage}</p>
-                {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
-                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
-                  <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      ) : paymentStage !== "idle" && (
+      {paymentStage !== "idle" && (
         <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":paymentStage==="success"?"border-emerald-200 bg-emerald-50/60":"border-blue-200 bg-blue-50/60"}`}>
           <CardContent className="flex items-center gap-3 p-4">
             {paymentStage==="success" ? <CheckCircle2 className="h-5 w-5 text-emerald-600"/> : paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
