@@ -27,7 +27,7 @@ async def extract(days:int, output:Path):
         try: prices.append({"date":x.get("date"),"price":float(x["price"]),"demand_score":float(x.get("demand_score",0) or 0),"weather_score":float(x.get("weather_score",0) or 0),"competition_score":float(x.get("competition_score",0) or 0),"product_id":str(x.get("product_id"))})
         except (TypeError,ValueError): continue
     write_jsonl(output/"price.jsonl",prices)
-    # Demand: aggregate delivered order quantities by calendar day/product.
+    # Demand: aggregate delivered order quantities by calendar day.\n    # The forecasting model currently consumes a daily aggregate series.
     demand=defaultdict(float)
     async for order in db.orders.find({"orderDate":{"$gte":cutoff},"orderStatus":"delivered","deletedAt":None},{"orderDate":1,"items":1}):
         date=order.get("orderDate");
