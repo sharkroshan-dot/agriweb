@@ -18,5 +18,5 @@ def main():
     if a.price: print(json.dumps(price_prediction_model.train(load(a.price)),indent=2))
     if a.demand: print(json.dumps(demand_forecast_model.train(load(a.demand)),indent=2))
     if a.delivery: print(json.dumps(delivery_risk_model.train(load(a.delivery)),indent=2))
-    if a.anomaly: print(json.dumps(anomaly_detection_model.train(load(a.anomaly)),indent=2))
+    if a.anomaly:\n        anomaly_rows=load(a.anomaly)\n        values=[float(row.get("value")) for row in anomaly_rows if isinstance(row,dict) and row.get("value") is not None]\n        print(json.dumps(anomaly_detection_model.train(values),indent=2))
 if __name__=="__main__": main()
