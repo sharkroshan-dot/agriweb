@@ -153,24 +153,34 @@ async def extract(days: int, output: Path):
         if date:
             orders.append(order)
 
-    # Demand: daily total item quantity for fulfilled orders/pickups.
+    # Demand: aggregate every non-cancelled order as observed demand.
+    # Calendar days with no orders are genuine zero-demand observations.
     demand = defaultdict(float)
+    demand_dates = []
     for order in orders:
-        if not _is_completed(order):
+        if _status(order) in {"cancelled", "refunded"}:
             continue
         quantity = _quantity_kg(order)
         date = _date_value(_first(order, "orderDate", "createdAt"))
-        if quantity > 0 and date:
-            demand[date.strftime("%Y-%m-%d")] += quantity
+        if date:
+            demand_dates.append(date)
+            if quantity > 0:
+                demand[date.strftime("%Y-%m-%d")] += quantity
+
+    if demand_dates:
+        cursor = min(demand_dates).date()
+        last_day = max(demand_dates).date()
+        while cursor <= last_day:
+            demand.setdefault(cursor.isoformat(), 0.0)
+            cursor += timedelta(days=1)
 
     demand_rows = [{"date": d, "demand": float(v)} for d, v in sorted(demand.items())]
     write_jsonl(output / "demand.jsonl", demand_rows)
 
-    # Sales: every fulfilled order is a real observation. Keep each order as
-    # an individual observation so a dataset can reach useful sample counts.
+    # Anomaly training uses each real non-cancelled order total.
     sales = []
     for order in orders:
-        if not _is_completed(order):
+        if _status(order) in {"cancelled", "refunded"}:
             continue
         total = _number(order.get("totalAmount"))
         if total is not None and total >= 0:
