@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
-import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2, AlertCircle } from "lucide-react";
+import { ShoppingCart, MapPin, ArrowLeft, Plus, CreditCard, Loader2, X, Truck, CalendarClock, Leaf, ShieldCheck, Smartphone, Landmark, Banknote, WalletCards, CheckCircle2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -92,6 +92,8 @@ export default function CheckoutPage() {
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [paymentStage, setPaymentStage] = useState<"idle"|"creating"|"processing"|"success"|"failed">("idle");
+  const [paymentMessage, setPaymentMessage] = useState("");
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -338,6 +340,8 @@ export default function CheckoutPage() {
     }
 
     setIsPlacing(true);
+    setPaymentStage("creating");
+    setPaymentMessage("Creating your secure payment session…");
 
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current =
@@ -384,6 +388,8 @@ export default function CheckoutPage() {
         router.push(`/orders/${order.id || order._id}`);
       } else {
         // Online payment via Razorpay Checkout
+        setPaymentMessage("Opening secure payment gateway…");
+        setPaymentStage("processing");
         const intent = await api.post("/payments/create-intent", {
           order_id: order.id || order._id,
           payment_method: "razorpay",
@@ -405,6 +411,8 @@ export default function CheckoutPage() {
             razorpay_payment_id: `sim_payment_${intentData.payment_id}`,
             razorpay_signature: "simulated_signature",
           });
+          setPaymentStage("success");
+          setPaymentMessage("Payment verified successfully. Your order is confirmed.");
           clearCart();
           toast.success("Payment successful! Order placed.");
           router.push(`/orders/${order.id || order._id}`);
@@ -414,6 +422,8 @@ export default function CheckoutPage() {
         await openRazorpayCheckout(intentData, order.id || order._id);
       }
     } catch (err: any) {
+      setPaymentStage("failed");
+      setPaymentMessage("Payment could not be completed. Your order can be retried safely.");
       const msg = err?.message || "";
       if (msg.includes("Product not found")) {
         const productId = msg.match(/[a-f0-9]{24}/)?.[0];
@@ -472,6 +482,15 @@ export default function CheckoutPage() {
           <p className="text-sm text-muted-foreground">{itemCount} items · {formatPrice(displayTotal)}</p>
         </div>
       </div>
+
+      {paymentStage !== "idle" && (
+        <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":paymentStage==="success"?"border-emerald-200 bg-emerald-50/60":"border-blue-200 bg-blue-50/60"}`}>
+          <CardContent className="flex items-center gap-3 p-4">
+            {paymentStage==="success" ? <CheckCircle2 className="h-5 w-5 text-emerald-600"/> : paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
+            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?"Preparing payment":paymentStage==="processing"?"Payment processing":paymentStage==="success"?"Payment confirmed":"Payment needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
+          </CardContent>
+        </Card>
+      )}
 
       {addressesError && (
         <PageErrorState
