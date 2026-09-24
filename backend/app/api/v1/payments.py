@@ -153,6 +153,39 @@ async def verify_payment(
 
     return _payment_response(payment)
 
+@router.get("/admin/stats")
+async def admin_payment_stats(current_user: dict = Depends(get_current_user)):
+    """Aggregate payment metrics for the admin payment dashboard."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can access payment statistics")
+    return {"success": True, "data": await payment_repository.get_payment_stats()}
+
+
+@router.get("/admin/list")
+async def admin_payment_list(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    payment_status: Optional[str] = Query(None, alias="status"),
+    current_user: dict = Depends(get_current_user),
+):
+    """List payment records for the admin payment operations screen."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can access payments")
+    query = {"deletedAt": None}
+    if payment_status:
+        query["status"] = payment_status
+    skip = (page - 1) * limit
+    rows = await payment_repository.find_many(query, skip=skip, limit=limit, sort=[("createdAt", -1)])
+    total = await payment_repository.count(query)
+    return {
+        "success": True,
+        "data": {
+            "payments": [_payment_response(p) for p in rows],
+            "pagination": {"page": page, "limit": limit, "total": total, "totalPages": (total + limit - 1) // limit},
+        },
+    }
+
+
 @router.get("/{order_id}", response_model=PaymentResponse)
 async def get_payment_status(
     order_id: str,
