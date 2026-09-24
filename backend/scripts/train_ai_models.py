@@ -1,1 +1,70 @@
-"""Train AgriConnect models from real JSON/JSONL datasets; never fabricates rows."""\nimport argparse\nimport json\nfrom pathlib import Path\n\nfrom app.ai.models.anomaly_detection import anomaly_detection_model\nfrom app.ai.models.delivery_risk import delivery_risk_model\nfrom app.ai.models.demand_forecast import demand_forecast_model\nfrom app.ai.models.price_prediction import price_prediction_model\n\n\ndef load(path):\n    """Load normal JSON, JSONL, and exports containing literal \\n separators."""\n    text = Path(path).read_text(encoding="utf-8")\n    # Some existing exports contain literal backslash-n separators instead of\n    # real line breaks. Normalize them before decoding JSON.\n    text = text.replace("\\r\\n", "\n").replace("\\n", "\n")\n\n    rows = []\n    for line in text.splitlines():\n        line = line.strip()\n        if not line:\n            continue\n        value = json.loads(line)\n        if isinstance(value, list):\n            rows.extend(value)\n        else:\n            rows.append(value)\n    return rows\n\n\ndef main():\n    parser = argparse.ArgumentParser()\n    parser.add_argument("--price")\n    parser.add_argument("--demand")\n    parser.add_argument("--delivery")\n    parser.add_argument("--anomaly")\n    args = parser.parse_args()\n\n    if args.price:\n        result = price_prediction_model.train(load(args.price))\n        print(json.dumps(result, indent=2))\n        if result.get("status") != "success":\n            raise SystemExit(2)\n\n    if args.demand:\n        result = demand_forecast_model.train(load(args.demand))\n        print(json.dumps(result, indent=2))\n        if result.get("status") != "success":\n            raise SystemExit(2)\n\n    if args.delivery:\n        result = delivery_risk_model.train(load(args.delivery))\n        print(json.dumps(result, indent=2))\n        if result.get("status") != "success":\n            raise SystemExit(2)\n\n    if args.anomaly:\n        anomaly_rows = load(args.anomaly)\n        values = [\n            float(row.get("value"))\n            for row in anomaly_rows\n            if isinstance(row, dict) and row.get("value") is not None\n        ]\n        result = anomaly_detection_model.train(values)\n        print(json.dumps(result, indent=2))\n        if result.get("status") != "success":\n            raise SystemExit(2)\n\n\nif __name__ == "__main__":\n    main()
+"""Train AgriConnect models from real JSON/JSONL datasets; never fabricates rows."""
+import argparse
+import json
+from pathlib import Path
+
+from app.ai.models.anomaly_detection import anomaly_detection_model
+from app.ai.models.delivery_risk import delivery_risk_model
+from app.ai.models.demand_forecast import demand_forecast_model
+from app.ai.models.price_prediction import price_prediction_model
+
+
+def load(path):
+    """Load JSON, JSONL, and exports containing literal backslash-n separators."""
+    text = Path(path).read_text(encoding="utf-8")
+    text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        value = json.loads(line)
+        if isinstance(value, list):
+            rows.extend(value)
+        else:
+            rows.append(value)
+    return rows
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--price")
+    parser.add_argument("--demand")
+    parser.add_argument("--delivery")
+    parser.add_argument("--anomaly")
+    args = parser.parse_args()
+
+    if args.price:
+        result = price_prediction_model.train(load(args.price))
+        print(json.dumps(result, indent=2))
+        if result.get("status") != "success":
+            raise SystemExit(2)
+
+    if args.demand:
+        result = demand_forecast_model.train(load(args.demand))
+        print(json.dumps(result, indent=2))
+        if result.get("status") != "success":
+            raise SystemExit(2)
+
+    if args.delivery:
+        result = delivery_risk_model.train(load(args.delivery))
+        print(json.dumps(result, indent=2))
+        if result.get("status") != "success":
+            raise SystemExit(2)
+
+    if args.anomaly:
+        anomaly_rows = load(args.anomaly)
+        values = [
+            float(row.get("value"))
+            for row in anomaly_rows
+            if isinstance(row, dict) and row.get("value") is not None
+        ]
+        result = anomaly_detection_model.train(values)
+        print(json.dumps(result, indent=2))
+        if result.get("status") != "success":
+            raise SystemExit(2)
+
+
+if __name__ == "__main__":
+    main()
