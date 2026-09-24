@@ -15,8 +15,8 @@ def load(path):
 
 def main():
     p=argparse.ArgumentParser(); p.add_argument("--price"); p.add_argument("--demand"); p.add_argument("--delivery"); p.add_argument("--anomaly"); a=p.parse_args()
-    if a.price: print(json.dumps(price_prediction_model.train(load(a.price)),indent=2))
-    if a.demand:\n        demand_rows=load(a.demand)\n        print(json.dumps(demand_forecast_model.train(demand_rows),indent=2))
-    if a.delivery: print(json.dumps(delivery_risk_model.train(load(a.delivery)),indent=2))
-    if a.anomaly:\n        anomaly_rows=load(a.anomaly)\n        values=[float(row.get("value")) for row in anomaly_rows if isinstance(row,dict) and row.get("value") is not None]\n        print(json.dumps(anomaly_detection_model.train(values),indent=2))
+    if a.price:\n        result=price_prediction_model.train(load(a.price)); print(json.dumps(result,indent=2))\n        if result.get("status") != "success": raise SystemExit(2)
+    if a.demand:\n        result=demand_forecast_model.train(load(a.demand)); print(json.dumps(result,indent=2))\n        if result.get("status") != "success": raise SystemExit(2)
+    if a.delivery:\n        result=delivery_risk_model.train(load(a.delivery)); print(json.dumps(result,indent=2))\n        if result.get("status") != "success": raise SystemExit(2)
+    if a.anomaly:\n        anomaly_rows=load(a.anomaly)\n        values=[float(row.get("value")) for row in anomaly_rows if isinstance(row,dict) and row.get("value") is not None]\n        result=anomaly_detection_model.train(values); print(json.dumps(result,indent=2))\n        if result.get("status") != "success": raise SystemExit(2)
 if __name__=="__main__": main()
