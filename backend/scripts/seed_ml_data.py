@@ -2,7 +2,7 @@
 
 import argparse
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from bson import ObjectId
 
@@ -194,7 +194,7 @@ async def main():
 
     db = MongoDB.db
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Remove only records created by this seeder.
     if args.reset:
