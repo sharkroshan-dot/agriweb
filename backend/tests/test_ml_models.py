@@ -17,8 +17,10 @@ def test_demand_requires_enough_data():
     result=DemandForecastModel().train(demand_rows(10))
     assert result["status"]=="failed"
 
-def test_delivery_fallback_has_zero_confidence():
-    result=DeliveryRiskModel().predict({"distance_km":20,"time_window_minutes":30,"is_cod":1})
+def test_delivery_fallback_has_zero_confidence(tmp_path):
+    model = DeliveryRiskModel()
+    model.model_path = str(tmp_path / "missing-delivery-model.pkl")
+    result = model.predict({"distance_km":20,"time_window_minutes":30,"is_cod":1})
     assert result["confidence"]==0.0
     assert result["model"]=="explainable_rule_fallback"
 
