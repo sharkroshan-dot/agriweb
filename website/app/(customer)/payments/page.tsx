@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, CreditCard, Loader2, CheckCircle, XCircle, Clock, RefreshCw, ArrowUpLeft } from "lucide-react";
+import { ArrowLeft, CreditCard, Loader2, CheckCircle, XCircle, RefreshCw, ArrowUpLeft, ShieldCheck, ReceiptText, WalletCards } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
@@ -151,6 +151,11 @@ export default function CustomerPaymentsPage() {
             <p className="mt-1 text-2xl font-bold text-orange-600">{formatPrice(totals.totalRefunded)}</p>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="border-emerald-200 bg-emerald-50/50"><CardContent className="p-5"><div className="flex items-start gap-3"><ShieldCheck className="h-5 w-5 text-emerald-600"/><div><h2 className="font-semibold text-emerald-900">Secure payment history</h2><p className="mt-1 text-sm text-emerald-800">Online payments are verified by the backend before they are marked successful.</p></div></div></CardContent></Card>
+        <Card><CardContent className="p-5"><div className="flex items-start gap-3"><WalletCards className="h-5 w-5 text-blue-600"/><div><h2 className="font-semibold">Wallet & refunds</h2><p className="mt-1 text-sm text-slate-500">Review wallet activity and follow refund requests from your order history.</p></div></div></CardContent></Card>
       </div>
 
       <div className="flex items-center gap-1 rounded-lg border bg-white p-1 shadow-sm">
