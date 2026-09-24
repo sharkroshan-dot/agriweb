@@ -1,158 +1,48 @@
-from typing import Dict, Any, List, Optional
-import logging
-
-logger = logging.getLogger(__name__)
-
+"""Delivery risk: calibrated supervised classifier with explainable fallback scoring."""
+from typing import Dict, Any, List
+import logging, os
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import precision_score, recall_score, f1_score
+logger=logging.getLogger(__name__)
 
 class DeliveryRiskModel:
-    """Delivery risk prediction model.
-
-    Estimates the probability that a delivery will be late or fail before it
-    starts. Uses a transparent weighted scoring approach so the contribution of
-    each factor can be explained to the farmer or delivery partner.
-
-    Risk buckets (matching the AgriConnect spec):
-        0-30   LOW
-        31-70  MEDIUM
-        71-100 HIGH
-    """
-
+    FEATURES=["distance_km","time_window_minutes","is_cod","quantity_kg","vehicle_capacity","partner_on_time_rate","partner_rating","partner_active_load","previous_delays","rural_roads"]
     def __init__(self):
-        self.model_path = "backend/ai/models/delivery_risk.pkl"
-
-    def predict(self, features: Dict[str, Any]) -> Dict[str, Any]:
-        """Predict delivery risk for a single order/delivery.
-
-        Expected feature keys (all optional, defaults chosen for unknown data):
-          distance_km            float - straight-line or routed distance
-          time_window_minutes    int   - remaining delivery window in minutes
-          is_cod                 bool  - cash on delivery
-          quantity_kg            float - total weight of the order
-          vehicle_capacity       float - partner vehicle capacity in kg
-          partner_on_time_rate   float - partner historical on-time rate (0-1)
-          partner_rating         float - partner rating (0-5)
-          partner_active_load    int   - number of deliveries already on the vehicle
-          previous_delays        int   - partner previous late/failed deliveries
-          delivery_slot          str   - e.g. "Morning", "Afternoon", "Evening"
-          rural_roads            int   - estimated narrow/rural road segments
-        """
+        self.model=None; self.model_path=os.getenv("AGRICONNECT_DELIVERY_RISK_MODEL_PATH","backend/app/ai/models/weights/delivery_risk.pkl"); self.metrics={}
+    def _vector(self,f):
+        return np.array([[float(bool(f.get("is_cod"))) if k=="is_cod" else float(f.get(k,0) or 0) for k in self.FEATURES]])
+    def load_model(self):
         try:
-            factors: List[Dict[str, Any]] = []
-            score = 0.0
-
-            distance = float(features.get("distance_km") or 0)
-            window = float(features.get("time_window_minutes") or 120)
-            is_cod = bool(features.get("is_cod"))
-            qty = float(features.get("quantity_kg") or 0)
-            capacity = float(features.get("vehicle_capacity") or 0)
-            on_time = float(features.get("partner_on_time_rate") or 0.9)
-            rating = float(features.get("partner_rating") or 4.0)
-            load = int(features.get("partner_active_load") or 0)
-            delays = int(features.get("previous_delays") or 0)
-            slot = str(features.get("delivery_slot") or "")
-            rural = int(features.get("rural_roads") or 0)
-
-            # Distance: each 5 km beyond the first 5 km adds weight.
-            if distance > 5:
-                distance_score = min(30.0, (distance - 5) * 1.5)
-                score += distance_score
-                factors.append({
-                    "factor": "distance",
-                    "impact": "high" if distance > 15 else "medium",
-                    "detail": f"{distance:.1f} km route",
-                    "points": round(distance_score, 1),
-                })
-
-            # Time window pressure: tight windows raise risk.
-            if window <= 30:
-                score += 20
-                factors.append({"factor": "time_window", "impact": "high", "detail": "Very tight delivery window", "points": 20})
-            elif window <= 60:
-                score += 12
-                factors.append({"factor": "time_window", "impact": "medium", "detail": "Tight delivery window", "points": 12})
-
-            # COD orders are held to a stricter on-time standard.
-            if is_cod:
-                score += 8
-                factors.append({"factor": "cod", "impact": "medium", "detail": "Cash on delivery order", "points": 8})
-
-            # Vehicle utilization: near/over capacity raises risk.
-            if capacity > 0:
-                utilization = (qty + load * 2) / capacity
-                if utilization > 1.0:
-                    score += 25
-                    factors.append({"factor": "capacity", "impact": "high", "detail": "Order exceeds vehicle capacity", "points": 25})
-                elif utilization > 0.8:
-                    score += 15
-                    factors.append({"factor": "capacity", "impact": "medium", "detail": "High vehicle utilization", "points": 15})
-
-            # Partner reliability.
-            if on_time < 0.8:
-                score += 25
-                factors.append({"factor": "partner_on_time", "impact": "high", "detail": "Low partner on-time record", "points": 25})
-            elif on_time < 0.9:
-                score += 12
-                factors.append({"factor": "partner_on_time", "impact": "medium", "detail": "Below-average on-time record", "points": 12})
-
-            if rating < 3.5:
-                score += 10
-                factors.append({"factor": "partner_rating", "impact": "medium", "detail": "Low partner rating", "points": 10})
-
-            if load >= 8:
-                score += 15
-                factors.append({"factor": "partner_load", "impact": "high", "detail": f"{load} deliveries already assigned", "points": 15})
-            elif load >= 5:
-                score += 8
-                factors.append({"factor": "partner_load", "impact": "medium", "detail": f"{load} deliveries already assigned", "points": 8})
-
-            if delays >= 3:
-                score += 15
-                factors.append({"factor": "delivery_history", "impact": "high", "detail": "Multiple previous delays/failures", "points": 15})
-            elif delays >= 1:
-                score += 6
-                factors.append({"factor": "delivery_history", "impact": "medium", "detail": "Previous delivery delay/failure", "points": 6})
-
-            # Rural roads slow down rural routes.
-            if rural >= 8:
-                score += 10
-                factors.append({"factor": "rural_roads", "impact": "medium", "detail": f"{rural} rural road segments", "points": 10})
-
-            # Evening deliveries have more traffic in Indian cities.
-            if slot and ("evening" in slot.lower() or "afternoon" in slot.lower()):
-                score += 5
-                factors.append({"factor": "delivery_slot", "impact": "low", "detail": f"{slot} traffic window", "points": 5})
-
-            score = min(100.0, max(0.0, score))
-            level = "LOW" if score <= 30 else ("MEDIUM" if score <= 70 else "HIGH")
-
-            if level == "LOW":
-                recommendation = "Proceed with current partner"
-            elif level == "MEDIUM":
-                recommendation = "Monitor this delivery and keep the customer informed"
-            else:
-                recommendation = "Assign this order to another available partner or delivery at an earlier slot"
-
-            expected_minutes = round(distance / 25 * 60 + 10 * (load + 1), 0)
-
-            factors.sort(key=lambda f: f["points"], reverse=True)
-            return {
-                "risk_score": round(score, 1),
-                "risk_level": level,
-                "expected_delivery_minutes": expected_minutes,
-                "recommendation": recommendation,
-                "factors": factors[:5],
-                "confidence": round(0.5 + 0.4 * (1 - score / 100), 2),
-            }
-        except Exception as e:
-            logger.error(f"Error predicting delivery risk: {str(e)}")
-            return {
-                "risk_score": 0.0,
-                "risk_level": "LOW",
-                "expected_delivery_minutes": 0,
-                "recommendation": "Unable to compute delivery risk",
-                "factors": [],
-                "confidence": 0.0,
-            }
-
-
-delivery_risk_model = DeliveryRiskModel()
+            if not os.path.exists(self.model_path):return False
+            a=joblib.load(self.model_path); self.model=a.get("model") if isinstance(a,dict) else a; self.metrics=a.get("metrics",{}) if isinstance(a,dict) else {}; return self.model is not None
+        except Exception as e:logger.error("Error loading delivery risk model: %s",e);return False
+    def train(self,training_data:List[Dict[str,Any]])->Dict[str,Any]:
+        if len(training_data)<40:return {"status":"failed","error":"At least 40 labeled delivery samples are required"}
+        try:
+            df=pd.DataFrame(training_data); target="late" if "late" in df else "risk_label"; 
+            if target not in df:return {"status":"failed","error":"Training data requires late or risk_label target"}
+            y=df[target].astype(int); X=df.reindex(columns=self.FEATURES,fill_value=0).astype(float); split=max(10,int(len(df)*.2)); tr,te=X.iloc[:-split],X.iloc[-split:]; yt,ye=y.iloc[:-split],y.iloc[-split:]
+            base=HistGradientBoostingClassifier(max_iter=200,learning_rate=.05,max_leaf_nodes=15,l2_regularization=1.0,random_state=42); model=CalibratedClassifierCV(base,method="sigmoid",cv=3); model.fit(tr,yt); pred=model.predict(te); self.model=model; self.metrics={"precision":float(precision_score(ye,pred,zero_division=0)),"recall":float(recall_score(ye,pred,zero_division=0)),"f1":float(f1_score(ye,pred,zero_division=0))}; os.makedirs(os.path.dirname(self.model_path),exist_ok=True); joblib.dump({"model":model,"metrics":self.metrics,"features":self.FEATURES},self.model_path); from app.ai.evaluation.model_registry import register_model; register_model("delivery_risk","calibrated-hgb-"+pd.Timestamp.utcnow().strftime("%Y%m%d%H%M%S"),"calibrated_hist_gradient_boosting",self.metrics,len(df),self.FEATURES); return {"status":"success","metrics":self.metrics,"samples":len(df)}
+        except Exception as e:logger.exception("Error training delivery risk model");return {"status":"failed","error":str(e)}
+    def predict(self,features:Dict[str,Any])->Dict[str,Any]:
+        try:
+            if self.model is None:self.load_model()
+            if self.model is not None:
+                p=float(self.model.predict_proba(self._vector(features))[0,1]); level="HIGH" if p>=.7 else "MEDIUM" if p>=.35 else "LOW"; return {"risk_score":round(p*100,1),"risk_level":level,"probability":round(p,4),"confidence":round(abs(p-.5)*2,2),"model":"calibrated_hist_gradient_boosting","metrics":self.metrics,"factors":self._factor_summary(features),"recommendation":"Review or reassign before dispatch" if level=="HIGH" else "Monitor delivery" if level=="MEDIUM" else "Proceed with current assignment"}
+            return self._rule_score(features)
+        except Exception as e:logger.exception("Error predicting delivery risk");return self._rule_score(features)
+    def _factor_summary(self,f):
+        factors=[]; d=float(f.get("distance_km") or 0); w=float(f.get("time_window_minutes") or 120); r=float(f.get("partner_on_time_rate") or .9); load=float(f.get("partner_active_load") or 0)
+        if d>15:factors.append({"factor":"distance","impact":"high","detail":f"{d:.1f} km route"})
+        elif d>5:factors.append({"factor":"distance","impact":"medium","detail":f"{d:.1f} km route"})
+        if w<=60:factors.append({"factor":"time_window","impact":"high" if w<=30 else "medium","detail":f"{w:.0f} minutes remaining"})
+        if r<.8:factors.append({"factor":"partner_on_time","impact":"high","detail":f"{r:.0%} historical on-time rate"})
+        if load>=8:factors.append({"factor":"partner_load","impact":"high","detail":f"{load:.0f} active deliveries"})
+        return factors[:5]
+    def _rule_score(self,features):
+        d=float(features.get("distance_km") or 0); w=float(features.get("time_window_minutes") or 120); cod=bool(features.get("is_cod")); q=float(features.get("quantity_kg") or 0); cap=float(features.get("vehicle_capacity") or 0); r=float(features.get("partner_on_time_rate") or .9); load=int(features.get("partner_active_load") or 0); delays=int(features.get("previous_delays") or 0); rural=int(features.get("rural_roads") or 0); score=min(100,max(0,(max(0,d-5)*1.5)+(20 if w<=30 else 12 if w<=60 else 0)+(8 if cod else 0)+(25 if cap and q>cap else 15 if cap and q>cap*.8 else 0)+(25 if r<.8 else 12 if r<.9 else 0)+(15 if load>=8 else 8 if load>=5 else 0)+(15 if delays>=3 else 6 if delays else 0)+(10 if rural>=8 else 0))); level="HIGH" if score>70 else "MEDIUM" if score>30 else "LOW"; return {"risk_score":round(score,1),"risk_level":level,"probability":round(score/100,3),"confidence":0.0,"model":"explainable_rule_fallback","metrics":{},"factors":self._factor_summary(features),"recommendation":"Review or reassign before dispatch" if level=="HIGH" else "Monitor delivery" if level=="MEDIUM" else "Proceed with current assignment"}
+delivery_risk_model=DeliveryRiskModel()
