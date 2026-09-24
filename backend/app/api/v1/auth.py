@@ -21,6 +21,7 @@ from app.services.notification_service import NotificationService
 from app.services.audit_service import AuditService
 from app.services.risk_engine import risk_engine
 from app.repositories.session_repository import session_repository
+from app.repositories.user_repository import user_repository
 from app.database.redis import RedisClient
 
 logger = logging.getLogger(__name__)
