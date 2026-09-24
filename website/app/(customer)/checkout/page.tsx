@@ -43,9 +43,11 @@ type Address = {
 };
 
 const PAYMENT_METHODS = [
-  { value: "razorpay", label: "UPI & Cards", description: "Pay securely with Razorpay", icon: CreditCard, accent: "emerald" },
-  { value: "wallet", label: "AgriConnect Wallet", description: "Use your available wallet balance", icon: WalletCards, accent: "blue" },
-  { value: "cash", label: "Cash on Delivery", description: "Pay when your order arrives", icon: Banknote, accent: "amber" },
+  { value: "upi", label: "UPI", description: "GPay, PhonePe, Paytm, BHIM and other UPI apps", icon: Smartphone },
+  { value: "card", label: "Card", description: "Credit, debit and RuPay cards", icon: CreditCard },
+  { value: "netbanking", label: "Net Banking", description: "Pay securely through your bank", icon: Landmark },
+  { value: "wallet", label: "AgriConnect Wallet", description: "Use your available wallet balance", icon: WalletCards },
+  { value: "cash", label: "Cash on Delivery", description: "Pay when your order arrives", icon: Banknote },
 ];
 
 const initialAddrForm = {
@@ -94,6 +96,8 @@ export default function CheckoutPage() {
   const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [paymentStage, setPaymentStage] = useState<"idle"|"creating"|"processing"|"success"|"failed">("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
+  const [completedOrderId, setCompletedOrderId] = useState("");
+  const [completedTransactionId, setCompletedTransactionId] = useState("");
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -256,11 +260,16 @@ export default function CheckoutPage() {
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
             });
+            setCompletedOrderId(orderId);
+            setCompletedTransactionId(response.razorpay_payment_id || intentData.payment_id || "");
+            setPaymentStage("success");
+            setPaymentMessage("Payment verified successfully. Your order is confirmed.");
             clearCart();
             toast.success("Payment successful! Order placed.");
-            router.push(`/orders/${orderId}`);
             resolve();
           } catch (err: any) {
+            setPaymentStage("failed");
+            setPaymentMessage("Payment confirmation failed. You can retry safely from your payment history.");
             toast.error(err?.message || "Payment could not be confirmed");
             resolve();
           } finally {
@@ -269,6 +278,8 @@ export default function CheckoutPage() {
         },
         modal: {
           ondismiss: () => {
+            setPaymentStage("failed");
+            setPaymentMessage("Payment was cancelled. Your order is still awaiting payment; you can retry safely.");
             toast("Payment cancelled. You can retry checkout anytime.", { icon: "🛒" });
             resolve();
           },
@@ -328,7 +339,7 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (paymentMethod !== "cash" && !razorpayReady) {
+    if (paymentMethod !== "cash" && paymentMethod !== "wallet" && !razorpayReady) {
       toast.error("Payment gateway is still loading, please retry in a moment");
       return;
     }
@@ -341,7 +352,7 @@ export default function CheckoutPage() {
 
     setIsPlacing(true);
     setPaymentStage("creating");
-    setPaymentMessage("Creating your secure payment session…");
+    setPaymentMessage(paymentMethod === "wallet" ? "Checking your AgriConnect wallet balance…" : paymentMethod === "cash" ? "Preparing cash-on-delivery order…" : "Creating your secure payment session…");
 
     if (!idempotencyKeyRef.current) {
       idempotencyKeyRef.current =
@@ -383,18 +394,31 @@ export default function CheckoutPage() {
       if (!order) throw new Error("Failed to create order");
 
       if (paymentMethod === "cash") {
+        setCompletedOrderId(order.id || order._id);
+        setPaymentStage("success");
+        setPaymentMessage("Cash on delivery selected. Your order is confirmed and payment will be collected at delivery.");
         clearCart();
         toast.success("Order placed successfully!");
-        router.push(`/orders/${order.id || order._id}`);
       } else {
         // Online payment via Razorpay Checkout
         setPaymentMessage("Opening secure payment gateway…");
         setPaymentStage("processing");
         const intent = await api.post("/payments/create-intent", {
           order_id: order.id || order._id,
-          payment_method: "razorpay",
+          payment_method: paymentMethod,
         });
         const intentData = intent?.data || intent;
+
+        if (paymentMethod === "wallet") {
+          if (intentData?.status !== "success") throw new Error(intentData?.error || "Wallet payment failed");
+          setPaymentStage("success");
+          setCompletedOrderId(order.id || order._id);
+          setCompletedTransactionId(intentData.payment_id || "");
+          setPaymentMessage(intentData.message || "Wallet payment completed successfully. Your order is confirmed.");
+          clearCart();
+          toast.success("Wallet payment successful!");
+          return;
+        }
 
         if (!intentData?.order_id) {
           throw new Error(intentData?.error || "Payment initiation failed");
@@ -412,10 +436,11 @@ export default function CheckoutPage() {
             razorpay_signature: "simulated_signature",
           });
           setPaymentStage("success");
+          setCompletedOrderId(order.id || order._id);
+          setCompletedTransactionId(intentData.payment_id || intentData.order_id || "");
           setPaymentMessage("Payment verified successfully. Your order is confirmed.");
           clearCart();
           toast.success("Payment successful! Order placed.");
-          router.push(`/orders/${order.id || order._id}`);
           return;
         }
 
@@ -483,7 +508,25 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {paymentStage !== "idle" && (
+      {paymentStage === "success" ? (
+        <Card className="border-emerald-200 bg-emerald-50/70">
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div className="rounded-full bg-emerald-100 p-3"><CheckCircle2 className="h-7 w-7 text-emerald-600" /></div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-semibold text-emerald-950">Payment successful</h2>
+                <p className="mt-1 text-sm text-emerald-800">{paymentMessage}</p>
+                {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
+                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
+                  <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : paymentStage !== "idle" && (
         <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":paymentStage==="success"?"border-emerald-200 bg-emerald-50/60":"border-blue-200 bg-blue-50/60"}`}>
           <CardContent className="flex items-center gap-3 p-4">
             {paymentStage==="success" ? <CheckCircle2 className="h-5 w-5 text-emerald-600"/> : paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
@@ -677,8 +720,8 @@ export default function CheckoutPage() {
                 })}
               </div>
 
-              {paymentMethod==="razorpay"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600"/><div><p className="font-semibold text-emerald-900">Secure online checkout</p><p className="mt-1 text-xs leading-5 text-emerald-800">UPI, credit/debit cards, net banking and supported wallets are available inside the secure Razorpay checkout.</p></div></div>
+              {["upi","card","netbanking"].includes(paymentMethod)&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600"/><div><p className="font-semibold text-emerald-900">Secure Razorpay checkout</p><p className="mt-1 text-xs leading-5 text-emerald-800">Your selected payment method opens in Razorpay&apos;s secure checkout. The server verifies the payment signature before the order is marked paid.</p></div></div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 sm:grid-cols-4"><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><Smartphone className="h-4 w-4 text-emerald-600"/>UPI</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><CreditCard className="h-4 w-4 text-emerald-600"/>Cards</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><Landmark className="h-4 w-4 text-emerald-600"/>Banking</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><WalletCards className="h-4 w-4 text-emerald-600"/>Wallets</span></div>
               </div>}
 
