@@ -17,6 +17,9 @@ class StockStatus(str, Enum):
     OUT_OF_STOCK = "out_of_stock"
     EXPIRED = "expired"
     RESERVED = "reserved"
+    DAMAGED = "damaged"
+    QUARANTINED = "quarantined"
+    TRANSFERRED = "transferred"
 
 
 class IncomingStatus(str, Enum):
@@ -97,6 +100,7 @@ class WarehouseStockUpdate(BaseModel):
     batchNumber: Optional[str] = None
     expiryDate: Optional[datetime] = None
     storageType: Optional[StorageType] = None
+    status: Optional[StockStatus] = None
 
 
 class WarehouseStockResponse(WarehouseStockBase):
