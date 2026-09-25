@@ -1794,14 +1794,23 @@ class PaymentService:
                 return False
 
             withdrawal_id = str(withdrawal["_id"])
+            current_status = str(withdrawal.get("status") or "").lower()
+
+            # Razorpay may retry the same webhook. Never transition a terminal
+            # withdrawal again, and never release funds twice.
             if event == "payout.processed":
+                if current_status in ("completed", "failed", "cancelled"):
+                    return True
                 await withdrawal_repository.update_status(withdrawal_id, "completed", {
                     "razorpayStatus": entity.get("status"),
                     "processedAt": datetime.utcnow(),
                     "razorpayWebhookAt": datetime.utcnow(),
                 })
             else:
-                # Payout failed/reversed/cancelled: release reserved funds back to the wallet.
+                # Payout failed/reversed/cancelled: release reserved funds back to
+                # the wallet exactly once.
+                if current_status in ("failed", "cancelled", "completed"):
+                    return True
                 amount = float(withdrawal.get("amount", 0))
                 await withdrawal_repository.update_status(withdrawal_id, "failed", {
                     "razorpayStatus": entity.get("status"),
