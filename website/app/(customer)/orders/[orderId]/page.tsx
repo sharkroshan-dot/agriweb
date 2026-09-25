@@ -488,6 +488,7 @@ export default function OrderDetailPage() {
       .filter((item: any) => (problemItems[item.id] || 0) > 0)
       .map((item: any) => ({
         productId: item.id,
+        variantId: item.variantId || undefined,
         quantity: problemItems[item.id],
         requestedAmount: null,
       }));
