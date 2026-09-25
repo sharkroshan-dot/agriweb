@@ -78,6 +78,7 @@ async def update_my_warehouse(
 async def get_my_warehouse_stock(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
+    status: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user)
 ):
     if current_user.get("role") != "warehouse":
@@ -95,7 +96,8 @@ async def get_my_warehouse_stock(
     stock, total = await WarehouseService.get_warehouse_stock(
         str(warehouse["_id"]),
         skip,
-        limit
+        limit,
+        status
     )
     for item in stock:
         item["id"] = str(item["_id"])
