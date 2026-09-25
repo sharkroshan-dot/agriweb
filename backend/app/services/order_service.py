@@ -466,11 +466,40 @@ class OrderService:
             if farm_loc:
                 order_data["farmLocation"] = farm_loc
         
+        # Reserve inventory before creating the order so concurrent checkouts cannot
+        # oversell the same stock. If order creation fails, release every
+        # reservation made in this attempt.
+        reserved_items = []
+        try:
+            for item in data.items:
+                if hasattr(item, 'reservationId') and item.reservationId:
+                    continue
+                reserved = await inventory_repository.atomic_reserve(item.productId, item.quantity)
+                if not reserved:
+                    raise InsufficientStockError(
+                        item.productId,
+                        item.quantity,
+                        await inventory_service.get_available_stock(item.productId),
+                    )
+                reserved_items.append((item.productId, item.quantity))
+        except Exception:
+            for product_id, quantity in reserved_items:
+                try:
+                    await inventory_repository.atomic_release(product_id, quantity)
+                except Exception:
+                    logger.exception("Failed to release checkout reservation for %s", product_id)
+            raise
+
         order_id = await order_repository.create_order(order_data)
         if not order_id:
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to create order in database. order_data keys: {list(order_data.keys())}")
+            for product_id, quantity in reserved_items:
+                try:
+                    await inventory_repository.atomic_release(product_id, quantity)
+                except Exception:
+                    logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
 
         if data.couponCode and discount > 0:
@@ -485,11 +514,16 @@ class OrderService:
                     item.reservationId, order_id
                 )
             else:
-                try:
-                    await inventory_repository.atomic_reserve(item.productId, item.quantity)
-                    await inventory_repository.atomic_confirm(item.productId, item.quantity)
-                except Exception:
-                    pass
+                confirmed = await inventory_repository.atomic_confirm(item.productId, item.quantity)
+                if not confirmed:
+                    logger.error(
+                        "Inventory confirmation failed for order %s, product %s",
+                        order_id,
+                        item.productId,
+                    )
+                    raise OrderCreationError(
+                        f"Inventory confirmation failed for product {item.productId}"
+                    )
                 await product_repository.decrement_quantity(item.productId, item.quantity)
                 stock = await InventoryService.get_stock(item.productId)
                 if stock:
