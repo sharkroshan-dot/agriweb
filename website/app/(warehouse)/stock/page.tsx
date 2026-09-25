@@ -115,7 +115,7 @@ export default function WarehouseStockPage() {
   }, [searchTerm, stockData]);
 
   const openAddDialog = () => {
-    setStockForm(emptyStockForm);
+    setStockForm({...emptyStockForm, status: "in_stock"});
     setShowAddDialog(true);
   };
 
@@ -148,7 +148,6 @@ export default function WarehouseStockPage() {
     batchNumber: stockForm.batchNumber.trim() || undefined,
     expiryDate: stockForm.expiryDate ? new Date(stockForm.expiryDate).toISOString() : undefined,
     storageType: stockForm.storageType,
-    status: stockForm.status || "in_stock",
   });
 
   const handleAddStock = async (event: FormEvent<HTMLFormElement>) => {
@@ -191,6 +190,7 @@ export default function WarehouseStockPage() {
         batchNumber: stockForm.batchNumber.trim() || undefined,
         expiryDate: stockForm.expiryDate ? new Date(stockForm.expiryDate).toISOString() : undefined,
         storageType: stockForm.storageType,
+        status: stockForm.status || "in_stock",
       };
       await api.put(`/warehouse/me/stock/${selectedItem.id}`, payload);
       toast.success("Stock updated successfully");
