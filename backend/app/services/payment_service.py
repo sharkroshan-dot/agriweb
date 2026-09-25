@@ -135,6 +135,7 @@ class PaymentService:
                 f"wallet_refund_{datetime.utcnow().timestamp()}",
                 status=_new_payment_status(),
             )
+            await PaymentService._record_refund_ledger(payment, order_id, refund_amount)
             await order_repository.update(
                 {"_id": ObjectId(order_id)},
                 {"paymentStatus": _order_payment_status()}
@@ -462,8 +463,6 @@ class PaymentService:
         payment_method = payment.get("paymentMethod")
         gateway_transaction_id = payment.get("transactionId")
 
-        await PaymentService._record_refund_ledger(payment, order_id, refund_amount)
-
         def _new_payment_status():
             return PaymentStatus.PARTIALLY_REFUNDED if is_partial else PaymentStatus.REFUNDED
 
@@ -481,6 +480,7 @@ class PaymentService:
                     simulated_refund_id,
                     status=_new_payment_status(),
                 )
+                await PaymentService._record_refund_ledger(payment, order_id, refund_amount)
                 await order_repository.update(
                     {"_id": ObjectId(order_id)},
                     {"paymentStatus": _order_payment_status()}
@@ -506,6 +506,7 @@ class PaymentService:
                     refund["id"],
                     status=_new_payment_status(),
                 )
+                await PaymentService._record_refund_ledger(payment, order_id, refund_amount)
 
                 # Update order
                 await order_repository.update(
@@ -603,6 +604,7 @@ class PaymentService:
                 cash_refund_id,
                 status=_new_payment_status(),
             )
+            await PaymentService._record_refund_ledger(payment, order_id, refund_amount)
 
             await order_repository.update(
                 {"_id": ObjectId(order_id)},
