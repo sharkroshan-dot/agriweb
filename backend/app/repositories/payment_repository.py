@@ -68,6 +68,29 @@ class PaymentRepository(BaseRepository):
             logger.error(f"Error getting payments by user: {str(e)}")
             return []
     
+    async def claim_pending_payment(
+        self,
+        payment_id: str,
+    ) -> bool:
+        """Atomically claim a pending payment for a single settlement attempt."""
+        try:
+            result = await self.collection.update_one(
+                {
+                    "_id": ObjectId(payment_id),
+                    "status": PaymentStatus.PENDING,
+                },
+                {
+                    "$set": {
+                        "status": PaymentStatus.PROCESSING,
+                        "updatedAt": datetime.utcnow(),
+                    }
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error claiming payment: {str(e)}")
+            return False
+
     async def mark_success_if_pending(
         self,
         payment_id: str,
