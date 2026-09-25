@@ -66,7 +66,6 @@ export default function WarehouseIncomingPage() {
       api.get("/warehouse/me/incoming", {
         params: {
           status: statusFilter !== "all" ? statusFilter : undefined,
-          date: dateFilter !== "all" ? dateFilter : undefined,
           limit: 50,
         },
       }),
