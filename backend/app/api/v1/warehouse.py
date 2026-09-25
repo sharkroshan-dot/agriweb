@@ -157,7 +157,7 @@ async def update_stock(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Warehouse not found"
         )
-    stock = await WarehouseService.update_stock(stock_id, data)
+    stock = await WarehouseService.update_stock(stock_id, data, str(warehouse["_id"]))
     if not stock:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
