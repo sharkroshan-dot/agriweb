@@ -1337,15 +1337,24 @@ class PaymentService:
         if payment.get("status") == PaymentStatus.SUCCESS:
             return True
 
-        # Add funds to the user's wallet
+        # Claim the payment first so concurrent browser/webhook retries cannot
+        # credit the wallet twice.
+        claimed = await payment_repository.claim_pending_payment(str(payment["_id"]))
+        if not claimed:
+            latest = await payment_repository.get_by_id(str(payment["_id"]))
+            return bool(latest and latest.get("status") == PaymentStatus.SUCCESS)
+
         wallet = await wallet_repository.get_by_user_id(str(payment["userId"]))
         if not wallet:
+            await payment_repository.update_payment_status(str(payment["_id"]), PaymentStatus.PENDING)
             return False
 
-        amount = payment.get("amount", 0)
+        amount = round(float(payment.get("amount", 0)), 2)
+        if amount <= 0:
+            await payment_repository.update_payment_status(str(payment["_id"]), PaymentStatus.PENDING)
+            return False
         wallet_id = str(wallet["_id"])
 
-        # Update wallet balance
         success = await wallet_repository.update_balance(
             wallet_id,
             amount,
@@ -1363,7 +1372,8 @@ class PaymentService:
             )
             if not updated:
                 logger.error(
-                    "Wallet top-up credited but payment status update failed for %s",
+                    "Wallet top-up credited but payment status update failed for %s; "
+                    "payment remains processing for reconciliation",
                     payment.get("_id"),
                 )
 
