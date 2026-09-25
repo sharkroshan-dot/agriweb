@@ -733,21 +733,32 @@ class RefundService:
         if not order:
             return
 
-        # Farmer settlement entry to reverse.
+        # Reverse only the portion of settlement represented by this refund.
+        # A partial product refund must not debit the farmer for the entire
+        # order value or reverse the entire platform commission.
         farmer_id = str(order.get("farmerId")) if order.get("farmerId") else None
-        # Platform commission entry to reverse.
-        commission = round(float(order.get("platformCommission") or order.get("platformFee") or 0), 2)
+        total_amount = round(float(order.get("totalAmount") or 0), 2)
+        ratio = min(max(amount / total_amount, 0.0), 1.0) if total_amount > 0 else 0.0
+        commission = round(
+            float(order.get("platformCommission") or order.get("platformFee") or 0) * ratio,
+            2,
+        )
+        farmer_settlement = round(max(amount - commission, 0.0), 2)
 
-        if farmer_id:
+        if farmer_id and farmer_settlement > 0:
             await ledger_service.record(
-                amount=amount,
+                amount=farmer_settlement,
                 direction="debit",
                 entry_type="refund",
                 user_id=farmer_id,
                 order_id=order_id,
                 payment_id=payment_id,
                 reference=f"refund:{refund.get('refundId')}",
-                metadata={"kind": "farmer_settlement_reversal", "refundId": refund.get("refundId")},
+                metadata={
+                    "kind": "farmer_settlement_reversal",
+                    "refundId": refund.get("refundId"),
+                    "proportional": True,
+                },
             )
         if commission > 0:
             await ledger_service.record(
@@ -757,7 +768,11 @@ class RefundService:
                 order_id=order_id,
                 payment_id=payment_id,
                 reference=f"refund:{refund.get('refundId')}",
-                metadata={"kind": "platform_commission_reversal", "refundId": refund.get("refundId")},
+                metadata={
+                    "kind": "platform_commission_reversal",
+                    "refundId": refund.get("refundId"),
+                    "proportional": True,
+                },
             )
 
     # ------------------------------------------------------------------
