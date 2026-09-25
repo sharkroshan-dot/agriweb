@@ -1535,15 +1535,9 @@ class PaymentService:
             return {"error": "Failed to create withdrawal request"}
 
         from app.services.ledger_service import ledger_service
-        await ledger_service.record(
-            amount=amount,
-            direction="debit",
-            entry_type="withdrawal",
-            user_id=user_id,
-            reference=withdrawal_id,
-            metadata={"bankAccountHash": PaymentService._bank_account_hash(data.bankAccount)},
-        )
-
+        # Reserve wallet funds before recording the withdrawal ledger entry.
+        # The ledger must never show a completed debit when the wallet reservation
+        # itself failed.
         # Atomically reserve the funds. The repository performs the
         # sufficient-balance check in the same database update.
         reserved = await wallet_repository.update_balance(
@@ -1556,6 +1550,15 @@ class PaymentService:
                 {"reason": "Insufficient wallet balance at reservation time"},
             )
             return {"error": "Insufficient balance"}
+
+        await ledger_service.record(
+            amount=amount,
+            direction="debit",
+            entry_type="withdrawal",
+            user_id=user_id,
+            reference=withdrawal_id,
+            metadata={"bankAccountHash": PaymentService._bank_account_hash(data.bankAccount)},
+        )
 
         wallet_after = await wallet_repository.get_by_id(str(wallet["_id"]))
         await wallet_transaction_repository.create_transaction({
