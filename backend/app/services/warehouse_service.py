@@ -172,17 +172,32 @@ class WarehouseService:
             return None
 
         if quality_check == "passed" and quantity > 0:
-            stock_data = {
-                "warehouseId": incoming["warehouseId"],
-                "productId": incoming["productId"],
-                "variantId": incoming.get("variantId"),
-                "quantity": quantity,
-                "batchNumber": incoming.get("batchNumber"),
-                "storageType": incoming.get("storageType", "ambient"),
+            stock_filter = {
+                "warehouseId": ObjectId(incoming["warehouseId"]),
+                "productId": ObjectId(incoming["productId"]),
+                "variantId": ObjectId(incoming["variantId"]) if incoming.get("variantId") else None,
+                "deletedAt": None,
             }
-            stock_id = await warehouse_stock_repository.create_stock(stock_data)
-            if not stock_id:
-                return None
+            existing_stock = await warehouse_stock_repository.find_one(stock_filter)
+            if existing_stock:
+                updated = await warehouse_stock_repository.update_stock(
+                    str(existing_stock["_id"]),
+                    {"quantity": int(existing_stock.get("quantity", 0)) + quantity}
+                )
+                if not updated:
+                    return None
+            else:
+                stock_data = {
+                    "warehouseId": incoming["warehouseId"],
+                    "productId": incoming["productId"],
+                    "variantId": incoming.get("variantId"),
+                    "quantity": quantity,
+                    "batchNumber": incoming.get("batchNumber"),
+                    "storageType": incoming.get("storageType", "ambient"),
+                }
+                stock_id = await warehouse_stock_repository.create_stock(stock_data)
+                if not stock_id:
+                    return None
 
         return await incoming_stock_repository.get_by_id(incoming_id)
 
