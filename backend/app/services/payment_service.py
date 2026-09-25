@@ -115,36 +115,32 @@ class PaymentService:
                 return {"error": str(e)}
 
         elif payment_method == "wallet":
-            # Use wallet
+            # Wallet-funded orders are refunded by crediting the customer's
+            # wallet. Never debit the wallet again during a refund.
             wallet = await wallet_repository.get_by_user_id(str(order["customerId"]))
             if not wallet:
-                return {"error": "Wallet not found"}
+                return None
 
-            if wallet.get("balance", 0) < amount:
-                return {"error": "Insufficient wallet balance"}
+            success = await wallet_repository.update_balance(
+                str(wallet["_id"]),
+                refund_amount,
+                "credit",
+            )
+            if not success:
+                return None
 
-            # Deduct from wallet
-            success = await PaymentService.process_wallet_payment(
-                str(order["customerId"]),
-                order_id,
-                amount,
-                f"Payment for order {order.get('orderNumber', '')}"
+            await payment_repository.mark_refunded(
+                str(payment["_id"]),
+                refund_amount,
+                f"wallet_refund_{datetime.utcnow().timestamp()}",
+                status=_new_payment_status(),
+            )
+            await order_repository.update(
+                {"_id": ObjectId(order_id)},
+                {"paymentStatus": _order_payment_status()}
             )
 
-            if success:
-                # Mark payment as successful
-                await payment_repository.update_payment_status(
-                    payment_id,
-                    PaymentStatus.SUCCESS
-                )
-
-                return {
-                    "payment_id": payment_id,
-                    "status": "success",
-                    "message": "Payment processed from wallet"
-                }
-            else:
-                return {"error": "Wallet payment failed"}
+            return f"wallet_refund_{datetime.utcnow().timestamp()}"
 
         elif payment_method == "cash":
             # Cash on delivery: no money is collected now. The delivery partner
