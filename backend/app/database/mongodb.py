@@ -135,6 +135,18 @@ class MongoDB:
         # Financial ledger (immutable, indexed for reconciliation queries)
         await cls.db.ledger_entries.create_index([("userId", 1), ("createdAt", -1)])
         await cls.db.ledger_entries.create_index([("orderId", 1), ("type", 1)])
+        # Stable gateway/webhook references must be unique for the same
+        # financial event so concurrent retries cannot create duplicate ledger
+        # entries. Existing legacy duplicates are tolerated at startup.
+        try:
+            await cls.db.ledger_entries.create_index(
+                [("reference", 1), ("type", 1), ("direction", 1), ("amount", 1)],
+                unique=True,
+                sparse=True,
+                name="ledger_reference_idempotency",
+            )
+        except Exception as exc:
+            logger.warning("Ledger idempotency index could not be created: %s", exc)
         # Audit log lookups (TTL index is created at startup separately)
         await cls.db.audit_logs.create_index([("action", 1), ("createdAt", -1)])
         await cls.db.audit_logs.create_index("actorId")
