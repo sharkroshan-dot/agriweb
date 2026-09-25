@@ -499,7 +499,7 @@ class NotificationService:
             failures.append("WhatsApp")
 
         # MSG91 second - the preferred SMS provider for Indian numbers
-        if msg91_configured and aiohttp is not None:
+        if msg91_configured:
             try:
                 sent = await NotificationService._send_msg91(normalized_to, message)
                 if sent:
