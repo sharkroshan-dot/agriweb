@@ -168,7 +168,7 @@ async def health_check():
 
 # Import and include routers
 from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying
-from app.api.v1 import admin, coupons, complaints, kyc, settings, delivery_ratings
+from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality
 try:
     from app.api.v1 import ai
@@ -196,7 +196,7 @@ app.include_router(coupons.router, prefix="/api/v1/coupons", tags=["Coupons"])
 app.include_router(complaints.router, prefix="/api/v1/complaints", tags=["Complaints"])
 app.include_router(delivery_ratings.router, prefix="/api/v1/delivery-ratings", tags=["Delivery Ratings"])
 app.include_router(kyc.router, prefix="/api/v1/kyc", tags=["KYC"])
-app.include_router(settings.router, prefix="/api/v1/settings", tags=["Settings"])
+app.include_router(settings_router.router, prefix="/api/v1/settings", tags=["Settings"])
 from app.api.v1 import chat
 app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
 from app.api.v1 import inventory
