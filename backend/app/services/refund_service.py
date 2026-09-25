@@ -417,6 +417,14 @@ class RefundService:
         refund_type = data.refundType.value
         resolution = data.resolution.value
 
+        # Replacement fulfilment is not yet backed by a replacement-order
+        # workflow. Never let a replacement request silently become a cash
+        # refund; keep the contract explicit until that workflow exists.
+        if resolution == RefundResolution.REPLACEMENT.value:
+            raise RefundNotEligibleError(
+                "Replacement resolution is not currently supported. Please request a refund."
+            )
+
         # Determine eligibility + intended starting status.
         eligibility = await RefundService.eligibility_for_order(order, refund_type)
         if not eligibility.get("eligible"):
