@@ -647,13 +647,18 @@ class RefundService:
         payment_method = (refund.get("paymentMethod") or "cash").lower()
         customer_id = str(refund.get("customerId"))
 
-        await refund_repository.update_status(
+        claimed = await refund_repository.claim_for_processing(
             refund_id,
-            RefundStatus.REFUND_PROCESSING.value,
             actor_id=actor_id,
             actor_role=actor_role,
-            note="Refund payout initiated",
         )
+        if not claimed:
+            # Another worker/request already claimed this refund. Re-read it so
+            # a retry cannot initiate a second provider payout.
+            latest = await refund_repository.get_by_id(refund_id)
+            if latest and latest.get("status") == RefundStatus.REFUNDED.value:
+                return await RefundService.serialize(latest)
+            raise RefundNotEligibleError("Refund is already being processed")
 
         provider_refund_id = await PaymentService.process_refund(order_id, amount=amount)
 
