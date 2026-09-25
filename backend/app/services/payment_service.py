@@ -208,6 +208,14 @@ class PaymentService:
         from app.services.ledger_service import ledger_service
 
         payment_id = str(payment["_id"])
+
+        # Webhooks and browser callbacks can both arrive for the same payment.
+        # Finalization must therefore be idempotent: never create a second
+        # ledger entry, revenue split, or notification for an already-successful
+        # payment.
+        if payment.get("status") == PaymentStatus.SUCCESS:
+            return payment
+
         success = await payment_repository.update_payment_status(
             payment_id,
             PaymentStatus.SUCCESS,
@@ -216,12 +224,20 @@ class PaymentService:
         if not success:
             return None
 
-        # Update order payment status
+        # Update payment state without resurrecting an order that was already
+        # cancelled while payment confirmation was in flight.
         if payment.get("orderId"):
-            await order_repository.update(
-                {"_id": payment["orderId"]},
-                {"paymentStatus": "paid", "orderStatus": "confirmed"}
-            )
+            order = await order_repository.get_by_id(str(payment["orderId"]))
+            if order and order.get("orderStatus") != "cancelled":
+                await order_repository.update(
+                    {"_id": payment["orderId"]},
+                    {"paymentStatus": "paid", "orderStatus": "confirmed"}
+                )
+            elif order:
+                await order_repository.update(
+                    {"_id": payment["orderId"]},
+                    {"paymentStatus": "paid"}
+                )
 
         # Financial ledger: customer payment received.
         await ledger_service.record(
