@@ -454,6 +454,13 @@ class RefundService:
             data.requestedAmount,
         )
 
+        if affected_items and not calculation.get("affectedItems"):
+            raise RefundNotEligibleError(
+                "No valid affected order items were found for this refund request."
+            )
+        if float(calculation.get("approvedAmount") or 0) <= 0:
+            raise RefundNotEligibleError("No refundable amount is available for this request.")
+
         payment = await payment_repository.get_by_order_id(order_id)
         payment_method = (
             payment.get("paymentMethod", order.get("paymentMethod", "cash"))
