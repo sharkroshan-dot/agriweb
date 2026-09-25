@@ -45,8 +45,14 @@ class WarehouseTransferRepository(BaseRepository):
         if not transfer:
             return False
 
+        if transfer.get("status") in ("completed", "cancelled"):
+            return False
+
         return await self.update(
-            {"_id": transfer["_id"]},
+            {
+                "_id": transfer["_id"],
+                "status": {"$in": ["pending", "in_transit"]}
+            },
             {
                 "status": "completed",
                 "receivedBy": ObjectId(received_by),
