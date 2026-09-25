@@ -95,9 +95,12 @@ class WarehouseService:
     @staticmethod
     async def update_stock(
         stock_id: str,
-        data: WarehouseStockUpdate
+        data: WarehouseStockUpdate,
+        warehouse_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         stock = await warehouse_stock_repository.get_by_id(stock_id)
+        if stock and warehouse_id and str(stock.get("warehouseId")) != str(warehouse_id):
+            return None
         if not stock:
             return None
         update_data = data.dict(exclude_unset=True)
