@@ -332,7 +332,10 @@ class WarehouseService:
             data.fromWarehouseId
         )
         if not reserved:
-            await warehouse_transfer_repository.complete_transfer(transfer_id, data.fromWarehouseId)
+            await warehouse_transfer_repository.cancel_transfer(
+                transfer_id,
+                "Stock reservation failed"
+            )
             return None
         return await warehouse_transfer_repository.get_by_id(transfer_id)
 
