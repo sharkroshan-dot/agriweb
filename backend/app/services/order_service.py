@@ -284,7 +284,24 @@ class OrderService:
             if not product:
                 raise ProductNotFoundError(item.productId)
             
-            available = await inventory_service.get_available_stock(item.productId)
+            variant_inventory = None
+            if item.variantId:
+                variant_inventory = await inventory_repository.get_by_id(item.variantId)
+                if (
+                    not variant_inventory
+                    or str(variant_inventory.get("product_id")) != str(item.productId)
+                    or variant_inventory.get("is_active", True) is False
+                ):
+                    raise OrderCreationError(
+                        f"Invalid or inactive variant {item.variantId} for product {item.productId}"
+                    )
+                available = int(
+                    variant_inventory.get("total_stock", variant_inventory.get("quantity", 0)) or 0
+                ) - int(variant_inventory.get("reserved_stock", 0) or 0) - int(
+                    variant_inventory.get("sold_stock", 0) or 0
+                )
+            else:
+                available = await inventory_service.get_available_stock(item.productId)
             if available < item.quantity:
                 raise InsufficientStockError(item.productId, item.quantity, available)
             
@@ -304,7 +321,11 @@ class OrderService:
             # Server-side price integrity check: never trust the client's price.
             # The catalog price is the floor; a client claiming a materially
             # lower unit price is tampering and the order is rejected.
-            catalog_price = float(product.get("price") or 0)
+            catalog_price = float(
+                (variant_inventory or {}).get("price")
+                or product.get("price")
+                or 0
+            )
             requested_price = float(item.unitPrice or 0)
             if catalog_price > 0 and requested_price < catalog_price * 0.99:
                 raise OrderCreationError(
@@ -481,18 +502,22 @@ class OrderService:
             for item in data.items:
                 if hasattr(item, 'reservationId') and item.reservationId:
                     continue
-                reserved = await inventory_repository.atomic_reserve(item.productId, item.quantity)
+                reserved = await inventory_repository.atomic_reserve(
+                    item.productId,
+                    item.quantity,
+                    inventory_id=item.variantId if item.variantId else None,
+                )
                 if not reserved:
                     raise InsufficientStockError(
                         item.productId,
                         item.quantity,
                         await inventory_service.get_available_stock(item.productId),
                     )
-                reserved_items.append((item.productId, item.quantity))
+                reserved_items.append((item.productId, item.quantity, item.variantId))
         except Exception:
-            for product_id, quantity in reserved_items:
+            for product_id, quantity, inventory_id in reserved_items:
                 try:
-                    await inventory_repository.atomic_release(product_id, quantity)
+                    await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
                 except Exception:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise
@@ -502,9 +527,9 @@ class OrderService:
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to create order in database. order_data keys: {list(order_data.keys())}")
-            for product_id, quantity in reserved_items:
+            for product_id, quantity, inventory_id in reserved_items:
                 try:
-                    await inventory_repository.atomic_release(product_id, quantity)
+                    await inventory_repository.atomic_release(product_id, quantity, inventory_id=inventory_id)
                 except Exception:
                     logger.exception("Failed to release checkout reservation for %s", product_id)
             raise OrderCreationError("Failed to save order to database")
@@ -521,7 +546,11 @@ class OrderService:
                     item.reservationId, order_id
                 )
             else:
-                confirmed = await inventory_repository.atomic_confirm(item.productId, item.quantity)
+                confirmed = await inventory_repository.atomic_confirm(
+                    item.productId,
+                    item.quantity,
+                    inventory_id=item.variantId if item.variantId else None,
+                )
                 if not confirmed:
                     logger.error(
                         "Inventory confirmation failed for order %s, product %s",
