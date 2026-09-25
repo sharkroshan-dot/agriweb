@@ -1162,7 +1162,11 @@ class OrderService:
             product_id = str(item["productId"])
             quantity = item["quantity"]
             
-            await inventory_repository.atomic_confirm(product_id, quantity)
+            await inventory_repository.atomic_confirm(
+                product_id,
+                quantity,
+                inventory_id=str(item.get("variantId")) if item.get("variantId") else None,
+            )
         
         return True
     
@@ -1177,7 +1181,11 @@ class OrderService:
             product_id = str(item["productId"])
             quantity = item["quantity"]
             
-            await inventory_repository.atomic_refund(product_id, quantity)
+            await inventory_repository.atomic_refund(
+                product_id,
+                quantity,
+                inventory_id=str(item.get("variantId")) if item.get("variantId") else None,
+            )
         
         return True
     
