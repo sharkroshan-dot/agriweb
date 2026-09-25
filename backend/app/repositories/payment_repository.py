@@ -68,6 +68,33 @@ class PaymentRepository(BaseRepository):
             logger.error(f"Error getting payments by user: {str(e)}")
             return []
     
+    async def mark_success_if_pending(
+        self,
+        payment_id: str,
+        gateway_response: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Atomically transition an eligible payment to success."""
+        try:
+            obj_id = ObjectId(payment_id)
+            update_data = {
+                "status": PaymentStatus.SUCCESS,
+                "updatedAt": datetime.utcnow(),
+                "paymentDate": datetime.utcnow(),
+            }
+            if gateway_response:
+                update_data["gatewayResponse"] = gateway_response
+            result = await self.collection.update_one(
+                {
+                    "_id": obj_id,
+                    "status": {"$in": [PaymentStatus.PENDING, PaymentStatus.PROCESSING]},
+                },
+                {"$set": update_data},
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error atomically finalizing payment: {str(e)}")
+            return False
+
     async def update_payment_status(
         self,
         payment_id: str,
