@@ -273,6 +273,7 @@ class OrderService:
         subtotal = 0
         farmer_id = None
         warehouse_id = None
+        order_farmer_ids = set()
         is_bulk_order = False
         bulk_discount_applied = 0
         farm_address = None
@@ -287,7 +288,13 @@ class OrderService:
             if available < item.quantity:
                 raise InsufficientStockError(item.productId, item.quantity, available)
             
-            farmer_id = str(product["farmerId"])
+            product_farmer_id = str(product["farmerId"])
+            order_farmer_ids.add(product_farmer_id)
+            if len(order_farmer_ids) > 1:
+                raise OrderCreationError(
+                    "Products from different farmers must be checked out separately."
+                )
+            farmer_id = product_farmer_id
             warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
             
             min_bulk = product.get("minBulkQty", 0)
