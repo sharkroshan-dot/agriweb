@@ -145,10 +145,13 @@ class WarehouseService:
         incoming_id: str,
         quantity: int,
         quality_check: str,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        warehouse_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         incoming = await incoming_stock_repository.get_by_id(incoming_id)
         if not incoming:
+            return None
+        if warehouse_id and str(incoming.get("warehouseId")) != str(warehouse_id):
             return None
         if incoming.get("status") in ("received", "rejected"):
             return None
@@ -317,6 +320,9 @@ class WarehouseService:
 
     @staticmethod
     async def create_transfer(data: WarehouseTransferCreate) -> Optional[Dict[str, Any]]:
+        destination = await warehouse_repository.get_by_id(data.toWarehouseId)
+        if not destination or str(data.fromWarehouseId) == str(data.toWarehouseId):
+            return None
         source_stock = await warehouse_stock_repository.find_one({
             "warehouseId": ObjectId(data.fromWarehouseId),
             "productId": ObjectId(data.productId),
