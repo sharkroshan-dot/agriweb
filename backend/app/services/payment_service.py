@@ -390,7 +390,13 @@ class PaymentService:
         )
         
         if success:
-            # Create transaction record
+            # Read the committed balance after the atomic debit so the
+            # transaction ledger reflects the actual post-debit balance.
+            wallet_after = await wallet_repository.get_by_id(str(wallet["_id"]))
+            if not wallet_after:
+                logger.error("Wallet debit succeeded but wallet could not be re-read")
+                return False
+
             transaction_data = {
                 "walletId": wallet["_id"],
                 "userId": ObjectId(user_id),
@@ -399,9 +405,15 @@ class PaymentService:
                 "description": description,
                 "referenceId": ObjectId(order_id),
                 "referenceType": "order",
-                "balanceAfter": wallet.get("balance", 0) - amount
+                "balanceAfter": float(wallet_after.get("balance", 0)),
             }
-            await wallet_transaction_repository.create_transaction(transaction_data)
+            transaction_id = await wallet_transaction_repository.create_transaction(transaction_data)
+            if not transaction_id:
+                logger.error(
+                    "Wallet debit succeeded but transaction ledger write failed for order %s",
+                    order_id,
+                )
+                return False
             
             return True
         
