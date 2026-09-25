@@ -387,7 +387,6 @@ class PaymentService:
             str(wallet["_id"]),
             amount,
             "debit",
-            require_sufficient_balance=True,
         )
         
         if success:
