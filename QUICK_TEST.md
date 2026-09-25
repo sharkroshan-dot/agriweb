@@ -1,62 +1,90 @@
-# Quick Test - OTP Verification Fix
+# Quick Test - AgriConnect
 
-## 🚀 Start Services
+## Start services
 
-### Terminal 1: Backend
+### Backend
+From the repository root:
+
 ```bash
-cd e:\agri\backend
-python -m uvicorn app.main:app --reload
+cd backend
+poetry run uvicorn app.main:app --reload
 ```
 
-### Terminal 2: Website  
+Backend API documentation:
+
+- Swagger UI: `http://localhost:8000/api/docs`
+- ReDoc: `http://localhost:8000/api/redoc`
+
+### Website
+
 ```bash
-cd e:\agri\website
+cd website
+npm install
 npm run dev
 ```
 
-## ✅ Test Flow
+Open `http://localhost:3000`.
 
-1. **Register**
-   - Go to: http://localhost:3000/register
-   - Phone: `9176358376` (or any 10-digit number)
-   - Email: `test@example.com`
-   - Password: `TestPass@123` (uppercase, lowercase, digit, special char)
-   - Submit
+### Mobile
 
-2. **Check Backend Logs** (Terminal 1)
-   - Look for: `Storing OTP in Redis: key=otp:+919176358376, otp=XXXXXX`
-   - Copy the OTP code (6 digits)
+```bash
+cd mobile
+flutter pub get
+flutter test
+flutter analyze
+flutter run
+```
 
-3. **Debug Check** (Optional)
-   - Open: http://localhost:8000/api/v1/auth/debug/otp/9176358376
-   - Should show: `"otp_exists": true` and the OTP value
+The mobile app currently supports these dashboard roles:
 
-4. **Verify**
-   - You should be on: http://localhost:3000/verify?phone=%2B919176358376
-   - Paste the OTP code from step 2
-   - Click "Verify"
-   - **Expected**: Redirect to login page ✓
+- Customer
+- Farmer
+- Delivery Partner
 
-## 🔍 Common Issues
+## OTP verification flow
 
-| Issue | Check |
-|-------|-------|
-| 400 error on verify | Debug endpoint shows `otp_exists: false` → OTP not stored |
-| OTP not showing | Check backend logs for errors during storage |
-| Phone shows as "9176358376" | Register form might not be updated |
-| 5 min timeout | OTP expires after 5 minutes |
+1. Open the registration page.
+2. Register with a valid phone number, email, and password.
+3. The backend creates a short-lived OTP and sends it through the configured delivery providers.
+4. Enter the OTP on the verification screen.
+5. A successful verification creates the authenticated session and routes the user to the appropriate supported dashboard.
 
-## 📋 What Was Fixed
+In development mode, the backend may log the generated OTP to the server log for local testing. Production environments must keep `DEBUG=false`.
 
-1. ✅ Register form now uses normalized phone from API response
-2. ✅ OTPVerify schema validates and normalizes phone  
-3. ✅ Added debug endpoint to inspect OTP state
-4. ✅ Enhanced logging for troubleshooting
-5. ✅ Verified in-memory cache works without Redis
+## Authentication checks
 
-## 💡 Expected Behavior
+- OTP attempts are limited.
+- OTP values are stored as hashes rather than raw values.
+- Verified accounts cannot be registered again.
+- Privileged accounts can require TOTP-based MFA.
+- Access and refresh tokens use server-side revocation/session tracking.
 
-- Register with "9176358376" → stores OTP with key "otp:+919176358376"
-- Verify page receives "+919176358376" in URL
-- Submit "+919176358376" + OTP to verify endpoint
-- OTP found and verified → login successful
+## Backend test suite
+
+From `backend`:
+
+```bash
+poetry run pytest -v
+```
+
+The repository's latest verified backend run passed **198 tests**.
+
+## Website checks
+
+From `website`:
+
+```bash
+npm run lint
+npm run build
+npm test
+```
+
+## CI checks
+
+The repository CI validates:
+
+- Website lint and production build
+- Backend compilation and pytest
+- Flutter formatting, analysis, and tests
+
+Use repository CI results as the source of truth for the final integration status.
