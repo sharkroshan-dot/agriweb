@@ -245,11 +245,18 @@ async def receive_incoming_stock(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only warehouse managers can receive stock"
         )
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Warehouse not found"
+        )
     incoming = await WarehouseService.receive_incoming(
         incoming_id,
         quantity,
         quality_check,
-        notes
+        notes,
+        str(warehouse["_id"])
     )
     if not incoming:
         raise HTTPException(
