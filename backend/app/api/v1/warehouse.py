@@ -314,6 +314,12 @@ async def update_outgoing_status(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only warehouse managers can update outgoing status"
         )
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Warehouse not found"
+        )
     outgoing = await WarehouseService.update_outgoing_status(
         outgoing_id,
         status,
@@ -470,6 +476,12 @@ async def complete_transfer(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only warehouse managers can complete transfers"
+        )
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Warehouse not found"
         )
     transfer = await WarehouseService.complete_transfer(
         transfer_id,
