@@ -337,7 +337,8 @@ class WarehouseService:
         reserved = await warehouse_stock_repository.reserve_stock(
             data.productId,
             data.quantity,
-            data.fromWarehouseId
+            data.fromWarehouseId,
+            data.variantId,
         )
         if not reserved:
             await warehouse_transfer_repository.cancel_transfer(
