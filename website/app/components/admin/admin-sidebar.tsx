@@ -68,6 +68,8 @@ export function AdminSidebar() {
     ["requested", "under_review", "approved", "refund_processing"].includes(r.status)
   ).length;
 
+  const pendingActions = complaints.length + pendingRefunds;
+
   const navGroups = [
     {
       label: "Operations",
@@ -181,11 +183,11 @@ export function AdminSidebar() {
               <Bell className="h-4 w-4 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-medium">2 New Alerts</p>
-              <p className="text-xs text-muted-foreground">Pending actions</p>
-              <Link href="/admin/alerts">
-                <Button size="sm" variant="link" className="h-auto p-0 text-xs">
-                  View alerts →
+              <p className="text-sm font-medium">{pendingActions} Pending Actions</p>
+              <p className="text-xs text-muted-foreground">Complaints and refunds requiring attention</p>
+              <Link href="/admin/complaints" className="text-primary hover:underline">
+                <Button size="sm" variant="link" className="h-auto p-0 text-xs">{complaints.length} complaints · {pendingRefunds} refunds</Button>
+                  View pending actions →
                 </Button>
               </Link>
             </div>
