@@ -917,10 +917,12 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to sync assignment for delivered order {order_id}: {e}")
             try:
-                await payment_repository.update_payment_status(
-                    order_id,
-                    PaymentStatus.PAID
-                )
+                payment = await payment_repository.get_by_order_id(order_id)
+                if payment and payment.get("status") != PaymentStatus.PAID:
+                    await payment_repository.update_payment_status(
+                        str(payment["_id"]),
+                        PaymentStatus.PAID
+                    )
             except Exception as e:
                 logger.warning(f"Failed to update payment status: {e}")
             # Inventory is converted from reservation to committed/sold stock
