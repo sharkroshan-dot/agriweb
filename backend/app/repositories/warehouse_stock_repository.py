@@ -119,13 +119,21 @@ class WarehouseStockRepository(BaseRepository):
             logger.error(f"Error reserving stock: {str(e)}")
             return False
 
-    async def release_stock(self, product_id: str, quantity: int) -> bool:
+    async def release_stock(
+        self,
+        product_id: str,
+        quantity: int,
+        warehouse_id: Optional[str] = None
+    ) -> bool:
         try:
+            filter = {
+                "productId": ObjectId(product_id),
+                "deletedAt": None
+            }
+            if warehouse_id:
+                filter["warehouseId"] = ObjectId(warehouse_id)
             result = await self.collection.update_one(
-                {
-                    "productId": ObjectId(product_id),
-                    "deletedAt": None
-                },
+                filter,
                 {
                     "$inc": {"reservedQuantity": -quantity},
                     "$set": {"updatedAt": datetime.utcnow()}
