@@ -22,8 +22,8 @@ interface CartItem {
 interface CartStore {
 	items: CartItem[];
 	addItem: (item: CartItem) => void;
-	removeItem: (id: string) => void;
-	updateQuantity: (id: string, quantity: number) => void;
+	removeItem: (id: string, variantId?: string) => void;
+	updateQuantity: (id: string, quantity: number, variantId?: string) => void;
 	updateItem: (id: string, patch: Partial<CartItem>) => void;
 	clearCart: () => void;
 	getTotal: () => number;
@@ -49,7 +49,9 @@ export const useCartStore = create<CartStore>()(
 					return { items: [...state.items, item] };
 				});
 			},
-			removeItem: (id) => set((state) => ({ items: state.items.filter((i) => i.id !== id) })),
+			removeItem: (id, variantId) => set((state) => ({
+				items: state.items.filter((i) => !(i.id === id && (variantId === undefined || i.variantId === variantId))),
+			})),
 			updateQuantity: (id, quantity) =>
 				set((state) => ({
 					items: state.items.map((i) => (i.id === id ? { ...i, quantity: Math.max(1, quantity) } : i)),
