@@ -317,6 +317,7 @@ async def update_outgoing_status(
     outgoing = await WarehouseService.update_outgoing_status(
         outgoing_id,
         status,
+        str(warehouse["_id"]),
         {"notes": notes} if notes else None
     )
     if not outgoing:
@@ -472,7 +473,8 @@ async def complete_transfer(
         )
     transfer = await WarehouseService.complete_transfer(
         transfer_id,
-        str(current_user["_id"])
+        str(current_user["_id"]),
+        str(warehouse["_id"])
     )
     if not transfer:
         raise HTTPException(
