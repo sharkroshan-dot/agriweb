@@ -77,6 +77,8 @@ export default function DeliveryDashboardPage() {
   const [isAvailable, setIsAvailable] = useState<boolean | null>(null);
   const [isToggling, setIsToggling] = useState(false);
   const [activeMode, setActiveMode] = useState<DeliveryMode>("nearby");
+  const [riskLoadingId, setRiskLoadingId] = useState<string | null>(null);
+  const [deliveryRisk, setDeliveryRisk] = useState<any>(null);
   const [liveOrigin, setLiveOrigin] = useState<{ lat: number; lng: number } | null>(null);
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken as string | undefined;
@@ -353,6 +355,25 @@ export default function DeliveryDashboardPage() {
     return `${h}h ${m}m`;
   };
 
+  const handleDeliveryRisk = async (delivery: any) => {
+    const orderId = String(delivery?.orderId || delivery?.id || delivery?._id || "");
+    if (!orderId) return;
+    setRiskLoadingId(orderId);
+    try {
+      const res = await api.post("/ai/delivery-risk", {
+        orderId,
+        distanceKm: Number(delivery?.distanceKm || delivery?.distance || 0) || undefined,
+        timeWindowMinutes: Number(delivery?.timeWindowMinutes || 120),
+        deliverySlot: delivery?.deliveryWindow || undefined,
+      });
+      setDeliveryRisk(res?.data || res);
+    } catch (err: any) {
+      toast.error(err?.message || "Delivery risk is unavailable");
+    } finally {
+      setRiskLoadingId(null);
+    }
+  };
+
   const handleToggleAvailability = async () => {
     if (isAvailable === null || isToggling) return;
     const nextAvailable = !isAvailable;
@@ -394,6 +415,30 @@ export default function DeliveryDashboardPage() {
 
   return (
     <div className="space-y-8">
+      {deliveryRisk && (
+        <Card className="border-emerald-200 bg-emerald-50/50">
+          <CardContent className="p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">AI Delivery Risk</p>
+                <p className="text-xs text-muted-foreground">Based on route, time window and delivery-partner factors.</p>
+              </div>
+              <Badge variant={deliveryRisk.risk_level === "HIGH" ? "destructive" : deliveryRisk.risk_level === "MEDIUM" ? "warning" : "success"}>
+                {deliveryRisk.risk_level || "UNKNOWN"} · {deliveryRisk.risk_score ?? "—"}%
+              </Badge>
+            </div>
+            {deliveryRisk.factors?.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {deliveryRisk.factors.map((f: any, i: number) => (
+                  <span key={i} className="rounded-full bg-white px-3 py-1 text-xs text-slate-700">{f.detail || f.factor}</span>
+                ))}
+              </div>
+            )}
+            {deliveryRisk.recommendation && <p className="mt-3 text-sm font-medium text-emerald-800">{deliveryRisk.recommendation}</p>}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Delivery Dashboard</h1>
@@ -635,9 +680,19 @@ export default function DeliveryDashboardPage() {
                           <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{d.deliveryWindow}</span>
                         </div>
                       </div>
-                      <Button variant="outline" size="icon" className="h-8 w-8 shrink-0">
-                        <Navigation className="h-4 w-4" />
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeliveryRisk(deliveryList.find((x: any) => String(x._id || x.id || x.orderId) === String(d.id)))}
+                          disabled={riskLoadingId === String(d.id)}
+                        >
+                          {riskLoadingId === String(d.id) ? "Checking…" : "AI Risk"}
+                        </Button>
+                        <Button variant="outline" size="icon" className="h-8 w-8">
+                          <Navigation className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
