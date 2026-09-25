@@ -232,7 +232,12 @@ class RefundService:
         line_map = {}
         for item in items:
             pid = str(item.get("productId"))
-            line_map[pid] = item
+            variant_id = str(item.get("variantId")) if item.get("variantId") is not None else None
+            key = (pid, variant_id)
+            line_map[key] = item
+            # Keep a product-only fallback for legacy orders without variants.
+            if variant_id is None:
+                line_map[(pid, None)] = item
 
         # ---- 1. Eligible product amount.
         product_refund = 0.0
@@ -240,9 +245,10 @@ class RefundService:
 
         if affected_items:
             for ai in affected_items:
-                pid = ai.get("productId")
+                pid = str(ai.get("productId"))
+                variant_id = str(ai.get("variantId")) if ai.get("variantId") is not None else None
                 qty = int(ai.get("quantity") or 0)
-                line = line_map.get(pid)
+                line = line_map.get((pid, variant_id)) or line_map.get((pid, None))
                 if not line or qty <= 0:
                     continue
                 unit_price = round(float(line.get("unitPrice") or line.get("originalUnitPrice") or 0), 2)
@@ -253,6 +259,7 @@ class RefundService:
                 product_refund = round(product_refund + line_refund, 2)
                 resolved_items.append({
                     "productId": pid,
+                    "variantId": line.get("variantId"),
                     "productName": line.get("productName", "Product"),
                     "quantity": qty,
                     "unitPrice": unit_price,
