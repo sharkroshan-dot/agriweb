@@ -872,12 +872,22 @@ async def security_center(current_user: dict = Depends(get_current_user)):
     sessions = await session_repository.get_active_by_user(user_id)
     session_count = len(sessions)
 
+    created_at = current_user.get("createdAt") or current_user.get("created_at")
+    account_age_days = 0
+    if created_at:
+        try:
+            account_age_days = max(0, (datetime.utcnow() - created_at).days)
+        except (TypeError, ValueError):
+            account_age_days = 0
+
+    # The security-center endpoint is not itself a login event, so it must not
+    # manufacture a "new device" or failed-OTP signal.
     risk_event = {
-        "event_type": "login",
+        "event_type": "security_review",
         "active_sessions": session_count,
-        "is_new_device": True,
+        "is_new_device": False,
         "failed_otp_attempts": 0,
-        "account_age_days": 0,
+        "account_age_days": account_age_days,
     }
     risk = risk_engine.evaluate(risk_event)
 
