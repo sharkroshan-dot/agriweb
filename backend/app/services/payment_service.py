@@ -380,15 +380,14 @@ class PaymentService:
         if not wallet:
             return False
         
-        # Check balance
-        if wallet.get("balance", 0) < amount:
-            return False
-        
-        # Deduct from wallet
+        # Atomically debit the wallet. A balance read followed by a separate
+        # update is vulnerable to two concurrent checkouts spending the same
+        # funds.
         success = await wallet_repository.update_balance(
             str(wallet["_id"]),
             amount,
-            "debit"
+            "debit",
+            require_sufficient_balance=True,
         )
         
         if success:
