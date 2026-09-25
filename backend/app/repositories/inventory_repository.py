@@ -93,12 +93,12 @@ class InventoryRepository(BaseRepository):
             return False
 
     async def atomic_reserve(
-        self, product_id: str, quantity: int
+        self, product_id: str, quantity: int, inventory_id: Optional[str] = None
     ) -> bool:
         try:
             result = await self.collection.update_one(
                 {
-                    "product_id": str(product_id),
+                    **({"_id": ObjectId(inventory_id)} if inventory_id else {"product_id": str(product_id)}),
                     "deleted_at": None,
                     "$expr": {
                         "$gte": [
@@ -122,11 +122,11 @@ class InventoryRepository(BaseRepository):
             logger.error(f"Error in atomic_reserve: {str(e)}")
             return False
 
-    async def atomic_release(self, product_id: str, quantity: int) -> bool:
+    async def atomic_release(self, product_id: str, quantity: int, inventory_id: Optional[str] = None) -> bool:
         try:
             result = await self.collection.update_one(
                 {
-                    "product_id": str(product_id),
+                    **({"_id": ObjectId(inventory_id)} if inventory_id else {"product_id": str(product_id)}),
                     "reserved_stock": {"$gte": quantity},
                     "deleted_at": None,
                 },
@@ -140,11 +140,11 @@ class InventoryRepository(BaseRepository):
             logger.error(f"Error in atomic_release: {str(e)}")
             return False
 
-    async def atomic_confirm(self, product_id: str, quantity: int) -> bool:
+    async def atomic_confirm(self, product_id: str, quantity: int, inventory_id: Optional[str] = None) -> bool:
         try:
             result = await self.collection.update_one(
                 {
-                    "product_id": str(product_id),
+                    **({"_id": ObjectId(inventory_id)} if inventory_id else {"product_id": str(product_id)}),
                     "reserved_stock": {"$gte": quantity},
                     "deleted_at": None,
                 },
@@ -158,11 +158,11 @@ class InventoryRepository(BaseRepository):
             logger.error(f"Error in atomic_confirm: {str(e)}")
             return False
 
-    async def atomic_refund(self, product_id: str, quantity: int) -> bool:
+    async def atomic_refund(self, product_id: str, quantity: int, inventory_id: Optional[str] = None) -> bool:
         try:
             result = await self.collection.update_one(
                 {
-                    "product_id": str(product_id),
+                    **({"_id": ObjectId(inventory_id)} if inventory_id else {"product_id": str(product_id)}),
                     "sold_stock": {"$gte": quantity},
                     "deleted_at": None,
                 },
