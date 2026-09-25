@@ -2,6 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
@@ -154,6 +155,15 @@ async def root():
         "status": "operational",
         "docs": "/api/docs"
     }
+
+
+@app.get("/docs", include_in_schema=False)
+async def legacy_docs():
+    return RedirectResponse(url="/api/docs", status_code=307)
+
+@app.get("/redoc", include_in_schema=False)
+async def legacy_redoc():
+    return RedirectResponse(url="/api/redoc", status_code=307)
 
 @app.get("/health")
 async def health_check():
