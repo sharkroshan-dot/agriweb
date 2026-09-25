@@ -119,6 +119,22 @@ class WalletTransactionRepository(BaseRepository):
             logger.error(f"Error getting transactions: {str(e)}")
             return []
     
+    async def get_by_reference_id(
+        self,
+        reference_id: str,
+        reference_type: str = "payment"
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            return await self.find_one({
+                "referenceId": ObjectId(reference_id),
+                "referenceType": reference_type,
+                "type": "credit",
+                "deletedAt": None,
+            })
+        except Exception as e:
+            logger.error(f"Error getting wallet transaction by reference: {str(e)}")
+            return None
+
     async def get_by_user_id(
         self,
         user_id: str,
