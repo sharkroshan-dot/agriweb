@@ -68,11 +68,13 @@ class IncomingStockRepository(BaseRepository):
         }
         if total_received >= expected_quantity:
             update_data["receivedAt"] = datetime.utcnow()
+            update_data["receivedDate"] = update_data["receivedAt"]
             update_data["status"] = "received" if quality_check == "passed" else "rejected"
         else:
             update_data["status"] = "in_transit" if quality_check == "passed" else "quality_check"
         if notes is not None:
             update_data["notes"] = notes
+            update_data["qualityNotes"] = notes
 
         return await self.update({"_id": incoming["_id"]}, update_data)
 
