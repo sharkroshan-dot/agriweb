@@ -147,6 +147,18 @@ class WarehouseService:
         quality_check: str,
         notes: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
+        incoming = await incoming_stock_repository.get_by_id(incoming_id)
+        if not incoming:
+            return None
+        if incoming.get("status") in ("received", "rejected"):
+            return None
+        if quantity <= 0:
+            return None
+
+        expected_quantity = incoming.get("quantity", 0)
+        if quantity > expected_quantity:
+            return None
+
         success = await incoming_stock_repository.receive_stock(
             incoming_id,
             quantity,
@@ -155,6 +167,20 @@ class WarehouseService:
         )
         if not success:
             return None
+
+        if quality_check == "passed" and quantity > 0:
+            stock_data = {
+                "warehouseId": incoming["warehouseId"],
+                "productId": incoming["productId"],
+                "variantId": incoming.get("variantId"),
+                "quantity": quantity,
+                "batchNumber": incoming.get("batchNumber"),
+                "storageType": incoming.get("storageType", "ambient"),
+            }
+            stock_id = await warehouse_stock_repository.create_stock(stock_data)
+            if not stock_id:
+                return None
+
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
@@ -300,11 +326,14 @@ class WarehouseService:
         transfer_id = await warehouse_transfer_repository.create_transfer(data.dict())
         if not transfer_id:
             return None
-        await warehouse_stock_repository.reserve_stock(
+        reserved = await warehouse_stock_repository.reserve_stock(
             data.productId,
             data.quantity,
             data.fromWarehouseId
         )
+        if not reserved:
+            await warehouse_transfer_repository.complete_transfer(transfer_id, data.fromWarehouseId)
+            return None
         return await warehouse_transfer_repository.get_by_id(transfer_id)
 
     @staticmethod
