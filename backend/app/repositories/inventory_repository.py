@@ -100,6 +100,17 @@ class InventoryRepository(BaseRepository):
                 {
                     "product_id": str(product_id),
                     "deleted_at": None,
+                    "$expr": {
+                        "$gte": [
+                            {
+                                "$subtract": [
+                                    {"$subtract": ["$total_stock", "$reserved_stock"]},
+                                    "$sold_stock",
+                                ]
+                            },
+                            quantity,
+                        ]
+                    },
                 },
                 {
                     "$inc": {"reserved_stock": quantity, "version": 1},
