@@ -1507,9 +1507,9 @@ class PaymentService:
         except ValueError as e:
             return {"error": str(e)}
 
-        # Check balance
-        if wallet.get("balance", 0) < amount:
-            return {"error": "Insufficient balance"}
+        # Validate amount before reserving wallet funds.
+        if amount <= 0:
+            return {"error": "Withdrawal amount must be greater than zero"}
 
         # Check minimum withdrawal
         if amount < 100:
@@ -1544,10 +1544,19 @@ class PaymentService:
             metadata={"bankAccountHash": PaymentService._bank_account_hash(data.bankAccount)},
         )
 
-        # Reserve the funds so the same balance cannot be withdrawn twice.
-        await wallet_repository.update_balance(
+        # Atomically reserve the funds. The repository performs the
+        # sufficient-balance check in the same database update.
+        reserved = await wallet_repository.update_balance(
             str(wallet["_id"]), amount, "debit"
         )
+        if not reserved:
+            await withdrawal_repository.update_status(
+                withdrawal_id,
+                "failed",
+                {"reason": "Insufficient wallet balance at reservation time"},
+            )
+            return {"error": "Insufficient balance"}
+
         wallet_after = await wallet_repository.get_by_id(str(wallet["_id"]))
         await wallet_transaction_repository.create_transaction({
             "walletId": wallet["_id"],
