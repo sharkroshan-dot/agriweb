@@ -47,30 +47,40 @@ class WalletRepository(BaseRepository):
         amount: float,
         transaction_type: str
     ) -> bool:
-        """Update wallet balance."""
+        """Atomically update wallet balance."""
         try:
             obj_id = ObjectId(wallet_id)
+            if amount <= 0:
+                return False
+
             if transaction_type == "credit":
                 result = await self.collection.update_one(
-                    {"_id": obj_id},
+                    {"_id": obj_id, "deletedAt": None, "isActive": True},
                     {
                         "$inc": {"balance": amount},
                         "$set": {"updatedAt": datetime.utcnow()}
                     }
                 )
                 return result.modified_count > 0
-            elif transaction_type == "debit":
-                # Check sufficient balance
-                wallet = await self.get_by_id(wallet_id)
-                if wallet and wallet.get("balance", 0) >= amount:
-                    result = await self.collection.update_one(
-                        {"_id": obj_id},
-                        {
-                            "$inc": {"balance": -amount},
-                            "$set": {"updatedAt": datetime.utcnow()}
-                        }
-                    )
-                    return result.modified_count > 0
+
+            if transaction_type == "debit":
+                # The balance predicate is part of the atomic MongoDB update.
+                # This prevents two concurrent debits from spending the same
+                # wallet funds.
+                result = await self.collection.update_one(
+                    {
+                        "_id": obj_id,
+                        "deletedAt": None,
+                        "isActive": True,
+                        "balance": {"$gte": amount},
+                    },
+                    {
+                        "$inc": {"balance": -amount},
+                        "$set": {"updatedAt": datetime.utcnow()}
+                    }
+                )
+                return result.modified_count > 0
+
             return False
         except Exception as e:
             logger.error(f"Error updating balance: {str(e)}")
