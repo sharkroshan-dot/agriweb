@@ -55,13 +55,22 @@ class IncomingStockRepository(BaseRepository):
         if not incoming:
             return False
 
+        expected_quantity = int(incoming.get("quantity", 0))
+        previously_received = int(incoming.get("quantityReceived", 0))
+        if quantity <= 0 or previously_received + quantity > expected_quantity:
+            return False
+
+        total_received = previously_received + quantity
         update_data = {
-            "quantityReceived": quantity,
+            "quantityReceived": total_received,
             "qualityCheck": quality_check,
-            "receivedAt": datetime.utcnow(),
-            "status": "received" if quality_check == "passed" else "rejected",
             "updatedAt": datetime.utcnow()
         }
+        if total_received >= expected_quantity:
+            update_data["receivedAt"] = datetime.utcnow()
+            update_data["status"] = "received" if quality_check == "passed" else "rejected"
+        else:
+            update_data["status"] = "in_transit" if quality_check == "passed" else "quality_check"
         if notes is not None:
             update_data["notes"] = notes
 
