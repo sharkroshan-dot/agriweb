@@ -923,10 +923,8 @@ class OrderService:
                 )
             except Exception as e:
                 logger.warning(f"Failed to update payment status: {e}")
-            try:
-                await OrderService.update_inventory_after_delivery(order_id)
-            except Exception as e:
-                logger.warning(f"Failed to update inventory: {e}")
+            # Inventory is converted from reservation to committed/sold stock
+            # during order creation. Do not confirm it again at delivery time.
             try:
                 await NotificationService.send_order_delivered(
                     str(order["customerId"]),
@@ -956,10 +954,8 @@ class OrderService:
                     await PaymentService._record_pickup_cod_settlement(order_id)
             except Exception as e:
                 logger.warning(f"Failed to record pickup commission: {e}")
-            try:
-                await OrderService.update_inventory_after_delivery(order_id)
-            except Exception as e:
-                logger.warning(f"Failed to update inventory: {e}")
+            # Inventory is already committed when the order is created.
+            # Pickup completion must not increment sold stock a second time.
             try:
                 await order_repository.update_order_field(order_id, "pickedUpAt", datetime.utcnow())
             except Exception as e:
