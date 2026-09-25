@@ -33,11 +33,13 @@ async def upload_evidence(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    """Upload refund evidence (photos). Returns a URL to attach to a refund request.
+    """Upload refund evidence for a customer-owned refund request."""
+    if current_user.get("role") != "customer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only customers can upload refund evidence",
+        )
 
-    Files are validated by content and extension before being stored under the
-    platform's uploads directory; the returned URL is served from ``/uploads``.
-    """
     from app.utils.file_security import validate_upload, UploadValidationError
 
     upload_dir = settings.UPLOAD_DIR
