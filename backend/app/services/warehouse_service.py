@@ -110,15 +110,16 @@ class WarehouseService:
     async def get_warehouse_stock(
         warehouse_id: str,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        status: Optional[str] = None,
     ) -> tuple[List[Dict[str, Any]], int]:
         stock = await warehouse_stock_repository.get_by_warehouse_id(
-            warehouse_id, skip, limit
+            warehouse_id, skip, limit, status
         )
-        total = await warehouse_stock_repository.count({
-            "warehouseId": ObjectId(warehouse_id),
-            "deletedAt": None
-        })
+        count_filter = {"warehouseId": ObjectId(warehouse_id), "deletedAt": None}
+        if status:
+            count_filter["status"] = status
+        total = await warehouse_stock_repository.count(count_filter)
         return stock, total
 
     @staticmethod
