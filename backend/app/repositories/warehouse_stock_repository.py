@@ -17,7 +17,7 @@ class WarehouseStockRepository(BaseRepository):
         stock_data["createdAt"] = datetime.utcnow()
         stock_data["updatedAt"] = datetime.utcnow()
         stock_data["reservedQuantity"] = stock_data.get("reservedQuantity", 0)
-        stock_data["status"] = StockStatus.IN_STOCK
+        stock_data["status"] = stock_data.get("status", StockStatus.IN_STOCK)
         return await self.create(stock_data)
 
     async def get_by_id(self, stock_id: str) -> Optional[Dict[str, Any]]:
@@ -89,30 +89,32 @@ class WarehouseStockRepository(BaseRepository):
         self,
         product_id: str,
         quantity: int,
-        warehouse_id: Optional[str] = None
+        warehouse_id: Optional[str] = None,
+        variant_id: Optional[str] = None,
     ) -> bool:
         try:
             filter = {
                 "productId": ObjectId(product_id),
-                "deletedAt": None
+                "deletedAt": None,
             }
             if warehouse_id:
                 filter["warehouseId"] = ObjectId(warehouse_id)
-
-            stock = await self.find_one(filter)
-            if not stock:
-                return False
-
-            available = stock.get("quantity", 0) - stock.get("reservedQuantity", 0)
-            if available < quantity:
-                return False
+            filter["variantId"] = ObjectId(variant_id) if variant_id else None
 
             result = await self.collection.update_one(
-                {"_id": stock["_id"]},
+                {
+                    **filter,
+                    "$expr": {
+                        "$gte": [
+                            {"$subtract": ["$quantity", "$reservedQuantity"]},
+                            quantity,
+                        ]
+                    },
+                },
                 {
                     "$inc": {"reservedQuantity": quantity},
-                    "$set": {"updatedAt": datetime.utcnow()}
-                }
+                    "$set": {"updatedAt": datetime.utcnow()},
+                },
             )
             return result.modified_count > 0
         except Exception as e:
@@ -123,15 +125,18 @@ class WarehouseStockRepository(BaseRepository):
         self,
         product_id: str,
         quantity: int,
-        warehouse_id: Optional[str] = None
+        warehouse_id: Optional[str] = None,
+        variant_id: Optional[str] = None,
     ) -> bool:
         try:
             filter = {
                 "productId": ObjectId(product_id),
-                "deletedAt": None
+                "deletedAt": None,
+                "reservedQuantity": {"$gte": quantity},
             }
             if warehouse_id:
                 filter["warehouseId"] = ObjectId(warehouse_id)
+            filter["variantId"] = ObjectId(variant_id) if variant_id else None
             result = await self.collection.update_one(
                 filter,
                 {
