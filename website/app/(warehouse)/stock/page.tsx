@@ -34,6 +34,9 @@ const statusColors: Record<string, string> = {
   out_of_stock: "bg-red-500/10 text-red-600 border-red-500/20",
   expired: "bg-gray-500/10 text-gray-600 border-gray-500/20",
   reserved: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  damaged: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+  quarantined: "bg-purple-500/10 text-purple-600 border-purple-500/20",
+  transferred: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
 };
 
 const statusLabels: Record<string, string> = {
@@ -42,7 +45,12 @@ const statusLabels: Record<string, string> = {
   out_of_stock: "Out of Stock",
   expired: "Expired",
   reserved: "Reserved",
+  damaged: "Damaged",
+  quarantined: "Quarantined",
+  transferred: "Transferred",
 };
+
+const INVENTORY_STATES = ["in_stock", "low_stock", "out_of_stock", "reserved", "damaged", "quarantined", "transferred", "expired"];
 
 const storageTypes = [
   { value: "ambient", label: "Ambient" },
@@ -71,7 +79,7 @@ export default function WarehouseStockPage() {
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showAddDialog, setShowAddDialog] = useState(false);
-  const [stockForm, setStockForm] = useState(emptyStockForm);
+  const [stockForm, setStockForm] = useState({...emptyStockForm, status: "in_stock"});
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: stockData, isLoading, isError, refetch } = useQuery({
@@ -124,6 +132,7 @@ export default function WarehouseStockPage() {
       batchNumber: item.batchNumber || "",
       expiryDate: item.expiryDate ? String(item.expiryDate).slice(0, 10) : "",
       storageType: item.storageType || "ambient",
+      status: item.status || "in_stock",
     });
     setShowEditDialog(true);
   };
@@ -139,6 +148,7 @@ export default function WarehouseStockPage() {
     batchNumber: stockForm.batchNumber.trim() || undefined,
     expiryDate: stockForm.expiryDate ? new Date(stockForm.expiryDate).toISOString() : undefined,
     storageType: stockForm.storageType,
+    status: stockForm.status || "in_stock",
   });
 
   const handleAddStock = async (event: FormEvent<HTMLFormElement>) => {
@@ -237,6 +247,13 @@ export default function WarehouseStockPage() {
           <Input type="date" value={stockForm.expiryDate} onChange={(event) => updateStockForm("expiryDate", event.target.value)} className="mt-1" />
         </div>
       </div>
+        <div>
+          <label className="text-sm font-medium">Inventory State</label>
+          <Select value={stockForm.status || "in_stock"} onValueChange={(value) => updateStockForm("status", value)}>
+            <SelectTrigger className="mt-1"><SelectValue placeholder="Select inventory state" /></SelectTrigger>
+            <SelectContent>{INVENTORY_STATES.map((state) => <SelectItem key={state} value={state}>{statusLabels[state] || state.replace(/_/g, " ")}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
       <div>
         <label className="text-sm font-medium">Storage Type</label>
         <Select value={stockForm.storageType} onValueChange={(value) => updateStockForm("storageType", value)}>
