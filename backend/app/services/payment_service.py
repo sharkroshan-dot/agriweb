@@ -234,12 +234,15 @@ class PaymentService:
         if payment.get("status") == PaymentStatus.SUCCESS:
             return payment
 
-        success = await payment_repository.update_payment_status(
+        success = await payment_repository.mark_success_if_pending(
             payment_id,
-            PaymentStatus.SUCCESS,
-            gateway_response
+            gateway_response,
         )
         if not success:
+            # A concurrent callback may have finalized the payment already.
+            latest = await payment_repository.get_by_id(payment_id)
+            if latest and latest.get("status") == PaymentStatus.SUCCESS:
+                return latest
             return None
 
         # Update payment state without resurrecting an order that was already
