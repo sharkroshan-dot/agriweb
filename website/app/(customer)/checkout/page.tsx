@@ -73,7 +73,7 @@ export default function CheckoutPage() {
   const clearCart = useCartStore((state) => state.clearCart);
   const updateItem = useCartStore((state) => state.updateItem);
   const displayTotal = useMemo(
-    () => items.reduce((sum, i) => sum + (i.originalPrice || i.price) * i.quantity, 0),
+    () => items.reduce((sum, i) => sum + i.price * i.quantity, 0),
     [items]
   );
 
@@ -373,7 +373,7 @@ export default function CheckoutPage() {
         items: items.map((item) => ({
           productId: item.id,
           quantity: item.quantity,
-          unitPrice: item.originalPrice || item.price,
+          unitPrice: item.price,
         })),
         deliveryAddressId: addressId,
         paymentMethod,
