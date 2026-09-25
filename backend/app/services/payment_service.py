@@ -1832,6 +1832,15 @@ class PaymentService:
                         "referenceType": "withdrawal",
                         "balanceAfter": float(wallet_after.get("balance", 0)) if wallet_after else 0,
                     })
+                    from app.services.ledger_service import ledger_service
+                    await ledger_service.record(
+                        amount=amount,
+                        direction="credit",
+                        entry_type="withdrawal_reversal",
+                        user_id=user_id,
+                        reference=f"withdrawal_reversal:{withdrawal_id}",
+                        metadata={"payoutEvent": event},
+                    )
                     await NotificationService.send_wallet_credit(
                         user_id, amount,
                         float(wallet_after.get("balance", 0)) if wallet_after else 0
