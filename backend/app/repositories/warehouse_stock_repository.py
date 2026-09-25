@@ -32,11 +32,15 @@ class WarehouseStockRepository(BaseRepository):
         self,
         warehouse_id: str,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         try:
+            filter = {"warehouseId": ObjectId(warehouse_id), "deletedAt": None}
+            if status:
+                filter["status"] = status
             return await self.find_many(
-                {"warehouseId": ObjectId(warehouse_id), "deletedAt": None},
+                filter,
                 skip=skip,
                 limit=limit,
                 sort=[("updatedAt", -1)]
@@ -61,7 +65,7 @@ class WarehouseStockRepository(BaseRepository):
             obj_id = ObjectId(stock_id)
             data["updatedAt"] = datetime.utcnow()
 
-            if "quantity" in data:
+            if "quantity" in data and "status" not in data:
                 stock = await self.get_by_id(stock_id)
                 if stock:
                     quantity = data["quantity"]
