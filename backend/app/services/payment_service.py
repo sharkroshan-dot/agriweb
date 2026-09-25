@@ -136,33 +136,84 @@ class PaymentService:
                 return {"error": str(e)}
 
         elif payment_method == "wallet":
-            # Wallet-funded orders are refunded by crediting the customer's
-            # wallet. Never debit the wallet again during a refund.
+            # Wallet checkout is an immediate atomic debit. It must never use
+            # refund variables or the refund lifecycle.
             wallet = await wallet_repository.get_by_user_id(str(order["customerId"]))
-            if not wallet:
-                return None
+            if not wallet or not wallet.get("isActive", True):
+                return {"error": "Active wallet not found"}
 
-            success = await wallet_repository.update_balance(
+            debited = await wallet_repository.update_balance(
                 str(wallet["_id"]),
-                refund_amount,
-                "credit",
+                amount,
+                "debit",
             )
-            if not success:
-                return None
+            if not debited:
+                return {"error": "Insufficient wallet balance"}
 
-            await payment_repository.mark_refunded(
-                str(payment["_id"]),
-                refund_amount,
-                f"wallet_refund_{datetime.utcnow().timestamp()}",
-                status=_new_payment_status(),
+            updated_wallet = await wallet_repository.get_by_id(str(wallet["_id"]))
+            balance_after = float((updated_wallet or {}).get("balance", 0))
+
+            transaction_id = f"wallet_tx_{payment_id}"
+            tx_id = await wallet_transaction_repository.create_transaction({
+                "walletId": wallet["_id"],
+                "userId": order["customerId"],
+                "type": "debit",
+                "amount": amount,
+                "balanceAfter": balance_after,
+                "reference": payment_id,
+                "paymentId": payment_id,
+                "orderId": ObjectId(order_id),
+                "description": f"Payment for order {order.get('orderNumber', order_id)}",
+            })
+            if not tx_id:
+                # Compensate if the wallet transaction record could not be
+                # persisted. This keeps the wallet usable rather than silently
+                # consuming funds without a transaction trail.
+                await wallet_repository.update_balance(
+                    str(wallet["_id"]),
+                    amount,
+                    "credit",
+                )
+                return {"error": "Unable to record wallet transaction"}
+
+            await payment_repository.update_transaction_id(payment_id, transaction_id)
+            finalized = await PaymentService._finalize_successful_payment(
+                await payment_repository.get_by_id(payment_id),
+                {
+                    "wallet_transaction_id": transaction_id,
+                    "payment_method": "wallet",
+                },
             )
-            await PaymentService._record_refund_ledger(payment, order_id, refund_amount)
-            await order_repository.update(
-                {"_id": ObjectId(order_id)},
-                {"paymentStatus": _order_payment_status()}
+            if not finalized:
+                # If payment finalization fails, return the wallet funds so a
+                # pending payment cannot strand customer money.
+                await wallet_repository.update_balance(
+                    str(wallet["_id"]),
+                    amount,
+                    "credit",
+                )
+                return {"error": "Unable to finalize wallet payment"}
+
+            from app.services.ledger_service import ledger_service
+            await ledger_service.record(
+                amount=amount,
+                direction="debit",
+                entry_type="wallet_debit",
+                user_id=str(order["customerId"]),
+                order_id=order_id,
+                payment_id=payment_id,
+                reference=transaction_id,
+                metadata={"walletId": str(wallet["_id"]), "walletTransactionId": tx_id},
             )
 
-            return f"wallet_refund_{datetime.utcnow().timestamp()}"
+            return {
+                "payment_id": payment_id,
+                "status": "success",
+                "payment_method": "wallet",
+                "transaction_id": transaction_id,
+                "wallet_transaction_id": tx_id,
+                "balance_after": balance_after,
+            }
 
         elif payment_method == "cash":
             # Cash on delivery: no money is collected now. The delivery partner
