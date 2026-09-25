@@ -200,10 +200,13 @@ class WarehouseService:
     async def update_outgoing_status(
         outgoing_id: str,
         status: str,
+        warehouse_id: Optional[str] = None,
         data: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
         outgoing = await outgoing_stock_repository.get_by_id(outgoing_id)
         if not outgoing:
+            return None
+        if warehouse_id and str(outgoing.get("warehouseId")) != str(warehouse_id):
             return None
         success = await outgoing_stock_repository.update_status(outgoing_id, status, data)
         if not success:
@@ -307,10 +310,13 @@ class WarehouseService:
     @staticmethod
     async def complete_transfer(
         transfer_id: str,
-        received_by: str
+        received_by: str,
+        warehouse_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         transfer = await warehouse_transfer_repository.get_by_id(transfer_id)
         if not transfer:
+            return None
+        if warehouse_id and str(transfer.get("toWarehouseId")) != str(warehouse_id):
             return None
         success = await warehouse_transfer_repository.complete_transfer(
             transfer_id,
