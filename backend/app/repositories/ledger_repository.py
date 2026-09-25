@@ -17,7 +17,21 @@ class LedgerRepository(BaseRepository):
         """Create an immutable ledger entry."""
         entry.setdefault("createdAt", datetime.utcnow())
         # Entries are never soft-deleted or mutated; a correction is a new entry
-        # linked to the original via `reverses`.
+        # linked to the original via `reverses`. Stable references make webhook
+        # and worker retries idempotent.
+        if entry.get("reference"):
+            try:
+                existing = await self.find_one({
+                    "reference": entry["reference"],
+                    "type": entry.get("type"),
+                    "direction": entry.get("direction"),
+                    "amount": entry.get("amount"),
+                    "deletedAt": None,
+                })
+                if existing:
+                    return str(existing["_id"])
+            except Exception as e:
+                logger.warning("Ledger idempotency lookup failed: %s", e)
         return await self.create(entry)
 
     async def get_by_reference(self, ref_type: str, ref_id: str) -> List[Dict[str, Any]]:
