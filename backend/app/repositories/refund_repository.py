@@ -103,6 +103,39 @@ class RefundRepository(BaseRepository):
             filter["orderId"] = ObjectId(order_id)
         return await self.count(filter)
 
+    async def claim_for_processing(
+        self,
+        refund_id: str,
+        *,
+        actor_id: Optional[str] = None,
+        actor_role: Optional[str] = None,
+    ) -> bool:
+        """Atomically claim an approved refund for provider processing."""
+        try:
+            obj_id = ObjectId(refund_id)
+            timeline_entry = {
+                "status": "refund_processing",
+                "timestamp": datetime.utcnow(),
+            }
+            if actor_id:
+                timeline_entry["actorId"] = str(actor_id)
+            if actor_role:
+                timeline_entry["actorRole"] = actor_role
+            result = await self.collection.update_one(
+                {"_id": obj_id, "status": "approved", "deletedAt": None},
+                {
+                    "$set": {
+                        "status": "refund_processing",
+                        "updatedAt": datetime.utcnow(),
+                    },
+                    "$push": {"timeline": timeline_entry},
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(f"Error claiming refund for processing: {str(e)}")
+            return False
+
     async def update_status(
         self,
         refund_id: str,
