@@ -973,15 +973,20 @@ class OrderService:
                         order=order,
                     )
                     if not created:
-                        # Fall back to the legacy direct refund when the engine
-                        # declines to create a request.
-                        await PaymentService.process_refund(order_id)
+                        logger.error(
+                            "Refund engine did not create a refund request for cancelled order %s",
+                            order_id,
+                        )
                 except Exception as e:
-                    logger.warning(f"Failed to process refund via engine: {e}")
-                    try:
-                        await PaymentService.process_refund(order_id)
-                    except Exception as e2:
-                        logger.warning(f"Fallback refund failed: {e2}")
+                    # Do not fall back to the legacy direct payment refund:
+                    # doing so can bypass the refund record/idempotency lifecycle
+                    # and issue a duplicate provider payout after a partial
+                    # refund-engine failure.
+                    logger.error(
+                        "Refund engine failed for cancelled order %s: %s",
+                        order_id,
+                        e,
+                    )
             try:
                 await NotificationService.send_order_cancelled(
                     str(order["customerId"]),
