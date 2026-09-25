@@ -372,6 +372,7 @@ export default function CheckoutPage() {
       const payload: Record<string, any> = {
         items: items.map((item) => ({
           productId: item.id,
+          variantId: item.variantId || undefined,
           quantity: item.quantity,
           unitPrice: item.price,
         })),
