@@ -26,6 +26,20 @@ class WarehouseTransferRepository(BaseRepository):
             logger.error(f"Error getting transfer: {str(e)}")
             return None
 
+    async def cancel_transfer(self, transfer_id: str, reason: Optional[str] = None) -> bool:
+        transfer = await self.get_by_id(transfer_id)
+        if not transfer:
+            return False
+
+        update_data = {
+            "status": "cancelled",
+            "updatedAt": datetime.utcnow(),
+        }
+        if reason:
+            update_data["reason"] = reason
+
+        return await self.update({"_id": transfer["_id"]}, update_data)
+
     async def complete_transfer(self, transfer_id: str, received_by: str) -> bool:
         transfer = await self.get_by_id(transfer_id)
         if not transfer:
