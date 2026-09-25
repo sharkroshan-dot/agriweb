@@ -789,6 +789,12 @@ class PaymentService:
         from app.repositories.payment_split_repository import payment_split_repository
         from app.repositories.pickup_commission_repository import pickup_commission_repository
 
+        # Delivery/payout callbacks can be retried. Do not create duplicate
+        # split records or duplicate wallet/ledger credits for the same payment.
+        existing_split = await payment_split_repository.get_by_payment_id(payment_id)
+        if existing_split:
+            return True
+
         # Financial ledger: record the derived splits as advisory entries.
         from app.services.ledger_service import ledger_service
         for split in splits:
