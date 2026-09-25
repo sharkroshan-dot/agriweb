@@ -183,11 +183,14 @@ class WarehouseService:
         outgoing_id = await outgoing_stock_repository.create_outgoing(data.dict())
         if not outgoing_id:
             return None
-        await warehouse_stock_repository.reserve_stock(
+        reserved = await warehouse_stock_repository.reserve_stock(
             data.productId,
             data.quantity,
             data.warehouseId
         )
+        if not reserved:
+            await outgoing_stock_repository.update_status(outgoing_id, "pending", {"notes": "Stock reservation failed; outgoing record was not dispatched."})
+            return None
         return await outgoing_stock_repository.get_by_id(outgoing_id)
 
     @staticmethod
@@ -205,7 +208,8 @@ class WarehouseService:
         if status == "dispatched":
             await warehouse_stock_repository.release_stock(
                 str(outgoing["productId"]),
-                outgoing.get("quantity", 0)
+                outgoing.get("quantity", 0),
+                str(outgoing["warehouseId"]) if outgoing.get("warehouseId") else None
             )
         return await outgoing_stock_repository.get_by_id(outgoing_id)
 
@@ -313,7 +317,8 @@ class WarehouseService:
             return None
         await warehouse_stock_repository.release_stock(
             str(transfer["productId"]),
-            transfer.get("quantity", 0)
+            transfer.get("quantity", 0),
+            str(transfer["fromWarehouseId"]) if transfer.get("fromWarehouseId") else None
         )
         stock_data = {
             "warehouseId": transfer["toWarehouseId"],
