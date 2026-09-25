@@ -1342,7 +1342,20 @@ class PaymentService:
         claimed = await payment_repository.claim_pending_payment(str(payment["_id"]))
         if not claimed:
             latest = await payment_repository.get_by_id(str(payment["_id"]))
-            return bool(latest and latest.get("status") == PaymentStatus.SUCCESS)
+            if latest and latest.get("status") == PaymentStatus.SUCCESS:
+                return True
+            existing_transaction = await wallet_transaction_repository.get_by_reference_id(
+                str(payment["_id"]),
+                "payment",
+            )
+            if existing_transaction:
+                recovered = await payment_repository.update_payment_status(
+                    str(payment["_id"]),
+                    PaymentStatus.SUCCESS,
+                    gateway_response,
+                )
+                return bool(recovered)
+            return False
 
         wallet = await wallet_repository.get_by_user_id(str(payment["userId"]))
         if not wallet:
