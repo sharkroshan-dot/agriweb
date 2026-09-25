@@ -201,6 +201,12 @@ class WarehouseStockRepository(BaseRepository):
                 if not product:
                     continue
                 product_price = float(product.get("price", 0) or 0)
+                variant_id = item.get("variantId")
+                if variant_id:
+                    for variant in product.get("variants", []) or []:
+                        if str(variant.get("_id") or variant.get("id")) == str(variant_id):
+                            product_price = float(variant.get("price", product_price) or product_price)
+                            break
                 total_value += item.get("quantity", 0) * product_price
             return total_value
         except Exception as e:
