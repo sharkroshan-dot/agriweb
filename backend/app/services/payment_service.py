@@ -1279,11 +1279,19 @@ class PaymentService:
 
         if success:
             # Only mark the payment successful after the wallet credit succeeds.
-            await payment_repository.update_payment_status(
+            # The payment is intentionally marked successful only after
+            # the wallet credit succeeds. Keep the gateway response attached.
+            updated = await payment_repository.update_payment_status(
                 str(payment["_id"]),
                 PaymentStatus.SUCCESS,
                 gateway_response,
             )
+            if not updated:
+                logger.error(
+                    "Wallet top-up credited but payment status update failed for %s",
+                    payment.get("_id"),
+                )
+
             # Create transaction record
             wallet = await wallet_repository.get_by_id(wallet_id)
             transaction_data = {
