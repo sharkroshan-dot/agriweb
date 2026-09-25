@@ -37,6 +37,7 @@ ENTRY_TYPES = {
     "wallet_topup",          # wallet funded
     "wallet_debit",          # wallet used for payment
     "withdrawal",            # money moved out to a bank
+    "withdrawal_reversal",    # failed/reversed bank payout returned to wallet
     "cod_collected",         # COD cash collected by partner
     "cod_settled",           # COD cash remitted / reconciled
 }
