@@ -147,10 +147,17 @@ export default function ProductDetailPage() {
     };
   }, [data, productId, userLocation]);
 
-  const available = stockInfo?.available_stock ?? 0;
-  const totalStock = stockInfo?.total_stock ?? 0;
+  const stockLoaded = Boolean(stockInfo);
+  const available = stockLoaded
+    ? Math.max(0, Number(stockInfo?.available_stock ?? 0))
+    : Math.max(0, Number(product.quantity ?? 0));
+  const totalStock = stockLoaded
+    ? Math.max(0, Number(stockInfo?.total_stock ?? 0))
+    : available;
   const unit = stockInfo?.unit || product.unit || "kg";
-  const isOutOfStock = stockInfo?.is_out_of_stock ?? false;
+  const isOutOfStock = stockLoaded
+    ? Boolean(stockInfo?.is_out_of_stock) || available <= 0
+    : available <= 0;
   const maxQty = Math.max(1, available);
 
   const handleQuantityChange = (delta: number) => {
