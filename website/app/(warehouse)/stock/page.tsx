@@ -88,7 +88,7 @@ export default function WarehouseStockPage() {
       api.get("/warehouse/me/stock", {
         params: {
           status: statusFilter !== "all" ? statusFilter : undefined,
-          category: categoryFilter !== "all" ? categoryFilter : undefined,
+          
           limit: 50,
         },
       }),
@@ -103,16 +103,16 @@ export default function WarehouseStockPage() {
     const items = stockData?.data?.stock || stockData?.data?.items || [];
     const query = searchTerm.trim().toLowerCase();
 
-    if (!query) {
-      return items;
-    }
-
-    return items.filter((item: any) =>
-      [item.name, item.productName, item.productId, item.batchNumber, item.locationInWarehouse]
+    const category = categoryFilter !== "all" ? categoryFilter.toLowerCase() : "";
+    return items.filter((item: any) => {
+      const matchesSearch = !query || [item.name, item.productName, item.productId, item.batchNumber, item.locationInWarehouse]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query))
-    );
-  }, [searchTerm, stockData]);
+        .some((value) => String(value).toLowerCase().includes(query));
+      const itemCategory = String(item.category || item.productCategory || "").toLowerCase();
+      const matchesCategory = !category || itemCategory === category || itemCategory.includes(category);
+      return matchesSearch && matchesCategory;
+    });
+  }, [searchTerm, stockData, categoryFilter]);
 
   const openAddDialog = () => {
     setStockForm({...emptyStockForm, status: "in_stock"});
