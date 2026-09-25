@@ -67,7 +67,7 @@ From `backend`:
 poetry run pytest -v
 ```
 
-The repository's latest verified backend run passed **198 tests**.
+The last fully verified backend baseline passed **198 tests** before the latest repository changes. Run the command above again for the current branch before release.
 
 ## Website checks
 
