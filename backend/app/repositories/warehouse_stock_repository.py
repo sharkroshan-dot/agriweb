@@ -184,8 +184,18 @@ class WarehouseStockRepository(BaseRepository):
         try:
             stock_items = await self.get_by_warehouse_id(warehouse_id)
             total_value = 0
+            from app.repositories.product_repository import product_repository
             for item in stock_items:
-                product_price = 0
+                product_id = item.get("productId")
+                if not product_id:
+                    continue
+                product = await product_repository.find_one({
+                    "_id": ObjectId(str(product_id)),
+                    "deletedAt": None,
+                })
+                if not product:
+                    continue
+                product_price = float(product.get("price", 0) or 0)
                 total_value += item.get("quantity", 0) * product_price
             return total_value
         except Exception as e:
