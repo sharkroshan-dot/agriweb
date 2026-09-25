@@ -147,6 +147,15 @@ class MongoDB:
             )
         except Exception as exc:
             logger.warning("Ledger idempotency index could not be created: %s", exc)
+        # Wallet transaction recovery/idempotency lookups
+        await cls.db.wallet_transactions.create_index([("referenceId", 1), ("referenceType", 1), ("type", 1)])
+        await cls.db.wallet_transactions.create_index([("walletId", 1), ("createdAt", -1)])
+        # Warehouse lifecycle lookups
+        await cls.db.warehouse_stock.create_index([("warehouseId", 1), ("productId", 1), ("variantId", 1)])
+        await cls.db.incoming_stock.create_index([("warehouseId", 1), ("status", 1), ("expectedDate", 1)])
+        await cls.db.warehouse_transfers.create_index([("fromWarehouseId", 1), ("status", 1)])
+        await cls.db.warehouse_transfers.create_index([("toWarehouseId", 1), ("status", 1)])
+
         # Audit log lookups (TTL index is created at startup separately)
         await cls.db.audit_logs.create_index([("action", 1), ("createdAt", -1)])
         await cls.db.audit_logs.create_index("actorId")
