@@ -47,6 +47,27 @@ class PaymentService:
         if not customer:
             return {"error": "Customer not found"}
         
+        # Never trust a client-supplied payment amount. The payment intent
+        # must be created for the authoritative order total.
+        try:
+            expected_amount = round(float(order.get("totalAmount") or order.get("total") or 0), 2)
+            requested_amount = round(float(amount or 0), 2)
+        except (TypeError, ValueError):
+            return {"error": "Invalid payment amount"}
+
+        if expected_amount <= 0:
+            return {"error": "Order has no payable amount"}
+        if requested_amount <= 0 or abs(requested_amount - expected_amount) > 0.01:
+            logger.warning(
+                "Payment amount mismatch for order %s: requested=%s expected=%s",
+                order_id,
+                requested_amount,
+                expected_amount,
+            )
+            return {"error": "Payment amount does not match the order total"}
+
+        amount = expected_amount
+
         # Create payment record
         payment_data = {
             "orderId": ObjectId(order_id),
