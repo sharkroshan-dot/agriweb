@@ -630,7 +630,13 @@ class RefundService:
             raise RefundNotFoundError("Refund not found")
         if refund.get("status") == RefundStatus.REFUNDED.value:
             return await RefundService.serialize(refund)
-        if refund.get("status") not in (RefundStatus.APPROVED.value, RefundStatus.REFUND_PROCESSING.value):
+        if refund.get("status") == RefundStatus.REFUND_PROCESSING.value:
+            # A retry may arrive after the payout provider succeeded but before
+            # our final status write. Do not start another provider refund.
+            existing_tx = refund.get("refundTransactionId")
+            if existing_tx:
+                return await RefundService.serialize(refund)
+        if refund.get("status") != RefundStatus.APPROVED.value:
             raise RefundNotEligibleError("Only approved refunds can be processed")
 
         amount = round(float(refund.get("approvedAmount") or 0), 2)
