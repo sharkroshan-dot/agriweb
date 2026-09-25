@@ -11,6 +11,7 @@ import { Badge } from "../ui/badge";
 import toast from "react-hot-toast";
 
 const QUALITY_GRADES = ["Grade A", "Grade B", "Grade C", "Premium", "Organic", "Standard"];
+const PRODUCT_CATEGORIES = ["Vegetables", "Fruits", "Grains", "Pulses", "Spices", "Dairy", "Oilseeds", "Flowers", "Other"];
 const VISIBILITY = ["nearby", "district", "state", "national"];
 
 const emptyForm = {
@@ -72,8 +73,17 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <Input value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="e.g. Tomato" />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Category</label>
-          <Input value={form.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Vegetables" />
+          <label className="text-xs font-medium text-gray-500">Category *</label>
+          <select
+            value={form.category}
+            onChange={(e) => set("category", e.target.value)}
+            className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm outline-none focus:border-emerald-500"
+          >
+            <option value="">Select category</option>
+            {PRODUCT_CATEGORIES.map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
         </div>
 
         <div className="space-y-1 sm:col-span-2">
@@ -266,7 +276,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={!form.productName || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
+            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
             onClick={() =>
               createMutation.mutate({
                 ...form,
