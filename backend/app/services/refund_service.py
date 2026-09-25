@@ -442,6 +442,7 @@ class RefundService:
         for ai in data.affectedItems or []:
             affected_items.append({
                 "productId": ai.productId,
+                "variantId": getattr(ai, "variantId", None),
                 "quantity": ai.quantity,
                 "requestedAmount": ai.requestedAmount or 0,
             })
