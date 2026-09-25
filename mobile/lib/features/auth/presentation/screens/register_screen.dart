@@ -149,7 +149,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     DropdownMenuItem(value: 'customer', child: Text('Customer')),
                     DropdownMenuItem(value: 'farmer', child: Text('Farmer')),
                     DropdownMenuItem(value: 'delivery', child: Text('Delivery Partner')),
-                    DropdownMenuItem(value: 'warehouse', child: Text('Warehouse Manager')),
                   ],
                   onChanged: (v) => setState(() => _selectedRole = v!),
                 ),
