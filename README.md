@@ -19,7 +19,7 @@ A full-stack agriculture marketplace platform connecting farmers directly with c
 
 ```bash
 # Clone and navigate
-cd agri
+cd agriweb
 
 # Start all services
 docker-compose up -d
@@ -53,10 +53,10 @@ cd backend
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\\Scripts\\activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements/dev.txt
 
 # Set environment variables
 cp .env.example .env
