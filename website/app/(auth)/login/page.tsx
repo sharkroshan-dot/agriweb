@@ -94,6 +94,13 @@ export default function LoginPage() {
     }
   }, []);
 
+  // Prefetch the post-login destination so navigation can start immediately
+  // once authentication succeeds instead of waiting for the dashboard bundle.
+  useEffect(() => {
+    const destination = callbackUrl || `/${role}/dashboard`;
+    router.prefetch(destination);
+  }, [callbackUrl, role, router]);
+
   useEffect(() => {
     if (resendTimer <= 0) return;
     const id = setInterval(() => setResendTimer((t) => (t <= 1 ? 0 : t - 1)), 1000);
@@ -115,7 +122,6 @@ export default function LoginPage() {
     if (result?.ok) {
       saveEmail(email);
       router.push(callbackUrl || `/${role}/dashboard`);
-      router.refresh();
       return;
     }
 
@@ -197,7 +203,6 @@ export default function LoginPage() {
       });
       if (result?.ok) {
         router.push(callbackUrl || `/${actualRole}/dashboard`);
-        router.refresh();
         return;
       }
       setError("Sign-in failed. Please try again.");
