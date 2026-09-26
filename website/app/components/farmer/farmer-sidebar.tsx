@@ -36,7 +36,10 @@ import {
   BadgePercent,
   BadgeCheck,
   Bot,
-  ShoppingBasket,\n  ThumbsUp,\n  Flame,\n  FileSignature,
+  ShoppingBasket,
+  ThumbsUp,
+  Flame,
+  FileSignature,
 } from "lucide-react";
 import { cn, formatPrice } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -53,7 +56,8 @@ const navGroups = [
       { name: "Orders", href: "/farmer/orders", icon: ShoppingCart },
       { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
       { name: "Customers", href: "/farmer/customers", icon: Users },
-      { name: "Reviews", href: "/farmer/reviews", icon: Star },\n      { name: "Ratings", href: "/farmer/ratings", icon: ThumbsUp },
+      { name: "Reviews", href: "/farmer/reviews", icon: Star },
+      { name: "Ratings", href: "/farmer/ratings", icon: ThumbsUp },
       { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
@@ -85,7 +89,9 @@ const navGroups = [
     items: [
       { name: "Analytics", href: "/farmer/analytics", icon: BarChart },
       { name: "AI Predictions", href: "/farmer/ai-predictions", icon: Bot },
-      { name: "Farm Impact", href: "/farmer/impact", icon: Leaf },\n      { name: "AI Farm Advisor", href: "/farmer/advisor", icon: Sparkles },\n      { name: "Demand Heatmap", href: "/farmer/demand-heatmap", icon: Flame },
+      { name: "Farm Impact", href: "/farmer/impact", icon: Leaf },
+      { name: "AI Farm Advisor", href: "/farmer/advisor", icon: Sparkles },
+      { name: "Demand Heatmap", href: "/farmer/demand-heatmap", icon: Flame },
     ],
   },
   {
@@ -106,7 +112,8 @@ const navGroups = [
     label: "B2B & Bulk",
     items: [
       { name: "Bulk RFQ", href: "/farmer/purchase-requests", icon: FileText },
-      { name: "Business RFQs", href: "/farmer/b2b/rfqs", icon: Briefcase },\n      { name: "Business Contracts", href: "/farmer/b2b/contracts", icon: FileSignature },
+      { name: "Business RFQs", href: "/farmer/b2b/rfqs", icon: Briefcase },
+      { name: "Business Contracts", href: "/farmer/b2b/contracts", icon: FileSignature },
       { name: "Bulk & B2B Orders", href: "/farmer/bulk-orders", icon: Truck },
     ],
   },
