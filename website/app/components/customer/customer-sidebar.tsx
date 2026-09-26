@@ -61,7 +61,7 @@ const navGroups = [
     label: "Account",
     items: [
       { name: "Wallet", href: "/wallet", icon: Wallet },
-      { name: "Payments", href: "/payments", icon: CreditCard },
+      { name: "Payments", href: "/customer/payments", icon: CreditCard },
       { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
       { name: "Coupons", href: "/coupons", icon: Ticket },
       { name: "Reviews", href: "/reviews", icon: MessageSquare },
