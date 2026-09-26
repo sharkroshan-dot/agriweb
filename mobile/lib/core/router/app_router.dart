@@ -79,6 +79,7 @@ import '../../features/delivery/presentation/screens/delivery_order_map_screen.d
 import '../../features/delivery/presentation/screens/route_screen.dart';
 import '../../features/delivery/presentation/screens/settings_screen.dart';
 import 'routes.dart';
+import 'middlewares.dart';
 import '../../shared/widgets/bottom_nav.dart';
 
 class AppRouter {
@@ -87,6 +88,7 @@ class AppRouter {
   static final router = GoRouter(
     navigatorKey: _rootKey,
     initialLocation: AppRoutes.login,
+    redirect: AppRouteMiddleware.redirect,
     routes: [
       GoRoute(path: AppRoutes.login, builder: (_, __) => const LoginScreen()),
       GoRoute(path: AppRoutes.register, builder: (_, __) => const RegisterScreen()),
