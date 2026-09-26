@@ -280,6 +280,14 @@ export default function WarehouseStockPage() {
     </form>
   );
 
+  const inventorySummary = useMemo(() => {
+    const total = stockItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
+    const low = stockItems.filter((item: any) => item.status === "low_stock" || Number(item.quantity || 0) <= Number(item.minThreshold || 0)).length;
+    const expired = stockItems.filter((item: any) => item.expiryDate && new Date(item.expiryDate).getTime() < Date.now()).length;
+    const reserved = stockItems.reduce((sum: number, item: any) => sum + Number(item.reservedQuantity || 0), 0);
+    return { total, low, expired, reserved };
+  }, [stockItems]);
+
   if (isError) {
     return (
       <div className="space-y-6">
@@ -297,14 +305,6 @@ export default function WarehouseStockPage() {
       </div>
     );
   }
-
-  const inventorySummary = useMemo(() => {
-    const total = stockItems.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
-    const low = stockItems.filter((item: any) => item.status === "low_stock" || Number(item.quantity || 0) <= Number(item.minThreshold || 0)).length;
-    const expired = stockItems.filter((item: any) => item.expiryDate && new Date(item.expiryDate).getTime() < Date.now()).length;
-    const reserved = stockItems.reduce((sum: number, item: any) => sum + Number(item.reservedQuantity || 0), 0);
-    return { total, low, expired, reserved };
-  }, [stockItems]);
 
   return (
     <div className="space-y-6">
