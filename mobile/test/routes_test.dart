@@ -1,12 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:agriconnect/core/router/routes.dart';
 
 void main() {
   test('dashboard routes are defined for supported mobile roles', () {
-    expect(dashboardForRole('customer'), AppRoutes.customerHome);
-    expect(dashboardForRole('farmer'), '/farmer/dashboard');
-    expect(dashboardForRole('delivery'), '/delivery/dashboard');
+    expect(AppRoutes.dashboardForRole('customer'), AppRoutes.customerHome);
+    expect(AppRoutes.dashboardForRole('farmer'), AppRoutes.farmerDashboard);
+    expect(AppRoutes.dashboardForRole('delivery'), AppRoutes.deliveryDashboard);
   });
 
   test('role route constants remain stable', () {
