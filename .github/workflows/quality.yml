@@ -19,7 +19,7 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: website/package-lock.json
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
 
@@ -36,15 +36,12 @@ jobs:
           python-version: "3.11"
       - name: Compile Python sources
         run: python -m compileall -q app
-      - name: Install test dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install poetry
-          rm -f poetry.lock
-          poetry lock
-          poetry install --no-interaction
+          python -m pip install -r requirements/dev.txt
       - name: Run tests
-        run: poetry run pytest -q
+        run: pytest -q
 
   mobile:
     name: Flutter analyze and test
@@ -62,3 +59,21 @@ jobs:
       - run: dart format lib test
       - run: flutter analyze
       - run: flutter test
+
+  security:
+    name: Dependency and secret hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install audit tooling
+        run: python -m pip install pip-audit
+      - name: Audit Python dependencies
+        working-directory: backend
+        run: pip-audit -r requirements/base.txt
+      - name: Check for obvious committed secrets
+        shell: bash
+        run: |
+          ! grep -RInE "(AKIA[0-9A-Z]{16}|sk_live_[0-9A-Za-z]+|-----BEGIN (RSA |EC )?PRIVATE KEY-----)" . --exclude-dir=.git --exclude=package-lock.json
