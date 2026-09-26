@@ -94,7 +94,8 @@ export default function CheckoutPage() {
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
-  const [paymentStage, setPaymentStage] = useState<"idle"|"creating"|"processing"|"success"|"failed">("idle");
+  type PaymentStage = "idle" | "creating" | "processing" | "success" | "failed";
+  const [paymentStage, setPaymentStage] = useState<PaymentStage>("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
   const [completedOrderId, setCompletedOrderId] = useState("");
   const [completedTransactionId, setCompletedTransactionId] = useState("");
