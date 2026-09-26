@@ -3,6 +3,20 @@
 @tailwind utilities;
 
 :root {
+  --brand-emerald: #059669;
+  --brand-emerald-dark: #047857;
+  --brand-emerald-soft: #ecfdf5;
+  --brand-amber: #f59e0b;
+  --brand-danger: #dc2626;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --border: #e2e8f0;
+  --foreground: #0f172a;
+  --muted-foreground: #64748b;
+  --radius-control: 0.75rem;
+  --radius-card: 1rem;
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.08);
+
   color-scheme: light;
   --brand-emerald: #059669;
   --brand-emerald-dark: #047857;
@@ -114,4 +128,12 @@ button { -webkit-tap-highlight-color: transparent; }
       margin-top: 16px;
     }
   }
+}
+
+@layer components {
+  .ui-card { @apply rounded-2xl border border-slate-200 bg-white shadow-sm; }
+  .ui-control { @apply rounded-xl border border-slate-200 bg-white text-slate-900 transition-colors focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20; }
+  .ui-page { @apply mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8; }
+  .ui-section-title { @apply text-xl font-bold tracking-tight text-slate-900 sm:text-2xl; }
+  .ui-muted { @apply text-sm text-slate-500; }
 }
