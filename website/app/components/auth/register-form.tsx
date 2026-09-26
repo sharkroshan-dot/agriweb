@@ -14,7 +14,6 @@ const roleOptions = [
   { value: "business", label: "Business" },
   { value: "warehouse", label: "Warehouse" },
   { value: "delivery", label: "Delivery Partner" },
-  { value: "admin", label: "Admin" },
 ];
 
 const roleLabels: Record<string, string> = {
