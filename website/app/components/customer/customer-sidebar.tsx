@@ -7,7 +7,7 @@ import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
-  MapPin,
+  MapPin,\n  Wheat,
   Landmark,
   Globe,
   ShoppingCart,
@@ -33,7 +33,7 @@ import { api } from "../../lib/api/client";
 const navGroups = [
   {
     label: "Home",
-    items: [{ name: "Home", href: "/customer/dashboard", icon: LayoutDashboard }],
+    items: [{ name: "Upcoming Harvests", href: "/harvests", icon: Wheat },{ name: "Home", href: "/customer/dashboard", icon: LayoutDashboard }],
   },
   {
     label: "Marketplace",
