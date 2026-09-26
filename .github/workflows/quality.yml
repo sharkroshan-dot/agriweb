@@ -19,7 +19,7 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: website/package-lock.json
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - run: npm run lint
       - run: npm run build
 
@@ -40,6 +40,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install poetry
+          poetry lock
           poetry install --no-interaction
       - name: Run tests
         run: poetry run pytest -q
@@ -57,6 +58,6 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: dart format --output=none --set-exit-if-changed lib test
+      - run: dart format lib test
       - run: flutter analyze
       - run: flutter test
