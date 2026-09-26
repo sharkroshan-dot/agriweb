@@ -50,7 +50,7 @@ class AITrainingService:
         return {
             "modelId": str(job["_id"]),
             "modelType": job.get("modelType"),
-            "status": job.get("status"),
+            "status": {"queued": "training", "running": "training", "completed": "ready"}.get(job.get("status"), job.get("status")),
             "progress": job.get("progress", 0),
             "accuracy": job.get("accuracy"),
             "metrics": job.get("metrics"),
