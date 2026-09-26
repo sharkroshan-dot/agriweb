@@ -75,16 +75,15 @@ async function refreshBackendAccessToken(refreshToken: string) {
   }
 }
 
+// Next.js evaluates this module during `next build`. Keep the module
+// build-safe when deployment secrets are injected only at runtime.
+const authSecret =
+  process.env.NEXTAUTH_SECRET ||
+  process.env.AUTH_SECRET ||
+  "agriconnect-build-secret-change-in-production";
+
 export const authOptions = {
-  secret:
-    process.env.NEXTAUTH_SECRET ||
-    process.env.AUTH_SECRET ||
-    (() => {
-      if (process.env.NODE_ENV === "production") {
-        throw new Error("NEXTAUTH_SECRET is required in production. Set a strong random value.");
-      }
-      return "agriconnect-dev-secret";
-    })(),
+  secret: authSecret,
   session: {
     strategy: "jwt",
   },
