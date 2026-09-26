@@ -187,9 +187,9 @@ export function AdminSidebar() {
               <p className="text-xs text-muted-foreground">Complaints and refunds requiring attention</p>
               <Link href="/admin/complaints" className="text-primary hover:underline">
                 <Button size="sm" variant="link" className="h-auto p-0 text-xs">{complaints.length} complaints · {pendingRefunds} refunds</Button>
-                  View pending actions →
-                </Button>
+                <span className="text-xs text-primary">View pending actions →</span>
               </Link>
+
             </div>
           </div>
         </div>
