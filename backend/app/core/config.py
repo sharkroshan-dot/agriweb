@@ -40,7 +40,9 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: Optional[str] = None
     
     # JWT
-    JWT_SECRET: str = "your-secret-key-here-change-in-production"\n    ENABLE_AI_STUBS: bool = False\n    COOKIE_SECURE: bool = False
+    JWT_SECRET: str = "your-secret-key-here-change-in-production"
+    ENABLE_AI_STUBS: bool = False
+    COOKIE_SECURE: bool = False
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -208,4 +210,4 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = "ignore"
 
-settings = Settings()\nsettings.validate_production()
+settings = Settings()
