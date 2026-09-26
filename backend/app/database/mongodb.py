@@ -156,6 +156,11 @@ class MongoDB:
         await cls.db.warehouse_transfers.create_index([("fromWarehouseId", 1), ("status", 1)])
         await cls.db.warehouse_transfers.create_index([("toWarehouseId", 1), ("status", 1)])
 
+        # AI training jobs
+        await cls.db.ai_training_jobs.create_index([("status", 1), ("createdAt", -1)])
+        await cls.db.ai_training_jobs.create_index([("modelType", 1), ("createdAt", -1)])
+        await cls.db.ai_training_jobs.create_index("requestedBy")
+
         # Audit log lookups (TTL index is created at startup separately)
         await cls.db.audit_logs.create_index([("action", 1), ("createdAt", -1)])
         await cls.db.audit_logs.create_index("actorId")
