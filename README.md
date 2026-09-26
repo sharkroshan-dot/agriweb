@@ -458,3 +458,33 @@ Backend: **http://localhost:8000**
 Swagger: **http://localhost:8000/docs**
 
 > AI features that require historical data or external providers should report unavailable or insufficient data instead of fabricating observations. Model outputs are recommendations; users remain responsible for operational decisions.
+
+
+## Production-ready enhancement
+
+The project now uses a shared production-oriented foundation across web, API, AI workers, and mobile.
+
+### Local development
+- Backend: Python **3.11** is the supported runtime. Do not use Python 3.14 for this backend environment.
+- Full local stack: `docker compose up --build`
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/api/docs`
+- Website: `http://localhost:3000`
+- Liveness: `/health/live`
+- Readiness: `/health/ready`
+
+### AI platform
+- Price prediction and demand forecasting use the existing model implementations.
+- Admin training requests create persistent training jobs and dispatch Celery workers.
+- Training status is stored in MongoDB instead of returning synthetic progress.
+- Model registry artifacts are retained under the AI model registry.
+- AI router failures are no longer silently replaced by stubs in production.
+
+### Production configuration
+Set strong values for `JWT_SECRET`, explicit `BACKEND_CORS_ORIGINS`, `ALLOWED_HOSTS`, MongoDB credentials, and MongoDB TLS before setting `DEBUG=false` or `ENVIRONMENT=production`.
+
+### UI consistency
+The website uses shared UI primitives and global design tokens for controls, cards, selection states, spacing, focus states, and brand colors. Reuse `website/app/components/ui` rather than introducing page-specific button colors.
+
+### CI
+GitHub Actions validates website lint/build, backend compilation/tests, Flutter analysis/tests, dependency auditing, and basic committed-secret hygiene.
