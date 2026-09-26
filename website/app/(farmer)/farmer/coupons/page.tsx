@@ -126,9 +126,9 @@ export default function FarmerCouponsPage() {
           <CardDescription>Farmer-created coupons are coming soon. Until then, run discounts from your product page.</CardDescription>
         </CardHeader>
         <CardContent>
-          <a href="/farmer/products">
+          <Link href="/farmer/products">
             <Button size="sm">Go to Products</Button>
-          </a>
+          </Link>
         </CardContent>
       </Card>
     </div>
