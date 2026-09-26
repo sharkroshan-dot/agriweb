@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
 import { BadgePercent, CalendarDays, Users, Loader2, Tag } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
