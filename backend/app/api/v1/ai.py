@@ -34,7 +34,9 @@ from app.schemas.ai_risk import (
     FraudCheckRequest, FraudCheckResponse,
     SecurityCenterResponse,
 )
-from app.services.ai_risk_service import ai_risk_service\nfrom app.services.ai_training_service import AITrainingService\nfrom app.tasks.ai_tasks import train_model_task
+from app.services.ai_risk_service import ai_risk_service
+from app.services.ai_training_service import AITrainingService
+from app.tasks.ai_tasks import train_model_task
 from app.services.farmer_settings_service import farmer_settings_service
 import logging
 
