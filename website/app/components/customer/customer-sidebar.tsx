@@ -7,7 +7,8 @@ import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
-  MapPin,\n  Wheat,
+  MapPin,
+  Wheat,
   Landmark,
   Globe,
   ShoppingCart,
