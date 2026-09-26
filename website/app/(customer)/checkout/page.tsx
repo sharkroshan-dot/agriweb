@@ -544,10 +544,10 @@ export default function CheckoutPage() {
       </div>
 
       {paymentStage !== "idle" && (
-        <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":paymentStage==="success"?"border-emerald-200 bg-emerald-50/60":"border-blue-200 bg-blue-50/60"}`}>
+        <Card className={`border-2 ${paymentStage==="failed"?"border-red-200 bg-red-50/60":"border-blue-200 bg-blue-50/60"}`}>
           <CardContent className="flex items-center gap-3 p-4">
-            {paymentStage==="success" ? <CheckCircle2 className="h-5 w-5 text-emerald-600"/> : paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
-            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?"Preparing payment":paymentStage==="processing"?"Payment processing":paymentStage==="success"?"Payment confirmed":"Payment needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
+            {paymentStage==="failed" ? <X className="h-5 w-5 text-red-600"/> : <Loader2 className="h-5 w-5 animate-spin text-blue-600"/>}
+            <div><p className="font-semibold text-slate-900">{paymentStage==="creating"?"Preparing payment":paymentStage==="processing"?"Payment processing":"Payment needs attention"}</p><p className="text-xs text-slate-600">{paymentMessage}</p></div>
           </CardContent>
         </Card>
       )}
