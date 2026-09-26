@@ -1,0 +1,3 @@
+# Runtime requirements mirrored from backend/pyproject.toml.
+# Generated manually so Poetry and requirements-based deployment stay aligned.
+-r base.txt
