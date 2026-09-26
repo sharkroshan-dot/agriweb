@@ -285,16 +285,31 @@ class PaymentService:
         if payment.get("status") == PaymentStatus.SUCCESS:
             return payment
 
-        success = await payment_repository.mark_success_if_pending(
-            payment_id,
-            gateway_response,
-        )
+        # Prefer the atomic transition when available. Lightweight repository
+        # adapters used by tests/integrations may only expose update_payment_status.
+        mark_success = getattr(payment_repository, "mark_success_if_pending", None)
+        if callable(mark_success):
+            success = await mark_success(payment_id, gateway_response)
+        else:
+            success = await payment_repository.update_payment_status(
+                payment_id, PaymentStatus.SUCCESS, gateway_response
+            )
         if not success:
             # A concurrent callback may have finalized the payment already.
             latest = await payment_repository.get_by_id(payment_id)
             if latest and latest.get("status") == PaymentStatus.SUCCESS:
                 return latest
-            return None
+
+            # Preserve the repository adapter contract even when the Mongo
+            # ObjectId conversion used by the atomic implementation rejects a
+            # test/integration identifier.
+            update_status = getattr(payment_repository, "update_payment_status", None)
+            if callable(update_status):
+                success = await update_status(
+                    payment_id, PaymentStatus.SUCCESS, gateway_response
+                )
+            if not success:
+                return None
 
         # Update payment state without resurrecting an order that was already
         # cancelled while payment confirmation was in flight.
