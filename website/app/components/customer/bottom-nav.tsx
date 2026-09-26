@@ -6,7 +6,7 @@ import { Home, Search, ShoppingCart, Heart, User } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 const navItems = [
-  { name: "Home", href: "/", icon: Home },
+  { name: "Home", href: "/customer/dashboard", icon: Home },
   { name: "Search", href: "/search", icon: Search },
   { name: "Cart", href: "/cart", icon: ShoppingCart },
   { name: "Wishlist", href: "/wishlist", icon: Heart },
