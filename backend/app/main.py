@@ -93,7 +93,9 @@ async def lifespan(app: FastAPI):
         basket_task = asyncio.create_task(_subscriptions.basket_scheduler_loop())
         logger.info("✅ Database connections established")
     except Exception as exc:
-        logger.warning(f"⚠️ Database startup warning: {exc}")
+        logger.error(f"❌ Database startup failed: {exc}")
+        if not settings.DEBUG:
+            raise
     yield
     # Shutdown
     logger.info("🛑 Shutting down...")
@@ -165,15 +167,29 @@ async def legacy_docs():
 async def legacy_redoc():
     return RedirectResponse(url="/api/redoc", status_code=307)
 
+@app.get("/health/live")
+async def liveness_check():
+    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+
+@app.get("/health/ready")
+async def readiness_check():
+    database = await MongoDB.health_check()
+    redis = await RedisClient.health_check()
+    if not database or not redis:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"database": database, "redis": redis},
+        )
+    return {"status": "ready", "services": {"database": True, "redis": True}, "timestamp": datetime.utcnow().isoformat()}
+
 @app.get("/health")
 async def health_check():
+    database = await MongoDB.health_check()
+    redis = await RedisClient.health_check()
     return {
-        "status": "healthy",
-        "services": {
-            "database": await MongoDB.health_check(),
-            "redis": await RedisClient.health_check()
-        },
-        "timestamp": datetime.utcnow().isoformat()
+        "status": "healthy" if database and redis else "degraded",
+        "services": {"database": database, "redis": redis},
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 # Import and include routers
