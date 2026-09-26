@@ -1,7 +1,7 @@
 "use client";
 import {useMemo,useState} from "react";
 import {useQuery} from "@tanstack/react-query";
-import {CreditCard,Wallet,ArrowDownToLine,ArrowUpRight,Clock3,XCircle,RefreshCw,Search,ReceiptText} from "lucide-react";
+import {CreditCard,Wallet,ArrowDownToLine,ArrowUpRight,Clock3,XCircle,RefreshCw,Search,Receipt} from "lucide-react";
 import {Card,CardContent} from "../ui/card";
 import {Button} from "../ui/button";
 import {Badge} from "../ui/badge";
