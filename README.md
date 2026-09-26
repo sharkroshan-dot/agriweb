@@ -30,13 +30,12 @@ docker-compose ps
 # View logs
 docker-compose logs -f backend
 docker-compose logs -f website
-docker-compose logs -f mobile
 ```
 
 **Services will be available at:**
 - **Website**: http://localhost:3000
 - **Backend API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
+- **API Docs**: http://localhost:8000/api/docs
 - **MongoDB**: localhost:27017
 - **Redis**: localhost:6379
 - **Prometheus**: http://localhost:9090
