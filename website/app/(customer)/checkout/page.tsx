@@ -236,13 +236,11 @@ export default function CheckoutPage() {
     ensureRazorpayLoaded();
   }, []);
 
-  useEffect(() => {
-    if (status === "unauthenticated") {
-      router.replace("/login?role=customer&callbackUrl=%2Fcheckout");
-    }
-  }, [router, status]);
-
-  const openRazorpayCheckout = async (intentData: any, orderId: string) => {
+  const openRazorpayCheckout = async (
+    intentData: any,
+    orderId: string,
+    paymentMethodForGateway: string
+  ) => {
     return new Promise<void>((resolve, reject) => {
       if (typeof window === "undefined" || !(window as any).Razorpay) {
         reject(new Error("Payment gateway unavailable"));
@@ -258,6 +256,10 @@ export default function CheckoutPage() {
         order_id: intentData.order_id,
         prefill: intentData.prefill || {},
         theme: intentData.theme || { color: "#059669" },
+        // Keep the customer's selected card method preselected when supported.
+        // UPI/Net Banking/Wallet availability is still controlled by the
+        // Razorpay account configuration and is selected inside Razorpay.
+        ...(paymentMethodForGateway === "card" ? { method: "card" } : {}),
         handler: async (response: any) => {
           try {
             setIsPlacing(true);
@@ -452,7 +454,11 @@ export default function CheckoutPage() {
           return;
         }
 
-        await openRazorpayCheckout(intentData, order.id || order._id);
+        await openRazorpayCheckout(
+          intentData,
+          order.id || order._id,
+          paymentMethod
+        );
       }
     } catch (err: any) {
       setPaymentStage("failed");
@@ -476,7 +482,10 @@ export default function CheckoutPage() {
   };
 
   if (status === "loading") return <div className="page-container"><div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200" /><div className="mt-6 h-40 animate-pulse rounded-2xl bg-slate-100" /></div>;
-  if (status === "unauthenticated") return null;
+  if (status === "unauthenticated") {
+    router.replace("/login");
+    return null;
+  }
 
   if (paymentStage === "success") {
     return (
@@ -740,14 +749,66 @@ export default function CheckoutPage() {
                 })}
               </div>
 
-              {["upi","card","netbanking"].includes(paymentMethod)&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 text-emerald-600"/><div><p className="font-semibold text-emerald-900">Secure Razorpay checkout</p><p className="mt-1 text-xs leading-5 text-emerald-800">Your selected payment method opens in Razorpay&apos;s secure checkout. The server verifies the payment signature before the order is marked paid.</p></div></div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600 sm:grid-cols-4"><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><Smartphone className="h-4 w-4 text-emerald-600"/>UPI</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><CreditCard className="h-4 w-4 text-emerald-600"/>Cards</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><Landmark className="h-4 w-4 text-emerald-600"/>Banking</span><span className="flex items-center gap-1.5 rounded-lg bg-white p-2"><WalletCards className="h-4 w-4 text-emerald-600"/>Wallets</span></div>
+              {paymentMethod==="upi"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-3">
+                  <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"/>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-emerald-900">Pay with UPI</p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">Choose UPI in the secure Razorpay window. Your available UPI apps and supported UPI options will appear there.</p>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  {["GPay","PhonePe","Paytm"].map((app)=><button key={app} type="button" onClick={()=>setPaymentMethod("upi")} className="rounded-lg border bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-emerald-400 hover:bg-emerald-50">{app}</button>)}
+                </div>
               </div>}
 
-              {paymentMethod==="wallet"&&<div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4"><p className="font-semibold text-blue-900">Wallet balance</p><p className="mt-1 text-sm text-blue-800">Your wallet will be checked when the payment is created. If the balance is insufficient, choose another method.</p></div>}
+              {paymentMethod==="card"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-3">
+                  <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"/>
+                  <div>
+                    <p className="font-semibold text-emerald-900">Credit / Debit Card</p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">Your card number, expiry date and CVV are entered securely inside Razorpay Checkout. AgriConnect does not store raw card details.</p>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
+                  <span className="rounded-lg bg-white p-2 text-center">Visa</span>
+                  <span className="rounded-lg bg-white p-2 text-center">Mastercard</span>
+                  <span className="rounded-lg bg-white p-2 text-center">RuPay</span>
+                </div>
+              </div>}
 
-              {paymentMethod==="cash"&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4"><div className="flex gap-3"><Banknote className="mt-0.5 h-5 w-5 text-amber-600"/><div><p className="font-semibold text-amber-900">Cash on delivery</p><p className="mt-1 text-xs leading-5 text-amber-800">Keep the exact amount ready. Payment remains pending until the delivery is completed and cash is collected.</p></div></div></div>}
+              {paymentMethod==="netbanking"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-3">
+                  <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"/>
+                  <div>
+                    <p className="font-semibold text-emerald-900">Net Banking</p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">Select your bank inside Razorpay Checkout. You will be redirected through your bank's secure authentication flow.</p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-lg bg-white p-3 text-xs text-slate-600">SBI · HDFC · ICICI · Axis · Kotak · Other supported banks</div>
+              </div>}
+
+              {paymentMethod==="wallet"&&<div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+                <div className="flex items-start gap-3">
+                  <WalletCards className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/>
+                  <div>
+                    <p className="font-semibold text-blue-900">AgriConnect Wallet</p>
+                    <p className="mt-1 text-xs leading-5 text-blue-800">Your AgriConnect wallet balance is checked securely when you continue. If the balance is insufficient, no money is deducted and you can choose another method.</p>
+                  </div>
+                </div>
+              </div>}
+
+              {paymentMethod==="cash"&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <div className="flex gap-3">
+                  <Banknote className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"/>
+                  <div>
+                    <p className="font-semibold text-amber-900">Cash on Delivery</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">No online payment is taken now. The delivery partner collects the payable amount when your order arrives.</p>
+                  </div>
+                </div>
+              </div>}
+
+              {paymentMethod!=="cash"&&<div className="mt-3 flex items-center gap-2 text-xs text-slate-500"><ShieldCheck className="h-4 w-4 text-emerald-600"/>Secure payment verification is completed by the AgriConnect server before the order is marked paid.</div>}
             </CardContent>
           </Card>          {/* Special Instructions */}
           <Card>
