@@ -139,6 +139,18 @@ export default function CheckoutPage() {
     enabled: items.length > 0 && status === "authenticated",
   });
 
+  const { data: walletInfoData } = useQuery({
+    queryKey: ["customerCheckoutWallet"],
+    queryFn: () => api.get("/payments/wallet/info"),
+    enabled: status === "authenticated" && paymentMethod === "wallet",
+    retry: false,
+  });
+
+  const walletInfo = walletInfoData?.data || walletInfoData || {};
+  const walletBalance = Number(
+    walletInfo?.balance ?? walletInfo?.availableBalance ?? walletInfo?.wallet?.balance ?? 0
+  );
+
   const addresses: Address[] = useMemo(() => {
     const list = Array.isArray(addressesData) ? addressesData : addressesData?.data || [];
     return list.map((a: any) => ({ ...a, id: a._id || a.id }));
@@ -730,87 +742,245 @@ export default function CheckoutPage() {
             </Card>
 
           {/* Payment Method */}
-          <Card className="overflow-hidden">
-            <CardHeader className="border-b bg-slate-50/70">
-              <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-emerald-600" /> Payment method</CardTitle>
-              <CardDescription>Select how you want to pay. Your payment is completed securely before the order is confirmed.</CardDescription>
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b bg-white px-5 py-5">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <CreditCard className="h-5 w-5 text-emerald-600" />
+                Payment Method
+              </CardTitle>
+              <CardDescription>
+                Choose how you want to pay. Only the selected method opens its payment options.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="p-5">
-              <div className="grid gap-3">
-                {PAYMENT_METHODS.map((method:any) => {
-                  const Icon=method.icon;
-                  const selected=paymentMethod===method.value;
-                  return <label key={method.value} className={`relative flex cursor-pointer items-center gap-4 rounded-xl border-2 p-4 transition hover:border-emerald-300 ${selected?"border-emerald-500 bg-emerald-50/60":"border-slate-200 bg-white"}`}>
-                    <input className="sr-only" type="radio" name="paymentMethod" value={method.value} checked={selected} onChange={(e)=>setPaymentMethod(e.target.value)}/>
-                    <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${selected?"bg-emerald-600 text-white":"bg-slate-100 text-slate-600"}`}><Icon className="h-5 w-5"/></span>
-                    <span className="min-w-0 flex-1"><span className="block font-semibold text-slate-900">{method.label}</span><span className="mt-1 block text-xs text-slate-500">{method.description}</span></span>
-                    {selected&&<CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600"/>}
-                  </label>
-                })}
+
+            <CardContent className="space-y-3 p-4 sm:p-5">
+              {PAYMENT_METHODS.map((method: any) => {
+                const Icon = method.icon;
+                const selected = paymentMethod === method.value;
+
+                return (
+                  <div
+                    key={method.value}
+                    className={`overflow-hidden rounded-xl border-2 transition-all ${selected
+                      ? "border-emerald-500 bg-emerald-50/40 shadow-sm"
+                      : "border-slate-200 bg-white hover:border-slate-300"}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setPaymentMethod(method.value)}
+                      className="flex w-full items-center gap-3 p-4 text-left"
+                      aria-expanded={selected}
+                    >
+                      <span
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${selected
+                          ? "bg-emerald-600 text-white"
+                          : "bg-slate-100 text-slate-600"}`}
+                      >
+                        <Icon className="h-5 w-5" />
+                      </span>
+
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2 font-semibold text-slate-900">
+                          {method.label}
+                          {selected && (
+                            <span className="text-xs font-medium text-emerald-700">Selected</span>
+                          )}
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          {method.description}
+                        </span>
+                      </span>
+
+                      <span
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${selected
+                          ? "border-emerald-600"
+                          : "border-slate-300"}`}
+                      >
+                        {selected && <span className="h-2.5 w-2.5 rounded-full bg-emerald-600" />}
+                      </span>
+                    </button>
+
+                    {selected && (
+                      <div className="border-t border-slate-200 bg-white px-4 pb-4 pt-4">
+                        {paymentMethod === "upi" && (
+                          <div className="space-y-4">
+                            <div>
+                              <p className="font-semibold text-slate-900">Choose your UPI app</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                GPay, PhonePe, Paytm and other supported UPI options will open securely in Razorpay Checkout.
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                              {["GPay", "PhonePe", "Paytm"].map((app) => (
+                                <div
+                                  key={app}
+                                  className="rounded-lg border bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-slate-700"
+                                >
+                                  {app}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="h-px flex-1 bg-slate-200" />
+                              <span className="text-xs font-medium text-slate-400">OR</span>
+                              <div className="h-px flex-1 bg-slate-200" />
+                            </div>
+                            <div className="rounded-lg border bg-slate-50 p-3">
+                              <p className="text-xs font-medium text-slate-700">UPI ID</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                You can enter or select your UPI option in the secure Razorpay window.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {paymentMethod === "card" && (
+                          <div className="space-y-4">
+                            <div>
+                              <p className="font-semibold text-slate-900">Credit / Debit Card</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Card number, expiry and CVV are collected securely by Razorpay. AgriConnect never stores raw card details.
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-xs font-semibold text-slate-600">
+                              {["Visa", "Mastercard", "RuPay"].map((brand) => (
+                                <div key={brand} className="rounded-lg border bg-slate-50 p-2.5 text-center">
+                                  {brand}
+                                </div>
+                              ))}
+                            </div>
+                            <div className="rounded-lg border bg-slate-50 p-3 text-xs text-slate-500">
+                              Your secure card fields will appear in Razorpay Checkout after you continue.
+                            </div>
+                          </div>
+                        )}
+
+                        {paymentMethod === "netbanking" && (
+                          <div className="space-y-4">
+                            <div>
+                              <p className="font-semibold text-slate-900">Select your bank</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Bank authentication is handled securely by Razorpay.
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                              {["SBI", "HDFC Bank", "ICICI Bank", "Axis Bank", "Kotak Mahindra", "Other banks"].map((bank) => (
+                                <div key={bank} className="rounded-lg border bg-slate-50 p-2.5 text-center text-xs font-medium text-slate-700">
+                                  {bank}
+                                </div>
+                              ))}
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              The complete bank list and login flow are provided by Razorpay Checkout.
+                            </p>
+                          </div>
+                        )}
+
+                        {paymentMethod === "wallet" && (
+                          <div className="space-y-4">
+                            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-blue-900">Available balance</span>
+                                <span className="text-xl font-bold text-blue-950">
+                                  {formatPrice(walletBalance)}
+                                </span>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-blue-200 pt-3 text-sm">
+                                <div>
+                                  <p className="text-xs text-blue-700">Order amount</p>
+                                  <p className="font-semibold text-blue-950">{formatPrice(estimatedTotal)}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-blue-700">Remaining balance</p>
+                                  <p className="font-semibold text-blue-950">
+                                    {formatPrice(Math.max(0, walletBalance - estimatedTotal))}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            {walletBalance < estimatedTotal && (
+                              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                                <span className="font-semibold">Insufficient wallet balance.</span> Choose another payment method to continue.
+                              </div>
+                            )}
+                            {walletBalance >= estimatedTotal && (
+                              <p className="flex items-center gap-2 text-xs text-blue-700">
+                                <ShieldCheck className="h-4 w-4" />
+                                Wallet payment is processed securely by AgriConnect.
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {paymentMethod === "cash" && (
+                          <div className="space-y-3">
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                              <div className="flex items-start gap-3">
+                                <Banknote className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                                <div>
+                                  <p className="font-semibold text-amber-900">Pay when your order arrives</p>
+                                  <p className="mt-1 text-sm text-amber-800">
+                                    Pay {formatPrice(estimatedTotal)} to the delivery partner when your order is delivered.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                            {defaultAddress && (
+                              <div className="rounded-lg border bg-slate-50 p-3 text-xs text-slate-600">
+                                <p className="font-medium text-slate-800">Delivery Address</p>
+                                <p className="mt-1">{defaultAddress.address_line1}</p>
+                                <p>{defaultAddress.city}, {defaultAddress.state} - {defaultAddress.zip_code}</p>
+                              </div>
+                            )}
+                            <p className="text-xs text-amber-700">
+                              COD availability is validated when the order is submitted. If it is not available, choose another method.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              <div className="mt-5 border-t pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-600">Total payable</span>
+                  <span className="text-xl font-bold text-slate-950">{formatPrice(estimatedTotal)}</span>
+                </div>
+
+                <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+                  <span>
+                    {paymentMethod === "cash"
+                      ? "No online payment is taken for Cash on Delivery."
+                      : "Payment is verified securely before the order is marked paid."}
+                  </span>
+                </div>
+
+                <Button
+                  className="mt-4 w-full"
+                  size="lg"
+                  onClick={handlePlaceOrder}
+                  disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
+                >
+                  {isPlacing ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
+                    </>
+                  ) : paymentMethod === "cash" ? (
+                    `Place order · ${formatPrice(estimatedTotal)}`
+                  ) : paymentMethod === "wallet" ? (
+                    `Pay ${formatPrice(estimatedTotal)} from Wallet`
+                  ) : (
+                    `Pay ${formatPrice(estimatedTotal)}`
+                  )}
+                </Button>
               </div>
-
-              {paymentMethod==="upi"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <div className="flex items-start gap-3">
-                  <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"/>
-                  <div className="min-w-0">
-                    <p className="font-semibold text-emerald-900">Pay with UPI</p>
-                    <p className="mt-1 text-xs leading-5 text-emerald-800">Choose UPI in the secure Razorpay window. Your available UPI apps and supported UPI options will appear there.</p>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2">
-                  {["GPay","PhonePe","Paytm"].map((app)=><button key={app} type="button" onClick={()=>setPaymentMethod("upi")} className="rounded-lg border bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:border-emerald-400 hover:bg-emerald-50">{app}</button>)}
-                </div>
-              </div>}
-
-              {paymentMethod==="card"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <div className="flex items-start gap-3">
-                  <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"/>
-                  <div>
-                    <p className="font-semibold text-emerald-900">Credit / Debit Card</p>
-                    <p className="mt-1 text-xs leading-5 text-emerald-800">Your card number, expiry date and CVV are entered securely inside Razorpay Checkout. AgriConnect does not store raw card details.</p>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-600">
-                  <span className="rounded-lg bg-white p-2 text-center">Visa</span>
-                  <span className="rounded-lg bg-white p-2 text-center">Mastercard</span>
-                  <span className="rounded-lg bg-white p-2 text-center">RuPay</span>
-                </div>
-              </div>}
-
-              {paymentMethod==="netbanking"&&<div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
-                <div className="flex items-start gap-3">
-                  <Landmark className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"/>
-                  <div>
-                    <p className="font-semibold text-emerald-900">Net Banking</p>
-                    <p className="mt-1 text-xs leading-5 text-emerald-800">Select your bank inside Razorpay Checkout. You will be redirected through your bank's secure authentication flow.</p>
-                  </div>
-                </div>
-                <div className="mt-3 rounded-lg bg-white p-3 text-xs text-slate-600">SBI · HDFC · ICICI · Axis · Kotak · Other supported banks</div>
-              </div>}
-
-              {paymentMethod==="wallet"&&<div className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4">
-                <div className="flex items-start gap-3">
-                  <WalletCards className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/>
-                  <div>
-                    <p className="font-semibold text-blue-900">AgriConnect Wallet</p>
-                    <p className="mt-1 text-xs leading-5 text-blue-800">Your AgriConnect wallet balance is checked securely when you continue. If the balance is insufficient, no money is deducted and you can choose another method.</p>
-                  </div>
-                </div>
-              </div>}
-
-              {paymentMethod==="cash"&&<div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
-                <div className="flex gap-3">
-                  <Banknote className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"/>
-                  <div>
-                    <p className="font-semibold text-amber-900">Cash on Delivery</p>
-                    <p className="mt-1 text-xs leading-5 text-amber-800">No online payment is taken now. The delivery partner collects the payable amount when your order arrives.</p>
-                  </div>
-                </div>
-              </div>}
-
-              {paymentMethod!=="cash"&&<div className="mt-3 flex items-center gap-2 text-xs text-slate-500"><ShieldCheck className="h-4 w-4 text-emerald-600"/>Secure payment verification is completed by the AgriConnect server before the order is marked paid.</div>}
             </CardContent>
-          </Card>          {/* Special Instructions */}
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Special Instructions</CardTitle>
@@ -930,23 +1100,6 @@ export default function CheckoutPage() {
             </CardContent>
           </Card>
 
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={handlePlaceOrder}
-            disabled={isPlacing}
-          >
-            {isPlacing ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Placing order...
-              </>
-            ) : paymentMethod === "cash" ? (
-              `Place order · ${formatPrice(estimatedTotal)}`
-            ) : (
-              `Pay securely · ${formatPrice(estimatedTotal)}`
-            )}
-          </Button>
         </div>
       </div>
     </div>
