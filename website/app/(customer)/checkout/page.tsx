@@ -80,6 +80,15 @@ export default function CheckoutPage() {
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("upi");
   const [selectedUpiApp, setSelectedUpiApp] = useState<"gpay" | "phonepe" | "paytm" | null>(null);
+
+  const selectedUpiAppLabel =
+    selectedUpiApp === "gpay"
+      ? "Google Pay"
+      : selectedUpiApp === "phonepe"
+        ? "PhonePe"
+        : selectedUpiApp === "paytm"
+          ? "Paytm"
+          : "";
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -793,13 +802,77 @@ export default function CheckoutPage() {
                             </div>
                             <div className="grid grid-cols-3 gap-2">
                               {([["gpay", "GPay"], ["phonepe", "PhonePe"], ["paytm", "Paytm"]] as const).map(([app, label]) => (
-                                <button key={app} type="button" onClick={() => setSelectedUpiApp(app)} className={selectedUpiApp === app ? "rounded-lg border border-emerald-500 bg-emerald-50 px-3 py-2.5 text-center text-xs font-semibold text-emerald-800" : "rounded-lg border bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-slate-700 hover:border-emerald-300"}>{label}</button>
+                                <button key={app} type="button" onClick={() => {
+                                  setSelectedUpiApp(app);
+                                  setPaymentStage("idle");
+                                  setPaymentMessage("");
+                                }}
+                                className={selectedUpiApp === app ? "rounded-lg border border-emerald-500 bg-emerald-50 px-3 py-2.5 text-center text-xs font-semibold text-emerald-800" : "rounded-lg border bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-slate-700 hover:border-emerald-300"}>{label}</button>
                               ))}
                             </div>
                             {selectedUpiApp && (
-                              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
-                                <p className="font-semibold">{selectedUpiApp === "gpay" ? "Google Pay" : selectedUpiApp === "phonepe" ? "PhonePe" : "Paytm"} selected</p>
-                                <p className="mt-1">Tap <span className="font-semibold">Pay {formatPrice(estimatedTotal)}</span> below to open the secure Razorpay UPI checkout. Your bank/UPI app must approve the payment before AgriConnect can confirm the order.</p>
+                              <div className="space-y-3">
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <p className="font-semibold">{selectedUpiAppLabel} selected</p>
+                                      <p className="mt-1">
+                                        Your selection is ready. Continue to Razorpay Checkout to start the secure UPI payment.
+                                      </p>
+                                    </div>
+                                    <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-600" />
+                                  </div>
+                                </div>
+
+                                {paymentStage === "creating" && (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      Creating secure payment session…
+                                    </div>
+                                    <p className="mt-1 pl-6">
+                                      AgriConnect is creating the Razorpay payment order. Your order is not marked paid yet.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {paymentStage === "processing" && (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800">
+                                    <div className="flex items-center gap-2 font-semibold">
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                      Opening Razorpay Secure Checkout…
+                                    </div>
+                                    <p className="mt-1 pl-6">
+                                      Complete the UPI payment in the Razorpay window. AgriConnect will confirm the order only after the gateway response is verified.
+                                    </p>
+                                  </div>
+                                )}
+
+                                {paymentStage === "failed" && (
+                                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                                    <p className="font-semibold">Payment was not completed</p>
+                                    <p className="mt-1">
+                                      Your order is not marked paid. Check the Razorpay checkout and try again.
+                                    </p>
+                                  </div>
+                                )}
+
+                                <Button
+                                  type="button"
+                                  className="w-full"
+                                  size="lg"
+                                  onClick={handlePlaceOrder}
+                                  disabled={isPlacing}
+                                >
+                                  {isPlacing ? (
+                                    <>
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      Opening secure checkout…
+                                    </>
+                                  ) : (
+                                    <>Pay {formatPrice(estimatedTotal)} with {selectedUpiAppLabel}</>
+                                  )}
+                                </Button>
                               </div>
                             )}
                             <div className="flex items-center gap-3">
@@ -940,25 +1013,27 @@ export default function CheckoutPage() {
                   </span>
                 </div>
 
-                <Button
-                  className="mt-4 w-full"
-                  size="lg"
-                  onClick={handlePlaceOrder}
-                  disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
-                >
-                  {isPlacing ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
-                    </>
-                  ) : paymentMethod === "cash" ? (
-                    `Place order · ${formatPrice(estimatedTotal)}`
-                  ) : paymentMethod === "wallet" ? (
-                    `Pay ${formatPrice(estimatedTotal)} from Wallet`
-                  ) : (
-                    `Pay ${formatPrice(estimatedTotal)}`
-                  )}
-                </Button>
+                {!(paymentMethod === "upi" && selectedUpiApp) && (
+                  <Button
+                    className="mt-4 w-full"
+                    size="lg"
+                    onClick={handlePlaceOrder}
+                    disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
+                  >
+                    {isPlacing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        {paymentMethod === "cash" ? "Placing order..." : "Processing payment..."}
+                      </>
+                    ) : paymentMethod === "cash" ? (
+                      `Place order · ${formatPrice(estimatedTotal)}`
+                    ) : paymentMethod === "wallet" ? (
+                      `Pay ${formatPrice(estimatedTotal)} from Wallet`
+                    ) : (
+                      `Pay ${formatPrice(estimatedTotal)}`
+                    )}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
