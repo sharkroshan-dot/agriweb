@@ -497,7 +497,7 @@ export default function CheckoutPage() {
                 {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
-                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
+                  <Button variant="outline" asChild><Link href="/customer/payments">Payment history</Link></Button>
                   <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
                 </div>
               </div>
@@ -720,8 +720,8 @@ export default function CheckoutPage() {
           {/* Payment Method */}
           <Card className="overflow-hidden">
             <CardHeader className="border-b bg-slate-50/70">
-              <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-emerald-600" /> Payment</CardTitle>
-              <CardDescription>Choose your preferred payment method. You will see the gateway options after placing the order.</CardDescription>
+              <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5 text-emerald-600" /> Payment method</CardTitle>
+              <CardDescription>Select how you want to pay. Your payment is completed securely before the order is confirmed.</CardDescription>
             </CardHeader>
             <CardContent className="p-5">
               <div className="grid gap-3">
@@ -878,9 +878,9 @@ export default function CheckoutPage() {
                 Placing order...
               </>
             ) : paymentMethod === "cash" ? (
-              `Place Order · ${formatPrice(estimatedTotal)}`
+              `Place order · ${formatPrice(estimatedTotal)}`
             ) : (
-              `Pay Online · ${formatPrice(estimatedTotal)}`
+              `Pay securely · ${formatPrice(estimatedTotal)}`
             )}
           </Button>
         </div>
