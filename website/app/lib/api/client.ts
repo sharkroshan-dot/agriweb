@@ -61,7 +61,7 @@ function extractErrorMessage(text: string, fallback: string): string {
 }
 
 function buildUrl(path: string, params?: Record<string, string | number | boolean | undefined>) {
-  const prefix = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "";
+  const prefix = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "http://localhost:8000/api/v1";
   const base = prefix
     ? prefix.endsWith("/api/v1") ? prefix : `${prefix.replace(/\/$/, "")}/api/v1`
     : "/api/v1";
