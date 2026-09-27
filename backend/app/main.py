@@ -1,8 +1,9 @@
 # backend/app/main.py
 from fastapi import FastAPI, HTTPException, status
+from fastapi.openapi.docs import get_swagger_ui_html, get_swagger_ui_oauth2_redirect_html
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from contextlib import asynccontextmanager
 from datetime import datetime
 import logging
@@ -115,10 +116,54 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Smart Agriculture Marketplace API",
-    docs_url="/api/docs",
+        docs_url=None,
     redoc_url="/api/redoc",
     lifespan=lifespan
 )
+
+
+@app.get("/api/docs", include_in_schema=False)
+async def swagger_ui_with_api_count():
+        docs = get_swagger_ui_html(
+                openapi_url=app.openapi_url,
+                title=f"{settings.PROJECT_NAME} - Swagger UI",
+                oauth2_redirect_url="/docs/oauth2-redirect",
+        )
+        html = docs.body.decode("utf-8")
+        html = html.replace(
+                '<div id="swagger-ui">',
+                '<div id="api-inventory" role="status" '
+                'style="padding: 10px 20px; font: 600 14px sans-serif; color: #3b4151;">'
+                'Loading API inventory...</div>\n<div id="swagger-ui">',
+        )
+        html = html.replace(
+                "</body>",
+                """<script>
+                fetch('/openapi.json')
+                    .then(response => response.json())
+                    .then(spec => {
+                        const methods = new Set(['get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'trace']);
+                        let paths = 0;
+                        let operations = 0;
+                        for (const item of Object.values(spec.paths || {})) {
+                            const count = Object.keys(item).filter(method => methods.has(method.toLowerCase())).length;
+                            if (count) paths += 1;
+                            operations += count;
+                        }
+                        document.getElementById('api-inventory').textContent =
+                            `API inventory: ${paths} paths / ${operations} operations`;
+                    })
+                    .catch(() => {
+                        document.getElementById('api-inventory').textContent = 'API inventory unavailable';
+                    });
+                </script></body>""",
+        )
+        return HTMLResponse(content=html)
+
+
+@app.get("/docs/oauth2-redirect", include_in_schema=False)
+async def swagger_ui_oauth2_redirect():
+        return get_swagger_ui_oauth2_redirect_html()
 
 # Serve uploaded files
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

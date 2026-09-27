@@ -197,5 +197,83 @@
     ],
     "status": "candidate",
     "registered_at": "2026-09-24T18:25:13.650001+00:00"
+  },
+  {
+    "task": "price",
+    "version": "20260924183819",
+    "algorithm": "random_forest",
+    "metrics": {
+      "mae": 3.0131605555555554,
+      "rmse": 4.0419939510630725,
+      "r2": 0.8953029359622521
+    },
+    "samples": 103,
+    "features": [
+      "price_lag_1",
+      "price_lag_3",
+      "price_lag_7",
+      "day_of_week",
+      "month",
+      "quarter",
+      "demand_score",
+      "weather_score",
+      "competition_score",
+      "price_rolling_mean_7",
+      "price_rolling_std_7"
+    ],
+    "status": "candidate",
+    "registered_at": "2026-09-24T18:38:19.993486+00:00"
+  },
+  {
+    "task": "demand",
+    "version": "20260924183820",
+    "algorithm": "hist_gradient_boosting",
+    "metrics": {
+      "mae": 1.1407781992257349,
+      "rmse": 1.4889673341867116,
+      "baseline_mae": 3.838095238095237
+    },
+    "samples": 75,
+    "features": [
+      "lag_1",
+      "lag_7",
+      "lag_14",
+      "rolling_mean_7",
+      "rolling_std_7",
+      "day_of_week",
+      "month"
+    ],
+    "status": "candidate",
+    "registered_at": "2026-09-24T18:38:20.390303+00:00"
+  },
+  {
+    "task": "delivery_risk",
+    "version": "calibrated-rf-20260924183824",
+    "algorithm": "calibrated_random_forest",
+    "metrics": {
+      "precision": 1.0,
+      "recall": 0.6666666666666666,
+      "f1": 0.8,
+      "threshold": 0.25000000000000006,
+      "class_counts": {
+        "0": 48,
+        "1": 12
+      }
+    },
+    "samples": 60,
+    "features": [
+      "distance_km",
+      "time_window_minutes",
+      "is_cod",
+      "quantity_kg",
+      "vehicle_capacity",
+      "partner_on_time_rate",
+      "partner_rating",
+      "partner_active_load",
+      "previous_delays",
+      "rural_roads"
+    ],
+    "status": "candidate",
+    "registered_at": "2026-09-24T18:38:24.485333+00:00"
   }
 ]

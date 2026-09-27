@@ -20,9 +20,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response: Response = await call_next(request)
 
-        # API responses are JSON; a strict CSP is safe here. CSP is enforced by
-        # the website via next.config headers() - this is a backstop.
-        response.headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
+        if request.url.path in {"/api/docs", "/api/redoc", "/docs/oauth2-redirect"}:
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.redoc.ly; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.redoc.ly; "
+                "img-src 'self' data: https://fastapi.tiangolo.com; "
+                "font-src 'self' data: https://cdn.jsdelivr.net https://cdn.redoc.ly; "
+                "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
+            )
+        else:
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            )
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "no-referrer")

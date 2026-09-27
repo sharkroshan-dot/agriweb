@@ -11,6 +11,7 @@ import {
   Snowflake,
   ArrowLeftRight,
   BarChart,
+  CreditCard,
   Settings,
   AlertTriangle,
   Plus,
@@ -27,6 +28,7 @@ const navItems = [
   { name: "Cold Storage", href: "/cold-storage", icon: Snowflake, badge: "4°C" },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
   { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
+  { name: "Payments", href: "/warehouse/payments", icon: CreditCard },
   { name: "Settings", href: "/warehouse/settings", icon: Settings },
 ];
 

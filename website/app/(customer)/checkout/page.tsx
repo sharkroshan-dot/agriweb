@@ -236,6 +236,12 @@ export default function CheckoutPage() {
     ensureRazorpayLoaded();
   }, []);
 
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.replace("/login?role=customer&callbackUrl=%2Fcheckout");
+    }
+  }, [router, status]);
+
   const openRazorpayCheckout = async (intentData: any, orderId: string) => {
     return new Promise<void>((resolve, reject) => {
       if (typeof window === "undefined" || !(window as any).Razorpay) {
@@ -470,10 +476,7 @@ export default function CheckoutPage() {
   };
 
   if (status === "loading") return <div className="page-container"><div className="h-8 w-48 animate-pulse rounded-lg bg-slate-200" /><div className="mt-6 h-40 animate-pulse rounded-2xl bg-slate-100" /></div>;
-  if (status === "unauthenticated") {
-    router.replace("/login");
-    return null;
-  }
+  if (status === "unauthenticated") return null;
 
   if (paymentStage === "success") {
     return (

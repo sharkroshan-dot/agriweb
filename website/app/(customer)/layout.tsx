@@ -15,7 +15,8 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.push("/login");
+      const callbackUrl = `${window.location.pathname}${window.location.search}`;
+      router.replace(`/login?role=customer&callbackUrl=${encodeURIComponent(callbackUrl)}`);
     }
     if (session?.user?.role && session.user.role !== "customer") {
       router.push(`/${session.user.role}/dashboard`);

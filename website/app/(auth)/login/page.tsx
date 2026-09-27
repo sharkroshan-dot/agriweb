@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, useSession } from "next-auth/react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
@@ -34,6 +34,7 @@ function normalizeRole(role?: string): string {
 
 export default function LoginPage() {
   const router = useRouter();
+  const { update: updateSession } = useSession();
   const [role, setRole] = useState("customer");
   const [preselectedRole, setPreselectedRole] = useState<string | null>(null);
   const [callbackUrl, setCallbackUrl] = useState("");
@@ -121,6 +122,7 @@ export default function LoginPage() {
 
     if (result?.ok) {
       saveEmail(email);
+      await updateSession();
       router.push(callbackUrl || `/${role}/dashboard`);
       return;
     }
@@ -202,6 +204,7 @@ export default function LoginPage() {
         redirect: false,
       });
       if (result?.ok) {
+        await updateSession();
         router.push(callbackUrl || `/${actualRole}/dashboard`);
         return;
       }
