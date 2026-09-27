@@ -79,6 +79,7 @@ export default function CheckoutPage() {
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("upi");
+  const [selectedUpiApp, setSelectedUpiApp] = useState<"gpay" | "phonepe" | "paytm" | null>(null);
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -271,7 +272,7 @@ export default function CheckoutPage() {
         // Keep the customer's selected card method preselected when supported.
         // UPI/Net Banking/Wallet availability is still controlled by the
         // Razorpay account configuration and is selected inside Razorpay.
-        ...(paymentMethodForGateway === "card" ? { method: "card" } : {}),
+        ...(paymentMethodForGateway === "card" ? { method: "card" } : paymentMethodForGateway === "upi" ? { method: "upi" } : paymentMethodForGateway === "netbanking" ? { method: "netbanking" } : {}),
         handler: async (response: any) => {
           try {
             setIsPlacing(true);
@@ -444,26 +445,6 @@ export default function CheckoutPage() {
 
         if (!intentData?.order_id) {
           throw new Error(intentData?.error || "Payment initiation failed");
-        }
-
-        if (intentData?.simulated) {
-          // Development mode: no live gateway available. Simulate a successful
-          // payment and confirm it against the backend, which accepts
-          // "order_sim_*" ids in DEBUG. The real Razorpay Checkout is never
-          // opened with a placeholder key.
-          await api.post("/payments/verify", {
-            payment_id: intentData.payment_id,
-            razorpay_order_id: intentData.order_id,
-            razorpay_payment_id: `sim_payment_${intentData.payment_id}`,
-            razorpay_signature: "simulated_signature",
-          });
-          setPaymentStage("success");
-          setCompletedOrderId(order.id || order._id);
-          setCompletedTransactionId(intentData.payment_id || intentData.order_id || "");
-          setPaymentMessage("Payment verified successfully. Your order is confirmed.");
-          clearCart();
-          toast.success("Payment successful! Order placed.");
-          return;
         }
 
         await openRazorpayCheckout(
@@ -811,15 +792,16 @@ export default function CheckoutPage() {
                               </p>
                             </div>
                             <div className="grid grid-cols-3 gap-2">
-                              {["GPay", "PhonePe", "Paytm"].map((app) => (
-                                <div
-                                  key={app}
-                                  className="rounded-lg border bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-slate-700"
-                                >
-                                  {app}
-                                </div>
+                              {([["gpay", "GPay"], ["phonepe", "PhonePe"], ["paytm", "Paytm"]] as const).map(([app, label]) => (
+                                <button key={app} type="button" onClick={() => setSelectedUpiApp(app)} className={selectedUpiApp === app ? "rounded-lg border border-emerald-500 bg-emerald-50 px-3 py-2.5 text-center text-xs font-semibold text-emerald-800" : "rounded-lg border bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-slate-700 hover:border-emerald-300"}>{label}</button>
                               ))}
                             </div>
+                            {selectedUpiApp && (
+                              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                                <p className="font-semibold">{selectedUpiApp === "gpay" ? "Google Pay" : selectedUpiApp === "phonepe" ? "PhonePe" : "Paytm"} selected</p>
+                                <p className="mt-1">Tap <span className="font-semibold">Pay {formatPrice(estimatedTotal)}</span> below to open the secure Razorpay UPI checkout. Your bank/UPI app must approve the payment before AgriConnect can confirm the order.</p>
+                              </div>
+                            )}
                             <div className="flex items-center gap-3">
                               <div className="h-px flex-1 bg-slate-200" />
                               <span className="text-xs font-medium text-slate-400">OR</span>
