@@ -5,11 +5,23 @@ from pydantic import validator
 import os
 from dotenv import load_dotenv
 
-ROOT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+# The repository layout is:
+# D:\agri\
+# ├── .env
+# └── backend\app\core\config.py
+#
+# Resolve the project root explicitly so the backend uses the existing
+# D:\agri\.env file instead of looking for backend/.env.
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+ROOT_ENV_PATH = PROJECT_ROOT / ".env"
+
 if ROOT_ENV_PATH.exists():
     load_dotenv(ROOT_ENV_PATH)
 else:
+    # Keep the normal python-dotenv fallback for deployments where the
+    # environment is injected by the process/container.
     load_dotenv()
+
 
 class Settings(BaseSettings):
     # Project
@@ -206,7 +218,8 @@ class Settings(BaseSettings):
         return v
     
     class Config:
-        env_file = ".env"
+        # Always point Pydantic Settings at the same project-root .env file.
+        env_file = ROOT_ENV_PATH
         case_sensitive = True
         extra = "ignore"
 
