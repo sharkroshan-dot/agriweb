@@ -145,7 +145,24 @@ if (!response.ok) {
 
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    return (await response.json()) as T;
+    const payload = await response.json();
+
+    // The backend historically exposes both direct payloads and `{ data: ... }`
+    // envelopes. Keep the envelope for pages that use `response.data`, while
+    // also exposing object fields at the top level so pages using
+    // `response.stats`, `response.orders`, etc. continue to work.
+    if (
+      payload &&
+      typeof payload === "object" &&
+      !Array.isArray(payload) &&
+      payload.data &&
+      typeof payload.data === "object" &&
+      !Array.isArray(payload.data)
+    ) {
+      return ({ ...payload.data, ...payload } as unknown) as T;
+    }
+
+    return payload as T;
   }
 
   return (await response.text()) as T;
