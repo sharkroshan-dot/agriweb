@@ -83,11 +83,14 @@ class PaymentService:
         # Card, UPI, netbanking and wallets are all collected by the Razorpay
         # Checkout, so every online method resolves to a Razorpay order.
         if payment_method in ["card", "upi", "netbanking", "razorpay"]:
-            # In development mode without Razorpay keys, simulate the order.
-            if settings.DEBUG and not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
-                return await PaymentService._simulate_intent(
-                    payment_id, amount, f"Order {order.get('orderNumber', '')}", customer
+            # Online payments must always use a real Razorpay order. Never
+            # auto-confirm a simulated payment from the customer checkout.
+            if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+                logger.error("Razorpay keys are not configured; refusing online payment")
+                await payment_repository.update_payment_status(
+                    payment_id, PaymentStatus.FAILED, {"reason": "Razorpay is not configured"}
                 )
+                return {"error": "Online payment is temporarily unavailable. Configure Razorpay test/live keys."}
             # Use Razorpay
             try:
                 razorpay_order = razorpay_client.order.create({
@@ -122,18 +125,11 @@ class PaymentService:
                     "theme": {"color": "#059669"}
                 }
             except Exception as e:
-                # In development mode a misconfigured or invalid Razorpay key
-                # (e.g. "Authentication failed") must not block checkout. Fall
-                # back to a simulated order so the flow can still be tested.
-                if settings.DEBUG:
-                    logger.warning(
-                        "Razorpay order creation failed (%s); using simulated order", str(e)
-                    )
-                    return await PaymentService._simulate_intent(
-                        payment_id, amount, f"Order {order.get('orderNumber', '')}", customer
-                    )
                 logger.error(f"Razorpay payment intent error: {str(e)}")
-                return {"error": str(e)}
+                await payment_repository.update_payment_status(
+                    payment_id, PaymentStatus.FAILED, {"reason": str(e)[:500]}
+                )
+                return {"error": "Unable to start secure Razorpay checkout. Please try again."}
 
         elif payment_method == "wallet":
             # Wallet checkout is an immediate atomic debit. It must never use
