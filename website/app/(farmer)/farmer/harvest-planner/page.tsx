@@ -193,17 +193,8 @@ export default function FarmerHarvestPlannerPage() {
       const { planId, action } = vars;
       toast.success(res?.message || `Lifecycle updated (${planId})`);
       if (action === "next" && res?.data?.stage === 3) {
-        const plan = plans.find((p) => p.id === planId);
-        const params = new URLSearchParams({
-          name: plan?.cropName || "",
-          price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-          quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
-          unit: "kg",
-          harvestDate: plan?.expectedHarvestDate || "",
-          fromHarvest: planId,
-        });
-        router.push(`/farmer/products/new?${params.toString()}`);
-        toast.success("Harvest marked! Now finish creating your product.");
+        router.push("/farmer/batches");
+        toast.success("Harvest recorded. Create its batch for traceability.");
       }
     },
     onError: (err: any) => toast.error(err?.message || "Failed to update stage"),
@@ -268,11 +259,11 @@ export default function FarmerHarvestPlannerPage() {
       case "batched":
         return 4;
       case "harvested":
-        return batches.some((b: any) => b.cropName === plan.cropName) ? 4 : 3;
+        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
       default: {
         // Fallback inference for legacy plans without an explicit stage field.
         if (plan.status === "harvested") {
-          return batches.some((b: any) => b.cropName === plan.cropName) ? 4 : 3;
+          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
         }
         const p = growthProgress(plan);
         if (p >= 100) return 2;
