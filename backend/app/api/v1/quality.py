@@ -20,6 +20,8 @@ import logging
 from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
 from app.repositories.product_repository import product_repository
+from app.repositories.base_repository import BaseRepository
+harvest_preorder_repository = BaseRepository("harvest_preorders")
 from app.services.quality_ai import assess_quality
 from app.core.quality import (
     VERIFICATION_STATUS_DECLARED,
@@ -174,6 +176,42 @@ async def _propagate_verification(inspection: dict) -> None:
                 "isActive": True,
             }},
         )
+
+    # Quality approval is the gate that turns a harvested pre-order
+    # reservation into a customer action: confirm purchase + pay.
+    if product_id:
+        preorders = await harvest_preorder_repository.find_many({
+            "harvestPlanId": batch.get("sourceHarvestPlanId"),
+            "status": {"$in": ["confirmed"]},
+            "deletedAt": None,
+        }, limit=1000) if batch.get("sourceHarvestPlanId") else []
+        for po in preorders or []:
+            try:
+                now = datetime.utcnow()
+                await harvest_preorder_repository.update(
+                    {"_id": po["_id"]},
+                    {
+                        "status": "ready_for_confirmation",
+                        "qualityApprovedAt": now,
+                        "updatedAt": now,
+                    },
+                )
+                await NotificationService.create_in_app_notification(
+                    str(po.get("customerId")),
+                    NotificationType.ORDER,
+                    "Your pre-order is ready to confirm 🎉",
+                    f"{po.get('cropName', 'Harvest')} passed quality inspection. Your {float(po.get('quantityKg', 0) or 0):g} kg pre-order is ready for checkout at the agreed pre-order price of ₹{float(po.get('unitPricePerKg', 0) or 0):g}/kg.",
+                    {
+                        "harvestPlanId": str(batch.get("sourceHarvestPlanId")),
+                        "preorderId": str(po["_id"]),
+                        "productId": str(product_id),
+                        "type": "preorder_ready_for_confirmation",
+                        "action": "confirm_preorder",
+                    },
+                    NotificationPriority.HIGH,
+                )
+            except Exception:
+                logger.exception("Failed to advance pre-order %s after quality approval", po.get("_id"))
 
 
 def _require_verifier(current_user: dict) -> None:
