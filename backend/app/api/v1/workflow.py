@@ -93,11 +93,17 @@ async def _customer(uid: str):
 async def _business(uid: str):
     rfq = await _latest(rfqs, {"businessUserId": _id(uid), "deletedAt": None}, "updatedAt")
     if not rfq:
-        return {"currentStep": "Business Setup", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs/new", "Create RFQ", "Create your first structured bulk request.")}
+        return {"currentStep": "Business Setup", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs/new", "Create RFQ", "Create a structured bulk request with a product category.")}
     status = str(rfq.get("status") or "").lower()
     if status in ("open", "published", "active"):
-        return {"currentStep": "RFQ Published", "state": "IN_PROGRESS", "next": _href("/business/quotes", "Review Farmer Quotes", "Review incoming quotations for the active RFQ."), "entityId": str(rfq["_id"])}
-    return {"currentStep": "B2B Orders", "state": "IN_PROGRESS", "next": _href("/business/orders", "Open B2B Orders", "Continue the B2B fulfillment process."), "entityId": str(rfq["_id"])}
+        return {"currentStep": "RFQ Published", "state": "ACTION_REQUIRED", "next": _href(f"/business/rfqs/{rfq['_id']}", "Review Farmer Quotes", "Review and compare farmer offers before awarding the RFQ."), "entityId": str(rfq["_id"])}
+    order = await _latest(order_repo, {"businessUserId": _id(uid), "deletedAt": None}, "createdAt")
+    if not order:
+        return {"currentStep": "RFQ Awarded", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs", "Review Awarded RFQ", "Review the selected offer and proceed to the B2B order."), "entityId": str(rfq["_id"])}
+    status = str(order.get("status") or "").lower()
+    if status not in ("completed", "delivered"):
+        return {"currentStep": "B2B Fulfillment", "state": "IN_PROGRESS", "next": _href("/business/orders", "Continue B2B Order", "Continue preparing, quality checking, dispatching or receiving the order."), "entityId": str(order["_id"])}
+    return {"currentStep": "B2B Completed", "state": "COMPLETED", "next": _href("/business/orders", "Review B2B Order", "Review the completed order and invoice."), "entityId": str(order["_id"])}
 
 async def _delivery(uid: str):
     job = await _latest(delivery_jobs, {"acceptedBy": _id(uid), "deletedAt": None}, "updatedAt")
