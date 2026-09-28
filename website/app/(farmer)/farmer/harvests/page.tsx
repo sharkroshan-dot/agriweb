@@ -78,19 +78,13 @@ export default function FarmerHarvestsPage() {
   const harvestMutation = useMutation({
     mutationFn: ({ planId, actualQuantityKg }: { planId: string; actualQuantityKg: number }) =>
       api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg }),
-    onSuccess: (_data, planId) => {
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
-      const plan = plans.find((p) => p.id === planId);
-      const params = new URLSearchParams({
-        name: plan?.cropName || "",
-        price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-        quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
-        unit: "kg",
-        harvestDate: plan?.expectedHarvestDate || "",
-        fromHarvest: planId,
-      });
-      router.push(`/farmer/products/new?${params.toString()}`);
-      toast.success("Harvest marked! Now finish creating your product.");
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
+      router.push("/farmer/batches");
+      toast.success(`Harvest marked at ${vars.actualQuantityKg} kg. Create its batch for traceability.`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to mark harvest"),
   });
