@@ -471,6 +471,26 @@ export default function DeliveryDeliveriesPage() {
     }
   };
 
+  const handlePickup = async (delivery: any) => {
+    const assignmentId = getAssignmentId(delivery);
+    if (!assignmentId) { toast.error('A delivery assignment is required before pickup.'); return; }
+    try {
+      const res = await api.put(`/delivery/assignments/${assignmentId}/pickup`);
+      if (res?.success) { toast.success('Order picked up. Continue to dispatch.'); void refetchDeliveries(); }
+      else toast.error(res?.detail || 'Could not mark pickup');
+    } catch (err: any) { toast.error(err?.message || 'Could not mark pickup'); }
+  };
+
+  const handleDispatch = async (delivery: any) => {
+    const assignmentId = getAssignmentId(delivery);
+    if (!assignmentId) { toast.error('A delivery assignment is required before dispatch.'); return; }
+    try {
+      const res = await api.put(`/delivery/assignments/${assignmentId}/deliver`);
+      if (res?.success) { toast.success('Delivery is now in transit.'); void refetchDeliveries(); }
+      else toast.error(res?.detail || 'Could not dispatch delivery');
+    } catch (err: any) { toast.error(err?.message || 'Could not dispatch delivery'); }
+  };
+
   const handleMarkDelivered = async (delivery: any) => {
     const orderId = getOrderId(delivery);
     const assignmentId = getAssignmentId(delivery);
@@ -677,9 +697,9 @@ export default function DeliveryDeliveriesPage() {
                   <div className="ml-3 flex shrink-0 items-center gap-2">
                     {delivery.distanceFromPartnerKm != null && <Badge variant="success">{Number(delivery.distanceFromPartnerKm).toFixed(1)} km</Badge>}
                     <Badge variant={statusVariant[getDeliveryStatus(delivery)] || "default"}>{getDeliveryStatus(delivery).replace("_", " ")}</Badge>
-                    <Button size="sm" variant="success" onClick={() => handleMarkDelivered(delivery)}>
-                      <CheckCircle className="mr-1.5 h-4 w-4" />Delivered
-                    </Button>
+                    {getDeliveryStatus(delivery) === "accepted" && <Button size="sm" onClick={() => handlePickup(delivery)}><CheckCircle className="mr-1.5 h-4 w-4" />Pickup</Button>}
+                    {getDeliveryStatus(delivery) === "picked_up" && <Button size="sm" onClick={() => handleDispatch(delivery)}><Navigation className="mr-1.5 h-4 w-4" />Dispatch</Button>}
+                    {getDeliveryStatus(delivery) === "in_transit" && <Button size="sm" variant="success" onClick={() => handleMarkDelivered(delivery)}><CheckCircle className="mr-1.5 h-4 w-4" />Delivered</Button>}
                     <Button size="sm" variant="outline" onClick={() => openLiveRouteForOrder(delivery)}>
                       <Navigation className="mr-1.5 h-4 w-4" />Start
                     </Button>

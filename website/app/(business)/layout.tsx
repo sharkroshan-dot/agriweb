@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { BusinessSidebar } from "../components/business/business-sidebar";
 import { Footer } from "../components/common/footer";
+import { WorkflowGuide } from "../components/shared/workflow-guide";
 
 export default function BusinessLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -32,7 +33,7 @@ export default function BusinessLayout({ children }: { children: React.ReactNode
       <div className="flex flex-1 bg-transparent">
         <BusinessSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="site-content mx-auto w-full max-w-[1440px]">{children}</div>
+          <div className="site-content mx-auto w-full max-w-[1440px]"><WorkflowGuide role="business" />{children}</div>
         </main>
       </div>
       <Footer />

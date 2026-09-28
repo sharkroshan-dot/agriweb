@@ -376,6 +376,11 @@ class DataAssistantService:
         text=(message or "").strip()
         if not text: return {"action":"chat_reply","response":HELP_RESPONSES[lang]["default"],"intent":"default","data":None}
         low=text.lower()
+        if any(k in low for k in ["what should i do next", "what do i do next", "next step", "continue my workflow", "what is my next step", "அடுத்து என்ன", "अगला कदम"]):
+            role = str((user or {}).get("role") or "customer").lower()
+            routes = {"farmer": ("/farmer/harvest-planner", "Continue Farmer Workflow"), "customer": ("/customer/orders", "Continue Customer Workflow"), "delivery": ("/delivery/deliveries", "Continue Delivery Workflow"), "warehouse": ("/warehouse/incoming", "Continue Warehouse Workflow"), "business": ("/business/rfqs", "Continue B2B Workflow"), "admin": ("/admin/dashboard", "Open Platform Workflow")}
+            route, label = routes.get(role, routes["customer"])
+            return {"action": "navigate", "response": f"Your workflow is ready to continue. Open {label}.", "intent": "workflow_next_step", "parameters": {"route": route, "label": label}, "data": None, "uiActions": [{"type": "navigate", "label": label, "route": route}]}
         if any(k in low for k in ["password","otp","private address","payment details","wallet balance","my order","my orders","another user","other user"]):
             return {"action":"chat_reply","response":PRIVATE_DATA_RESPONSE[lang],"intent":"private_data_blocked","data":None}
         try:

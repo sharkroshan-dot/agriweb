@@ -62,6 +62,7 @@ export default function FarmerAssistantPage() {
           role: "assistant",
           text: res?.reply || "I didn't understand that. Could you try again?",
           intent: res?.intent,
+          action: res?.parameters?.route || res?.uiActions?.[0]?.route,
         },
       ]);
     },
@@ -90,7 +91,10 @@ export default function FarmerAssistantPage() {
           action: res?.action,
         },
       ]);
-      if (res?.action === "add_product") {
+      if (res?.intent === "workflow_next_step" && res?.uiActions?.[0]?.route) {
+        toast.success(res?.response || "Opening your next workflow step");
+        window.location.href = res.uiActions[0].route;
+      } else if (res?.action === "add_product") {
         toast.success("Opening the product form for you");
         setTimeout(() => (window.location.href = "/farmer/products/new"), 1200);
       } else if (res?.action === "show_orders") {
