@@ -23,6 +23,8 @@ from app.repositories.product_repository import product_repository
 from app.repositories.base_repository import BaseRepository
 harvest_preorder_repository = BaseRepository("harvest_preorders")
 from app.services.quality_ai import assess_quality
+from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationType, NotificationPriority
 from app.core.quality import (
     VERIFICATION_STATUS_DECLARED,
     VERIFICATION_STATUS_EVIDENCE,
