@@ -175,7 +175,9 @@ async def create_product(
             detail="Only farmers can create products"
         )
 
-    # A harvest plan may only produce one product.
+    # A harvest plan may only produce one product. When a product is
+    # created from a completed harvest, the actual harvested quantity is
+    # authoritative; never allow the expected/planned quantity to overwrite it.
     if data.sourceHarvestPlanId:
         try:
             plan = await harvest_plan_repo.find_one(
@@ -183,10 +185,31 @@ async def create_product(
             )
         except Exception:
             plan = None
-        if plan and plan.get("productCreated"):
+        if not plan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Source harvest plan not found.",
+            )
+        if plan.get("status") != "harvested":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Create the product only after the harvest has been confirmed.",
+            )
+        if plan.get("productCreated"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="A product was already created from this harvest plan, so another product cannot be added.",
+            )
+        actual_quantity = float(plan.get("actualQuantityKg") or 0)
+        if actual_quantity <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Actual harvested quantity is missing from this harvest plan.",
+            )
+        if abs(float(data.quantity) - actual_quantity) > 0.001:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Product quantity must match the actual harvested quantity ({actual_quantity:g} kg).",
             )
 
     from app.core.config import settings
