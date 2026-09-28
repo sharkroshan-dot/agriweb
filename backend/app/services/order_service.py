@@ -16,11 +16,12 @@ from app.services.payment_service import PaymentService
 from app.services.inventory_service import inventory_service, broadcast_stock_update, InventoryService
 from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
+from app.repositories.base_repository import BaseRepository
 import httpx
 import logging
 
 logger = logging.getLogger(__name__)
-harvest_preorder_repository = __import__("app.repositories.base_repository", fromlist=["BaseRepository"]).BaseRepository("harvest_preorders")
+harvest_preorder_repository = BaseRepository("harvest_preorders")
 
 # Approximate city-centre fallback for legacy orders that contain only text
 # addresses. This keeps radius filtering usable when public geocoders throttle
