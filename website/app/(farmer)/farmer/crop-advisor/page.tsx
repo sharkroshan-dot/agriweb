@@ -22,7 +22,7 @@ export default function FarmerCropAdvisorPage() {
     location: "",
     temperature: "28",
     rainfall: "100",
-    previousCrop: "",
+    previousCrop: "none",
     season: "kharif",
     areaAcres: "1",
   });
@@ -35,7 +35,7 @@ export default function FarmerCropAdvisorPage() {
 
   const previousCrops = Array.from(
     new Set(
-      ((harvestPlansData?.data?.plans || []) as any[])
+      ((harvestPlansData?.plans || []) as any[])
         .filter((plan) => plan?.status === "harvested" && String(plan?.cropName || "").trim())
         .map((plan) => String(plan.cropName).trim())
     )
@@ -55,7 +55,7 @@ export default function FarmerCropAdvisorPage() {
   });
 
   useEffect(() => {
-    const temperature = weatherQuery.data?.data?.weather?.temperature;
+    const temperature = weatherQuery.data?.weather?.temperature;
     if (typeof temperature !== "number" || !Number.isFinite(temperature)) return;
     setForm((current) => {
       const next = String(Math.round(temperature * 10) / 10);
@@ -137,8 +137,10 @@ export default function FarmerCropAdvisorPage() {
             <label className="text-xs font-medium text-gray-500">Previous crop</label>
             <Select value={form.previousCrop} onValueChange={(v) => setForm({ ...form, previousCrop: v })}>
               <SelectContent>
-                <SelectItem value="">None</SelectItem>
-                {CROPS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                <SelectItem value="none">None / no previous crop</SelectItem>
+                {previousCrops.map((crop) => (
+                  <SelectItem key={crop} value={crop}>{crop}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
