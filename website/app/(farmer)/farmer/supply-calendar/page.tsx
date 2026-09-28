@@ -148,15 +148,8 @@ export default function FarmerSupplyCalendarPage() {
       ) : (
         <div className="space-y-3">
           {entries.map((entry: any) => {
-            const harvested = [
-              "harvested",
-              "batched",
-              "quality_approved",
-            ].includes(entry.status);
-
-            const quantity =
-              entry.actualQuantityKg ?? entry.expectedQuantityKg;
-
+            const harvested = ["harvested", "batched", "quality_approved"].includes(entry.status);
+            const quantity = entry.actualQuantityKg ?? entry.expectedQuantityKg;
             const statusLabel =
               entry.status === "quality_approved"
                 ? "Quality Approved"
@@ -175,97 +168,86 @@ export default function FarmerSupplyCalendarPage() {
                     <div
                       className={cn(
                         "flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-lg",
-                        harvested
-                          ? "bg-blue-100 text-blue-700"
-                          : "bg-slate-100 text-slate-600"
+                        harvested ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600"
                       )}
                     >
                       <span className="text-base font-bold leading-none">
                         {new Date(entry.expectedDate).getDate()}
                       </span>
                       <span className="text-[10px] uppercase">
-                        {new Date(entry.expectedDate).toLocaleDateString(
-                          "en-IN",
-                          { month: "short" }
-                        )}
+                        {new Date(entry.expectedDate).toLocaleDateString("en-IN", { month: "short" })}
                       </span>
                     </div>
 
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate font-medium">{entry.cropName}</p>
-                        <Badge variant={harvested ? "secondary" : "outline"}>
-                          {statusLabel}
-                        </Badge>
+                        <Badge variant={harvested ? "secondary" : "outline"}>{statusLabel}</Badge>
                       </div>
 
                       <p className="text-sm text-gray-500">
-                        {entry.actualQuantityKg != null ? (
-                          <>
-                            Actual:{" "}
-                            <span className="font-semibold text-slate-700">
-                              {entry.actualQuantityKg} kg
-                            </span>{" "}
-                            · Expected: {entry.expectedQuantityKg} kg
-                          </>
-                        ) : (
-                          <>
-                            Expected:{" "}
-                            <span className="font-semibold text-slate-700">
-                              {quantity} kg
-                            </span>
-                          </>
-                        )}
+                        <span className="font-medium text-slate-600">Actual:</span>{" "}
+                        <span className="font-semibold text-slate-700">
+                          {entry.actualQuantityKg != null ? `${entry.actualQuantityKg} kg` : "—"}
+                        </span>
+                        {" · "}
+                        <span className="font-medium text-slate-600">Expected:</span>{" "}
+                        <span className="font-semibold text-slate-700">{entry.expectedQuantityKg} kg</span>
                         {" · "}
                         {formatDate(entry.expectedDate)}
-                        {entry.preOrderCount > 0 &&
-                          " · " + entry.preOrderCount + " pre-orders"}
+                        {entry.preOrderCount > 0 && ` · ${entry.preOrderCount} pre-orders`}
                       </p>
 
                       <p className="mt-1 text-sm">
-                        {entry.finalRatePerKg != null ? (
-                          <>Final rate: <span className="font-semibold text-emerald-700">₹{entry.finalRatePerKg}/kg</span>{entry.plannedRatePerKg != null && <> · Planned/pre-order: ₹{entry.plannedRatePerKg}/kg</>}</>
-                        ) : entry.plannedRatePerKg != null ? (
-                          <>Planned/pre-order rate: <span className="font-semibold text-slate-700">₹{entry.plannedRatePerKg}/kg</span></>
-                        ) : <span className="text-slate-500">Rate not set</span>}
+                        <span className="text-slate-500">Planned/pre-order rate:</span>{" "}
+                        <span className="font-semibold text-slate-700">
+                          {entry.plannedRatePerKg != null ? `₹${entry.plannedRatePerKg}/kg` : "—"}
+                        </span>
+                        {" · "}
+                        <span className="text-slate-500">Final rate:</span>{" "}
+                        <span className={cn(
+                          "font-semibold",
+                          entry.finalRatePerKg != null ? "text-emerald-700" : "text-slate-400"
+                        )}>
+                          {entry.finalRatePerKg != null ? `₹${entry.finalRatePerKg}/kg` : "Not harvested"}
+                        </span>
                       </p>
 
-                      {entry.batchId ? (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Batch created · Quality:{" "}
-                          {entry.qualityStatus === "approved"
-                            ? "Approved"
-                            : "Pending inspection"}
-                        </p>
-                      ) : entry.actualQuantityKg != null ? (
-                        <p className="mt-1 text-xs font-medium text-amber-700">
-                          Harvest recorded. Create a batch in Batches &
-                          Traceability.
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Mark as Harvested in Harvest Planner to start the
-                          supply chain.
-                        </p>
-                      )}
+                      <p className="mt-1 text-xs">
+                        {entry.batchId ? (
+                          <span className="font-medium text-slate-500">
+                            Batch created · Quality:{" "}
+                            <span className={entry.qualityStatus === "approved" ? "text-emerald-700" : "text-amber-700"}>
+                              {entry.qualityStatus === "approved" ? "Approved" : "Pending inspection"}
+                            </span>
+                          </span>
+                        ) : entry.actualQuantityKg != null ? (
+                          <span className="font-medium text-amber-700">
+                            Harvest recorded · Create a batch from this harvest.
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">
+                            Harvest not recorded yet · Complete this crop in Harvest Planner.
+                          </span>
+                        )}
+                      </p>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {(entry.finalRatePerKg ?? entry.plannedRatePerKg) ? (
-                      <span className="flex items-center gap-1 text-sm font-semibold text-emerald-700">
-                        <IndianRupee className="h-4 w-4" />
-                        {entry.finalRatePerKg ?? entry.plannedRatePerKg}/kg
-                      </span>
-                    ) : (
-                      <Badge variant="outline">Price TBD</Badge>
-                    )}
+                    <span className={cn(
+                      "flex items-center gap-1 text-sm font-semibold",
+                      (entry.finalRatePerKg ?? entry.plannedRatePerKg) ? "text-emerald-700" : "text-slate-400"
+                    )}>
+                      <IndianRupee className="h-4 w-4" />
+                      {entry.finalRatePerKg ?? entry.plannedRatePerKg ?? "—"}/kg
+                    </span>
                     <Wheat className="h-4 w-4 text-slate-300" />
                   </div>
                 </CardContent>
               </Card>
             );
-          })}
+          })}})}
         </div>
       )}
 
