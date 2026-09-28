@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from app.api.v1.auth import get_current_user
 from app.schemas.ai import (
     PricePredictionRequest, PricePredictionResponse,
@@ -341,6 +341,51 @@ async def detect_disease(
     current_user: dict = Depends(get_current_user)
 ):
     return await AIExtendedService.detect_disease(request)
+
+@router.post("/voice/process", response_model=VoiceAssistantResponse)
+async def voice_process_alias(
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    request = VoiceAssistantRequest(
+        audioText=str(payload.get("command") or payload.get("audioText") or ""),
+        language=str(payload.get("language") or "english"),
+        context=str(payload.get("context") or "general"),
+        conversation=[],
+    )
+    return await AIExtendedService.voice_assistant(request, current_user)
+
+@router.post("/quality-check")
+async def quality_check(
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    freshness = max(0.0, min(100.0, float(payload.get("freshness", 0) or 0)))
+    damage = max(0.0, min(100.0, float(payload.get("damagedPct", 0) or 0)))
+    photos = payload.get("photos") or []
+    declared = str(payload.get("farmerDeclaredGrade") or "").upper() or None
+    if freshness >= 80 and damage <= 5:
+        grade = "A"
+        recommendation = "sample_verification"
+        findings = ["High freshness score", "Low reported damage"]
+    elif freshness >= 60 and damage <= 15:
+        grade = "B"
+        recommendation = "manual_inspection"
+        findings = ["Moderate freshness score", "Some reported damage"]
+    else:
+        grade = "C"
+        recommendation = "manual_inspection"
+        findings = ["Freshness or damage requires closer inspection"]
+    return {
+        "estimatedGrade": grade,
+        "confidence": round(min(0.95, max(0.55, 0.65 + len(photos) * 0.04)), 2),
+        "model": "heuristic",
+        "findings": findings,
+        "declaredGrade": declared,
+        "mismatch": bool(declared and declared != grade),
+        "recommendation": recommendation,
+        "assessedAt": datetime.utcnow(),
+    }
 
 @router.post("/voice-assistant", response_model=VoiceAssistantResponse)
 async def voice_assistant(
