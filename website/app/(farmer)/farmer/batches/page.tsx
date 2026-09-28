@@ -68,7 +68,7 @@ const GRADE_OPTIONS = ["Premium", "Standard", "Economy"];
 export default function FarmerBatchesPage() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [selectedHarvestId, setSelectedHarvestId] = useState("");
+  const [selectedProductId, setSelectedProductId] = useState("");
   const [form, setForm] = useState({
     cropName: "",
     quantityKg: "100",
@@ -105,7 +105,7 @@ export default function FarmerBatchesPage() {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
       setShowForm(false);
-      setSelectedHarvestId("");
+      setSelectedProductId("");
       setForm({ cropName: "", quantityKg: "", harvestDate: "", qualityGrade: "Premium", storageType: "normal", shelfLifeDays: "", notes: "" });
       toast.success("Batch created with a new lot number!");
     },
@@ -153,17 +153,22 @@ export default function FarmerBatchesPage() {
     .sort((a, b) => new Date(b.harvestedAt || b.expectedHarvestDate).getTime() - new Date(a.harvestedAt || a.expectedHarvestDate).getTime());
   const latestHarvest = availableHarvests[0];
   const selectedProductId = selectedHarvest?.productId ? String(selectedHarvest.productId) : "";
-  const selectedHarvest = availableHarvests.find((plan) => String(plan.id || plan._id) === selectedHarvestId);
+  const selectedProduct = batchEligibleProducts.find((product) => String(product._id) === selectedProductId);
+  const selectedHarvest = availableHarvests.find((plan) => {
+    const planId = String(plan.id || plan._id);
+    return String(selectedProduct?.sourceHarvestPlanId || "") === planId;
+  });
   const selectedHarvestQuantity = Number(selectedHarvest?.actualQuantityKg ?? selectedHarvest?.expectedQuantityKg ?? 0);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedHarvestId || !selectedHarvest || selectedHarvestQuantity <= 0) {
-      toast.error("Select an eligible harvested crop first");
+    if (!selectedProductId || !selectedProduct || !selectedHarvest || selectedHarvestQuantity <= 0) {
+      toast.error("Select a product that does not already have a batch");
       return;
     }
     createMutation.mutate({
-      cropName: selectedHarvest.cropName,
+      productId: selectedProductId,
+      cropName: selectedProduct.name,
       quantityKg: selectedHarvestQuantity,
       harvestDate: selectedHarvest.harvestedAt || selectedHarvest.expectedHarvestDate,
       qualityGrade: form.qualityGrade,
@@ -212,52 +217,39 @@ export default function FarmerBatchesPage() {
           <CardHeader>
             <CardTitle className="text-base">Create Batch from Harvested Crop</CardTitle>
             <CardDescription>
-              Only crops already marked as harvested are available. One harvested lot creates one traceability batch.
+              Select a product that has not yet received a batch. Each product can have exactly one traceability batch.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-xs font-medium text-gray-500">Harvested crop *</label>
-                {latestHarvest && (
-                  <button
-                    type="button"
-                    className="mb-2 w-full rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-left transition hover:border-emerald-300"
-                    onClick={() => {
-                      const id = String(latestHarvest.id || latestHarvest._id);
-                      setSelectedHarvestId(id);
-                      setForm((current) => ({
-                        ...current,
-                        cropName: latestHarvest.cropName || "",
-                        quantityKg: String(latestHarvest.actualQuantityKg ?? latestHarvest.expectedQuantityKg ?? ""),
-                        harvestDate: latestHarvest.harvestedAt ? String(latestHarvest.harvestedAt).slice(0, 10) : "",
-                      }));
-                    }}
-                  >
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Latest harvested</div>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <span className="font-medium text-slate-800">{latestHarvest.cropName}</span>
-                      <span className="text-sm text-emerald-700">{Number(latestHarvest.actualQuantityKg ?? latestHarvest.expectedQuantityKg)} kg</span>
-                    </div>
-                    <div className="mt-0.5 text-xs text-slate-500">
-                      {latestHarvest.harvestedAt ? formatDate(latestHarvest.harvestedAt) : "Harvested"} · {latestHarvest.fieldName || "Farm"}
-                    </div>
-                  </button>
-                )}
-                <Select value={selectedHarvestId} onValueChange={(v) => {
-                  setSelectedHarvestId(v);
-                  const plan = availableHarvests.find((p) => String(p.id || p._id) === v);
-                  if (plan) setForm((current) => ({ ...current, cropName: plan.cropName || "", quantityKg: String(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? ""), harvestDate: plan.harvestedAt ? String(plan.harvestedAt).slice(0, 10) : "" }));
+                <label className="text-xs font-medium text-gray-500">Product / Crop name *</label>
+                <Select value={selectedProductId} onValueChange={(v) => {
+                  setSelectedProductId(v);
+                  const product = batchEligibleProducts.find((p) => String(p._id) === v);
+                  const plan = availableHarvests.find((p) => String(product?.sourceHarvestPlanId || "") === String(p.id || p._id));
+                  setForm((current) => ({
+                    ...current,
+                    cropName: product?.name || "",
+                    quantityKg: String(plan?.actualQuantityKg ?? plan?.expectedQuantityKg ?? ""),
+                    harvestDate: plan?.harvestedAt ? String(plan.harvestedAt).slice(0, 10) : "",
+                  }));
                 }}>
                   <SelectContent>
-                    {availableHarvests.map((plan) => {
-                      const id = String(plan.id || plan._id);
-                      const quantity = Number(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? 0);
-                      return <SelectItem key={id} value={id}>{plan.cropName} — {quantity} kg — {plan.harvestedAt ? formatDate(plan.harvestedAt) : "Harvested"}{plan.fieldName ? ` — ${plan.fieldName}` : ""}</SelectItem>;
-                    })}
+                    {batchEligibleProducts.map((product) => (
+                      <SelectItem key={product._id} value={product._id}>
+                        {product.name} — {product.quantity} {product.unit}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-                {harvestedLoading ? <p className="text-[11px] text-gray-400">Loading harvested crops...</p> : availableHarvests.length === 0 ? <p className="text-[11px] text-gray-400">No unbatched harvests. Mark a crop as harvested in Harvest Planner first.</p> : <p className="text-[11px] text-gray-400">Already batched harvests are hidden.</p>}
+                {productsLoading ? (
+                  <p className="text-[11px] text-gray-400">Loading products...</p>
+                ) : batchEligibleProducts.length === 0 ? (
+                  <p className="text-[11px] text-gray-400">All your products already have a batch, or no products are available.</p>
+                ) : (
+                  <p className="text-[11px] text-gray-400">Products that already have a batch are automatically hidden.</p>
+                )}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Crop name</label>
@@ -304,7 +296,7 @@ export default function FarmerBatchesPage() {
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="variety, field plot, remarks..." />
               </div>
               <div className="sm:col-span-2 flex justify-end">
-                <Button type="submit" disabled={createMutation.isPending || !selectedHarvestId || availableHarvests.length === 0}>
+                <Button type="submit" disabled={createMutation.isPending || !selectedProductId || !selectedHarvest || batchEligibleProducts.length === 0}>
                   {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   Create Batch
                 </Button>
