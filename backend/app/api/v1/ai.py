@@ -490,6 +490,76 @@ async def check_fraud(
         )
     return result
 
+@router.get("/fraud/stats")
+async def fraud_stats(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can access fraud statistics")
+    alerts = await ai_risk_service.get_fraud_alerts(limit=200)
+    high = sum(1 for x in alerts if str(x.get("riskLevel", "")).upper() == "HIGH")
+    medium = sum(1 for x in alerts if str(x.get("riskLevel", "")).upper() == "MEDIUM")
+    low = max(0, len(alerts) - high - medium)
+    pending = sum(1 for x in alerts if x.get("reviewStatus", "pending_review") == "pending_review")
+    approved = sum(1 for x in alerts if x.get("reviewStatus") == "approved")
+    rejected = sum(1 for x in alerts if x.get("reviewStatus") == "rejected")
+    return {"success": True, "data": {"total": len(alerts), "high": high, "medium": medium, "low": low, "pendingReview": pending, "approved": approved, "rejected": rejected}}
+
+@router.get("/fraud/signals")
+async def fraud_signals(
+    riskLevel: str = Query("all"),
+    status_filter: str = Query("all", alias="status"),
+    sort: str = Query("desc"),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can access fraud signals")
+    alerts = await ai_risk_service.get_fraud_alerts(limit=200)
+    signals = []
+    for item in alerts:
+        level = str(item.get("riskLevel", "LOW")).lower()
+        review_status = item.get("reviewStatus", "pending_review")
+        if riskLevel != "all" and level != riskLevel.lower():
+            continue
+        if status_filter != "all" and review_status != status_filter:
+            continue
+        signals.append({
+            "id": str(item.get("orderId")),
+            "orderId": str(item.get("orderNumber") or item.get("orderId")),
+            "customerId": str(item.get("customerId") or ""),
+            "customerName": item.get("customerName") or "Customer",
+            "riskScore": float(item.get("riskScore", 0)),
+            "riskLevel": level,
+            "signals": item.get("flags", []),
+            "status": review_status,
+            "createdAt": (item.get("orderDate") or datetime.utcnow()).isoformat() if hasattr(item.get("orderDate") or datetime.utcnow(), "isoformat") else str(item.get("orderDate") or ""),
+            "orderValue": float(item.get("totalAmount", 0) or 0),
+            "paymentMethod": item.get("paymentMethod") or "unknown",
+        })
+    signals.sort(key=lambda x: x["riskScore"], reverse=sort != "asc")
+    return {"success": True, "data": {"signals": signals}}
+
+@router.post("/fraud/action")
+async def fraud_action(
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can review fraud signals")
+    order_id = str(payload.get("signalId") or payload.get("orderId") or "")
+    action = str(payload.get("action") or "").lower()
+    if action not in {"approve", "reject", "escalate"}:
+        raise HTTPException(status_code=400, detail="Invalid fraud review action")
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid fraud signal")
+    from app.repositories.order_repository import order_repository
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    status_value = {"approve": "approved", "reject": "rejected", "escalate": "escalated"}[action]
+    await order_repository.update({"_id": oid}, {"aiFraudReview": {"status": status_value, "reviewedBy": str(current_user.get("_id")), "reviewedAt": datetime.utcnow()}})
+    return {"success": True, "status": status_value, "orderId": order_id}
+
 @router.get("/security-center", response_model=SecurityCenterResponse)
 async def security_center(
     current_user: dict = Depends(get_current_user)
