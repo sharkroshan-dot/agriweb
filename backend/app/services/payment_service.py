@@ -10,6 +10,8 @@ from app.repositories.wallet_repository import wallet_repository, wallet_transac
 from app.repositories.order_repository import order_repository
 from app.repositories.withdrawal_repository import withdrawal_repository
 from app.repositories.user_repository import user_repository
+from app.repositories.base_repository import BaseRepository
+harvest_preorder_repository = BaseRepository("harvest_preorders")
 from app.schemas.payment import (
     PaymentIntentCreate, PaymentConfirm, RefundRequest,
     WalletAddFunds, WalletWithdraw, PaymentStatus
@@ -316,6 +318,16 @@ class PaymentService:
                     {"_id": payment["orderId"]},
                     {"paymentStatus": "paid", "orderStatus": "confirmed"}
                 )
+                if order.get("preorderId"):
+                    await harvest_preorder_repository.update(
+                        {"_id": ObjectId(order["preorderId"])},
+                        {
+                            "status": "paid",
+                            "paymentStatus": "paid",
+                            "paidAt": datetime.utcnow(),
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
             elif order:
                 await order_repository.update(
                     {"_id": payment["orderId"]},
