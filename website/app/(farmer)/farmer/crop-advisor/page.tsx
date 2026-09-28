@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Sprout, Loader2, CloudSun, Thermometer, Droplets, TreePine, RefreshCcw } from "lucide-react";
+import { Sprout, Loader2, CloudSun, Thermometer, Droplets, TreePine, RefreshCcw, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -26,6 +26,10 @@ export default function FarmerCropAdvisorPage() {
     season: "kharif",
     areaAcres: "1",
   });
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationSource, setLocationSource] = useState<"live" | "manual" | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
 
   const { data: harvestPlansData } = useQuery({
     queryKey: ["farmerCropAdvisorHarvests"],
@@ -42,17 +46,67 @@ export default function FarmerCropAdvisorPage() {
   ).sort((a, b) => a.localeCompare(b));
 
   const weatherQuery = useQuery({
-    queryKey: ["farmerCropAdvisorWeather", form.location.trim()],
+    queryKey: ["farmerCropAdvisorWeather", form.location.trim(), coordinates?.lat, coordinates?.lng],
     queryFn: () =>
       api.post("/ai/weather-impact", {
-        location: { city: form.location.trim(), state: "Tamil Nadu", country: "India" },
+        location: coordinates
+          ? { latitude: coordinates.lat, longitude: coordinates.lng }
+          : { city: form.location.trim(), state: "Tamil Nadu", country: "India" },
         productId: null,
         days: 5,
       }),
-    enabled: form.location.trim().length > 0,
+    enabled: form.location.trim().length > 0 || Boolean(coordinates),
     staleTime: 10 * 60 * 1000,
     retry: 1,
   });
+
+  const useLiveLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Live location is not supported by this device/browser.");
+      return;
+    }
+    setLocationLoading(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setCoordinates({ lat, lng });
+        setLocationSource("live");
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          const result = await response.json();
+          const address = result?.address || {};
+          const city =
+            address.city ||
+            address.town ||
+            address.village ||
+            address.municipality ||
+            address.county ||
+            "";
+          if (city) {
+            setForm((current) => ({ ...current, location: city }));
+          }
+        } catch {
+          // Coordinates still work for weather even if reverse geocoding fails.
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+        setLocationError(
+          error.code === 1
+            ? "Location permission denied. Please allow location access."
+            : "Could not get live location. You can enter the location manually."
+        );
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+    );
+  };
 
   useEffect(() => {
     const temperature = weatherQuery.data?.weather?.temperature;
@@ -114,12 +168,44 @@ export default function FarmerCropAdvisorPage() {
             </Select>
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Location</label>
-            <Input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="e.g. Coimbatore" />
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <MapPin className="h-3 w-3" /> Location
+            </label>
+            <div className="flex gap-2">
+              <Input
+                className="min-w-0"
+                value={form.location}
+                onChange={(e) => {
+                  setLocationSource("manual");
+                  setCoordinates(null);
+                  setForm({ ...form, location: e.target.value });
+                }}
+                placeholder="e.g. Coimbatore"
+              />
+              <Button type="button" variant="outline" onClick={useLiveLocation} disabled={locationLoading} title="Use live location">
+                {locationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              {locationSource === "live" ? "Using your live location for weather." : "Use live location to automatically get local weather."}
+            </p>
+            {locationError && <p className="text-[11px] text-red-500">{locationError}</p>}
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500 flex items-center gap-1"><Thermometer className="h-3 w-3" /> Temperature (°C)</label>
-            <Input type="number" value={form.temperature} onChange={(e) => setForm({ ...form, temperature: e.target.value })} />
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <Thermometer className="h-3 w-3" /> Temperature (°C)
+            </label>
+            <div className="relative">
+              <Input type="number" value={form.temperature} onChange={(e) => setForm({ ...form, temperature: e.target.value })} />
+              {weatherQuery.isFetching && (
+                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-sky-500" />
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400">
+              {weatherQuery.data?.weather?.temperature != null
+                ? "Automatically updated from current local weather."
+                : "Enter a location or use live location to fetch temperature."}
+            </p>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500 flex items-center gap-1"><Droplets className="h-3 w-3" /> Rainfall (mm)</label>
