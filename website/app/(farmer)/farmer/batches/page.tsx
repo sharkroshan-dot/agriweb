@@ -41,6 +41,10 @@ interface Batch {
   sourceHarvestPlanId?: string;
   notes?: string;
   freshness?: { status: string; daysRemaining?: number; expiresAt?: string };
+  qualityStatus?: string;
+  inspectionPriority?: "critical" | "urgent" | "normal";
+  inspectionDueAt?: string;
+  inspectionId?: string;
 }
 
 interface FarmerProduct {
@@ -117,6 +121,15 @@ export default function FarmerBatchesPage() {
     },
     onError: (err: any) => toast.error(err?.message || "Failed to convert batch"),
   });
+\n  const urgentMutation = useMutation({
+    mutationFn: (inspectionId: string) => api.post(`/quality/inspections/${inspectionId}/urgent`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerBatches"] });
+      toast.success("Inspection escalated as urgent");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not escalate inspection"),
+  });
+
 
   const batches: Batch[] = (batchesData?.data?.batches || []).map((b: any) => ({ ...b, id: b._id || b.id }));
   const products: FarmerProduct[] = productsData?.data?.products || productsData?.data || [];
@@ -159,13 +172,21 @@ export default function FarmerBatchesPage() {
 
   const storageLabel = (s?: string) => STORAGE_OPTIONS.find((o) => o.value === s)?.label ?? "—";
 
+  const qualityBadge = (batch: Batch) => {
+    if (batch.qualityStatus === "approved") return <Badge variant="success">Quality approved</Badge>;
+    if (batch.qualityStatus === "rejected") return <Badge variant="destructive">Quality rejected</Badge>;
+    if (batch.inspectionPriority === "critical") return <Badge variant="destructive">Inspection critical</Badge>;
+    if (batch.inspectionPriority === "urgent") return <Badge variant="warning">Inspection urgent</Badge>;
+    return <Badge variant="secondary">Awaiting inspection</Badge>;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Batches &amp; Traceability</h1>
           <p className="text-gray-500">
-            Record harvest lots, track freshness, and link them to your marketplace inventory.
+            Create traceable harvest lots, protect freshness, and send every batch through independent quality inspection before listing.
           </p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
@@ -308,7 +329,7 @@ export default function FarmerBatchesPage() {
                     ) : batch.status === "created" ? (
                       <Badge variant="secondary">Unlisted</Badge>
                     ) : null}
-                    {freshnessBadge(batch)}
+                    {freshnessBadge(batch)}\n                    {qualityBadge(batch)}
                   </div>
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-600">
                     <span className="flex items-center gap-1">
@@ -337,9 +358,20 @@ export default function FarmerBatchesPage() {
                   >
                     <QrCode className="h-4 w-4" /> QR / Trace
                   </a>
-                  {!batch.productId && batch.status === "created" && (
+                  {!batch.productId && batch.status === "created" && batch.qualityStatus === "approved" && (
                     <Button size="sm" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
                       <PackagePlus className="mr-1.5 h-4 w-4" /> Add to Inventory
+                    </Button>
+                  )}
+                  {batch.qualityStatus === "pending_inspection" && batch.inspectionId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={urgentMutation.isPending}
+                      onClick={() => urgentMutation.mutate(batch.inspectionId!)}
+                    >
+                      {urgentMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-1.5 h-4 w-4" />}
+                      Request Urgent Inspection
                     </Button>
                   )}
                 </div>
