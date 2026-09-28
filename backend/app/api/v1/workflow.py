@@ -38,31 +38,47 @@ async def _farmer(uid: str):
     plan = await _latest(harvests, {"farmerId": _id(uid), "deletedAt": None}, "updatedAt")
     if not plan:
         return {"currentStep": "Farm Setup", "state": "ACTION_REQUIRED", "next": _href("/farmer/dashboard", "Complete Farm Setup", "Create your farm profile before planning a crop.")}
-    pid = plan.get("productId")
-    bid = None
-    batch = await _latest(batches, {"farmerId": _id(uid), "sourceHarvestPlanId": plan["_id"], "deletedAt": None}, "createdAt")
-    if batch:
-        bid = batch["_id"]
     if plan.get("status") != "harvested":
         if plan.get("status") == "preorder":
             return {"currentStep": "Pre-orders / Ready for Harvest", "state": "IN_PROGRESS", "next": _href("/farmer/harvest-planner", "Open Harvest Planner", "Pre-orders are open; record the actual harvest when the crop is harvested."), "entityId": str(plan["_id"])}
         return {"currentStep": "Crop Planning / Growing", "state": "IN_PROGRESS", "next": _href("/farmer/harvest-planner", "Continue Crop Plan", "Continue the active crop plan."), "entityId": str(plan["_id"])}
-    if not batch:
-        return {"currentStep": "Harvest Completed", "state": "ACTION_REQUIRED", "next": _href(f"/farmer/batches?fromHarvest={plan['_id']}", "Create Batch", "The harvest is complete. Create its traceable batch before quality inspection."), "entityId": str(plan["_id"])}
-    inspection = await _latest(quality, {"batchId": batch["_id"], "deletedAt": None}, "createdAt")
-    if not inspection or inspection.get("verificationStatus") not in ("verified", "approved", "buyer_verified"):
-        return {"currentStep": "Batch Created", "state": "ACTION_REQUIRED", "next": _href(f"/farmer/quality?batchId={batch['_id']}", "Quality Inspection", "The batch is waiting for quality evidence and verification."), "entityId": str(batch["_id"])}
+
+    # Required lifecycle: Harvested -> Product -> Batch -> Quality -> Inventory.
     product = None
-    if pid:
-        product = await products.get_by_id(str(pid))
+    if plan.get("productId"):
+        product = await products.get_by_id(str(plan["productId"]))
     if not product:
         product = await _latest(products, {"farmerId": _id(uid), "sourceHarvestPlanId": plan["_id"], "deletedAt": None}, "createdAt")
     if not product:
-        return {"currentStep": "Quality Approved", "state": "ACTION_REQUIRED", "next": _href(f"/farmer/products/new?fromHarvest={plan['_id']}&name={plan.get('cropName','')}&quantity={plan.get('actualQuantityKg',0)}&price={plan.get('finalRatePerKg',0)}&harvestDate={str(plan.get('harvestedAt',''))}", "Create Product", "Quality is approved. Publish the harvest as a marketplace product."), "entityId": str(batch["_id"])}
+        from urllib.parse import quote
+        crop = quote(str(plan.get("cropName") or ""))
+        return {"currentStep": "Harvest Completed", "state": "ACTION_REQUIRED",
+                "next": _href(f"/farmer/products/new?fromHarvest={plan['_id']}&name={crop}&quantity={plan.get('actualQuantityKg',0)}&price={plan.get('finalRatePerKg',0)}&harvestDate={str(plan.get('harvestedAt',''))}",
+                              "Create Product", "The harvest is complete. Add the product details and publish it for the batch workflow."),
+                "entityId": str(plan["_id"])}
+
+    batch = await _latest(batches, {"farmerId": _id(uid), "sourceHarvestPlanId": plan["_id"], "deletedAt": None}, "createdAt")
+    if not batch:
+        return {"currentStep": "Product Created", "state": "ACTION_REQUIRED",
+                "next": _href(f"/farmer/batches?fromHarvest={plan['_id']}", "Create Batch", "Create the traceable lot from this harvested product."),
+                "entityId": str(product["_id"])}
+
+    inspection = await _latest(quality, {"batchId": batch["_id"], "deletedAt": None}, "createdAt")
+    verification = str((inspection or {}).get("verificationStatus") or "").lower()
+    if not inspection or verification not in ("verified", "approved", "buyer_verified"):
+        return {"currentStep": "Batch Created", "state": "ACTION_REQUIRED",
+                "next": _href(f"/farmer/quality?batchId={batch['_id']}", "Quality Inspection", "The batch is waiting for quality evidence and independent verification."),
+                "entityId": str(batch["_id"])}
+
+    if str(product.get("qualityStatus") or "").lower() not in ("approved", "verified"):
+        return {"currentStep": "Quality Approved", "state": "IN_PROGRESS",
+                "next": _href(f"/farmer/quality?batchId={batch['_id']}", "Complete Quality Approval", "Finish the human quality approval before marketplace activation."),
+                "entityId": str(batch["_id"])}
+
     qty = float(product.get("quantity", 0) or 0)
-    if qty > 0:
-        return {"currentStep": "Inventory / Orders", "state": "IN_PROGRESS", "next": _href("/farmer/orders", "Process Orders", "Your product is linked to inventory. Continue with incoming orders."), "entityId": str(product.get("_id"))}
-    return {"currentStep": "Product Created", "state": "ACTION_REQUIRED", "next": _href("/farmer/restock", "Review Inventory", "Review the product inventory and availability."), "entityId": str(product.get("_id"))}
+    return {"currentStep": "Inventory / Marketplace", "state": "IN_PROGRESS",
+            "next": _href("/farmer/restock", "Review Inventory", "The approved product is ready for inventory and marketplace availability."),
+            "entityId": str(product["_id"]), "availableQuantity": qty}
 
 async def _customer(uid: str):
     po = await _latest(preorders, {"customerId": _id(uid), "deletedAt": None}, "updatedAt")
