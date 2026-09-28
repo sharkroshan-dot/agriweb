@@ -231,8 +231,13 @@ export default function AddProductPage() {
 
       await api.post("/products/", payload);
       await queryClient.refetchQueries({ queryKey: ["farmerProducts"] });
-      toast.success("Product created successfully!");
-      router.push("/farmer/products");
+      if (fromHarvestId) {
+        toast.success("Product created from harvested produce. Continue to Batch in Harvest Planner.");
+        router.push("/farmer/harvest-planner");
+      } else {
+        toast.success("Product created successfully!");
+        router.push("/farmer/products");
+      }
     } catch (error: any) {
       console.error("PRODUCT CREATE ERROR:", error);
       const raw =
