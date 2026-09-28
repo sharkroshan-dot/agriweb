@@ -2,6 +2,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from bson import ObjectId
 import logging
+import httpx
 import math
 
 from app.repositories.product_repository import product_repository
@@ -379,27 +380,88 @@ class AIService:
             product = await product_repository.get_by_id(request.productId)
             product_name = product.get("name") if product else None
 
-        weather = {"temperature": 28, "humidity": 65, "rainfall": 0, "windSpeed": 12}
-        forecast = [
-            {
-                "day": i,
-                "date": (datetime.utcnow() + timedelta(days=i)).strftime("%Y-%m-%d"),
-                "temperature": weather["temperature"],
-                "rainfall": weather["rainfall"],
-                "impact": "favorable",
-                "source": "AgriConnect baseline",
+        location = request.location or {}
+        lat = location.get("latitude", location.get("lat"))
+        lng = location.get("longitude", location.get("lng", location.get("lon")))
+        city = str(location.get("city") or location.get("name") or "").strip()
+
+        try:
+            if lat is None or lng is None:
+                if not city:
+                    raise ValueError("A city or GPS coordinates are required")
+                async with httpx.AsyncClient(timeout=8) as client:
+                    geo = await client.get(
+                        "https://geocoding-api.open-meteo.com/v1/search",
+                        params={"name": city, "count": 1, "language": "en", "format": "json"},
+                    )
+                    geo.raise_for_status()
+                    results = (geo.json() or {}).get("results") or []
+                    if not results:
+                        raise ValueError(f"Location '{city}' could not be found")
+                    lat = results[0]["latitude"]
+                    lng = results[0]["longitude"]
+                    city = results[0].get("name") or city
+
+            lat = float(lat)
+            lng = float(lng)
+            days = max(1, min(int(request.days or 5), 7))
+            async with httpx.AsyncClient(timeout=8) as client:
+                response = await client.get(
+                    "https://api.open-meteo.com/v1/forecast",
+                    params={
+                        "latitude": lat,
+                        "longitude": lng,
+                        "current": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m",
+                        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum",
+                        "forecast_days": days,
+                        "timezone": "auto",
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+
+            current = payload.get("current") or {}
+            daily = payload.get("daily") or {}
+            times = daily.get("time") or []
+            max_temps = daily.get("temperature_2m_max") or []
+            min_temps = daily.get("temperature_2m_min") or []
+            rain_probs = daily.get("precipitation_probability_max") or []
+            rain_sums = daily.get("precipitation_sum") or []
+
+            weather = {
+                "temperature": current.get("temperature_2m"),
+                "humidity": current.get("relative_humidity_2m"),
+                "rainfall": current.get("precipitation", 0),
+                "windSpeed": current.get("wind_speed_10m"),
+                "latitude": lat,
+                "longitude": lng,
             }
-            for i in range(1, max(1, int(request.days or 7)) + 1)
-        ]
-        return {
-            "location": "Farm location",
-            "product": product_name,
-            "weather": weather,
-            "impactScore": 0.75,
-            "recommendation": "Conditions are currently favorable; continue monitoring local weather alerts.",
-            "forecast": forecast,
-            "timestamp": datetime.utcnow(),
-        }
+            forecast = [
+                {
+                    "day": i + 1,
+                    "date": times[i] if i < len(times) else None,
+                    "temp": max_temps[i] if i < len(max_temps) else None,
+                    "temperature": max_temps[i] if i < len(max_temps) else None,
+                    "minTemp": min_temps[i] if i < len(min_temps) else None,
+                    "rainChance": rain_probs[i] if i < len(rain_probs) else None,
+                    "rainfall": rain_sums[i] if i < len(rain_sums) else None,
+                    "impact": "favorable",
+                    "source": "Open-Meteo",
+                }
+                for i in range(max(len(times), days))
+            ]
+            return {
+                "location": city or f"{lat:.4f}, {lng:.4f}",
+                "product": product_name,
+                "weather": weather,
+                "impactScore": 0.75,
+                "recommendation": "Live weather conditions retrieved for the selected location.",
+                "forecast": forecast,
+                "timestamp": datetime.utcnow(),
+            }
+        except Exception as exc:
+            logger.warning("Live weather lookup failed: %s", exc)
+            raise ValueError(f"Unable to retrieve live weather for the selected location: {exc}")
 
     @staticmethod
     async def forecast_inventory(request: Any) -> Dict[str, Any]:
