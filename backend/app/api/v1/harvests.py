@@ -340,6 +340,7 @@ async def create_harvest_plan(
             else PLAN_PLANNED
         ),
         "actualQuantityKg": None,
+        "finalRatePerKg": None,
         "harvestedAt": None,
     }
 
@@ -443,6 +444,7 @@ async def _apply_harvest(plan: dict) -> int:
 
 class HarvestConfirmation(BaseModel):
     actualQuantityKg: float
+    finalRatePerKg: float
 
 @router.post("/plans/{plan_id}/harvest")
 async def mark_harvested(
@@ -468,6 +470,8 @@ async def mark_harvested(
         )
     if data.actualQuantityKg <= 0:
         raise HTTPException(status_code=400, detail="Actual harvested quantity must be greater than 0")
+    if data.finalRatePerKg <= 0:
+        raise HTTPException(status_code=400, detail="Final selling rate must be greater than 0")
 
     now = datetime.utcnow()
     await harvest_plan_repo.update(
@@ -477,12 +481,14 @@ async def mark_harvested(
             "stage": "harvested",
             "harvestedAt": now,
             "actualQuantityKg": float(data.actualQuantityKg),
+            "finalRatePerKg": float(data.finalRatePerKg),
         },
     )
     plan["status"] = PLAN_HARVESTED
     plan["stage"] = "harvested"
     plan["harvestedAt"] = now
     plan["actualQuantityKg"] = float(data.actualQuantityKg)
+    plan["finalRatePerKg"] = float(data.finalRatePerKg)
 
     notified = await _apply_harvest(plan)
 
@@ -496,6 +502,7 @@ async def mark_harvested(
 class StageTransition(BaseModel):
     action: str  # "next" | "prev"
     actualQuantityKg: Optional[float] = None
+    finalRatePerKg: Optional[float] = None
 
 
 def _plan_stage_index(plan: dict, has_batch: bool) -> int:
@@ -631,10 +638,16 @@ async def transition_plan_stage(
         )
     elif target == 3:  # Harvested
         actual_qty = body.actualQuantityKg
+        final_rate = body.finalRatePerKg
         if actual_qty is None or actual_qty <= 0:
             raise HTTPException(
                 status_code=400,
                 detail="Enter the actual harvested quantity before marking this crop harvested.",
+            )
+        if final_rate is None or final_rate <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Enter the final selling rate before marking this crop harvested.",
             )
         if plan.get("productCreated"):
             raise HTTPException(
@@ -648,6 +661,7 @@ async def transition_plan_stage(
                 "status": PLAN_HARVESTED,
                 "harvestedAt": now,
                 "actualQuantityKg": float(actual_qty),
+                "finalRatePerKg": float(final_rate),
                 "previousStatus": plan.get("status") or PLAN_PLANNED,
             },
         )
@@ -655,6 +669,7 @@ async def transition_plan_stage(
         plan["status"] = PLAN_HARVESTED
         plan["harvestedAt"] = now
         plan["actualQuantityKg"] = float(actual_qty)
+        plan["finalRatePerKg"] = float(final_rate)
         await _apply_harvest(plan)
     elif target == 4:  # Batched
         if not batch:

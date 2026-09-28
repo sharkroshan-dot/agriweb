@@ -32,6 +32,7 @@ import { formatDate, formatPrice, cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
 import { Badge } from "../../../components/ui/badge";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import { Map } from "../../../components/shared/map";
@@ -109,6 +110,9 @@ export default function FarmerHarvestPlannerPage() {
   const [stageCursor, setStageCursor] = useState(0);
   const [routeFor, setRouteFor] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [harvestConfirm, setHarvestConfirm] = useState<CropPlan | null>(null);
+  const [actualQuantityKg, setActualQuantityKg] = useState("");
+  const [finalRatePerKg, setFinalRatePerKg] = useState("");
   const [routes, setRoutes] = useState<Record<string, any>>({});
   const [form, setForm] = useState({
     cropName: "",
@@ -163,18 +167,41 @@ export default function FarmerHarvestPlannerPage() {
   });
 
   const harvestMutation = useMutation({
-    mutationFn: ({ planId, actualQuantityKg }: { planId: string; actualQuantityKg: number }) =>
-      api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg }),
+    mutationFn: ({ planId, actualQuantityKg, finalRatePerKg }: { planId: string; actualQuantityKg: number; finalRatePerKg: number }) =>
+      api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg, finalRatePerKg }),
     onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
+      setHarvestConfirm(null);
+      setActualQuantityKg("");
+      setFinalRatePerKg("");
       router.push("/farmer/batches");
-      toast.success(`Harvest marked at ${vars.actualQuantityKg} kg. Create its batch for traceability.`);
+      toast.success(`Harvest recorded: ${vars.actualQuantityKg} kg at ₹${vars.finalRatePerKg}/kg. Create its batch for traceability.`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to mark harvest"),
   });
+
+  const openHarvestConfirmation = (plan: CropPlan) => {
+    setHarvestConfirm(plan);
+    setActualQuantityKg(plan.expectedQuantityKg ? String(plan.expectedQuantityKg) : "");
+    setFinalRatePerKg(plan.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "");
+  };
+
+  const confirmHarvest = () => {
+    const quantity = Number(actualQuantityKg);
+    const rate = Number(finalRatePerKg);
+    if (!harvestConfirm || !Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Enter a valid actual harvested quantity.");
+      return;
+    }
+    if (!Number.isFinite(rate) || rate <= 0) {
+      toast.error("Enter a valid final selling rate.");
+      return;
+    }
+    harvestMutation.mutate({ planId: harvestConfirm.id, actualQuantityKg: quantity, finalRatePerKg: rate });
+  };
 
   const cancelMutation = useMutation({
     mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/cancel`),
@@ -193,8 +220,9 @@ export default function FarmerHarvestPlannerPage() {
       const { planId, action } = vars;
       toast.success(res?.message || `Lifecycle updated (${planId})`);
       if (action === "next" && res?.data?.stage === 3) {
-        router.push("/farmer/batches");
-        toast.success("Harvest recorded. Create its batch for traceability.");
+        setHarvestConfirm(res?.data?.plan ? { ...res.data.plan, id: res.data.plan._id || planId } : plans.find((p) => p.id === planId) || null);
+        setActualQuantityKg(res?.data?.plan?.actualQuantityKg ? String(res.data.plan.actualQuantityKg) : "");
+        setFinalRatePerKg(res?.data?.plan?.finalRatePerKg ? String(res.data.plan.finalRatePerKg) : "");
       }
     },
     onError: (err: any) => toast.error(err?.message || "Failed to update stage"),
@@ -359,6 +387,40 @@ export default function FarmerHarvestPlannerPage() {
       "noopener,noreferrer"
     );
   };
+
+  const harvestDialog = (
+    <Dialog open={Boolean(harvestConfirm)} onOpenChange={(open) => !open && !harvestMutation.isPending && setHarvestConfirm(null)}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Confirm Harvest</DialogTitle>
+          <DialogDescription>
+            Record the actual harvest and final marketplace rate. The planned rate remains unchanged for existing pre-orders.
+          </DialogDescription>
+        </DialogHeader>
+        {harvestConfirm && (
+          <div className="space-y-4">
+            <div className="rounded-lg border bg-slate-50 p-3">
+              <p className="font-semibold">{harvestConfirm.cropName}</p>
+              <p className="text-sm text-slate-500">Expected: {harvestConfirm.expectedQuantityKg} kg</p>
+              <p className="text-sm text-slate-500">Planned / pre-order rate: ₹{harvestConfirm.preOrderPricePerKg ?? "—"}/kg</p>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Actual harvested quantity <span className="text-red-500">*</span></label>
+              <div className="flex items-center gap-2"><Input type="number" min="0.01" step="0.01" value={actualQuantityKg} onChange={(e) => setActualQuantityKg(e.target.value)} /><span className="text-sm text-slate-500">kg</span></div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Final rate per kg <span className="text-red-500">*</span></label>
+              <div className="flex items-center gap-2"><span className="rounded-md border bg-slate-50 px-3 py-2 text-sm">₹</span><Input type="number" min="0.01" step="0.01" value={finalRatePerKg} onChange={(e) => setFinalRatePerKg(e.target.value)} /><span className="text-sm text-slate-500">/kg</span></div>
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setHarvestConfirm(null)} disabled={harvestMutation.isPending}>Cancel</Button>
+          <Button type="button" onClick={confirmHarvest} disabled={harvestMutation.isPending}>{harvestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}Confirm Harvest</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   return (
     <div className="space-y-6">
@@ -929,19 +991,7 @@ export default function FarmerHarvestPlannerPage() {
                         className="flex-1"
                         size="sm"
                         disabled={harvestMutation.isPending}
-                        onClick={() => {
-                          const value = window.prompt(
-                            "Enter the actual harvested quantity (kg):",
-                            String(plan.expectedQuantityKg ?? "")
-                          );
-                          if (value === null) return;
-                          const actualQuantityKg = Number(value);
-                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
-                            toast.error("Enter a valid harvested quantity greater than 0 kg");
-                            return;
-                          }
-                          harvestMutation.mutate({ planId: plan.id, actualQuantityKg });
-                        }}
+                        onClick={() => openHarvestConfirmation(plan)}
                       >
                         {harvestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                         Mark Harvested
@@ -984,17 +1034,7 @@ export default function FarmerHarvestPlannerPage() {
                       disabled={planStage >= STAGES.length - 1 || stageMutation.isPending}
                       onClick={() => {
                         if (getStageIndex(plan) === 2) {
-                          const value = window.prompt(
-                            "Enter the actual harvested quantity (kg):",
-                            String(plan.expectedQuantityKg ?? "")
-                          );
-                          if (value === null) return;
-                          const actualQuantityKg = Number(value);
-                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
-                            toast.error("Enter a valid harvested quantity greater than 0 kg");
-                            return;
-                          }
-                          stageMutation.mutate({ planId: plan.id, action: "next", actualQuantityKg });
+                          openHarvestConfirmation(plan);
                           return;
                         }
                         stageMutation.mutate({ planId: plan.id, action: "next" });

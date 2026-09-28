@@ -51,7 +51,8 @@ export default function FarmerSupplyCalendarPage() {
           expectedQuantityKg: Number(p.expectedQuantityKg || 0),
           actualQuantityKg:
             p.actualQuantityKg != null ? Number(p.actualQuantityKg) : null,
-          pricePerKg: p.preOrderPricePerKg,
+          plannedRatePerKg: p.preOrderPricePerKg,
+          finalRatePerKg: p.finalRatePerKg != null ? Number(p.finalRatePerKg) : null,
           preOrderCount: Number(p.preorderCount || 0),
           status,
           batchId: batch?._id || batch?.id,
@@ -221,6 +222,14 @@ export default function FarmerSupplyCalendarPage() {
                           " · " + entry.preOrderCount + " pre-orders"}
                       </p>
 
+                      <p className="mt-1 text-sm">
+                        {entry.finalRatePerKg != null ? (
+                          <>Final rate: <span className="font-semibold text-emerald-700">₹{entry.finalRatePerKg}/kg</span>{entry.plannedRatePerKg != null && <> · Planned/pre-order: ₹{entry.plannedRatePerKg}/kg</>}</>
+                        ) : entry.plannedRatePerKg != null ? (
+                          <>Planned/pre-order rate: <span className="font-semibold text-slate-700">₹{entry.plannedRatePerKg}/kg</span></>
+                        ) : <span className="text-slate-500">Rate not set</span>}
+                      </p>
+
                       {entry.batchId ? (
                         <p className="mt-1 text-xs text-slate-500">
                           Batch created · Quality:{" "}
@@ -243,10 +252,10 @@ export default function FarmerSupplyCalendarPage() {
                   </div>
 
                   <div className="flex items-center gap-4">
-                    {entry.pricePerKg ? (
+                    {(entry.finalRatePerKg ?? entry.plannedRatePerKg) ? (
                       <span className="flex items-center gap-1 text-sm font-semibold text-emerald-700">
                         <IndianRupee className="h-4 w-4" />
-                        {entry.pricePerKg}/kg
+                        {entry.finalRatePerKg ?? entry.plannedRatePerKg}/kg
                       </span>
                     ) : (
                       <Badge variant="outline">Price TBD</Badge>
