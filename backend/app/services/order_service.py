@@ -20,6 +20,7 @@ import httpx
 import logging
 
 logger = logging.getLogger(__name__)
+harvest_preorder_repository = __import__("app.repositories.base_repository", fromlist=["BaseRepository"]).BaseRepository("harvest_preorders")
 
 # Approximate city-centre fallback for legacy orders that contain only text
 # addresses. This keeps radius filtering usable when public geocoders throttle
@@ -269,6 +270,24 @@ class OrderService:
                 existing["id"] = str(existing["_id"])
                 return existing
 
+        preorder = None
+        if data.preorderId:
+            try:
+                preorder = await harvest_preorder_repository.find_one({
+                    "_id": ObjectId(data.preorderId),
+                    "customerId": ObjectId(customer_id),
+                    "deletedAt": None,
+                })
+            except Exception:
+                preorder = None
+            if not preorder:
+                raise OrderCreationError("Pre-order not found or does not belong to this customer.")
+            if preorder.get("status") not in ("ready_for_confirmation", "confirmed"):
+                raise OrderCreationError("This pre-order is not ready for checkout.")
+            if not preorder.get("productId"):
+                raise OrderCreationError("The harvested product is not available for this pre-order yet.")
+            if preorder.get("orderId"):
+                raise OrderCreationError("This pre-order has already been converted to an order.")
         items_data = []
         subtotal = 0
         farmer_id = None
@@ -280,6 +299,13 @@ class OrderService:
         pickup_instructions = None
         
         for item in data.items:
+            if preorder:
+                if str(item.productId) != str(preorder.get("productId")):
+                    raise OrderCreationError("A pre-order can only be checked out for its linked harvested product.")
+                if float(item.quantity) != float(preorder.get("quantityKg", 0) or 0):
+                    raise OrderCreationError(
+                        f"Pre-order quantity must be exactly {float(preorder.get('quantityKg', 0) or 0):g} kg."
+                    )
             product = await product_repository.get_by_id(item.productId)
             if not product:
                 raise ProductNotFoundError(item.productId)
@@ -318,21 +344,24 @@ class OrderService:
             bulk_price = product.get("bulkPrice")
             bulk_discount_pct = product.get("bulkDiscountPercent", 0)
 
-            # Server-side price integrity check: never trust the client's price.
-            # The catalog price is the floor; a client claiming a materially
-            # lower unit price is tampering and the order is rejected.
+            # Server-side price integrity check. For a harvest pre-order,
+            # the originally agreed pre-order price is authoritative.
             catalog_price = float(
                 (variant_inventory or {}).get("price")
                 or product.get("price")
                 or 0
             )
             requested_price = float(item.unitPrice or 0)
-            if catalog_price > 0 and requested_price < catalog_price * 0.99:
-                raise OrderCreationError(
-                    f"Price mismatch for product {item.productId}: "
-                    f"requested {requested_price}, catalog price {catalog_price}"
-                )
-            base_unit_price = catalog_price if catalog_price > 0 else requested_price
+            preorder_price = float(preorder.get("unitPricePerKg", 0) or 0) if preorder else 0
+            if preorder:
+                base_unit_price = preorder_price
+            else:
+                if catalog_price > 0 and requested_price < catalog_price * 0.99:
+                    raise OrderCreationError(
+                        f"Price mismatch for product {item.productId}: "
+                        f"requested {requested_price}, catalog price {catalog_price}"
+                    )
+                base_unit_price = catalog_price if catalog_price > 0 else requested_price
 
             effective_unit_price = base_unit_price
             if min_bulk > 0 and item.quantity >= min_bulk:
@@ -457,6 +486,7 @@ class OrderService:
         order_data = {
             "customerId": ObjectId(customer_id),
             "idempotencyKey": data.idempotencyKey,
+            "preorderId": ObjectId(data.preorderId) if data.preorderId else None,
             "farmerId": ObjectId(farmer_id),
             "warehouseId": ObjectId(warehouse_id) if warehouse_id else None,
             "items": items_data,
@@ -500,6 +530,8 @@ class OrderService:
         reserved_items = []
         try:
             for item in data.items:
+                if preorder:
+                    continue
                 if hasattr(item, 'reservationId') and item.reservationId:
                     continue
                 reserved = await inventory_repository.atomic_reserve(
@@ -565,6 +597,24 @@ class OrderService:
                 if stock:
                     await broadcast_stock_update(item.productId, stock)
         
+        if preorder:
+            confirmed = await inventory_repository.atomic_confirm(
+                str(preorder["productId"]),
+                float(preorder.get("quantityKg", 0) or 0),
+            )
+            if not confirmed:
+                await order_repository.update({"_id": ObjectId(order_id)}, {"orderStatus": "cancelled"})
+                raise OrderCreationError("The reserved pre-order stock is no longer available.")
+            await harvest_preorder_repository.update(
+                {"_id": preorder["_id"]},
+                {
+                    "status": "order_created",
+                    "orderId": ObjectId(order_id),
+                    "paymentStatus": PaymentStatus.PENDING.value,
+                    "updatedAt": datetime.utcnow(),
+                },
+            )
+
         payment_intent = await PaymentService.create_payment_intent(
             order_id,
             total_amount,
@@ -911,6 +961,11 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to send in-transit notification: {e}")
         elif new_status == OrderStatus.DELIVERED and not is_pickup:
+            if order.get("preorderId"):
+                await harvest_preorder_repository.update(
+                    {"_id": ObjectId(order["preorderId"])},
+                    {"status": "completed", "completedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+                )
             try:
                 from app.repositories.delivery_assignment_repository import delivery_assignment_repository
                 await delivery_assignment_repository.complete_by_order_id(order_id)
@@ -942,6 +997,11 @@ class OrderService:
             except Exception as e:
                 logger.warning(f"Failed to send completed notification: {e}")
         elif new_status == OrderStatus.PICKED_UP and is_pickup:
+            if order.get("preorderId"):
+                await harvest_preorder_repository.update(
+                    {"_id": ObjectId(order["preorderId"])},
+                    {"status": "completed", "completedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+                )
             try:
                 payment = await payment_repository.get_by_order_id(order_id)
                 if payment and payment.get("status") != PaymentStatus.PAID:
@@ -981,6 +1041,14 @@ class OrderService:
         elif new_status == OrderStatus.CANCELLED:
             try:
                 await OrderService.release_inventory(order_id)
+            if order.get("preorderId"):
+                try:
+                    await harvest_preorder_repository.update(
+                        {"_id": ObjectId(order["preorderId"])},
+                        {"status": "cancelled", "cancelledReason": data.note or "Order cancelled", "updatedAt": datetime.utcnow()},
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update linked pre-order on cancellation: {e}")
             except Exception as e:
                 logger.warning(f"Failed to release inventory: {e}")
             if order.get("paymentStatus") == PaymentStatus.PAID:
