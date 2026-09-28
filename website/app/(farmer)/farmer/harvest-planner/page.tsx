@@ -70,6 +70,7 @@ interface CropPlan {
   stage?: string;
   preOrderEnabled?: boolean;
   productCreated?: boolean;
+  productId?: string;
 }
 
 const planCoords = (loc: any): { lat: number; lng: number } | null => {
@@ -113,6 +114,11 @@ export default function FarmerHarvestPlannerPage() {
   const [harvestConfirm, setHarvestConfirm] = useState<CropPlan | null>(null);
   const [actualQuantityKg, setActualQuantityKg] = useState("");
   const [finalRatePerKg, setFinalRatePerKg] = useState("");
+  const [batchConfirm, setBatchConfirm] = useState<CropPlan | null>(null);
+  const [batchQualityGrade, setBatchQualityGrade] = useState("Standard");
+  const [batchStorageType, setBatchStorageType] = useState("normal");
+  const [batchShelfLifeDays, setBatchShelfLifeDays] = useState("");
+  const [batchNotes, setBatchNotes] = useState("");
   const [routes, setRoutes] = useState<Record<string, any>>({});
   const [form, setForm] = useState({
     cropName: "",
@@ -137,6 +143,13 @@ export default function FarmerHarvestPlannerPage() {
   const { data: batchesData } = useQuery({
     queryKey: ["farmerHarvestBatches"],
     queryFn: () => api.get("/batches"),
+    retry: 1,
+  });
+
+  const { data: farmerProductsData, isLoading: farmerProductsLoading } = useQuery({
+    queryKey: ["farmerProductsForHarvestBatch"],
+    queryFn: () => api.get("/farmers/me/products", { params: { limit: 100 } }),
+    enabled: Boolean(batchConfirm),
     retry: 1,
   });
 
@@ -189,6 +202,38 @@ export default function FarmerHarvestPlannerPage() {
     setFinalRatePerKg(plan.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "");
   };
 
+  const openBatchConfirmation = (plan: CropPlan) => {
+    setBatchConfirm(plan);
+    setBatchQualityGrade("Standard");
+    setBatchStorageType(plan.storageType === "cold_storage" ? "cold_storage" : plan.storageType === "refrigerated" ? "refrigerated" : plan.storageType === "frozen" ? "frozen" : "normal");
+    setBatchShelfLifeDays("");
+    setBatchNotes("");
+  };
+
+  const createBatchFromHarvest = () => {
+    if (!batchConfirm) return;
+    if (!linkedBatchProduct?._id) {
+      toast.error("This harvested crop is not linked to a product yet. Create the product from this harvest first.");
+      return;
+    }
+    const quantity = Number(batchConfirm.actualQuantityKg || batchConfirm.expectedQuantityKg || 0);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Actual harvested quantity is missing.");
+      return;
+    }
+    batchCreateMutation.mutate({
+      productId: String(linkedBatchProduct._id),
+      cropName: batchConfirm.cropName,
+      quantityKg: quantity,
+      harvestDate: batchConfirm.harvestedAt || batchConfirm.expectedHarvestDate,
+      qualityGrade: batchQualityGrade,
+      storageType: batchStorageType,
+      shelfLifeDays: batchShelfLifeDays ? Number(batchShelfLifeDays) : undefined,
+      sourceHarvestPlanId: batchConfirm.id,
+      notes: batchNotes || undefined,
+    });
+  };
+
   const confirmHarvest = () => {
     const quantity = Number(actualQuantityKg);
     const rate = Number(finalRatePerKg);
@@ -202,6 +247,18 @@ export default function FarmerHarvestPlannerPage() {
     }
     harvestMutation.mutate({ planId: harvestConfirm.id, actualQuantityKg: quantity, finalRatePerKg: rate });
   };
+
+  const batchCreateMutation = useMutation({
+    mutationFn: (payload: any) => api.post("/batches", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
+      setBatchConfirm(null);
+      toast.success("Batch created successfully. It is now available on Batches & Traceability for quality inspection.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to create batch"),
+  });
 
   const cancelMutation = useMutation({
     mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/cancel`),
@@ -230,6 +287,13 @@ export default function FarmerHarvestPlannerPage() {
 
   const plans: CropPlan[] = (plansData?.data?.plans || []).map((p: any) => ({ ...p, id: p._id || p.id }));
   const batches = batchesData?.data?.batches || [];
+  const farmerProducts = farmerProductsData?.data?.products || farmerProductsData?.products || [];
+  const linkedBatchProduct = batchConfirm
+    ? farmerProducts.find((product: any) =>
+        String(product.sourceHarvestPlanId || "") === String(batchConfirm.id) ||
+        String(batchConfirm.productId || "") === String(product._id || product.id || "")
+      )
+    : null;
 
   const askAi = () => {
     if (!form.cropName.trim() || !form.plantingDate) {
@@ -425,6 +489,7 @@ export default function FarmerHarvestPlannerPage() {
   return (
     <>
       {harvestDialog}
+      {batchDialog}
       <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -1037,6 +1102,10 @@ export default function FarmerHarvestPlannerPage() {
                       onClick={() => {
                         if (getStageIndex(plan) === 2) {
                           openHarvestConfirmation(plan);
+                          return;
+                        }
+                        if (getStageIndex(plan) === 3) {
+                          openBatchConfirmation(plan);
                           return;
                         }
                         stageMutation.mutate({ planId: plan.id, action: "next" });
