@@ -27,7 +27,7 @@ def _serialize_product(product: dict) -> dict:
             product[key] = str(product[key])
     # Quality transparency: declared vs verified must be visible to customers.
     product["farmerDeclaredGrade"] = product.get("farmerDeclaredGrade") or product.get("qualityGrade")
-    product["effectiveGrade"] = product.get("verifiedGrade") or product.get("farmerDeclaredGrade") or product.get("qualityGrade")
+    product["effectiveGrade"] = product.get("verifiedGrade") if product.get("verificationStatus") in ("verified", "buyer_verified") else None
     product.setdefault("verificationStatus", "farmer_declared")
     return product
 
@@ -210,7 +210,20 @@ async def create_product(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to create product"
         )
-    
+
+    # Harvest-linked products are created as catalog records but remain hidden
+    # from customers until their source batch passes independent inspection.
+    if data.sourceHarvestPlanId:
+        await ProductService.update_product(str(product["_id"]), {
+            "isActive": False,
+            "verificationStatus": "farmer_declared",
+            "qualityStatus": "pending_inspection",
+            "updatedAt": __import__("datetime").datetime.utcnow(),
+        })
+        product["isActive"] = False
+        product["verificationStatus"] = "farmer_declared"
+        product["qualityStatus"] = "pending_inspection"
+
     return _serialize_product(product)
 
 @router.get("/search")
