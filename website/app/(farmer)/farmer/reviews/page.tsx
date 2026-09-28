@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { Star, ThumbsUp, Loader2, Award, Users, MessageSquare } from "lucide-react";
+import { Star, ThumbsUp, Loader2, Award, Users, MessageSquare, ShoppingBag, CheckCircle2, CalendarDays } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -86,6 +86,29 @@ export default function FarmerReviewsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {products.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2"><ShoppingBag className="h-4 w-4" /> Ratings by product</CardTitle>
+                <CardDescription>Average customer rating and review count for each of your products.</CardDescription>
+              </CardHeader>
+              <CardContent className="divide-y p-0">
+                {products.map((p: any) => (
+                  <div key={p.productId} className="flex items-center justify-between gap-4 px-5 py-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{p.productName}</p>
+                      <p className="text-xs text-gray-400">{p.count} {p.count === 1 ? "rating" : "ratings"}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                      <span className="font-semibold">{Number(p.average || 0).toFixed(1)}</span>
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {reviews.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-3">
