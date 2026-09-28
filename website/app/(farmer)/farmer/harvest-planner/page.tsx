@@ -489,9 +489,58 @@ export default function FarmerHarvestPlannerPage() {
     </Dialog>
   );
 
+  const batchDialog = (
+    <Dialog open={Boolean(batchConfirm)} onOpenChange={(open) => !open && !batchCreateMutation.isPending && setBatchConfirm(null)}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Create Batch from Harvest</DialogTitle>
+          <DialogDescription>
+            The batch is created from this exact harvested record. Quantity, crop and harvest date are taken from the completed harvest.
+          </DialogDescription>
+        </DialogHeader>
+        {batchConfirm && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-slate-900">{batchConfirm.cropName}</p>
+                  <p className="text-xs text-slate-500">Harvested: {batchConfirm.harvestedAt ? formatDate(batchConfirm.harvestedAt) : formatDate(batchConfirm.expectedHarvestDate)}</p>
+                </div>
+                <Badge variant="success">Harvested</Badge>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-xs text-slate-500">Actual quantity</p><p className="font-semibold">{batchConfirm.actualQuantityKg ?? batchConfirm.expectedQuantityKg} kg</p></div>
+                <div><p className="text-xs text-slate-500">Final rate</p><p className="font-semibold">₹{batchConfirm.finalRatePerKg ?? batchConfirm.preOrderPricePerKg ?? "—"}/kg</p></div>
+              </div>
+            </div>
+            <div className="rounded-lg border bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-500">Linked product</p>
+              {farmerProductsLoading ? <p className="mt-1 text-sm text-slate-500">Loading linked product...</p> : linkedBatchProduct ? (
+                <div className="mt-1 flex items-center justify-between gap-2"><span className="font-medium">{linkedBatchProduct.name}</span><span className="text-xs text-slate-500">Linked to this harvest</span></div>
+              ) : <p className="mt-1 text-sm text-amber-700">No product is linked to this harvest. A traceable batch requires the harvest-linked product.</p>}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Quality grade</label><Select value={batchQualityGrade} onValueChange={setBatchQualityGrade}><SelectContent><SelectItem value="Premium">Premium</SelectItem><SelectItem value="Standard">Standard</SelectItem><SelectItem value="Economy">Economy</SelectItem></SelectContent></Select></div>
+              <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Storage type</label><Select value={batchStorageType} onValueChange={setBatchStorageType}><SelectContent><SelectItem value="normal">Normal / ambient</SelectItem><SelectItem value="refrigerated">Refrigerated</SelectItem><SelectItem value="cold_storage">Cold storage</SelectItem><SelectItem value="frozen">Frozen</SelectItem></SelectContent></Select></div>
+              <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Shelf life (days)</label><Input type="number" min="1" max="90" value={batchShelfLifeDays} onChange={(e) => setBatchShelfLifeDays(e.target.value)} placeholder="Auto by storage type" /></div>
+              <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-gray-500">Batch notes</label><Input value={batchNotes} onChange={(e) => setBatchNotes(e.target.value)} placeholder="Optional handling or traceability notes" /></div>
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setBatchConfirm(null)} disabled={batchCreateMutation.isPending}>Cancel</Button>
+          <Button type="button" onClick={createBatchFromHarvest} disabled={batchCreateMutation.isPending || farmerProductsLoading || !linkedBatchProduct}>
+            {batchCreateMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Layers className="mr-2 h-4 w-4" />}Create Batch
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   return (
     <>
       {harvestDialog}
+      {batchDialog}
       {batchDialog}
       <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
