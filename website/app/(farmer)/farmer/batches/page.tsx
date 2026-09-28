@@ -53,6 +53,7 @@ interface FarmerProduct {
   quantity: number;
   price: number;
   unit: string;
+  sourceHarvestPlanId?: string;
 }
 
 const STORAGE_OPTIONS = [
@@ -134,6 +135,16 @@ export default function FarmerBatchesPage() {
   const batches: Batch[] = (batchesData?.data?.batches || []).map((b: any) => ({ ...b, id: b._id || b.id }));
   const products: FarmerProduct[] = productsData?.data?.products || productsData?.data || [];
   const harvestedPlans: any[] = harvestedData?.data?.plans || harvestedData?.plans || [];
+
+  // Batch creation is one-to-one with a product. Once a product has a batch,
+  // it must never appear again in the batch-creation selector.
+  const productsWithBatches = new Set(
+    batches
+      .map((batch) => batch.productId)
+      .filter(Boolean)
+      .map((id) => String(id))
+  );
+  const batchEligibleProducts = products.filter((product) => !productsWithBatches.has(String(product._id)));
   const availableHarvests = harvestedPlans
     .filter((plan) => {
       const id = String(plan.id || plan._id || "");
@@ -141,6 +152,7 @@ export default function FarmerBatchesPage() {
     })
     .sort((a, b) => new Date(b.harvestedAt || b.expectedHarvestDate).getTime() - new Date(a.harvestedAt || a.expectedHarvestDate).getTime());
   const latestHarvest = availableHarvests[0];
+  const selectedProductId = selectedHarvest?.productId ? String(selectedHarvest.productId) : "";
   const selectedHarvest = availableHarvests.find((plan) => String(plan.id || plan._id) === selectedHarvestId);
   const selectedHarvestQuantity = Number(selectedHarvest?.actualQuantityKg ?? selectedHarvest?.expectedQuantityKg ?? 0);
 
