@@ -247,7 +247,7 @@ export default function FarmerSupplyCalendarPage() {
                 </CardContent>
               </Card>
             );
-          })}})}
+          })}
         </div>
       )}
 
