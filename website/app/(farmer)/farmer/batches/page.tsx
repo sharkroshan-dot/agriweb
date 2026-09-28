@@ -139,12 +139,16 @@ export default function FarmerBatchesPage() {
   // Batch creation is one-to-one with a product. Once a product has a batch,
   // it must never appear again in the batch-creation selector.
   const productsWithBatches = new Set(
-    batches
-      .map((batch) => batch.productId)
-      .filter(Boolean)
-      .map((id) => String(id))
+    batches.map((batch) => batch.productId).filter(Boolean).map((id) => String(id))
   );
-  const batchEligibleProducts = products.filter((product) => !productsWithBatches.has(String(product._id)));
+  const harvestPlansWithBatches = new Set(
+    batches.map((batch) => batch.sourceHarvestPlanId).filter(Boolean).map((id) => String(id))
+  );
+  const batchEligibleProducts = products.filter((product) => {
+    const productId = String(product._id);
+    const sourcePlanId = String(product.sourceHarvestPlanId || "");
+    return !productsWithBatches.has(productId) && !harvestPlansWithBatches.has(sourcePlanId);
+  });
   const availableHarvests = harvestedPlans
     .filter((plan) => {
       const id = String(plan.id || plan._id || "");
