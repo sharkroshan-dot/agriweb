@@ -131,11 +131,18 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 							<span className="text-lg font-bold text-slate-900">{formatPrice(product.price) ?? "N/A"}</span>
 							<span className="ml-1 text-xs text-gray-500">/{product.unit}</span>
 						</div>
-						<div className="text-xs text-gray-500">{product.quantity > 50 ? "In Stock" : `${product.quantity} left`}</div>
+						<div className={cn(
+							"text-right text-xs font-medium",
+							Number(product.quantity || 0) > 0 ? "text-emerald-700" : "text-red-600"
+						)}>
+							{Number(product.quantity || 0) > 0
+								? `${product.quantity} ${product.unit} available`
+								: "Out of stock"}
+						</div>
 					</div>
 				</CardContent>
 				<CardFooter className="p-4 pt-0">
-					<Button className="w-full" onClick={handleAddToCart}>
+					<Button className="w-full" onClick={handleAddToCart} disabled={Number(product.quantity || 0) <= 0}>
 						<ShoppingCart className="mr-2 h-4 w-4" />
 						Add to Cart
 					</Button>
