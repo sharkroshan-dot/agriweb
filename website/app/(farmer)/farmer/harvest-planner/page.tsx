@@ -44,6 +44,7 @@ const STAGES = [
   { key: "growing", label: "Growing", icon: Wheat, color: "text-emerald-600" },
   { key: "ready", label: "Ready for Harvest", icon: Clock, color: "text-amber-600" },
   { key: "harvested", label: "Harvested", icon: CheckCircle2, color: "text-blue-600" },
+  { key: "product", label: "Product Created", icon: Store, color: "text-emerald-600" },
   { key: "batched", label: "Batched", icon: Layers, color: "text-violet-600" },
 ];
 
@@ -193,8 +194,8 @@ export default function FarmerHarvestPlannerPage() {
       setHarvestConfirm(null);
       setActualQuantityKg("");
       setFinalRatePerKg("");
-      router.push("/farmer/batches");
-      toast.success(`Harvest recorded: ${vars.actualQuantityKg} kg at ₹${vars.finalRatePerKg}/kg. Create its batch for traceability.`);
+      setStageCursor(3);
+      toast.success(`Harvest recorded: ${vars.actualQuantityKg} kg at ₹${vars.finalRatePerKg}/kg. Next, create the customer-facing product.`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to mark harvest"),
   });
@@ -352,13 +353,15 @@ export default function FarmerHarvestPlannerPage() {
       case "ready":
         return 2;
       case "batched":
-        return 4;
+        return 5;
       case "harvested":
-        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
+        if (plan.productCreated) return 4;
+        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 5 : 3;
       default: {
         // Fallback inference for legacy plans without an explicit stage field.
         if (plan.status === "harvested") {
-          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
+          if (plan.productCreated) return 4;
+          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 5 : 3;
         }
         const p = growthProgress(plan);
         if (p >= 100) return 2;
@@ -945,8 +948,10 @@ export default function FarmerHarvestPlannerPage() {
             const progress = growthProgress(plan);
             const planStage = getStageIndex(plan);
             const stage =
-              plan.status === "harvested"
-                ? { label: "Harvested", icon: CheckCircle2, cls: "bg-blue-100 text-blue-700" }
+              plan.status === "harvested" && plan.productCreated
+                ? { label: "Product Created", icon: Store, cls: "bg-emerald-100 text-emerald-700" }
+                : plan.status === "harvested"
+                  ? { label: "Harvested", icon: CheckCircle2, cls: "bg-blue-100 text-blue-700" }
                 : plan.status === "cancelled"
                   ? { label: "Cancelled", icon: XCircle, cls: "bg-red-100 text-red-600" }
                   : progress >= 100
@@ -1020,7 +1025,7 @@ export default function FarmerHarvestPlannerPage() {
                     ) : null}
                   </div>
 
-                  {/* Lifecycle route: Planned → Growing → Ready → Harvested → Batched */}
+                  {/* Lifecycle route: Planned → Growing → Ready → Harvested → Product → Batched */}
                   <div className="rounded-lg border bg-slate-50 p-3">
                     <div className="mb-1.5 flex items-center justify-between text-[11px] text-gray-500">
                       <span>Lifecycle route</span>
@@ -1102,7 +1107,7 @@ export default function FarmerHarvestPlannerPage() {
                   {plan.notes ? <p className="text-sm text-gray-500">{plan.notes}</p> : null}
                   {plan.productCreated ? (
                     <div className="rounded-lg bg-emerald-50 px-3 py-2 text-center text-xs font-medium text-emerald-700">
-                      Product created — this harvest plan is complete
+                      Product created from {plan.actualQuantityKg ?? plan.expectedQuantityKg} kg harvested produce — continue to Batch
                     </div>
                   ) : plan.status !== "harvested" && plan.status !== "cancelled" ? (
                     <div className="flex gap-2 pt-1">
@@ -1152,18 +1157,33 @@ export default function FarmerHarvestPlannerPage() {
                       className="flex-1"
                       disabled={planStage >= STAGES.length - 1 || stageMutation.isPending}
                       onClick={() => {
-                        if (getStageIndex(plan) === 2) {
+                        const currentStage = getStageIndex(plan);
+                        if (currentStage === 2) {
                           openHarvestConfirmation(plan);
                           return;
                         }
-                        if (getStageIndex(plan) === 3) {
+                        if (currentStage === 3) {
+                          const params = new URLSearchParams({
+                            fromHarvest: plan.id,
+                            name: plan.cropName,
+                            quantity: String(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? 0),
+                            unit: "kg",
+                            price: String(plan.finalRatePerKg ?? plan.preOrderPricePerKg ?? ""),
+                            harvestDate: String(plan.harvestedAt || plan.expectedHarvestDate || ""),
+                          });
+                          router.push(`/farmer/products/new?${params.toString()}`);
+                          return;
+                        }
+                        if (currentStage === 4) {
                           openBatchConfirmation(plan);
                           return;
                         }
-                        stageMutation.mutate({ planId: plan.id, action: "next" });
+                        if (currentStage < 3) {
+                          stageMutation.mutate({ planId: plan.id, action: "next" });
+                        }
                       }}
                     >
-                      Next <ChevronRight className="ml-1 h-4 w-4" />
+                      {getStageIndex(plan) === 3 ? "Create Product" : getStageIndex(plan) === 4 ? "Create Batch" : "Next"} <ChevronRight className="ml-1 h-4 w-4" />
                     </Button>
                   </div>
                   {plan.productCreated && (
