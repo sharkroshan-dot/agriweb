@@ -164,19 +164,19 @@ export default function FarmerBatchesPage() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProductId || !selectedProduct || !selectedHarvest || selectedHarvestQuantity <= 0) {
-      toast.error("Select a product that does not already have a batch");
+    if (!selectedHarvest || selectedHarvestQuantity <= 0) {
+      toast.error("Select a harvested crop first");
       return;
     }
     createMutation.mutate({
-      productId: selectedProductId,
-      cropName: selectedProduct.name,
+      ...(selectedProductId ? { productId: selectedProductId } : {}),
+      cropName: selectedProduct?.name || selectedHarvest.cropName,
       quantityKg: selectedHarvestQuantity,
       harvestDate: selectedHarvest.harvestedAt || selectedHarvest.expectedHarvestDate,
       qualityGrade: form.qualityGrade,
       storageType: form.storageType,
       shelfLifeDays: form.shelfLifeDays ? Number(form.shelfLifeDays) : undefined,
-      sourceHarvestPlanId: String(selectedProduct.sourceHarvestPlanId),
+      sourceHarvestPlanId: String(selectedHarvest.id || selectedHarvest._id),
       notes: form.notes || undefined,
     });
   };
