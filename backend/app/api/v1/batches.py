@@ -49,7 +49,7 @@ class BatchCreate(BaseModel):
     qualityGrade: Optional[str] = None
     storageType: str = "normal"
     shelfLifeDays: Optional[int] = Field(None, ge=1, le=90)
-    productId: str
+    productId: Optional[str] = None
     sourceHarvestPlanId: Optional[str] = None
     notes: Optional[str] = None
 
@@ -137,25 +137,25 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can create batches")
 
-    try:
-        product_id = ObjectId(data.productId)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid product id")
-
-    product = await product_repository.get_by_id(data.productId)
-    if not product or str(product.get("farmerId")) != str(current_user["_id"]):
-        raise HTTPException(status_code=404, detail="Product not found")
-
-    existing_product_batch = await batch_repo.find_one({
-        "productId": product_id,
-        "deletedAt": None,
-        "status": {"$ne": BATCH_CANCELLED},
-    })
-    if existing_product_batch:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Product already has batch {existing_product_batch.get('lotNumber')}. One product can have only one batch.",
-        )
+    product_id = None
+    if data.productId:
+        try:
+            product_id = ObjectId(data.productId)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid product id")
+        product = await product_repository.get_by_id(data.productId)
+        if not product or str(product.get("farmerId")) != str(current_user["_id"]):
+            raise HTTPException(status_code=404, detail="Product not found")
+        existing_product_batch = await batch_repo.find_one({
+            "productId": product_id,
+            "deletedAt": None,
+            "status": {"$ne": BATCH_CANCELLED},
+        })
+        if existing_product_batch:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Product already has batch {existing_product_batch.get('lotNumber')}. One product can have only one batch.",
+            )
 
     if not data.sourceHarvestPlanId:
         # Product-created harvest links are authoritative when present.
@@ -223,6 +223,8 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "expiresAt": harvest + timedelta(days=shelf),
         "productId": product_id,
         "sourceHarvestPlanId": harvest_plan_id,
+        "qualityStatus": "pending_inspection",
+        "verificationStatus": VERIFICATION_STATUS_DECLARED,
         "notes": data.notes,
         "status": BATCH_CREATED,
         "createdAt": datetime.utcnow(),
