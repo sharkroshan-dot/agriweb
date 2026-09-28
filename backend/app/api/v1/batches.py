@@ -197,8 +197,11 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "updatedAt": datetime.utcnow(),
         "deletedAt": None,
     }
-    # A batch grade is farmer-declared until verified by a non-farmer actor.
+    # A farmer declaration is never an approval. The batch remains unavailable
+    # to marketplace inventory until an authorized quality inspector approves it.
     batch.update(base_verification_fields(data.qualityGrade))
+    batch["qualityStatus"] = "pending_inspection"
+    batch["verificationStatus"] = VERIFICATION_STATUS_DECLARED
     created = await batch_repo.create(batch)
     if not created:
         raise HTTPException(status_code=400, detail="Failed to create batch")
@@ -267,6 +270,8 @@ async def convert_batch_to_inventory(
     batch = await batch_repo.find_one({"_id": oid, "deletedAt": None})
     if not batch or str(batch.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.get("qualityStatus") != "approved":
+        raise HTTPException(status_code=400, detail="Batch must pass independent quality inspection before it can be listed")
     if batch.get("status") in (BATCH_EXPIRED, BATCH_CANCELLED):
         raise HTTPException(status_code=400, detail="Batch is not convertible")
     if batch.get("remainingKg", 0) <= 0:
