@@ -133,6 +133,22 @@ async def _admin(uid: str):
         return {"currentStep": "Order Operations", "state": "IN_PROGRESS", "next": _href("/admin/dashboard", "Review Orders", "There are active orders requiring platform oversight."), "entityId": str(pending_orders[0]["_id"])}
     return {"currentStep": "Platform Overview", "state": "IN_PROGRESS", "next": _href("/admin/dashboard", "Open Platform Overview", "Review platform workflow and operational alerts.")}
 
+async def _resolve_entity(entity_type: str, oid):
+    repos = {
+        "harvest": harvests,
+        "batch": batches,
+        "quality": quality,
+        "product": products,
+        "order": orders,
+        "preorder": preorders,
+        "rfq": rfqs,
+        "delivery": delivery_jobs,
+    }
+    repo = repos.get(entity_type.lower())
+    if not repo:
+        return None
+    return await repo.get_by_id(str(oid))
+
 @router.get("/me")
 async def get_my_workflow(current_user: dict = Depends(get_current_user)):
     uid = str(current_user["_id"])
