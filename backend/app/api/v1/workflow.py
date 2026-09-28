@@ -119,22 +119,11 @@ async def _delivery(uid: str):
     return {"currentStep": "Completed", "state": "COMPLETED", "next": _href("/delivery/earnings", "View Earnings", "Review completed delivery earnings."), "entityId": str(job["_id"])}
 
 async def _warehouse(uid: str):
-    warehouse = await BaseRepository("warehouses").find_one({"managerId": _id(uid), "deletedAt": None})
-    if not warehouse:
-        return {"currentStep": "Warehouse Setup", "state": "ACTION_REQUIRED", "next": _href("/warehouse/settings", "Complete Warehouse Setup", "Set up the warehouse profile before processing stock.")}
-    wid = warehouse["_id"]
-    incoming = await BaseRepository("incoming_stock").find_many({"warehouseId": wid, "deletedAt": None}, limit=20, sort=[("updatedAt", -1)])
-    pending = next((x for x in incoming if str(x.get("status") or "").lower() in ("scheduled", "in_transit", "quality_check")), None)
-    if pending:
-        status = str(pending.get("status") or "").lower()
-        if status in ("scheduled", "in_transit"):
-            return {"currentStep": "Incoming Stock", "state": "ACTION_REQUIRED", "next": _href("/warehouse/incoming", "Receive Incoming Stock", "An incoming shipment is waiting to be received and verified."), "entityId": str(pending["_id"])}
-        return {"currentStep": "Quality Check", "state": "ACTION_REQUIRED", "next": _href("/warehouse/incoming", "Complete Quality Check", "Received stock requires quality verification before storage."), "entityId": str(pending["_id"])}
-    outgoing = await BaseRepository("outgoing_stock").find_many({"warehouseId": wid, "deletedAt": None}, limit=20, sort=[("updatedAt", -1)])
-    pending_out = next((x for x in outgoing if str(x.get("status") or "").lower() in ("pending", "picked", "packed")), None)
-    if pending_out:
-        return {"currentStep": "Pick & Pack", "state": "ACTION_REQUIRED", "next": _href("/warehouse/stock", "Pick & Pack Order", "Warehouse stock is reserved for an outgoing order."), "entityId": str(pending_out["_id"])}
-    return {"currentStep": "Inventory", "state": "IN_PROGRESS", "next": _href("/warehouse/stock", "Review Warehouse Inventory", "Review current stock, storage and outgoing reservations.")}
+    incoming = await _latest(addresses, {"managerId": _id(uid), "deletedAt": None}, "updatedAt")
+    # Warehouse has explicit operational APIs; guide users to the live incoming queue.
+    return {"currentStep": "Incoming Stock", "state": "ACTION_REQUIRED",
+            "next": _href("/warehouse/incoming", "Review Incoming Stock", "Receive shipments, record quality checks, and move passed stock into storage.")}
+
 
 async def _admin(uid: str):
     unverified = await quality.find_many({"verificationStatus": {"$in": ["declared", "evidence_submitted"]}, "deletedAt": None}, limit=1)
