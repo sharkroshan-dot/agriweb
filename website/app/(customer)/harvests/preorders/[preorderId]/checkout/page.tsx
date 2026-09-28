@@ -121,7 +121,7 @@ export default function PreorderCheckoutPage() {
         paymentMethod,
         deliveryType: "delivery",
         deliveryMethod: "farmer",
-        requestedDeliveryDate: preorder.plan?.expectedHarvestDate,
+        requestedDeliveryDate: undefined,
         specialInstructions: "Harvest pre-order delivery",
         idempotencyKey: crypto.randomUUID(),
       });
