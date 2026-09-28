@@ -151,8 +151,6 @@ export default function FarmerBatchesPage() {
       return id && !batches.some((batch) => String(batch.sourceHarvestPlanId || "") === id);
     })
     .sort((a, b) => new Date(b.harvestedAt || b.expectedHarvestDate).getTime() - new Date(a.harvestedAt || a.expectedHarvestDate).getTime());
-  const latestHarvest = availableHarvests[0];
-  const selectedProductId = selectedHarvest?.productId ? String(selectedHarvest.productId) : "";
   const selectedProduct = batchEligibleProducts.find((product) => String(product._id) === selectedProductId);
   const selectedHarvest = availableHarvests.find((plan) => {
     const planId = String(plan.id || plan._id);
@@ -174,7 +172,7 @@ export default function FarmerBatchesPage() {
       qualityGrade: form.qualityGrade,
       storageType: form.storageType,
       shelfLifeDays: form.shelfLifeDays ? Number(form.shelfLifeDays) : undefined,
-      sourceHarvestPlanId: selectedHarvestId,
+      sourceHarvestPlanId: String(selectedProduct.sourceHarvestPlanId),
       notes: form.notes || undefined,
     });
   };
