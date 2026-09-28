@@ -31,6 +31,7 @@ router = APIRouter()
 
 batch_repo = BaseRepository("batches")
 harvest_plan_repo = BaseRepository("harvest_plans")
+quality_inspection_repo = BaseRepository("quality_inspections")
 
 STORAGE_TYPES = ["normal", "refrigerated", "cold_storage", "frozen"]
 DEFAULT_SHELF_LIFE_DAYS = {"normal": 3, "refrigerated": 5, "cold_storage": 7, "frozen": 30}
@@ -205,6 +206,50 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
     created = await batch_repo.create(batch)
     if not created:
         raise HTTPException(status_code=400, detail="Failed to create batch")
+
+    # Every new batch automatically enters the independent quality queue.
+    now = datetime.utcnow()
+    hours_left = ((harvest + timedelta(days=shelf)) - now).total_seconds() / 3600
+    priority = "critical" if hours_left <= 24 else "urgent" if hours_left <= 48 else "normal"
+    due_hours = 2 if priority == "critical" else {
+        "normal": 6,
+        "refrigerated": 8,
+        "cold_storage": 12,
+        "frozen": 24,
+    }.get(storage, 6)
+    inspection_id = await quality_inspection_repo.create({
+        "farmerId": ObjectId(current_user["_id"]),
+        "batchId": created,
+        "lotNumber": lot_number,
+        "cropName": harvest_plan.get("cropName"),
+        "farmerDeclaredGrade": data.qualityGrade,
+        "grade": None,
+        "status": "pending",
+        "inspectionStatus": "pending",
+        "verificationStatus": VERIFICATION_STATUS_DECLARED,
+        "verifiedGrade": None,
+        "verificationMethod": None,
+        "verifiedBy": None,
+        "verifiedAt": None,
+        "verificationNotes": None,
+        "photos": [],
+        "requestedAt": now,
+        "inspectionDueAt": now + timedelta(hours=due_hours),
+        "priority": priority,
+        "urgentRequested": False,
+        "deletedAt": None,
+        "updatedAt": now,
+    })
+    await batch_repo.update(
+        {"_id": created},
+        {
+            "qualityStatus": "pending_inspection",
+            "inspectionId": ObjectId(inspection_id) if inspection_id else None,
+            "inspectionRequestedAt": now,
+            "inspectionDueAt": now + timedelta(hours=due_hours),
+            "inspectionPriority": priority,
+        },
+    )
 
     # Creating the batch is the explicit transition from Harvested -> Batched.
     await harvest_plan_repo.update(
