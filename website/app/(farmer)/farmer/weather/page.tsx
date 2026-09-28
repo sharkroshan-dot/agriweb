@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { CloudSun, CloudRain, Wind, Thermometer, Loader2, Search, AlertTriangle, Snowflake, LocateFixed, MapPin } from "lucide-react";
 import { api } from "../../../lib/api/client";
@@ -15,7 +15,7 @@ import toast from "react-hot-toast";
 const CROPS = ["Tomato", "Onion", "Potato", "Carrot", "Strawberry", "Spinach", "Capsicum"];
 
 export default function FarmerWeatherPage() {
-  const [location, setLocation] = useState("Coimbatore");
+  const [location, setLocation] = useState("");
   const [crop, setCrop] = useState("Tomato");
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
@@ -41,60 +41,101 @@ export default function FarmerWeatherPage() {
 
   const useCurrentLocation = () => {
     if (!navigator.geolocation) {
-      setLocationError("Live location is not supported by this browser.");
+      setLocationError("Live GPS location is not supported by this browser.");
       return;
     }
+
     setLocating(true);
     setLocationError(null);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setCoordinates({ lat, lng });
-        try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
-            { headers: { "Accept-Language": "en" } }
-          );
-          if (!response.ok) throw new Error("Location lookup failed");
-          const result = await response.json();
-          const address = result?.address || {};
-          const locality =
-            address.village ||
-            address.town ||
-            address.city ||
-            address.hamlet ||
-            address.suburb ||
-            address.city_district ||
-            address.municipality ||
-            "";
-          const district = address.state_district || address.district || "";
-          const state = address.state || "";
-          const country = address.country || "";
-          const display = [locality, district, state, country]
-            .filter(Boolean)
-            .filter((part, index, parts) => parts.indexOf(part) === index)
-            .join(", ");
-          setLocation(display || `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-        } catch {
-          setLocation(`GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
-        } finally {
-          setLocating(false);
-        }
-      },
-      (error) => {
+
+    let bestPosition: GeolocationPosition | null = null;
+    let settled = false;
+    let watchId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = async () => {
+      if (settled) return;
+      settled = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (timer) clearTimeout(timer);
+
+      if (!bestPosition) {
         setLocating(false);
-        setLocationError(
-          error.code === 1
-            ? "Location permission denied. Please allow precise location access."
-            : "Could not determine your current location."
+        setLocationError("No fresh GPS position was received. Enable precise device location and try again.");
+        return;
+      }
+
+      const { latitude: lat, longitude: lng } = bestPosition.coords;
+      setCoordinates({ lat, lng });
+
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
+          { headers: { "Accept-Language": "en" } }
         );
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-    );
+        if (!response.ok) throw new Error("Location lookup failed");
+        const result = await response.json();
+        const address = result?.address || {};
+        const locality =
+          address.village ||
+          address.town ||
+          address.city ||
+          address.hamlet ||
+          address.suburb ||
+          address.city_district ||
+          address.municipality ||
+          "";
+        const district = address.state_district || address.district || "";
+        const state = address.state || "";
+        const country = address.country || "";
+        const display = [locality, district, state, country]
+          .filter(Boolean)
+          .filter((part, index, parts) => parts.indexOf(part) === index)
+          .join(", ");
+
+        setLocation(display || `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      } catch {
+        setLocation(`GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+      } finally {
+        setLocating(false);
+      }
+    };
+
+    const success = (position: GeolocationPosition) => {
+      if (!bestPosition || position.coords.accuracy < bestPosition.coords.accuracy) {
+        bestPosition = position;
+      }
+      if (position.coords.accuracy <= 50) void finish();
+    };
+
+    const error = (error: GeolocationPositionError) => {
+      if (bestPosition) {
+        void finish();
+        return;
+      }
+      setLocating(false);
+      setLocationError(
+        error.code === 1
+          ? "Location permission denied. Please allow precise location access."
+          : "Could not determine your current location."
+      );
+    };
+
+    watchId = navigator.geolocation.watchPosition(success, error, {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: 0,
+    });
+    timer = setTimeout(() => void finish(), 12000);
   };
 
-  const run = () => weatherMutation.mutate();
+  const run = () => {
+    if (!coordinates && !location.trim()) {
+      setLocationError("Enter a village/town/city or use Current Location first.");
+      return;
+    }
+    weatherMutation.mutate();
+  };
   const data = weatherMutation.data as any;
   const weather = data?.weather || {};
   const forecast = data?.forecast || [];
