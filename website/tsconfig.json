@@ -40,6 +40,14 @@
     "cypress",
     "cypress.config.ts",
     "jest.config.js",
-    "jest.setup.js"
+    "jest.setup.js",
+    ".next",
+    ".next/**",
+    ".next-codex",
+    ".next-codex/**",
+    ".next-temp",
+    ".next-temp/**",
+    ".next-persist-test",
+    ".next-persist-test/**"
   ]
 }
