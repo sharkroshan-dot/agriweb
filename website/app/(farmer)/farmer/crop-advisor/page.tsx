@@ -62,116 +62,129 @@ export default function FarmerCropAdvisorPage() {
   });
 
   const useLiveLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationError("Live GPS location is not supported by this device/browser.");
-      return;
-    }
-
     setLocationLoading(true);
     setLocationError(null);
     setLocationSource("live");
 
-    let bestPosition: GeolocationPosition | null = null;
-    let settled = false;
-    let watchId: number | null = null;
-    let finishTimer: ReturnType<typeof setTimeout> | null = null;
+    const reverseGeocode = async (lat: number, lng: number) => {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
+        { headers: { "Accept-Language": "en" } }
+      );
+      if (!response.ok) throw new Error("Reverse geocoding failed");
 
-    const finish = async () => {
-      if (settled) return;
-      settled = true;
-      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-      if (finishTimer) clearTimeout(finishTimer);
+      const result = await response.json();
+      const address = result?.address || {};
+      const locality =
+        address.village ||
+        address.town ||
+        address.city ||
+        address.hamlet ||
+        address.suburb ||
+        address.city_district ||
+        address.municipality ||
+        "";
+      const district = address.state_district || address.district || "";
+      const state = address.state || "";
+      const country = address.country || "";
 
-      if (!bestPosition) {
-        setLocationLoading(false);
-        setLocationError("Could not get a fresh GPS position. Please enable device location and try again.");
-        return;
-      }
+      return [locality, district, state, country]
+        .filter(Boolean)
+        .filter((part, index, parts) => parts.indexOf(part) === index)
+        .join(", ");
+    };
 
-      const { latitude: lat, longitude: lng, accuracy } = bestPosition.coords;
+    const applyLocation = async (lat: number, lng: number, approximate = false, accuracy: number | null = null) => {
       setCoordinates({ lat, lng });
       setLocationAccuracy(accuracy);
 
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
-          { headers: { "Accept-Language": "en" } }
-        );
-        if (!response.ok) throw new Error("Reverse geocoding failed");
-
-        const result = await response.json();
-        const address = result?.address || {};
-        const locality =
-          address.village ||
-          address.town ||
-          address.city ||
-          address.hamlet ||
-          address.suburb ||
-          address.city_district ||
-          address.municipality ||
-          "";
-        const district = address.state_district || address.district || "";
-        const state = address.state || "";
-        const country = address.country || "";
-        const displayLocation = [locality, district, state, country]
-          .filter(Boolean)
-          .filter((part, index, parts) => parts.indexOf(part) === index)
-          .join(", ");
-
+        const displayLocation = await reverseGeocode(lat, lng);
         setForm((current) => ({
           ...current,
-          location: displayLocation || `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          location: displayLocation || `Current location (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
         }));
+        setLocationError(
+          approximate
+            ? "Approximate location is being used because precise browser location is unavailable."
+            : null
+        );
       } catch {
         setForm((current) => ({
           ...current,
-          location: `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+          location: `Current location (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
         }));
+        setLocationError(
+          approximate
+            ? "Approximate location is being used because precise browser location is unavailable."
+            : null
+        );
       } finally {
         setLocationLoading(false);
       }
     };
 
-    const success = (position: GeolocationPosition) => {
-      if (
-        !bestPosition ||
-        position.coords.accuracy < bestPosition.coords.accuracy
-      ) {
-        bestPosition = position;
-        setLocationAccuracy(position.coords.accuracy);
-      }
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          void applyLocation(
+            position.coords.latitude,
+            position.coords.longitude,
+            false,
+            position.coords.accuracy
+          );
+        },
+        async () => {
+          try {
+            const response = await fetch("https://ipapi.co/json/");
+            if (!response.ok) throw new Error("Network location unavailable");
 
-      // A <=50 m fix is good enough for the Crop Advisor. Otherwise keep
-      // listening briefly so the browser/GPS can improve the reading.
-      if (position.coords.accuracy <= 50) {
-        void finish();
-      }
-    };
+            const result = await response.json();
+            const lat = Number(result?.latitude);
+            const lng = Number(result?.longitude);
 
-    const error = (err: GeolocationPositionError) => {
-      if (bestPosition) {
-        void finish();
-        return;
-      }
-      if (err.code === 1) {
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+              throw new Error("Invalid network location");
+            }
+
+            await applyLocation(lat, lng, true, null);
+          } catch {
+            setLocationLoading(false);
+            setLocationError(
+              "Current location is unavailable. Allow browser location access or enter your village/town/city manually."
+            );
+          }
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 10000,
+          maximumAge: 60000,
+        }
+      );
+      return;
+    }
+
+    void (async () => {
+      try {
+        const response = await fetch("https://ipapi.co/json/");
+        if (!response.ok) throw new Error("Network location unavailable");
+
+        const result = await response.json();
+        const lat = Number(result?.latitude);
+        const lng = Number(result?.longitude);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          throw new Error("Invalid network location");
+        }
+
+        await applyLocation(lat, lng, true, null);
+      } catch {
         setLocationLoading(false);
-        setLocationError("Location permission denied. Please allow precise location access.");
-      } else {
-        setLocationLoading(false);
-        setLocationError("Could not get a fresh GPS position. Please enable device location and try again.");
+        setLocationError(
+          "Current location is unavailable. Enter your village/town/city manually."
+        );
       }
-    };
-
-    watchId = navigator.geolocation.watchPosition(success, error, {
-      enableHighAccuracy: true,
-      timeout: 30000,
-      maximumAge: 0,
-    });
-
-    // Do not wait indefinitely on devices that cannot reach <=50 m accuracy.
-    finishTimer = setTimeout(() => {
-      void finish();
-    }, 12000);
+    })();
   };
 
   useEffect(() => {
