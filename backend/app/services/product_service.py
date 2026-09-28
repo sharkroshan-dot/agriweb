@@ -20,7 +20,27 @@ logger = logging.getLogger(__name__)
 harvest_plan_repo = BaseRepository("harvest_plans")
 
 
+
 class ProductService:
+    @staticmethod
+    async def _attach_inventory_quantities(product: Dict[str, Any]) -> Dict[str, Any]:
+        """Expose total, reserved and currently sellable stock consistently."""
+        try:
+            summary = await inventory_repository.get_stock_summary(str(product["_id"]))
+        except Exception:
+            summary = None
+        if summary:
+            product["totalStock"] = summary.get("total_stock", product.get("quantity", 0))
+            product["reservedQuantity"] = summary.get("reserved_stock", 0)
+            product["soldQuantity"] = summary.get("sold_stock", 0)
+            product["availableQuantity"] = summary.get("available_stock", 0)
+        else:
+            product["totalStock"] = product.get("quantity", 0)
+            product["reservedQuantity"] = 0
+            product["soldQuantity"] = 0
+            product["availableQuantity"] = product.get("quantity", 0)
+        return product
+
     """Product service with business logic."""
     
     # Category Operations
@@ -243,6 +263,8 @@ class ProductService:
             if farmer:
                 product["farmerName"] = f"{farmer.get('firstName', '')} {farmer.get('lastName', '')}"
         
+        if product:
+            await ProductService._attach_inventory_quantities(product)
         return product
     
     @staticmethod
@@ -272,8 +294,9 @@ class ProductService:
             "deletedAt": None
         })
         
-        # Convert ObjectId to string
+        # Convert ObjectId to string and attach live inventory quantities.
         for product in products:
+            await ProductService._attach_inventory_quantities(product)
             product["id"] = str(product["_id"])
         
         return products, total
@@ -370,8 +393,9 @@ class ProductService:
             for product in products:
                 product["category"] = "General"
 
-        # Convert ObjectId to string
+        # Attach live inventory quantities before returning products.
         for product in products:
+            await ProductService._attach_inventory_quantities(product)
             product["id"] = str(product["_id"])
 
         return {
