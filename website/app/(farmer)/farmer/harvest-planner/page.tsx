@@ -342,6 +342,13 @@ export default function FarmerHarvestPlannerPage() {
     return Math.max(0, Math.min(100, pct));
   };
 
+  const lifecycleCompletion = (plan?: CropPlan): number => {
+    const stageIndex = getStageIndex(plan);
+    if (stageIndex < 0) return 0;
+    if (STAGES.length <= 1) return 100;
+    return Math.round((stageIndex / (STAGES.length - 1)) * 100);
+  };
+
   const getStageIndex = (plan?: CropPlan): number => {
     if (!plan) return -1;
     if (plan.status === "cancelled") return -1;
@@ -1062,7 +1069,7 @@ export default function FarmerHarvestPlannerPage() {
                       <div className="h-2 overflow-hidden rounded-full bg-gray-200">
                         <div
                           className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-amber-500 transition-all"
-                          style={{ width: `${progress}%` }}
+                          style={{ width: `${lifecycleCompletion(plan)}%` }}
                         />
                       </div>
                       <div className="mt-1.5 flex items-center gap-1.5">
@@ -1070,7 +1077,9 @@ export default function FarmerHarvestPlannerPage() {
                         <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium", stage.cls)}>
                           {stage.label}
                         </span>
-                        <span className="ml-auto text-xs font-medium text-gray-500">{progress}%</span>
+                        <span className="ml-auto text-xs font-medium text-gray-500">
+                          {lifecycleCompletion(plan)}% complete
+                        </span>
                       </div>
                     </div>
                   )}
