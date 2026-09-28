@@ -282,7 +282,7 @@ export default function ProductDetailPage() {
 
               <div className="border-t pt-4">
                 <p className="text-sm text-gray-500">Total Stock</p>
-                <p className="text-2xl font-bold">{product.quantity} {product.unit}</p>
+                <p className="text-2xl font-bold">{product.availableQuantity ?? product.quantity} {product.unit}</p>
               </div>
             </CardContent>
           </Card>
