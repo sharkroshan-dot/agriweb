@@ -371,6 +371,17 @@ async def get_my_products(
     for p in products:
         p["id"] = str(p["_id"])
         p["_id"] = str(p["_id"])
+        stock = stock_map.get(str(p["id"]))
+        if stock is not None:
+            p["totalStock"] = stock["total"]
+            p["reservedQuantity"] = stock["reserved"]
+            p["soldQuantity"] = stock["sold"]
+            p["availableQuantity"] = max(0, stock["total"] - stock["reserved"] - stock["sold"])
+        else:
+            p["totalStock"] = p.get("quantity", 0) or 0
+            p["reservedQuantity"] = 0
+            p["soldQuantity"] = 0
+            p["availableQuantity"] = p["totalStock"]
         p["status"] = effective_status(p)
         p["orders"] = order_counts.get(str(p["id"]), 0)
         for k in ("farmerId", "categoryId", "subCategoryId"):
