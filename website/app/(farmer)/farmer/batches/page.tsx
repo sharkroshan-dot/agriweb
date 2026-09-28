@@ -122,7 +122,7 @@ export default function FarmerBatchesPage() {
     },
     onError: (err: any) => toast.error(err?.message || "Failed to convert batch"),
   });
-\n  const urgentMutation = useMutation({
+  const urgentMutation = useMutation({
     mutationFn: (inspectionId: string) => api.post(`/quality/inspections/${inspectionId}/urgent`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farmerBatches"] });
