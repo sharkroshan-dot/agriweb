@@ -62,7 +62,6 @@ import '../../features/farmer/presentation/screens/settings_screen.dart';
 import '../../features/farmer/presentation/screens/delivery_schedule_new_screen.dart';
 import '../../features/farmer/presentation/screens/farm_baskets_screen.dart';
 import '../../features/farmer/presentation/screens/farm_basket_form_screen.dart';
-import '../../features/farmer/presentation/screens/quality_inspection_screen.dart';
 import '../../features/ai/presentation/screens/ai_copilot_screen.dart';
 import '../../features/delivery/presentation/screens/dashboard_screen.dart';
 import '../../features/delivery/presentation/screens/delivery_modes_screen.dart';
@@ -167,7 +166,6 @@ class AppRouter {
           GoRoute(path: AppRoutes.farmerDeliveryScheduleNew, builder: (_, __) => const DeliveryScheduleNewScreen()),
           GoRoute(path: AppRoutes.farmerFarmBaskets, builder: (_, __) => const FarmBasketsScreen()),
           GoRoute(path: AppRoutes.farmerFarmBasketForm, builder: (_, __) => const FarmBasketFormScreen()),
-          GoRoute(path: AppRoutes.farmerQualityInspection, builder: (_, __) => const QualityInspectionScreen()),
           GoRoute(path: AppRoutes.aiCopilot, builder: (_, __) => const AICopilotScreen()),
         ],
       ),
