@@ -93,7 +93,7 @@ class InventoryRepository(BaseRepository):
             return False
 
     async def atomic_reserve(
-        self, product_id: str, quantity: int, inventory_id: Optional[str] = None
+        self, product_id: str, quantity: float, inventory_id: Optional[str] = None
     ) -> bool:
         try:
             result = await self.collection.update_one(
