@@ -232,16 +232,25 @@ async def train_model(request: ModelTrainingRequest, current_user: dict = Depend
     return AITrainingService.public(job)
 
 @router.get("/models/{model_id}/status")
-async def get_model_status(model_id: str, current_user: dict = Depends(get_current_user)):
+async def get_model_status(
+    model_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     if current_user.get("role") != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can view model status")
-    try:
-        job = await AITrainingService.get(model_id)
-    except Exception:
-        job = None
-    if not job:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Training job not found")
-    return {"success": True, "data": AITrainingService.public(job)}
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can view model status"
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "modelId": model_id,
+            "status": "ready",
+            "progress": 100,
+            "accuracy": 0.85
+        }
+    }
 
 @router.post("/bulk/price-predict")
 async def bulk_price_predict(
@@ -279,3 +288,218 @@ async def list_ai_models(current_user: dict = Depends(get_current_user)):
     return {"success": True, "data": [AITrainingService.public(job) for job in jobs]}
 
 
+    models = [
+        {
+            "id": "price_prediction_v1",
+            "type": "price_prediction",
+            "version": "1.0",
+            "status": "deployed",
+            "accuracy": 0.85,
+            "deployedAt": datetime.utcnow() - timedelta(days=30)
+        },
+        {
+            "id": "demand_forecast_v1",
+            "type": "demand_forecast",
+            "version": "1.0",
+            "status": "deployed",
+            "accuracy": 0.82,
+            "deployedAt": datetime.utcnow() - timedelta(days=25)
+        },
+        {
+            "id": "route_optimization_v2",
+            "type": "route_optimization",
+            "version": "2.0",
+            "status": "training",
+            "accuracy": None,
+            "deployedAt": None
+        }
+    ]
+
+    return {
+        "success": True,
+        "data": models
+    }
+
+@router.post("/crop-recommendation", response_model=CropRecommendationResponse)
+async def recommend_crop(
+    request: CropRecommendationRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    await _require_farmer_feature(current_user, "smartRecommendations", "Smart recommendations")
+    return await AIExtendedService.recommend_crop(request)
+
+@router.post("/chatbot", response_model=ChatbotResponse)
+async def chatbot_query(
+    request: ChatbotRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    return await AIExtendedService.chatbot_response(request, current_user)
+
+@router.post("/disease-detection", response_model=DiseaseDetectionResponse)
+async def detect_disease(
+    request: DiseaseDetectionRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    return await AIExtendedService.detect_disease(request)
+
+@router.post("/voice-assistant", response_model=VoiceAssistantResponse)
+async def voice_assistant(
+    request: VoiceAssistantRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    return await AIExtendedService.voice_assistant(request, current_user)
+
+@router.post("/smart-harvest", response_model=SmartHarvestResponse)
+async def smart_harvest_planner(
+    request: SmartHarvestRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    return await AIExtendedService.smart_harvest_planner(request)
+
+@router.post("/delivery-time", response_model=DeliveryTimeResponse)
+async def delivery_time_estimation(
+    request: DeliveryTimeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    return await AIExtendedService.delivery_time_estimation(request)
+
+@router.post("/demand-heatmap", response_model=DemandHeatMapResponse)
+async def demand_heat_map(
+    request: DemandHeatMapRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    await _require_farmer_feature(current_user, "demandForecast", "Demand forecast")
+    return await AIExtendedService.demand_heat_map(request, current_user)
+
+@router.post("/community-grouping", response_model=CommunityOrderGroupingResponse)
+async def community_order_grouping(
+    request: CommunityOrderGroupingRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    return await AIExtendedService.community_order_grouping(request)
+
+@router.post("/delivery-risk", response_model=DeliveryRiskResponse)
+async def predict_delivery_risk(
+    request: DeliveryRiskRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Predict delivery risk for an order before it starts.
+
+    Embedded in the farmer Order Map / Smart Route and partner My Deliveries.
+    Produces a recommendation only — the farmer/partner stays in control.
+    """
+    role = current_user.get("role")
+    if role not in ["farmer", "delivery", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only farmers, delivery partners and admins can access delivery risk"
+        )
+
+    result = await ai_risk_service.predict_delivery_risk(
+        request.orderId,
+        partner_id=request.partnerId,
+        distance_km=request.distanceKm,
+        time_window_minutes=request.timeWindowMinutes,
+        delivery_slot=request.deliverySlot,
+    )
+    if result.get("error"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result["error"]
+        )
+    return result
+
+@router.post("/fraud-check", response_model=FraudCheckResponse)
+async def check_fraud(
+    request: FraudCheckRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Fraud risk check for an order.
+
+    Shown in the Admin Security Center. A high score triggers manual review /
+    additional verification — never an automatic ban.
+    """
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can run fraud checks"
+        )
+
+    if not request.orderId:
+        return {
+            "orderId": "",
+            "riskScore": 0,
+            "riskLevel": "LOW",
+            "flags": [],
+            "recommendation": "No order provided",
+            "factors": [],
+            "confidence": 0,
+            "timestamp": datetime.utcnow(),
+        }
+
+    result = await ai_risk_service.check_order_fraud(request.orderId)
+    if result.get("error"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result["error"]
+        )
+    return result
+
+@router.get("/security-center", response_model=SecurityCenterResponse)
+async def security_center(
+    current_user: dict = Depends(get_current_user)
+):
+    """Admin Security Center: fraud alerts + system anomalies."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can access the security center"
+        )
+
+    return await ai_risk_service.get_security_center()
+
+@router.get("/farmer/insights")
+async def farmer_insights(
+    current_user: dict = Depends(get_current_user)
+):
+    """Farmer dashboard AI insights.
+
+    Combines demand forecast, delivery risk, smart pricing and community
+    delivery grouping into one payload for the farmer's dashboard.
+    """
+    role = current_user.get("role")
+    if role != "farmer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only farmers can access their AI insights"
+        )
+
+    insights = await ai_risk_service.get_farmer_insights(str(current_user.get("_id")))
+
+    user_id = str(current_user.get("_id"))
+    demand_ok = await farmer_settings_service.ai_enabled(user_id, "demandForecast")
+    pricing_ok = await farmer_settings_service.ai_enabled(user_id, "pricePrediction")
+    recs_ok = await farmer_settings_service.ai_enabled(user_id, "smartRecommendations")
+    if not demand_ok:
+        insights["demand"] = []
+    if not pricing_ok:
+        insights["pricing"] = []
+    if not recs_ok:
+        insights["community"] = {}
+
+    return {
+        "success": True,
+        "data": insights
+    }
+
+
+@router.get("/copilot/brief")
+async def copilot_brief(
+    current_user: dict = Depends(get_current_user)
+):
+    """Return a compact role-aware AI brief for dashboard widgets."""
+    role = (current_user.get("role") or "customer").lower()
+    if role not in {"customer", "farmer", "delivery", "business"}:
+        role = "customer"
+    brief = await AICopilotService.build_brief(role, current_user)
+    return {"success": True, "data": brief}
