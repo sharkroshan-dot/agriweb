@@ -38,6 +38,7 @@ interface Batch {
   expiresAt?: string;
   status: string;
   productId?: string;
+  sourceHarvestPlanId?: string;
   notes?: string;
   freshness?: { status: string; daysRemaining?: number; expiresAt?: string };
 }
@@ -95,6 +96,9 @@ export default function FarmerBatchesPage() {
     mutationFn: (payload: any) => api.post("/batches", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farmerBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
       setShowForm(false);
       setSelectedHarvestId("");
       setForm({ cropName: "", quantityKg: "", harvestDate: "", qualityGrade: "Premium", storageType: "normal", shelfLifeDays: "", notes: "" });
@@ -117,7 +121,13 @@ export default function FarmerBatchesPage() {
   const batches: Batch[] = (batchesData?.data?.batches || []).map((b: any) => ({ ...b, id: b._id || b.id }));
   const products: FarmerProduct[] = productsData?.data?.products || productsData?.data || [];
   const harvestedPlans: any[] = harvestedData?.data?.plans || harvestedData?.plans || [];
-  const availableHarvests = harvestedPlans.filter((plan) => { const id = String(plan.id || plan._id || ""); return id && !batches.some((batch) => String(batch.sourceHarvestPlanId || "") === id); });
+  const availableHarvests = harvestedPlans
+    .filter((plan) => {
+      const id = String(plan.id || plan._id || "");
+      return id && !batches.some((batch) => String(batch.sourceHarvestPlanId || "") === id);
+    })
+    .sort((a, b) => new Date(b.harvestedAt || b.expectedHarvestDate).getTime() - new Date(a.harvestedAt || a.expectedHarvestDate).getTime());
+  const latestHarvest = availableHarvests[0];
   const selectedHarvest = availableHarvests.find((plan) => String(plan.id || plan._id) === selectedHarvestId);
   const selectedHarvestQuantity = Number(selectedHarvest?.actualQuantityKg ?? selectedHarvest?.expectedQuantityKg ?? 0);
 
@@ -176,6 +186,31 @@ export default function FarmerBatchesPage() {
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-gray-500">Harvested crop *</label>
+                {latestHarvest && (
+                  <button
+                    type="button"
+                    className="mb-2 w-full rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-left transition hover:border-emerald-300"
+                    onClick={() => {
+                      const id = String(latestHarvest.id || latestHarvest._id);
+                      setSelectedHarvestId(id);
+                      setForm((current) => ({
+                        ...current,
+                        cropName: latestHarvest.cropName || "",
+                        quantityKg: String(latestHarvest.actualQuantityKg ?? latestHarvest.expectedQuantityKg ?? ""),
+                        harvestDate: latestHarvest.harvestedAt ? String(latestHarvest.harvestedAt).slice(0, 10) : "",
+                      }));
+                    }}
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Latest harvested</div>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <span className="font-medium text-slate-800">{latestHarvest.cropName}</span>
+                      <span className="text-sm text-emerald-700">{Number(latestHarvest.actualQuantityKg ?? latestHarvest.expectedQuantityKg)} kg</span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      {latestHarvest.harvestedAt ? formatDate(latestHarvest.harvestedAt) : "Harvested"} · {latestHarvest.fieldName || "Farm"}
+                    </div>
+                  </button>
+                )}
                 <Select value={selectedHarvestId} onValueChange={(v) => {
                   setSelectedHarvestId(v);
                   const plan = availableHarvests.find((p) => String(p.id || p._id) === v);
