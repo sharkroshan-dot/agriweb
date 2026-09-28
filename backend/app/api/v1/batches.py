@@ -31,6 +31,7 @@ router = APIRouter()
 
 batch_repo = BaseRepository("batches")
 harvest_plan_repo = BaseRepository("harvest_plans")
+quality_inspection_repo = BaseRepository("quality_inspections")
 
 STORAGE_TYPES = ["normal", "refrigerated", "cold_storage", "frozen"]
 DEFAULT_SHELF_LIFE_DAYS = {"normal": 3, "refrigerated": 5, "cold_storage": 7, "frozen": 30}
@@ -48,7 +49,7 @@ class BatchCreate(BaseModel):
     qualityGrade: Optional[str] = None
     storageType: str = "normal"
     shelfLifeDays: Optional[int] = Field(None, ge=1, le=90)
-    productId: Optional[str] = None
+    productId: str
     sourceHarvestPlanId: Optional[str] = None
     notes: Optional[str] = None
 
@@ -136,6 +137,37 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can create batches")
 
+    try:
+        product_id = ObjectId(data.productId)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid product id")
+
+    product = await product_repository.get_by_id(data.productId)
+    if not product or str(product.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    existing_product_batch = await batch_repo.find_one({
+        "productId": product_id,
+        "deletedAt": None,
+        "status": {"$ne": BATCH_CANCELLED},
+    })
+    if existing_product_batch:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Product already has batch {existing_product_batch.get('lotNumber')}. One product can have only one batch.",
+        )
+
+    if not data.sourceHarvestPlanId:
+        # Product-created harvest links are authoritative when present.
+        linked_plan_id = product.get("sourceHarvestPlanId")
+        if linked_plan_id:
+            data.sourceHarvestPlanId = str(linked_plan_id)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="This product is not linked to a harvested crop. Create/complete its harvest first.",
+            )
+
     if not data.sourceHarvestPlanId:
         raise HTTPException(
             status_code=400,
@@ -189,7 +221,7 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "storageType": storage,
         "shelfLifeDays": shelf,
         "expiresAt": harvest + timedelta(days=shelf),
-        "productId": ObjectId(data.productId) if data.productId else None,
+        "productId": product_id,
         "sourceHarvestPlanId": harvest_plan_id,
         "notes": data.notes,
         "status": BATCH_CREATED,
@@ -197,11 +229,58 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "updatedAt": datetime.utcnow(),
         "deletedAt": None,
     }
-    # A batch grade is farmer-declared until verified by a non-farmer actor.
+    # A farmer declaration is never an approval. The batch remains unavailable
+    # to marketplace inventory until an authorized quality inspector approves it.
     batch.update(base_verification_fields(data.qualityGrade))
+    batch["qualityStatus"] = "pending_inspection"
+    batch["verificationStatus"] = VERIFICATION_STATUS_DECLARED
     created = await batch_repo.create(batch)
     if not created:
         raise HTTPException(status_code=400, detail="Failed to create batch")
+
+    # Every new batch automatically enters the independent quality queue.
+    now = datetime.utcnow()
+    hours_left = ((harvest + timedelta(days=shelf)) - now).total_seconds() / 3600
+    priority = "critical" if hours_left <= 24 else "urgent" if hours_left <= 48 else "normal"
+    due_hours = 2 if priority == "critical" else {
+        "normal": 6,
+        "refrigerated": 8,
+        "cold_storage": 12,
+        "frozen": 24,
+    }.get(storage, 6)
+    inspection_id = await quality_inspection_repo.create({
+        "farmerId": ObjectId(current_user["_id"]),
+        "batchId": created,
+        "lotNumber": lot_number,
+        "cropName": harvest_plan.get("cropName"),
+        "farmerDeclaredGrade": data.qualityGrade,
+        "grade": None,
+        "status": "pending",
+        "inspectionStatus": "pending",
+        "verificationStatus": VERIFICATION_STATUS_DECLARED,
+        "verifiedGrade": None,
+        "verificationMethod": None,
+        "verifiedBy": None,
+        "verifiedAt": None,
+        "verificationNotes": None,
+        "photos": [],
+        "requestedAt": now,
+        "inspectionDueAt": now + timedelta(hours=due_hours),
+        "priority": priority,
+        "urgentRequested": False,
+        "deletedAt": None,
+        "updatedAt": now,
+    })
+    await batch_repo.update(
+        {"_id": created},
+        {
+            "qualityStatus": "pending_inspection",
+            "inspectionId": ObjectId(inspection_id) if inspection_id else None,
+            "inspectionRequestedAt": now,
+            "inspectionDueAt": now + timedelta(hours=due_hours),
+            "inspectionPriority": priority,
+        },
+    )
 
     # Creating the batch is the explicit transition from Harvested -> Batched.
     await harvest_plan_repo.update(
@@ -267,6 +346,8 @@ async def convert_batch_to_inventory(
     batch = await batch_repo.find_one({"_id": oid, "deletedAt": None})
     if not batch or str(batch.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.get("qualityStatus") != "approved":
+        raise HTTPException(status_code=400, detail="Batch must pass independent quality inspection before it can be listed")
     if batch.get("status") in (BATCH_EXPIRED, BATCH_CANCELLED):
         raise HTTPException(status_code=400, detail="Batch is not convertible")
     if batch.get("remainingKg", 0) <= 0:
@@ -279,7 +360,18 @@ async def convert_batch_to_inventory(
     qty_kg = float(batch.get("remainingKg") or 0)
     current_qty = int(product.get("quantity") or 0)
     updated = await product_repository.update_product(
-        product_id, {"quantity": current_qty + int(qty_kg), "updatedAt": datetime.utcnow()}
+        product_id,
+        {
+            "quantity": current_qty + int(qty_kg),
+            "isActive": True,
+            "qualityStatus": "approved",
+            "verificationStatus": "verified",
+            "verifiedGrade": batch.get("verifiedGrade"),
+            "qualityGrade": batch.get("verifiedGrade"),
+            "farmerDeclaredGrade": batch.get("farmerDeclaredGrade"),
+            "verifiedAt": batch.get("verifiedAt"),
+            "updatedAt": datetime.utcnow(),
+        },
     )
     if not updated:
         raise HTTPException(status_code=400, detail="Failed to update product stock")
@@ -313,9 +405,9 @@ async def trace_batch(lot_number: str):
         "cropName": batch.get("cropName"),
         "quantityKg": batch.get("quantityKg"),
         "harvestDate": batch.get("harvestDate"),
-        "qualityGrade": effective_grade(batch),
+        "qualityGrade": batch.get("verifiedGrade") if batch.get("verificationStatus") == "verified" else None,
         "farmerDeclaredGrade": batch.get("farmerDeclaredGrade") or batch.get("qualityGrade"),
-        "effectiveGrade": effective_grade(batch),
+        "effectiveGrade": batch.get("verifiedGrade") if batch.get("verificationStatus") == "verified" else None,
         "verificationStatus": batch.get("verificationStatus") or VERIFICATION_STATUS_DECLARED,
         "verifiedGrade": batch.get("verifiedGrade"),
         "verificationMethod": batch.get("verificationMethod"),

@@ -66,7 +66,6 @@ class AppRoutes {
   static const String farmerDeliveryScheduleNew = '/farmer/delivery-schedule/new';
   static const String farmerFarmBaskets = '/farmer/farm-baskets';
   static const String farmerFarmBasketForm = '/farmer/farm-baskets/form';
-  static const String farmerQualityInspection = '/farmer/quality-inspection';
   static const String aiCopilot = '/ai/copilot';
 
   static const String deliveryDashboard = '/delivery/dashboard';

@@ -24,7 +24,6 @@ import {
   FileText,
   Briefcase,
   Layers,
-  FlaskConical,
   GraduationCap,
   Users2,
   Boxes,
@@ -61,7 +60,6 @@ const navGroups = [
       { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
-      { name: "Quality Inspection", href: "/farmer/quality", icon: FlaskConical },
     ],
   },
   {

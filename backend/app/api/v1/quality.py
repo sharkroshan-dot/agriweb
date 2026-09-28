@@ -10,7 +10,7 @@ Verification propagates automatically: inspection -> batch -> product.
 Collections:
   - quality_inspections: one inspection per lot / inspection event
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -52,6 +52,20 @@ STATUS_FAILED = "failed"
 # Roles allowed to verify an inspection (never the declaring farmer).
 VERIFIER_ROLES = ("admin", "warehouse")
 
+INSPECTION_SLA_HOURS = {"normal": 6, "refrigerated": 8, "cold_storage": 12, "frozen": 24}
+
+def _inspection_priority(expires_at: Optional[datetime], urgent: bool = False) -> str:
+    if urgent:
+        return "critical"
+    if not expires_at:
+        return "normal"
+    hours_left = (expires_at - datetime.utcnow()).total_seconds() / 3600
+    if hours_left <= 24:
+        return "critical"
+    if hours_left <= 48:
+        return "urgent"
+    return "normal"
+
 
 class InspectionCreate(BaseModel):
     lotNumber: str
@@ -66,9 +80,26 @@ class InspectionCreate(BaseModel):
     batchId: Optional[str] = None
 
 
+class InspectionRequest(BaseModel):
+    batchId: str
+    urgent: bool = False
+
+
 class InspectionVerify(BaseModel):
     verifiedGrade: str
-    method: str = VERIFICATION_METHOD_MANUAL
+    method: str = VERIFICATION_METHOD_WAREHOUSE_QC
+    notes: Optional[str] = None
+    freshness: Optional[float] = Field(None, ge=0, le=100)
+    damagedPct: Optional[float] = Field(None, ge=0, le=100)
+    weightKg: Optional[float] = Field(None, gt=0)
+    photos: List[str] = []
+
+
+class InspectionReject(BaseModel):
+    reason: str
+
+
+class InspectionClaim(BaseModel):
     notes: Optional[str] = None
 
 
@@ -152,67 +183,110 @@ def _require_verifier(current_user: dict) -> None:
         )
 
 
+@router.post("/inspections/request", status_code=201)
+async def request_inspection(data: InspectionRequest, current_user: dict = Depends(get_current_user)):
+    """Farmer requests an independent physical inspection for a harvested batch."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can request inspection")
+    try:
+        batch_id = ObjectId(data.batchId)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid batch id")
+    batch = await batch_repo.find_one({"_id": batch_id, "farmerId": ObjectId(current_user["_id"]), "deletedAt": None})
+    if not batch: raise HTTPException(status_code=404, detail="Batch not found")
+    now = datetime.utcnow()
+    priority = _inspection_priority(batch.get("expiresAt"), data.urgent)
+    due_at = now + timedelta(hours=2 if priority == "critical" else INSPECTION_SLA_HOURS.get(batch.get("storageType"), 6))
+    existing = await inspection_repo.find_one({"batchId": batch_id, "deletedAt": None})
+    payload = {"farmerId": ObjectId(current_user["_id"]), "batchId": batch_id, "lotNumber": batch.get("lotNumber"), "cropName": batch.get("cropName"),
+        "farmerDeclaredGrade": batch.get("farmerDeclaredGrade"), "grade": None, "status": "pending", "inspectionStatus": "pending",
+        "verificationStatus": VERIFICATION_STATUS_DECLARED, "verifiedGrade": None, "verificationMethod": None, "verifiedBy": None, "verifiedAt": None,
+        "verificationNotes": None, "photos": [], "requestedAt": now, "inspectionDueAt": due_at, "priority": priority, "urgentRequested": bool(data.urgent),
+        "assignedTo": existing.get("assignedTo") if existing else None, "assignedAt": existing.get("assignedAt") if existing else None, "deletedAt": None, "updatedAt": now}
+    if existing:
+        await inspection_repo.update({"_id": existing["_id"]}, payload); inspection_id = existing["_id"]
+    else:
+        inspection_id = await inspection_repo.create(payload)
+        if not inspection_id: raise HTTPException(status_code=400, detail="Failed to request inspection")
+    await batch_repo.update({"_id": batch_id}, {"qualityStatus": "pending_inspection", "inspectionId": ObjectId(inspection_id),
+        "inspectionRequestedAt": now, "inspectionDueAt": due_at, "inspectionPriority": priority})
+    refreshed = await inspection_repo.find_one({"_id": ObjectId(inspection_id)})
+    return {"success": True, "data": _serialize_inspection(refreshed)}
+
+
+@router.get("/inspections/queue")
+async def inspection_queue(current_user: dict = Depends(get_current_user)):
+    """Priority queue for authorized warehouse/admin inspectors."""
+    _require_verifier(current_user)
+    records = await inspection_repo.find_many({"deletedAt": None, "inspectionStatus": {"$in": ["pending", "in_progress"]}}, limit=500)
+    rank = {"critical": 0, "urgent": 1, "normal": 2}
+    queue = []
+    for rec in records:
+        batch = await batch_repo.find_one({"_id": rec.get("batchId"), "deletedAt": None})
+        if not batch: continue
+        item = _serialize_inspection(rec)
+        item["batch"] = {"id": str(batch["_id"]), "lotNumber": batch.get("lotNumber"), "cropName": batch.get("cropName"), "quantityKg": batch.get("quantityKg"),
+            "harvestDate": batch.get("harvestDate"), "storageType": batch.get("storageType"), "expiresAt": batch.get("expiresAt"), "qualityStatus": batch.get("qualityStatus")}
+        item["sortPriority"] = rank.get(item.get("priority"), 2); queue.append(item)
+    queue.sort(key=lambda x: (x["sortPriority"], x.get("inspectionDueAt") or datetime.max))
+    return {"success": True, "data": {"inspections": queue, "count": len(queue)}}
+
+
+@router.post("/inspections/{inspection_id}/claim")
+async def claim_inspection(inspection_id: str, data: InspectionClaim, current_user: dict = Depends(get_current_user)):
+    _require_verifier(current_user)
+    try: oid = ObjectId(inspection_id)
+    except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
+    rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
+    if not rec: raise HTTPException(status_code=404, detail="Inspection not found")
+    now = datetime.utcnow()
+    await inspection_repo.update({"_id": oid}, {"inspectionStatus": "in_progress", "assignedTo": ObjectId(current_user["_id"]), "assignedAt": now, "claimNotes": data.notes, "updatedAt": now})
+    await batch_repo.update({"_id": rec.get("batchId")}, {"qualityStatus": "inspection_in_progress", "inspectionAssignedTo": ObjectId(current_user["_id"])})
+    refreshed = await inspection_repo.find_one({"_id": oid})
+    return {"success": True, "data": _serialize_inspection(refreshed)}
+
+
+@router.post("/inspections/{inspection_id}/urgent")
+async def mark_inspection_urgent(inspection_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "farmer": raise HTTPException(status_code=403, detail="Only farmers can request urgent inspection")
+    try: oid = ObjectId(inspection_id)
+    except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
+    rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
+    if not rec or str(rec.get("farmerId")) != str(current_user["_id"]): raise HTTPException(status_code=404, detail="Inspection not found")
+    due_at = datetime.utcnow() + timedelta(hours=2)
+    await inspection_repo.update({"_id": oid}, {"priority": "critical", "urgentRequested": True, "inspectionDueAt": due_at, "updatedAt": datetime.utcnow()})
+    await batch_repo.update({"_id": rec.get("batchId")}, {"inspectionPriority": "critical", "inspectionDueAt": due_at, "qualityStatus": "pending_inspection"})
+    refreshed = await inspection_repo.find_one({"_id": oid})
+    return {"success": True, "data": _serialize_inspection(refreshed)}
+
+
 @router.post("/inspections", status_code=201)
 @router.post("/inspections/", status_code=201, include_in_schema=False)
-async def create_inspection(
-    data: InspectionCreate,
-    current_user: dict = Depends(get_current_user),
-):
-    """Record a quality inspection for a harvest lot (farmer)."""
-    if current_user.get("role") != "farmer":
-        raise HTTPException(status_code=403, detail="Only farmers can record inspections")
-
-    grade = (data.grade or "A").strip().upper()
-    if grade not in VALID_GRADES:
-        raise HTTPException(status_code=422, detail="Grade must be A, B or C")
-    if not data.lotNumber.strip() or not data.cropName.strip():
-        raise HTTPException(status_code=422, detail="lotNumber and cropName are required")
-
-    batch_id = None
-    if data.batchId:
-        try:
-            batch_oid = ObjectId(data.batchId)
-        except Exception:
-            batch_oid = None
-        if batch_oid:
-            batch = await batch_repo.find_one({"_id": batch_oid, "deletedAt": None})
-            if not batch or str(batch.get("farmerId")) != str(current_user["_id"]):
-                raise HTTPException(status_code=404, detail="Batch not found")
-            batch_id = batch_oid
-
-    inspection = {
-        "farmerId": ObjectId(current_user["_id"]),
-        "batchId": batch_id,
-        "lotNumber": data.lotNumber.strip(),
-        "cropName": data.cropName.strip(),
-        "grade": grade,
-        "farmerDeclaredGrade": grade,
-        "size": data.size,
-        "freshness": float(data.freshness),
-        "damagedPct": float(data.damagedPct),
-        "weightKg": float(data.weightKg),
-        "inspectorNotes": data.inspectorNotes,
-        "photos": data.photos or [],
-        "status": _inspection_status(grade, float(data.damagedPct)),
-        "verificationStatus": (
-            VERIFICATION_STATUS_EVIDENCE if (data.photos or data.inspectorNotes)
-            else VERIFICATION_STATUS_DECLARED
-        ),
-        "verifiedGrade": None,
-        "verificationMethod": None,
-        "verifiedBy": None,
-        "verifiedAt": None,
-        "verificationNotes": None,
-        "inspectedAt": datetime.utcnow(),
-        "deletedAt": None,
-    }
-    created = await inspection_repo.create(inspection)
-    if not created:
-        raise HTTPException(status_code=400, detail="Failed to save inspection")
-
-    out = dict(inspection)
-    out["_id"] = ObjectId(created)
-    return {"success": True, "data": _serialize_inspection(out)}
+async def create_inspection(data: InspectionCreate, current_user: dict = Depends(get_current_user)):
+    """Record the independent physical inspection. Farmers cannot call this."""
+    _require_verifier(current_user)
+    grade = (data.grade or "").strip().upper()
+    if grade not in VALID_GRADES: raise HTTPException(status_code=422, detail="Grade must be A, B or C")
+    if not data.batchId: raise HTTPException(status_code=422, detail="batchId is required")
+    try: batch_id = ObjectId(data.batchId)
+    except Exception: raise HTTPException(status_code=400, detail="Invalid batch id")
+    batch = await batch_repo.find_one({"_id": batch_id, "deletedAt": None})
+    if not batch: raise HTTPException(status_code=404, detail="Batch not found")
+    now = datetime.utcnow()
+    inspection = {"farmerId": batch.get("farmerId"), "batchId": batch_id, "lotNumber": batch.get("lotNumber") or data.lotNumber.strip(),
+        "cropName": batch.get("cropName") or data.cropName.strip(), "farmerDeclaredGrade": batch.get("farmerDeclaredGrade"), "grade": grade, "size": data.size,
+        "freshness": float(data.freshness), "damagedPct": float(data.damagedPct), "weightKg": float(data.weightKg), "inspectorNotes": data.inspectorNotes,
+        "photos": data.photos or [], "status": _inspection_status(grade, float(data.damagedPct)), "inspectionStatus": "completed", "verificationStatus": VERIFICATION_STATUS_EVIDENCE,
+        "verifiedGrade": None, "verificationMethod": None, "verifiedBy": None, "verifiedAt": None, "verificationNotes": None,
+        "inspectorId": ObjectId(current_user["_id"]), "inspectedAt": now, "updatedAt": now, "deletedAt": None}
+    existing = await inspection_repo.find_one({"batchId": batch_id, "deletedAt": None})
+    if existing: await inspection_repo.update({"_id": existing["_id"]}, inspection); inspection["_id"] = existing["_id"]
+    else:
+        created = await inspection_repo.create(inspection)
+        if not created: raise HTTPException(status_code=400, detail="Failed to save inspection")
+        inspection["_id"] = ObjectId(created)
+    await batch_repo.update({"_id": batch_id}, {"qualityStatus": "inspection_completed", "inspectionId": inspection["_id"], "inspectionCompletedAt": now, "inspectionInspectorId": ObjectId(current_user["_id"])})
+    return {"success": True, "data": _serialize_inspection(inspection)}
 
 
 @router.post("/inspections/{inspection_id}/evidence")
@@ -252,91 +326,46 @@ async def submit_inspection_evidence(
 
 
 @router.post("/inspections/{inspection_id}/verify")
-async def verify_inspection(
-    inspection_id: str,
-    data: InspectionVerify,
-    current_user: dict = Depends(get_current_user),
-):
-    """Verify (or re-verify) an inspection's grade. Admin / warehouse only.
-
-    The declared grade never verifies itself: the verified grade is the one a
-    customer will see as "Verified Grade X".
-    """
+async def verify_inspection(inspection_id: str, data: InspectionVerify, current_user: dict = Depends(get_current_user)):
+    """Finalize an independent inspection and approve the batch."""
     _require_verifier(current_user)
-
     grade = (data.verifiedGrade or "").strip().upper()
-    if grade not in VALID_GRADES:
-        raise HTTPException(status_code=422, detail="verifiedGrade must be A, B or C")
-    method = data.method or VERIFICATION_METHOD_MANUAL
-    if method not in VERIFICATION_METHODS:
-        raise HTTPException(status_code=422, detail=f"Invalid verification method: {method}")
-
-    try:
-        oid = ObjectId(inspection_id)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-
+    if grade not in VALID_GRADES: raise HTTPException(status_code=422, detail="verifiedGrade must be A, B or C")
+    try: oid = ObjectId(inspection_id)
+    except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
     rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
-    if not rec:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-
-    declared = rec.get("farmerDeclaredGrade") or rec.get("grade")
-    # Buyer acceptance is a distinct trust level: the buyer accepted the
-    # quality, so it is "buyer verified" rather than platform verified.
-    new_status = VERIFICATION_STATUS_BUYER if method == VERIFICATION_METHOD_BUYER else VERIFICATION_STATUS_VERIFIED
-    await inspection_repo.update(
-        {"_id": oid},
-        {
-            "verifiedGrade": grade,
-            "verificationStatus": new_status,
-            "verificationMethod": method,
-            "verifiedBy": ObjectId(current_user["_id"]),
-            "verifiedAt": datetime.utcnow(),
-            "verificationNotes": data.notes,
-            "grade": grade,
-        },
-    )
-    refreshed = await inspection_repo.find_one({"_id": oid})
-    await _propagate_verification(refreshed)
-
-    matched = declared is not None and declared.upper() == grade
-    return {
-        "success": True,
-        "data": _serialize_inspection(refreshed),
-        "message": "Inspection verified" if matched else "Verified grade differs from farmer's declared grade",
-    }
+    if not rec: raise HTTPException(status_code=404, detail="Inspection not found")
+    now = datetime.utcnow()
+    update = {"verifiedGrade": grade, "verificationStatus": VERIFICATION_STATUS_VERIFIED, "verificationMethod": data.method or VERIFICATION_METHOD_WAREHOUSE_QC,
+        "verifiedBy": ObjectId(current_user["_id"]), "verifiedAt": now, "verificationNotes": data.notes, "inspectionStatus": "approved", "grade": grade, "updatedAt": now}
+    if data.freshness is not None: update["freshness"] = float(data.freshness)
+    if data.damagedPct is not None: update["damagedPct"] = float(data.damagedPct)
+    if data.weightKg is not None: update["weightKg"] = float(data.weightKg)
+    if data.photos: update["photos"] = data.photos
+    await inspection_repo.update({"_id": oid}, update)
+    refreshed = await inspection_repo.find_one({"_id": oid}); await _propagate_verification(refreshed)
+    if refreshed.get("batchId"):
+        await batch_repo.update({"_id": refreshed["batchId"]}, {"qualityStatus": "approved", "verificationStatus": VERIFICATION_STATUS_VERIFIED,
+            "qualityGrade": grade, "verifiedGrade": grade, "verifiedBy": ObjectId(current_user["_id"]), "verifiedAt": now, "inspectionCompletedAt": now, "updatedAt": now})
+    return {"success": True, "data": _serialize_inspection(refreshed), "message": "Quality inspection approved"}
 
 
 @router.post("/inspections/{inspection_id}/reject")
-async def reject_inspection(
-    inspection_id: str,
-    body: dict = None,
-    current_user: dict = Depends(get_current_user),
-):
-    """Reject a declared grade / inspection (admin or warehouse only)."""
+async def reject_inspection(inspection_id: str, data: InspectionReject, current_user: dict = Depends(get_current_user)):
+    """Reject a batch after independent inspection."""
     _require_verifier(current_user)
-
-    try:
-        oid = ObjectId(inspection_id)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-
+    try: oid = ObjectId(inspection_id)
+    except Exception: raise HTTPException(status_code=404, detail="Inspection not found")
     rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
-    if not rec:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-
-    reason = (body or {}).get("reason") if isinstance(body, dict) else None
-    await inspection_repo.update(
-        {"_id": oid},
-        {
-            "verificationStatus": VERIFICATION_STATUS_REJECTED,
-            "verificationNotes": reason or rec.get("verificationNotes"),
-            "verifiedBy": ObjectId(current_user["_id"]),
-            "verifiedAt": datetime.utcnow(),
-        },
-    )
+    if not rec: raise HTTPException(status_code=404, detail="Inspection not found")
+    now = datetime.utcnow()
+    await inspection_repo.update({"_id": oid}, {"verificationStatus": VERIFICATION_STATUS_REJECTED, "verificationNotes": data.reason,
+        "verifiedBy": ObjectId(current_user["_id"]), "verifiedAt": now, "inspectionStatus": "rejected", "status": STATUS_FAILED, "updatedAt": now})
+    if rec.get("batchId"):
+        await batch_repo.update({"_id": rec["batchId"]}, {"qualityStatus": "rejected", "verificationStatus": VERIFICATION_STATUS_REJECTED,
+            "verificationNotes": data.reason, "verifiedBy": ObjectId(current_user["_id"]), "verifiedAt": now, "updatedAt": now})
     refreshed = await inspection_repo.find_one({"_id": oid})
-    return {"success": True, "data": _serialize_inspection(refreshed)}
+    return {"success": True, "data": _serialize_inspection(refreshed), "message": "Batch rejected after quality inspection"}
 
 
 @router.post("/inspections/{inspection_id}/ai-assess")

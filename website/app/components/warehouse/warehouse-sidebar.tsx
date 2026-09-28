@@ -15,6 +15,7 @@ import {
   Settings,
   AlertTriangle,
   Plus,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -24,6 +25,7 @@ const navItems = [
   { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
   { name: "Stock Management", href: "/stock", icon: Package, badge: "24 items" },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown, badge: 5 },
+  { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
   { name: "Outgoing Stock", href: "/outgoing", icon: ArrowUp, badge: 3 },
   { name: "Cold Storage", href: "/cold-storage", icon: Snowflake, badge: "4°C" },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
