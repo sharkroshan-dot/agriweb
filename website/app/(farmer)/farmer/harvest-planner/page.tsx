@@ -220,8 +220,9 @@ export default function FarmerHarvestPlannerPage() {
       const { planId, action } = vars;
       toast.success(res?.message || `Lifecycle updated (${planId})`);
       if (action === "next" && res?.data?.stage === 3) {
-        router.push("/farmer/batches");
-        toast.success("Harvest recorded. Create its batch for traceability.");
+        setHarvestConfirm(res?.data?.plan ? { ...res.data.plan, id: res.data.plan._id || planId } : plans.find((p) => p.id === planId) || null);
+        setActualQuantityKg(res?.data?.plan?.actualQuantityKg ? String(res.data.plan.actualQuantityKg) : "");
+        setFinalRatePerKg(res?.data?.plan?.finalRatePerKg ? String(res.data.plan.finalRatePerKg) : "");
       }
     },
     onError: (err: any) => toast.error(err?.message || "Failed to update stage"),
