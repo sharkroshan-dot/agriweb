@@ -11,6 +11,7 @@ from app.schemas.product import (
 from app.services.product_service import ProductService
 from app.services.user_service import UserService
 from app.repositories.base_repository import BaseRepository
+from app.repositories.inventory_repository import inventory_repository
 from bson import ObjectId
 import logging
 
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 harvest_plan_repo = BaseRepository("harvest_plans")
+harvest_preorder_repo = BaseRepository("harvest_preorders")
 
 def _serialize_product(product: dict) -> dict:
     product["id"] = str(product["_id"])
@@ -227,12 +229,74 @@ async def create_product(
                 detail="Farmer profile must be verified to list products"
             )
     
+
+    # Reserve existing harvest pre-orders before exposing the remaining quantity
+    # to new marketplace customers.
+    preorder_total = 0.0
+    if data.sourceHarvestPlanId:
+        preorder_rows = await harvest_preorder_repo.find_many(
+            {
+                "harvestPlanId": ObjectId(data.sourceHarvestPlanId),
+                "status": {"$ne": "cancelled"},
+                "deletedAt": None,
+            },
+            limit=1000,
+        )
+        preorder_total = round(
+            sum(float(row.get("quantityKg", 0) or 0) for row in (preorder_rows or [])),
+            3,
+        )
+        actual_quantity = float(plan.get("actualQuantityKg") or 0)
+        if preorder_total > actual_quantity + 0.001:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Pre-orders total {preorder_total:g} kg, but only "
+                    f"{actual_quantity:g} kg was harvested. Resolve the pre-order shortage "
+                    "before creating the marketplace product."
+                ),
+            )
+
     product = await ProductService.create_product(str(current_user["_id"]), data)
     if not product:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to create product"
         )
+
+    if data.sourceHarvestPlanId and preorder_total > 0:
+        reserved = await inventory_repository.atomic_reserve(str(product["_id"]), preorder_total)
+        if not reserved:
+            await ProductService.delete_product(str(product["_id"]))
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Could not reserve the harvested quantity for existing pre-orders.",
+            )
+        try:
+            from datetime import datetime
+            now = datetime.utcnow()
+            await harvest_preorder_repo.collection.update_many(
+                {
+                    "harvestPlanId": ObjectId(data.sourceHarvestPlanId),
+                    "status": {"$ne": "cancelled"},
+                    "deletedAt": None,
+                },
+                {
+                    "$set": {
+                        "status": "confirmed",
+                        "productId": ObjectId(product["_id"]),
+                        "confirmedAt": now,
+                        "updatedAt": now,
+                    }
+                },
+            )
+        except Exception:
+            await inventory_repository.atomic_release(str(product["_id"]), preorder_total)
+            await ProductService.delete_product(str(product["_id"]))
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Pre-order reservation could not be finalized. Please retry.",
+            )
 
     # Harvest-linked products are created as catalog records but remain hidden
     # from customers until their source batch passes independent inspection.

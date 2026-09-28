@@ -151,7 +151,7 @@ export default function FarmerProductsPage() {
                     <span className="ml-1 text-sm text-gray-500">/{product.unit}</span>
                   </div>
                   <div className="text-sm">
-                    <span className={cn("font-medium", product.quantity > 50 ? "text-green-600" : product.quantity > 10 ? "text-yellow-600" : "text-red-600")}>{product.quantity} units left</span>
+                    <span className={cn("font-medium", product.quantity > 50 ? "text-green-600" : product.quantity > 10 ? "text-yellow-600" : "text-red-600")}>{product.availableQuantity ?? product.quantity} units available</span>
                   </div>
                 </div>
 

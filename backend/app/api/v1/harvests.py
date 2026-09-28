@@ -432,14 +432,83 @@ async def update_harvest_plan(
 
 
 async def _apply_harvest(plan: dict) -> int:
-    """Apply harvest-side events that are safe before quality approval.
+    """Notify customers that the planned crop was actually harvested.
 
-    Fresh produce is NOT released to marketplace inventory here. The batch
-    must pass independent quality inspection first.
+    Harvest notification is intentionally separate from product publication:
+    the crop remains unavailable for checkout until quality approval.
     """
-    # Notify only that harvest was recorded; do not confirm pre-orders or make
-    # the crop sellable before quality approval.
-    return 0
+    if plan.get("harvestNotificationSentAt"):
+        return 0
+
+    now = datetime.utcnow()
+    notified = 0
+    preorders = await harvest_preorder_repo.find_many({
+        "harvestPlanId": plan["_id"],
+        "status": {"$ne": "cancelled"},
+        "deletedAt": None,
+    }, limit=1000)
+
+    actual_qty = float(plan.get("actualQuantityKg") or 0)
+    preorder_qty = sum(float(p.get("quantityKg", 0) or 0) for p in (preorders or []))
+    if preorder_qty > actual_qty + 0.001:
+        # Do not silently confirm an over-subscribed harvest. Customers are
+        # told that a shortage needs resolution before checkout.
+        for po in preorders or []:
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(po.get("customerId")),
+                    NotificationType.ORDER,
+                    "Harvest completed — quantity review needed",
+                    f"{plan.get('cropName')} was harvested, but the actual yield is {actual_qty:g} kg versus {preorder_qty:g} kg pre-ordered. We'll update your pre-order after the farmer resolves the shortage.",
+                    {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_shortage"},
+                    NotificationPriority.HIGH,
+                )
+                notified += 1
+            except Exception:
+                logger.exception("Failed to notify preorder shortage for %s", po.get("_id"))
+    else:
+        for po in preorders or []:
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(po.get("customerId")),
+                    NotificationType.ORDER,
+                    "Your pre-ordered harvest is ready 🌾",
+                    f"{plan.get('cropName')} has been harvested. Your {float(po.get('quantityKg', 0) or 0):g} kg pre-order is reserved. Final quality approval is pending; we'll notify you when it is ready to confirm and pay.",
+                    {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_harvested"},
+                    NotificationPriority.HIGH,
+                )
+                notified += 1
+            except Exception:
+                logger.exception("Failed to notify preorder customer %s", po.get("_id"))
+
+    subscriptions = await harvest_notify_repo.find_many({
+        "harvestPlanId": plan["_id"],
+        "deletedAt": None,
+        "notifiedAt": None,
+    }, limit=1000)
+    for sub in subscriptions or []:
+        try:
+            await NotificationService.create_in_app_notification(
+                str(sub.get("customerId")),
+                NotificationType.ORDER,
+                f"{plan.get('cropName')} has been harvested 🌾",
+                f"The {plan.get('cropName')} you followed has been harvested. Check AgriConnect for availability after quality approval.",
+                {"harvestPlanId": str(plan["_id"]), "type": "harvested"},
+                NotificationPriority.HIGH,
+            )
+            await harvest_notify_repo.update(
+                {"_id": sub["_id"]},
+                {"notifiedAt": now, "updatedAt": now},
+            )
+            notified += 1
+        except Exception:
+            logger.exception("Failed to notify harvest subscriber %s", sub.get("_id"))
+
+    await harvest_plan_repo.update(
+        {"_id": plan["_id"]},
+        {"harvestNotificationSentAt": now},
+    )
+    return notified
 
 
 class HarvestConfirmation(BaseModel):

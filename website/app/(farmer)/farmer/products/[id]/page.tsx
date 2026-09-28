@@ -280,9 +280,19 @@ export default function ProductDetailPage() {
                 </p>
               </div>
 
-              <div className="border-t pt-4">
-                <p className="text-sm text-gray-500">Total Stock</p>
-                <p className="text-2xl font-bold">{product.quantity} {product.unit}</p>
+              <div className="border-t pt-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-500">Total harvested stock</p>
+                  <p className="font-semibold">{product.totalStock ?? product.quantity ?? 0} {product.unit}</p>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-amber-700">Reserved for pre-orders</p>
+                  <p className="font-semibold text-amber-700">{product.reservedQuantity ?? 0} {product.unit}</p>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
+                  <p className="text-sm font-semibold text-emerald-700">Available to marketplace</p>
+                  <p className="text-lg font-bold text-emerald-700">{product.availableQuantity ?? product.quantity ?? 0} {product.unit}</p>
+                </div>
               </div>
             </CardContent>
           </Card>

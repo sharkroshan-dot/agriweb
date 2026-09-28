@@ -294,7 +294,7 @@ export default function HarvestMarketplacePage() {
           <div className="grid gap-3 md:grid-cols-2">
             {(myPreordersData.data.preorders as any[]).map((po: any) => (
               <Card key={po.id}>
-                <CardContent className="flex items-center justify-between p-4">
+                <CardContent className="flex items-center justify-between gap-4 p-4">
                   <div>
                     <p className="font-medium">
                       {po.cropName} <span className="text-gray-400">({po.quantityKg} kg)</span>
@@ -303,7 +303,26 @@ export default function HarvestMarketplacePage() {
                       ₹{po.total} • Status: <Badge variant="outline">{po.status}</Badge>
                     </p>
                   </div>
-                  <CheckCircle className="h-5 w-5 text-emerald-600" />
+                  <div className="flex items-center gap-2">
+                    {po.status === "ready_for_confirmation" ? (
+                      <Button
+                        size="sm"
+                        onClick={() => window.location.assign(`/harvests/preorders/${po.id}/checkout`)}
+                      >
+                        Confirm & Pay
+                      </Button>
+                    ) : null}
+                    {po.status === "order_created" || po.status === "paid" ? (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => window.location.assign(`/orders/${po.orderId}`)}
+                      >
+                        View Order
+                      </Button>
+                    ) : null}
+                    <CheckCircle className="h-5 w-5 text-emerald-600" />
+                  </div>
                 </CardContent>
               </Card>
             ))}
