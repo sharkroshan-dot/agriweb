@@ -3,6 +3,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from app.api.v1.auth import get_current_user
 from app.schemas.ai_marketplace import SmartHarvestRequest
+from app.schemas.ai import PricePredictionRequest, DemandForecastRequest, RouteOptimizationRequest
+from app.services.ai_service import AIService
+from app.services.ai_copilot_service import AICopilotService
 
 router = APIRouter()
 
@@ -89,21 +92,25 @@ async def list_ai_models_stub(
 
 
 @router.post("/price-predict")
-async def predict_price_stub(current_user: dict = Depends(get_current_user)):
+async def predict_price_stub(request: PricePredictionRequest, current_user: dict = Depends(get_current_user)):
     role = current_user.get("role")
     if role not in ["farmer", "admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only farmers and admins can access price predictions")
-    return {"suggestion": "AI price prediction is not available. Install statsmodels and tensorflow for full AI features."}
+    result = await AIService.predict_price(request)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 @router.post("/demand-forecast")
-async def demand_forecast_stub(current_user: dict = Depends(get_current_user)):
+async def demand_forecast_stub(request: DemandForecastRequest, current_user: dict = Depends(get_current_user)):
     role = current_user.get("role")
     if role not in ["farmer", "admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only farmers and admins can access demand forecasts")
-    return {
-        "forecast": "AI demand forecast is not available. Install statsmodels and tensorflow for full AI features."
-    }
+    result = await AIService.forecast_demand(request)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
 
 
 @router.post("/smart-harvest")
@@ -116,17 +123,18 @@ async def smart_harvest_stub(
 
 
 @router.post("/route-optimize")
-async def optimize_route_stub(current_user: dict = Depends(get_current_user)):
+async def optimize_route_stub(request: RouteOptimizationRequest, current_user: dict = Depends(get_current_user)):
     role = current_user.get("role")
     if role not in ["farmer", "delivery", "admin"]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only farmers, delivery partners, and admins can optimize routes")
-    return {
-        "success": True,
-        "data": {
-            "route": [],
-            "totalDistance": 0,
-            "estimatedTime": 0,
-            "optimizedAt": datetime.utcnow().isoformat(),
-            "message": "Route optimization is available when AI packages are installed."
-        }
-    }
+    result = await AIService.optimize_route(request)
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@router.get("/copilot/brief")
+async def copilot_brief_stub(current_user: dict = Depends(get_current_user)):
+    role = (current_user.get("role") or "customer").lower()
+    brief = await AICopilotService.build_brief(role, current_user)
+    return {"success": True, "data": brief}
