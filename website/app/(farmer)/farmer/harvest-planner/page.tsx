@@ -71,6 +71,9 @@ interface CropPlan {
   preOrderEnabled?: boolean;
   productCreated?: boolean;
   productId?: string;
+  harvestedAt?: string;
+  actualQuantityKg?: number;
+  finalRatePerKg?: number;
 }
 
 const planCoords = (loc: any): { lat: number; lng: number } | null => {
