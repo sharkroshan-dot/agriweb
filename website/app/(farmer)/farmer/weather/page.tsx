@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CloudSun, CloudRain, Wind, Thermometer, Loader2, Search, AlertTriangle, Snowflake } from "lucide-react";
+import { CloudSun, CloudRain, Wind, Thermometer, Loader2, Search, AlertTriangle, Snowflake, LocateFixed, MapPin } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -17,11 +17,16 @@ const CROPS = ["Tomato", "Onion", "Potato", "Carrot", "Strawberry", "Spinach", "
 export default function FarmerWeatherPage() {
   const [location, setLocation] = useState("Coimbatore");
   const [crop, setCrop] = useState("Tomato");
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   const weatherMutation = useMutation({
     mutationFn: () =>
       api.post("/ai/weather-impact", {
-        location: { city: location, state: "Tamil Nadu", country: "India" },
+        location: coordinates
+          ? { latitude: coordinates.lat, longitude: coordinates.lng }
+          : { city: location, state: "Tamil Nadu", country: "India" },
         productId: null,
         days: 5,
       }),
@@ -33,6 +38,61 @@ export default function FarmerWeatherPage() {
     queryFn: () => api.get("/inventory/farmer/summary"),
     retry: 1,
   });
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Live location is not supported by this browser.");
+      return;
+    }
+    setLocating(true);
+    setLocationError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setCoordinates({ lat, lng });
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          if (!response.ok) throw new Error("Location lookup failed");
+          const result = await response.json();
+          const address = result?.address || {};
+          const locality =
+            address.village ||
+            address.town ||
+            address.city ||
+            address.hamlet ||
+            address.suburb ||
+            address.city_district ||
+            address.municipality ||
+            "";
+          const district = address.state_district || address.district || "";
+          const state = address.state || "";
+          const country = address.country || "";
+          const display = [locality, district, state, country]
+            .filter(Boolean)
+            .filter((part, index, parts) => parts.indexOf(part) === index)
+            .join(", ");
+          setLocation(display || `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        } catch {
+          setLocation(`GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        } finally {
+          setLocating(false);
+        }
+      },
+      (error) => {
+        setLocating(false);
+        setLocationError(
+          error.code === 1
+            ? "Location permission denied. Please allow precise location access."
+            : "Could not determine your current location."
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+  };
 
   const run = () => weatherMutation.mutate();
   const data = weatherMutation.data as any;
@@ -61,8 +121,36 @@ export default function FarmerWeatherPage() {
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Location</label>
-            <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Coimbatore" />
+            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+              <MapPin className="h-3 w-3" /> Location
+            </label>
+            <div className="flex gap-2">
+              <Input
+                className="min-w-0"
+                value={location}
+                onChange={(e) => {
+                  setCoordinates(null);
+                  setLocationError(null);
+                  setLocation(e.target.value);
+                }}
+                placeholder="Village, town or city"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={useCurrentLocation}
+                disabled={locating}
+                title="Use current location"
+              >
+                {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+              </Button>
+            </div>
+            <p className="text-[11px] text-gray-400">
+              {coordinates
+                ? `Using exact GPS coordinates: ${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`
+                : "Enter a village/town/city or use current location."}
+            </p>
+            {locationError && <p className="text-[11px] text-red-500">{locationError}</p>}
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Crop (for guidance)</label>
