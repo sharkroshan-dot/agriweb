@@ -233,6 +233,13 @@ class ProductService:
                         "updatedAt": datetime.utcnow(),
                     },
                 )
+                # Keep the quality-inspection chain connected when the batch
+                # was created before the marketplace product.
+                batch_repo = BaseRepository("batches")
+                await batch_repo.collection.update_many(
+                    {"sourceHarvestPlanId": plan_oid, "deletedAt": None},
+                    {"$set": {"productId": ObjectId(product_id), "updatedAt": datetime.utcnow()}},
+                )
             except Exception as e:
                 logger.warning(f"Failed to link harvest plan {data.sourceHarvestPlanId} to product {product_id}: {e}")
 
