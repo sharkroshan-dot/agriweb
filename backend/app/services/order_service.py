@@ -609,13 +609,9 @@ class OrderService:
                     await broadcast_stock_update(item.productId, stock)
         
         if preorder:
-            confirmed = await inventory_repository.atomic_confirm(
-                str(preorder["productId"]),
-                float(preorder.get("quantityKg", 0) or 0),
-            )
-            if not confirmed:
-                await order_repository.update({"_id": ObjectId(order_id)}, {"orderStatus": "cancelled"})
-                raise OrderCreationError("The reserved pre-order stock is no longer available.")
+            # The normal order confirmation above consumes the pre-order's
+            # existing inventory reservation. We only advance the preorder
+            # lifecycle here.
             await harvest_preorder_repository.update(
                 {"_id": preorder["_id"]},
                 {
