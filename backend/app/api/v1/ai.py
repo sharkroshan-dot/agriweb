@@ -36,7 +36,6 @@ from app.schemas.ai_risk import (
 )
 from app.services.ai_risk_service import ai_risk_service
 from app.services.ai_training_service import AITrainingService
-from app.tasks.ai_tasks import train_model_task
 from app.services.farmer_settings_service import farmer_settings_service
 import logging
 
@@ -224,6 +223,7 @@ async def train_model(request: ModelTrainingRequest, current_user: dict = Depend
     job = await AITrainingService.create_job(
         request.modelType.value, request.dataConfig, request.hyperparameters, str(current_user.get("_id"))
     )
+    from app.tasks.ai_tasks import train_model_task
     task = train_model_task.delay(
         request.modelType.value, request.dataConfig or {}, request.hyperparameters or {}, str(job["_id"])
     )
