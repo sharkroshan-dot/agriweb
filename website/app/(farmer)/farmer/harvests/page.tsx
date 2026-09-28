@@ -76,7 +76,8 @@ export default function FarmerHarvestsPage() {
   });
 
   const harvestMutation = useMutation({
-    mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/harvest`),
+    mutationFn: ({ planId, actualQuantityKg }: { planId: string; actualQuantityKg: number }) =>
+      api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg }),
     onSuccess: (_data, planId) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
       const plan = plans.find((p) => p.id === planId);
@@ -277,7 +278,19 @@ export default function FarmerHarvestsPage() {
                       className="flex-1"
                       size="sm"
                       disabled={harvestMutation.isPending}
-                      onClick={() => harvestMutation.mutate(plan.id)}
+                      onClick={() => {
+                          const value = window.prompt(
+                            "Enter the actual harvested quantity (kg):",
+                            String(plan.expectedQuantityKg ?? "")
+                          );
+                          if (value === null) return;
+                          const actualQuantityKg = Number(value);
+                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
+                            toast.error("Enter a valid harvested quantity greater than 0 kg");
+                            return;
+                          }
+                          harvestMutation.mutate({ planId: plan.id, actualQuantityKg });
+                        }}
                     >
                       {harvestMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
