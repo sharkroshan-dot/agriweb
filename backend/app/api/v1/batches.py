@@ -329,7 +329,18 @@ async def convert_batch_to_inventory(
     qty_kg = float(batch.get("remainingKg") or 0)
     current_qty = int(product.get("quantity") or 0)
     updated = await product_repository.update_product(
-        product_id, {"quantity": current_qty + int(qty_kg), "updatedAt": datetime.utcnow()}
+        product_id,
+        {
+            "quantity": current_qty + int(qty_kg),
+            "isActive": True,
+            "qualityStatus": "approved",
+            "verificationStatus": "verified",
+            "verifiedGrade": batch.get("verifiedGrade"),
+            "qualityGrade": batch.get("verifiedGrade"),
+            "farmerDeclaredGrade": batch.get("farmerDeclaredGrade"),
+            "verifiedAt": batch.get("verifiedAt"),
+            "updatedAt": datetime.utcnow(),
+        },
     )
     if not updated:
         raise HTTPException(status_code=400, detail="Failed to update product stock")
