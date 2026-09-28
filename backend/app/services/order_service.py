@@ -1041,6 +1041,8 @@ class OrderService:
         elif new_status == OrderStatus.CANCELLED:
             try:
                 await OrderService.release_inventory(order_id)
+            except Exception as e:
+                logger.warning(f"Failed to release inventory: {e}")
             if order.get("preorderId"):
                 try:
                     await harvest_preorder_repository.update(
@@ -1049,8 +1051,6 @@ class OrderService:
                     )
                 except Exception as e:
                     logger.warning(f"Failed to update linked pre-order on cancellation: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to release inventory: {e}")
             if order.get("paymentStatus") == PaymentStatus.PAID:
                 try:
                     # Route the cancellation through the authoritative refund
