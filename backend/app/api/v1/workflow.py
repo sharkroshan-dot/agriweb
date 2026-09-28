@@ -94,7 +94,7 @@ async def _customer(uid: str):
     return {"currentStep": "Order Tracking", "state": "IN_PROGRESS", "next": _href("/customer/orders", "Track Order", "Continue tracking your active order."), "entityId": str(order["_id"])}
 
 async def _business(uid: str):
-    rfq = await _latest(rfqs, {"businessId": _id(uid), "deletedAt": None}, "updatedAt")
+    rfq = await _latest(rfqs, {"businessUserId": _id(uid), "deletedAt": None}, "updatedAt")
     if not rfq:
         return {"currentStep": "Business Setup", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs/new", "Create RFQ", "Create your first structured bulk request.")}
     status = str(rfq.get("status") or "").lower()
@@ -103,7 +103,7 @@ async def _business(uid: str):
     return {"currentStep": "B2B Orders", "state": "IN_PROGRESS", "next": _href("/business/orders", "Open B2B Orders", "Continue the B2B fulfillment process."), "entityId": str(rfq["_id"])}
 
 async def _delivery(uid: str):
-    job = await _latest(delivery_jobs, {"partnerId": _id(uid), "deletedAt": None}, "updatedAt")
+    job = await _latest(delivery_jobs, {"acceptedBy": _id(uid), "deletedAt": None}, "updatedAt")
     if not job:
         return {"currentStep": "Availability", "state": "ACTION_REQUIRED", "next": _href("/delivery/dashboard", "View Delivery Jobs", "Check available delivery assignments.")}
     status = str(job.get("status") or "").lower()
@@ -116,9 +116,30 @@ async def _delivery(uid: str):
     return {"currentStep": "Completed", "state": "COMPLETED", "next": _href("/delivery/earnings", "View Earnings", "Review completed delivery earnings."), "entityId": str(job["_id"])}
 
 async def _warehouse(uid: str):
-    return {"currentStep": "Inventory Operations", "state": "ACTION_REQUIRED", "next": _href("/warehouse/incoming", "Review Incoming Stock", "Receive and verify incoming warehouse stock.")}
+    warehouse = await BaseRepository("warehouses").find_one({"managerId": _id(uid), "deletedAt": None})
+    if not warehouse:
+        return {"currentStep": "Warehouse Setup", "state": "ACTION_REQUIRED", "next": _href("/warehouse/settings", "Complete Warehouse Setup", "Set up the warehouse profile before processing stock.")}
+    wid = warehouse["_id"]
+    incoming = await BaseRepository("incoming_stock").find_many({"warehouseId": wid, "deletedAt": None}, limit=20, sort=[("updatedAt", -1)])
+    pending = next((x for x in incoming if str(x.get("status") or "").lower() in ("scheduled", "in_transit", "quality_check")), None)
+    if pending:
+        status = str(pending.get("status") or "").lower()
+        if status in ("scheduled", "in_transit"):
+            return {"currentStep": "Incoming Stock", "state": "ACTION_REQUIRED", "next": _href("/warehouse/incoming", "Receive Incoming Stock", "An incoming shipment is waiting to be received and verified."), "entityId": str(pending["_id"])}
+        return {"currentStep": "Quality Check", "state": "ACTION_REQUIRED", "next": _href("/warehouse/incoming", "Complete Quality Check", "Received stock requires quality verification before storage."), "entityId": str(pending["_id"])}
+    outgoing = await BaseRepository("outgoing_stock").find_many({"warehouseId": wid, "deletedAt": None}, limit=20, sort=[("updatedAt", -1)])
+    pending_out = next((x for x in outgoing if str(x.get("status") or "").lower() in ("pending", "picked", "packed")), None)
+    if pending_out:
+        return {"currentStep": "Pick & Pack", "state": "ACTION_REQUIRED", "next": _href("/warehouse/stock", "Pick & Pack Order", "Warehouse stock is reserved for an outgoing order."), "entityId": str(pending_out["_id"])}
+    return {"currentStep": "Inventory", "state": "IN_PROGRESS", "next": _href("/warehouse/stock", "Review Warehouse Inventory", "Review current stock, storage and outgoing reservations.")}
 
 async def _admin(uid: str):
+    unverified = await quality.find_many({"verificationStatus": {"$in": ["declared", "evidence_submitted"]}, "deletedAt": None}, limit=1)
+    if unverified:
+        return {"currentStep": "Quality Review", "state": "ACTION_REQUIRED", "next": _href("/admin/dashboard", "Review Quality Queue", "A quality inspection is waiting for independent verification."), "entityId": str(unverified[0]["_id"])}
+    pending_orders = await orders.find_many({"orderStatus": {"$in": ["pending", "confirmed", "processing"]}, "deletedAt": None}, limit=1)
+    if pending_orders:
+        return {"currentStep": "Order Operations", "state": "IN_PROGRESS", "next": _href("/admin/orders", "Review Orders", "There are active orders requiring platform oversight."), "entityId": str(pending_orders[0]["_id"])}
     return {"currentStep": "Platform Overview", "state": "IN_PROGRESS", "next": _href("/admin/dashboard", "Open Platform Overview", "Review platform workflow and operational alerts.")}
 
 @router.get("/me")
