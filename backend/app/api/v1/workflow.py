@@ -119,7 +119,6 @@ async def _delivery(uid: str):
     return {"currentStep": "Completed", "state": "COMPLETED", "next": _href("/delivery/earnings", "View Earnings", "Review completed delivery earnings."), "entityId": str(job["_id"])}
 
 async def _warehouse(uid: str):
-    incoming = await _latest(addresses, {"managerId": _id(uid), "deletedAt": None}, "updatedAt")
     # Warehouse has explicit operational APIs; guide users to the live incoming queue.
     return {"currentStep": "Incoming Stock", "state": "ACTION_REQUIRED",
             "next": _href("/warehouse/incoming", "Review Incoming Stock", "Receive shipments, record quality checks, and move passed stock into storage.")}
@@ -131,7 +130,7 @@ async def _admin(uid: str):
         return {"currentStep": "Quality Review", "state": "ACTION_REQUIRED", "next": _href("/admin/dashboard", "Review Quality Queue", "A quality inspection is waiting for independent verification."), "entityId": str(unverified[0]["_id"])}
     pending_orders = await orders.find_many({"orderStatus": {"$in": ["pending", "confirmed", "processing"]}, "deletedAt": None}, limit=1)
     if pending_orders:
-        return {"currentStep": "Order Operations", "state": "IN_PROGRESS", "next": _href("/admin/orders", "Review Orders", "There are active orders requiring platform oversight."), "entityId": str(pending_orders[0]["_id"])}
+        return {"currentStep": "Order Operations", "state": "IN_PROGRESS", "next": _href("/admin/dashboard", "Review Orders", "There are active orders requiring platform oversight."), "entityId": str(pending_orders[0]["_id"])}
     return {"currentStep": "Platform Overview", "state": "IN_PROGRESS", "next": _href("/admin/dashboard", "Open Platform Overview", "Review platform workflow and operational alerts.")}
 
 @router.get("/me")
