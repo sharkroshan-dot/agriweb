@@ -30,6 +30,7 @@ export default function FarmerCropAdvisorPage() {
   const [locationSource, setLocationSource] = useState<"live" | "manual" | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
 
   const { data: harvestPlansData } = useQuery({
     queryKey: ["farmerCropAdvisorHarvests"],
@@ -62,54 +63,115 @@ export default function FarmerCropAdvisorPage() {
 
   const useLiveLocation = () => {
     if (!navigator.geolocation) {
-      setLocationError("Live location is not supported by this device/browser.");
+      setLocationError("Live GPS location is not supported by this device/browser.");
       return;
     }
+
     setLocationLoading(true);
     setLocationError(null);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setCoordinates({ lat, lng });
-        setLocationSource("live");
-        try {
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-            { headers: { "Accept-Language": "en" } }
-          );
-          const result = await response.json();
-          const address = result?.address || {};
-          const locality =
-            address.village ||
-            address.town ||
-            address.city ||
-            address.suburb ||
-            address.city_district ||
-            address.municipality ||
-            "";
-          const state = address.state || "";
-          const country = address.country || "";
-          const displayLocation = [locality, state, country].filter(Boolean).join(", ");
-          if (displayLocation) {
-            setForm((current) => ({ ...current, location: displayLocation }));
-          }
-        } catch {
-          // Coordinates still work for weather even if reverse geocoding fails.
-        } finally {
-          setLocationLoading(false);
-        }
-      },
-      (error) => {
+    setLocationSource("live");
+
+    let bestPosition: GeolocationPosition | null = null;
+    let settled = false;
+    let watchId: number | null = null;
+    let finishTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = async () => {
+      if (settled) return;
+      settled = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (finishTimer) clearTimeout(finishTimer);
+
+      if (!bestPosition) {
         setLocationLoading(false);
-        setLocationError(
-          error.code === 1
-            ? "Location permission denied. Please allow location access."
-            : "Could not get live location. You can enter the location manually."
+        setLocationError("Could not get a fresh GPS position. Please enable device location and try again.");
+        return;
+      }
+
+      const { latitude: lat, longitude: lng, accuracy } = bestPosition.coords;
+      setCoordinates({ lat, lng });
+      setLocationAccuracy(accuracy);
+
+      try {
+        const response = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
+          { headers: { "Accept-Language": "en" } }
         );
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
-    );
+        if (!response.ok) throw new Error("Reverse geocoding failed");
+
+        const result = await response.json();
+        const address = result?.address || {};
+        const locality =
+          address.village ||
+          address.town ||
+          address.city ||
+          address.hamlet ||
+          address.suburb ||
+          address.city_district ||
+          address.municipality ||
+          "";
+        const district = address.state_district || address.district || "";
+        const state = address.state || "";
+        const country = address.country || "";
+        const displayLocation = [locality, district, state, country]
+          .filter(Boolean)
+          .filter((part, index, parts) => parts.indexOf(part) === index)
+          .join(", ");
+
+        setForm((current) => ({
+          ...current,
+          location: displayLocation || `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        }));
+      } catch {
+        setForm((current) => ({
+          ...current,
+          location: `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        }));
+      } finally {
+        setLocationLoading(false);
+      }
+    };
+
+    const success = (position: GeolocationPosition) => {
+      if (
+        !bestPosition ||
+        position.coords.accuracy < bestPosition.coords.accuracy
+      ) {
+        bestPosition = position;
+        setLocationAccuracy(position.coords.accuracy);
+      }
+
+      // A <=50 m fix is good enough for the Crop Advisor. Otherwise keep
+      // listening briefly so the browser/GPS can improve the reading.
+      if (position.coords.accuracy <= 50) {
+        void finish();
+      }
+    };
+
+    const error = (err: GeolocationPositionError) => {
+      if (bestPosition) {
+        void finish();
+        return;
+      }
+      if (err.code === 1) {
+        setLocationLoading(false);
+        setLocationError("Location permission denied. Please allow precise location access.");
+      } else {
+        setLocationLoading(false);
+        setLocationError("Could not get a fresh GPS position. Please enable device location and try again.");
+      }
+    };
+
+    watchId = navigator.geolocation.watchPosition(success, error, {
+      enableHighAccuracy: true,
+      timeout: 30000,
+      maximumAge: 0,
+    });
+
+    // Do not wait indefinitely on devices that cannot reach <=50 m accuracy.
+    finishTimer = setTimeout(() => {
+      void finish();
+    }, 12000);
   };
 
   useEffect(() => {
@@ -191,7 +253,11 @@ export default function FarmerCropAdvisorPage() {
               </Button>
             </div>
             <p className="text-[11px] text-gray-400">
-              {locationSource === "live" ? "Using your live location for weather." : "Use live location to automatically get local weather."}
+              {locationSource === "live"
+                ? locationAccuracy != null
+                  ? `Fresh GPS location • accuracy ±${Math.round(locationAccuracy)} m`
+                  : "Getting a fresh GPS location..."
+                : "Use live location to automatically get local weather."}
             </p>
             {locationError && <p className="text-[11px] text-red-500">{locationError}</p>}
           </div>
