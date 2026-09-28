@@ -41,6 +41,13 @@ export default function FarmerRestockPage() {
     total_stock: p.total_stock ?? p.available_stock,
   }));
 
+
+  // Always show products from the lowest available stock to the highest.
+  // Use numeric coercion so API strings/null values sort correctly.
+  const sortedItems = [...items].sort(
+    (a, b) => Number(a.available_stock ?? a.total_stock ?? 0) - Number(b.available_stock ?? b.total_stock ?? 0)
+  );
+
   const placeholderImage = "/images/placeholder-product.jpg";
 
   const summary = data?.data;
@@ -114,7 +121,7 @@ export default function FarmerRestockPage() {
             <CardDescription>Add quantity to restock a product.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {items.map((item) => (
+            {sortedItems.map((item) => (
               <div key={item.product_id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
                 <button
                   type="button"
