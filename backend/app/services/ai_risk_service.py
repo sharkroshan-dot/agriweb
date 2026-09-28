@@ -274,6 +274,7 @@ class AIRiskService:
                     "totalAmount": float(order.get("totalAmount", 0) or 0),
                     "paymentMethod": order.get("paymentMethod", ""),
                     "orderDate": order.get("orderDate") or order.get("createdAt"),
+                    "reviewStatus": (order.get("aiFraudReview") or {}).get("status", "pending_review"),
                 })
             if len(alerts) >= limit:
                 break
