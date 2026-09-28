@@ -128,8 +128,10 @@ export default function PreorderCheckoutPage() {
       if (!intent?.order_id || !(await loadRazorpay())) {
         throw new Error("Payment gateway could not be opened. Your order remains pending.");
       }
+      const Razorpay = window.Razorpay;
+      if (!Razorpay) throw new Error("Payment gateway unavailable.");
 
-      const rzp = new window.Razorpay({
+      const rzp = new Razorpay({
         key: intent.key_id,
         amount: intent.amount,
         currency: intent.currency || "INR",
@@ -198,7 +200,7 @@ export default function PreorderCheckoutPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-lg font-semibold">{preorder.cropName}</p>
-                <p className="mt-1 text-sm text-slate-500">{qty:g} kg × ₹{agreedPrice.toFixed(2)}/kg</p>
+                <p className="mt-1 text-sm text-slate-500">{qty} kg × ₹{agreedPrice.toFixed(2)}/kg</p>
               </div>
               <p className="text-xl font-bold text-emerald-700">₹{subtotal.toFixed(2)}</p>
             </div>
