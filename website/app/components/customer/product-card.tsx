@@ -133,10 +133,10 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 						</div>
 						<div className={cn(
 							"text-right text-xs font-medium",
-							Number(product.quantity || 0) > 0 ? "text-emerald-700" : "text-red-600"
+							Number(product.availableQuantity ?? product.quantity ?? 0) > 0 ? "text-emerald-700" : "text-red-600"
 						)}>
 							{Number(product.quantity || 0) > 0
-								? `${product.quantity} ${product.unit} available`
+								? `${product.availableQuantity ?? product.quantity} ${product.unit} available`
 								: "Out of stock"}
 						</div>
 					</div>
