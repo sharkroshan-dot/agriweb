@@ -309,6 +309,11 @@ class OrderService:
             product = await product_repository.get_by_id(item.productId)
             if not product:
                 raise ProductNotFoundError(item.productId)
+            if preorder and (
+                product.get("isActive") is not True
+                or product.get("qualityStatus") != "approved"
+            ):
+                raise OrderCreationError("This pre-order is waiting for final quality approval.")
             
             variant_inventory = None
             if item.variantId:
@@ -328,8 +333,14 @@ class OrderService:
                 )
             else:
                 available = await inventory_service.get_available_stock(item.productId)
-            if available < item.quantity:
+            if not preorder and available < item.quantity:
                 raise InsufficientStockError(item.productId, item.quantity, available)
+            if preorder:
+                reserved_stock = float((variant_inventory or {}).get("reserved_stock", 0) or 0) if variant_inventory else float(
+                    (await inventory_repository.get_by_product_id(item.productId) or {}).get("reserved_stock", 0) or 0
+                )
+                if reserved_stock + 0.0001 < float(item.quantity):
+                    raise InsufficientStockError(item.productId, item.quantity, reserved_stock)
             
             product_farmer_id = str(product["farmerId"])
             order_farmer_ids.add(product_farmer_id)
