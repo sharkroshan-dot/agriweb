@@ -304,6 +304,11 @@ export default function CheckoutPage() {
       return;
     }
 
+    if (!deliveryQuote) {
+      toast.error("Select a delivery address and wait for the delivery fee to be calculated before placing the order.");
+      return;
+    }
+
     setIsPlacing(true);
     setPaymentStage("creating");
     setPaymentMessage(paymentMethod === "wallet" ? "Checking your AgriConnect wallet balance…" : paymentMethod === "cash" ? "Preparing cash-on-delivery order…" : "Creating your secure payment session…");
