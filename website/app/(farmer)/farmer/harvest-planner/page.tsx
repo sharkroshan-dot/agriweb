@@ -991,19 +991,7 @@ export default function FarmerHarvestPlannerPage() {
                         className="flex-1"
                         size="sm"
                         disabled={harvestMutation.isPending}
-                        onClick={() => {
-                          const value = window.prompt(
-                            "Enter the actual harvested quantity (kg):",
-                            String(plan.expectedQuantityKg ?? "")
-                          );
-                          if (value === null) return;
-                          const actualQuantityKg = Number(value);
-                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
-                            toast.error("Enter a valid harvested quantity greater than 0 kg");
-                            return;
-                          }
-                          harvestMutation.mutate({ planId: plan.id, actualQuantityKg });
-                        }}
+                        onClick={() => openHarvestConfirmation(plan)}
                       >
                         {harvestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                         Mark Harvested
