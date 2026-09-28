@@ -170,6 +170,8 @@ async def _propagate_verification(inspection: dict) -> None:
                 "verifiedBy": inspection.get("verifiedBy"),
                 "verifiedAt": inspection.get("verifiedAt"),
                 "verificationNotes": inspection.get("verificationNotes"),
+                "qualityStatus": "approved",
+                "isActive": True,
             }},
         )
 
