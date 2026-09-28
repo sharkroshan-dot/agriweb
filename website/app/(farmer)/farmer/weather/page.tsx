@@ -106,18 +106,21 @@ export default function FarmerWeatherPage() {
       return;
     }
 
-    try {
-      const response = await fetch("https://ipapi.co/json/");
-      if (!response.ok) throw new Error("Network location unavailable");
-      const result = await response.json();
-      const lat = Number(result?.latitude);
-      const lng = Number(result?.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error("Invalid network location");
-      await applyCoordinates(lat, lng, "network");
-    } catch {
-      setLocating(false);
-      setLocationError("Current location is unavailable. Enter your village/town/city manually.");
-    }
+    // Browsers without Geolocation API: use network location as a fallback.
+    void (async () => {
+      try {
+        const response = await fetch("https://ipapi.co/json/");
+        if (!response.ok) throw new Error("Network location unavailable");
+        const result = await response.json();
+        const lat = Number(result?.latitude);
+        const lng = Number(result?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error("Invalid network location");
+        await applyCoordinates(lat, lng, "network");
+      } catch {
+        setLocating(false);
+        setLocationError("Current location is unavailable. Allow browser location access or enter your village/town/city manually.");
+      }
+    })();
   };
 
   const run = () => {
