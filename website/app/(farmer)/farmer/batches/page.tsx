@@ -69,6 +69,7 @@ export default function FarmerBatchesPage() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
+  const [selectedHarvestId, setSelectedHarvestId] = useState("");
   const [form, setForm] = useState({
     cropName: "",
     quantityKg: "100",
@@ -106,6 +107,7 @@ export default function FarmerBatchesPage() {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
       setShowForm(false);
       setSelectedProductId("");
+      setSelectedHarvestId("");
       setForm({ cropName: "", quantityKg: "", harvestDate: "", qualityGrade: "Premium", storageType: "normal", shelfLifeDays: "", notes: "" });
       toast.success("Batch created with a new lot number!");
     },
@@ -156,10 +158,7 @@ export default function FarmerBatchesPage() {
     })
     .sort((a, b) => new Date(b.harvestedAt || b.expectedHarvestDate).getTime() - new Date(a.harvestedAt || a.expectedHarvestDate).getTime());
   const selectedProduct = batchEligibleProducts.find((product) => String(product._id) === selectedProductId);
-  const selectedHarvest = availableHarvests.find((plan) => {
-    const planId = String(plan.id || plan._id);
-    return String(selectedProduct?.sourceHarvestPlanId || "") === planId;
-  });
+  const selectedHarvest = availableHarvests.find((plan) => String(plan.id || plan._id) === selectedHarvestId);
   const selectedHarvestQuantity = Number(selectedHarvest?.actualQuantityKg ?? selectedHarvest?.expectedQuantityKg ?? 0);
 
   const submit = (e: React.FormEvent) => {
@@ -219,14 +218,15 @@ export default function FarmerBatchesPage() {
           <CardHeader>
             <CardTitle className="text-base">Create Batch from Harvested Crop</CardTitle>
             <CardDescription>
-              Select a product that has not yet received a batch. Each product can have exactly one traceability batch.
+              Select a completed harvest to create its traceable batch. The marketplace product can be linked after quality approval.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-gray-500">Harvested crop *</label>
-                <Select value={selectedHarvest ? String(selectedHarvest.id || selectedHarvest._id) : ""} onValueChange={(v) => {
+                <Select value={selectedHarvestId} onValueChange={(v) => {
+                  setSelectedHarvestId(v);
                   const plan = availableHarvests.find((p) => String(p.id || p._id) === v);
                   const linked = batchEligibleProducts.find((p) => String(p.sourceHarvestPlanId || "") === v);
                   setSelectedProductId(linked?._id || "");
