@@ -56,6 +56,9 @@ class OrderItemResponse(OrderItemBase):
 
 class OrderBase(BaseModel):
     idempotencyKey: Optional[str] = Field(None, min_length=16, max_length=100)
+    # Links a checkout order to a previously reserved harvest pre-order.
+    # Regular marketplace checkout leaves this unset.
+    preorderId: Optional[str] = None
     items: List[OrderItemCreate]
     deliveryAddressId: Optional[str] = None
     specialInstructions: Optional[str] = None
