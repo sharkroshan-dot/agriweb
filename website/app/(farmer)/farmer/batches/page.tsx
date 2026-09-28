@@ -225,33 +225,27 @@ export default function FarmerBatchesPage() {
           <CardContent>
             <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
-                <label className="text-xs font-medium text-gray-500">Product / Crop name *</label>
-                <Select value={selectedProductId} onValueChange={(v) => {
-                  setSelectedProductId(v);
-                  const product = batchEligibleProducts.find((p) => String(p._id) === v);
-                  const plan = availableHarvests.find((p) => String(product?.sourceHarvestPlanId || "") === String(p.id || p._id));
+                <label className="text-xs font-medium text-gray-500">Harvested crop *</label>
+                <Select value={selectedHarvest ? String(selectedHarvest.id || selectedHarvest._id) : ""} onValueChange={(v) => {
+                  const plan = availableHarvests.find((p) => String(p.id || p._id) === v);
+                  const linked = batchEligibleProducts.find((p) => String(p.sourceHarvestPlanId || "") === v);
+                  setSelectedProductId(linked?._id || "");
                   setForm((current) => ({
                     ...current,
-                    cropName: product?.name || "",
-                    quantityKg: String(plan?.actualQuantityKg ?? plan?.expectedQuantityKg ?? ""),
+                    cropName: linked?.name || plan?.cropName || "",
+                    quantityKg: String(plan?.actualQuantityKg ?? 0),
                     harvestDate: plan?.harvestedAt ? String(plan.harvestedAt).slice(0, 10) : "",
                   }));
                 }}>
                   <SelectContent>
-                    {batchEligibleProducts.map((product) => (
-                      <SelectItem key={product._id} value={product._id}>
-                        {product.name} — {product.quantity} {product.unit}
+                    {availableHarvests.map((plan) => (
+                      <SelectItem key={String(plan.id || plan._id)} value={String(plan.id || plan._id)}>
+                        {plan.cropName} — {plan.actualQuantityKg || 0} kg
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {productsLoading ? (
-                  <p className="text-[11px] text-gray-400">Loading products...</p>
-                ) : batchEligibleProducts.length === 0 ? (
-                  <p className="text-[11px] text-gray-400">All your products already have a batch, or no products are available.</p>
-                ) : (
-                  <p className="text-[11px] text-gray-400">Products that already have a batch are automatically hidden.</p>
-                )}
+                <p className="text-[11px] text-gray-400">Batch creation starts from the completed harvest. A product link is optional and can be added after quality approval.</p>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Crop name</label>
@@ -298,7 +292,7 @@ export default function FarmerBatchesPage() {
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="variety, field plot, remarks..." />
               </div>
               <div className="sm:col-span-2 flex justify-end">
-                <Button type="submit" disabled={createMutation.isPending || !selectedProductId || !selectedHarvest || batchEligibleProducts.length === 0}>
+                <Button type="submit" disabled={createMutation.isPending || !selectedHarvest}>
                   {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   Create Batch
                 </Button>
