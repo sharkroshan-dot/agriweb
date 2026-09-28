@@ -80,17 +80,19 @@ export default function FarmerCropAdvisorPage() {
           );
           const result = await response.json();
           const address = result?.address || {};
-          const city =
-            address.city ||
-            address.town ||
+          const locality =
             address.village ||
+            address.town ||
+            address.city ||
+            address.suburb ||
+            address.city_district ||
             address.municipality ||
-            address.county ||
             "";
           const state = address.state || "";
           const country = address.country || "";
-          if (city) {
-            setForm((current) => ({ ...current, location: city }));
+          const displayLocation = [locality, state, country].filter(Boolean).join(", ");
+          if (displayLocation) {
+            setForm((current) => ({ ...current, location: displayLocation }));
           }
         } catch {
           // Coordinates still work for weather even if reverse geocoding fails.
