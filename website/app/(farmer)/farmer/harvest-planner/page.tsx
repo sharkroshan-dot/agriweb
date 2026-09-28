@@ -1034,17 +1034,7 @@ export default function FarmerHarvestPlannerPage() {
                       disabled={planStage >= STAGES.length - 1 || stageMutation.isPending}
                       onClick={() => {
                         if (getStageIndex(plan) === 2) {
-                          const value = window.prompt(
-                            "Enter the actual harvested quantity (kg):",
-                            String(plan.expectedQuantityKg ?? "")
-                          );
-                          if (value === null) return;
-                          const actualQuantityKg = Number(value);
-                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
-                            toast.error("Enter a valid harvested quantity greater than 0 kg");
-                            return;
-                          }
-                          stageMutation.mutate({ planId: plan.id, action: "next", actualQuantityKg });
+                          openHarvestConfirmation(plan);
                           return;
                         }
                         stageMutation.mutate({ planId: plan.id, action: "next" });
