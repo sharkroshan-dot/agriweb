@@ -483,6 +483,9 @@ async def _apply_harvest(plan: dict) -> int:
     return notified
 
 
+class HarvestConfirmation(BaseModel):
+    actualQuantityKg: float
+
 @router.post("/plans/{plan_id}/harvest")
 async def mark_harvested(
     plan_id: str,
@@ -531,9 +534,6 @@ async def mark_harvested(
         "message": f"Harvest marked. {notified} subscribers notified.",
     }
 
-
-class HarvestConfirmation(BaseModel):
-    actualQuantityKg: float
 
 class StageTransition(BaseModel):
     action: str  # "next" | "prev"
