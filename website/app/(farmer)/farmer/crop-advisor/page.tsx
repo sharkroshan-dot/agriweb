@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Sprout, Loader2, CloudSun, Thermometer, Droplets, TreePine, RefreshCcw } from "lucide-react";
 import { api } from "../../../lib/api/client";
