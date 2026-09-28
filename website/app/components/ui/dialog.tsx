@@ -66,3 +66,6 @@ export function DialogTitle({ className, children }: React.HTMLAttributes<HTMLHe
 export function DialogDescription({ className, children }: React.HTMLAttributes<HTMLParagraphElement>) {
   return <p className={cn("text-sm text-slate-500", className)}>{children}</p>;
 }
+export function DialogFooter({ className, children }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}>{children}</div>;
+}
