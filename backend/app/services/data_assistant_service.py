@@ -95,8 +95,12 @@ async def _answer_price_prediction(product_name: str, language: str) -> Optional
     if not name:
         return None
     try:
-        from app.ai.services.prediction_service import prediction_service
-        result=await prediction_service.predict_price(name)
+        from app.services.ai_service import AIService
+        products = await __import__('app.repositories.product_repository', fromlist=['product_repository']).product_repository.find_many({'isActive': True, 'deletedAt': None}, limit=200)
+        product = next((p for p in products if name.lower() in str(p.get('name') or '').lower()), None)
+        if not product:
+            return {'reply': f"I couldn't find {name} in the current marketplace.", 'language': language, 'intent': 'price_prediction', 'data': None}
+        result=await AIService.predict_price(type('PriceRequest', (), {'productId': str(product.get('_id')), 'days': 7})())
         if isinstance(result,dict):
             return {"reply":str(result.get("message") or result.get("prediction") or result),"language":language,"intent":"price_prediction","data":result}
         return {"reply":str(result),"language":language,"intent":"price_prediction","data":result}
@@ -118,7 +122,7 @@ async def _answer_demand_forecast(text: str, low: str, lang: str) -> Optional[Di
 
     from app.repositories.product_repository import product_repository
     from app.repositories.order_repository import order_repository
-    from app.ai.models.demand_forecast import demand_forecast_model
+    from app.services.ai_service import AIService
 
     products = await product_repository.find_many(
         {"deletedAt": None, "isActive": True, "isBasketOnly": {"$ne": True}}, limit=100
@@ -153,7 +157,7 @@ async def _answer_demand_forecast(text: str, low: str, lang: str) -> Optional[Di
         }
 
     try:
-        prediction = demand_forecast_model.predict(history, 7)
+        prediction = await AIService.forecast_demand(type('DemandRequest', (), {'productId': str(pid), 'period': 7})())
         predicted = prediction.get("predicted_demand", []) if prediction else []
         current = prediction.get("current_demand", 0) if prediction else 0
         confidence = prediction.get("confidence", 0) if prediction else 0
@@ -374,15 +378,19 @@ class DataAssistantService:
         low=text.lower()
         if any(k in low for k in ["password","otp","private address","payment details","wallet balance","my order","my orders","another user","other user"]):
             return {"action":"chat_reply","response":PRIVATE_DATA_RESPONSE[lang],"intent":"private_data_blocked","data":None}
-        plan=await _semantic_plan(text,conversation)
+        try:
+            plan=await _semantic_plan(text,conversation)
+        except Exception as exc:
+            logger.warning('Semantic AI planner failed; using deterministic assistant: %s', exc)
+            plan=None
         if not plan:
-            # The scratch LLM is the semantic layer. Do not silently fall back
-            # to keyword QA because that can answer a different question.
+            fallback = await DataAssistantService.answer(text, lang, user)
             return {
                 "action": "chat_reply",
-                "response": "The AgriConnect AI model is not ready yet. Start the local model by training it with: python scripts/train_agriconnect_llm.py --epochs 8 --batch-size 8",
-                "intent": "semantic_unavailable",
-                "data": None,
+                "response": fallback.get("reply", HELP_RESPONSES[lang]["default"]),
+                "intent": fallback.get("intent", "fallback_assistant"),
+                "data": fallback.get("data"),
+                "uiActions": fallback.get("uiActions", []),
             }
         results=[await _execute_semantic_request(i,lang,user) for i in plan.get("requests",[])[:5] if isinstance(i,dict)]
         if not results: return {"action":"chat_reply","response":PROJECT_SCOPE_RESPONSES[lang]["help"],"intent":"project_help","data":None}

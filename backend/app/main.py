@@ -241,16 +241,8 @@ async def health_check():
 from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying
 from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality
-try:
-    from app.api.v1 import ai
-    _ai_router = ai.router
-except ImportError as exc:
-    if not settings.DEBUG and os.getenv("ENABLE_AI_STUBS", "false").lower() != "true":
-        raise RuntimeError(
-            "AI router import failed in production; fix the dependency/import error instead of silently using stubs."
-        ) from exc
-    from app.api.v1 import ai_stubs
-    _ai_router = ai_stubs.router
+from app.api.v1 import ai
+_ai_router = ai.router
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
