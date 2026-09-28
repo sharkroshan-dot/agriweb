@@ -24,6 +24,7 @@ export default function PreorderCheckoutPage() {
   const [placing, setPlacing] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState(0);
 
   useEffect(() => {
     const load = async () => {
@@ -57,6 +58,27 @@ export default function PreorderCheckoutPage() {
     () => addresses.find((a: any) => String(a.id || a._id) === addressId),
     [addresses, addressId]
   );
+
+  useEffect(() => {
+    if (!addressId || !preorder?.productId || !qty) {
+      setDeliveryFee(0);
+      return;
+    }
+    let cancelled = false;
+    api.post("/delivery/fee-estimate", {
+      items: [{ productId: String(preorder.productId), quantity: qty }],
+      deliveryAddressId: addressId,
+      method: "farmer",
+      orderAmount: subtotal,
+    }).then((res: any) => {
+      if (!cancelled) setDeliveryFee(Number(res?.data?.fee ?? res?.fee ?? 0) || 0);
+    }).catch(() => {
+      if (!cancelled) setDeliveryFee(0);
+    });
+    return () => { cancelled = true; };
+  }, [addressId, preorder?.productId, qty, subtotal]);
+
+  const totalPayable = subtotal + deliveryFee + Math.max(0, subtotal * 0.05);
 
   const loadRazorpay = async () => {
     if (typeof window !== "undefined" && window.Razorpay) return true;
@@ -202,9 +224,15 @@ export default function PreorderCheckoutPage() {
                 <p className="text-lg font-semibold">{preorder.cropName}</p>
                 <p className="mt-1 text-sm text-slate-500">{qty} kg × ₹{agreedPrice.toFixed(2)}/kg</p>
               </div>
-              <p className="text-xl font-bold text-emerald-700">₹{subtotal.toFixed(2)}</p>
+              <p className="text-xl font-bold text-emerald-700">₹{totalPayable.toFixed(2)}</p>
             </div>
-            <div className="mt-4 flex items-center gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+            <div className="mt-4 grid gap-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="flex justify-between"><span>Pre-order value</span><span>₹{subtotal.toFixed(2)}</span></div>
+              <div className="flex justify-between"><span>Delivery</span><span>{deliveryFee ? `₹${deliveryFee.toFixed(2)}` : "Calculating…"}</span></div>
+              <div className="flex justify-between"><span>Platform fee</span><span>₹{(subtotal * 0.05).toFixed(2)}</span></div>
+              <div className="flex justify-between border-t pt-2 font-semibold"><span>Total payable</span><span>₹{totalPayable.toFixed(2)}</span></div>
+            </div>
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
               <ShieldCheck className="h-4 w-4" />
               Pre-order price locked at ₹{agreedPrice.toFixed(2)}/kg
             </div>
@@ -249,7 +277,7 @@ export default function PreorderCheckoutPage() {
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3.5 font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {placing ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-            {paymentMethod === "cash" ? "Confirm Pre-order & Choose COD" : `Confirm Pre-order & Pay ₹${subtotal.toFixed(2)}`}
+            {paymentMethod === "cash" ? "Confirm Pre-order with COD" : `Confirm Pre-order & Pay ₹${totalPayable.toFixed(2)}`}
           </button>
         </>
       )}
