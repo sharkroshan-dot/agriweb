@@ -20,6 +20,7 @@ router = APIRouter()
 
 harvest_plan_repo = BaseRepository("harvest_plans")
 harvest_preorder_repo = BaseRepository("harvest_preorders")
+batch_repo = BaseRepository("batches")
 
 def _serialize_product(product: dict) -> dict:
     product["id"] = str(product["_id"])
@@ -193,10 +194,12 @@ async def create_product(
                 detail="Source harvest plan not found.",
             )
         if plan.get("status") != "harvested":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Create the product only after the harvest has been confirmed.",
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Create the product only after the harvest has been confirmed.")
+        batch = await batch_repo.find_one({"sourceHarvestPlanId": ObjectId(data.sourceHarvestPlanId), "deletedAt": None})
+        if not batch:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Create the harvest batch and complete independent quality approval before creating the marketplace product.")
+        if batch.get("qualityStatus") != "approved" or batch.get("verificationStatus") not in ("verified", "buyer_verified"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The harvest batch must pass independent quality approval before the product can be published.")
         if plan.get("productCreated"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
