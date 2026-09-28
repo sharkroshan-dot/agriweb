@@ -37,7 +37,7 @@ class PaymentMethod(str, Enum):
 class OrderItemBase(BaseModel):
     productId: str
     variantId: Optional[str] = None
-    quantity: int = Field(ge=1)
+    quantity: float = Field(gt=0)
     unitPrice: float = Field(gt=0)
 
 class OrderItemCreate(OrderItemBase):
