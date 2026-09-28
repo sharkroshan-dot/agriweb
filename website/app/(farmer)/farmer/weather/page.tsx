@@ -40,93 +40,84 @@ export default function FarmerWeatherPage() {
   });
 
   const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      setLocationError("Live GPS location is not supported by this browser.");
-      return;
-    }
-
     setLocating(true);
     setLocationError(null);
 
-    let bestPosition: GeolocationPosition | null = null;
-    let settled = false;
-    let watchId: number | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reverseGeocode = async (lat: number, lng: number) => {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
+        { headers: { "Accept-Language": "en" } }
+      );
+      if (!response.ok) throw new Error("Location lookup failed");
+      const result = await response.json();
+      const address = result?.address || {};
+      const locality =
+        address.village || address.town || address.city || address.hamlet ||
+        address.suburb || address.city_district || address.municipality || "";
+      const district = address.state_district || address.district || "";
+      const state = address.state || "";
+      const country = address.country || "";
+      return [locality, district, state, country]
+        .filter(Boolean)
+        .filter((part, index, parts) => parts.indexOf(part) === index)
+        .join(", ");
+    };
 
-    const finish = async () => {
-      if (settled) return;
-      settled = true;
-      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-      if (timer) clearTimeout(timer);
-
-      if (!bestPosition) {
-        setLocating(false);
-        setLocationError("No fresh GPS position was received. Enable precise device location and try again.");
-        return;
-      }
-
-      const { latitude: lat, longitude: lng } = bestPosition.coords;
+    const applyCoordinates = async (lat: number, lng: number, source: string) => {
       setCoordinates({ lat, lng });
-
       try {
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1&zoom=18`,
-          { headers: { "Accept-Language": "en" } }
-        );
-        if (!response.ok) throw new Error("Location lookup failed");
-        const result = await response.json();
-        const address = result?.address || {};
-        const locality =
-          address.village ||
-          address.town ||
-          address.city ||
-          address.hamlet ||
-          address.suburb ||
-          address.city_district ||
-          address.municipality ||
-          "";
-        const district = address.state_district || address.district || "";
-        const state = address.state || "";
-        const country = address.country || "";
-        const display = [locality, district, state, country]
-          .filter(Boolean)
-          .filter((part, index, parts) => parts.indexOf(part) === index)
-          .join(", ");
-
-        setLocation(display || `GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        const display = await reverseGeocode(lat, lng);
+        setLocation(display || `Current location (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+        setLocationError(null);
       } catch {
-        setLocation(`GPS ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+        setLocation(`Current location (${lat.toFixed(5)}, ${lng.toFixed(5)})`);
+        setLocationError(source === "network"
+          ? "Approximate location used because precise browser location is unavailable."
+          : null);
       } finally {
         setLocating(false);
       }
     };
 
-    const success = (position: GeolocationPosition) => {
-      if (!bestPosition || position.coords.accuracy < bestPosition.coords.accuracy) {
-        bestPosition = position;
-      }
-      if (position.coords.accuracy <= 50) void finish();
-    };
-
-    const error = (error: GeolocationPositionError) => {
-      if (bestPosition) {
-        void finish();
-        return;
-      }
-      setLocating(false);
-      setLocationError(
-        error.code === 1
-          ? "Location permission denied. Please allow precise location access."
-          : "Could not determine your current location."
+    // First try the browser's best available location. Do not require <=50 m GPS.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          void applyCoordinates(position.coords.latitude, position.coords.longitude, "browser");
+        },
+        async () => {
+          // Desktop browsers can deny/unavailable geolocation even when the
+          // network can still provide an approximate current location.
+          try {
+            const response = await fetch("https://ipapi.co/json/");
+            if (!response.ok) throw new Error("Network location unavailable");
+            const result = await response.json();
+            const lat = Number(result?.latitude);
+            const lng = Number(result?.longitude);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error("Invalid network location");
+            await applyCoordinates(lat, lng, "network");
+          } catch {
+            setLocating(false);
+            setLocationError("Current location is unavailable. Allow browser location access or enter your village/town/city manually.");
+          }
+        },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
       );
-    };
+      return;
+    }
 
-    watchId = navigator.geolocation.watchPosition(success, error, {
-      enableHighAccuracy: true,
-      timeout: 30000,
-      maximumAge: 0,
-    });
-    timer = setTimeout(() => void finish(), 12000);
+    try {
+      const response = await fetch("https://ipapi.co/json/");
+      if (!response.ok) throw new Error("Network location unavailable");
+      const result = await response.json();
+      const lat = Number(result?.latitude);
+      const lng = Number(result?.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error("Invalid network location");
+      await applyCoordinates(lat, lng, "network");
+    } catch {
+      setLocating(false);
+      setLocationError("Current location is unavailable. Enter your village/town/city manually.");
+    }
   };
 
   const run = () => {
@@ -188,7 +179,7 @@ export default function FarmerWeatherPage() {
             </div>
             <p className="text-[11px] text-gray-400">
               {coordinates
-                ? `Using exact GPS coordinates: ${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`
+                ? `Using live coordinates: ${coordinates.lat.toFixed(5)}, ${coordinates.lng.toFixed(5)}`
                 : "Enter a village/town/city or use current location."}
             </p>
             {locationError && <p className="text-[11px] text-red-500">{locationError}</p>}
