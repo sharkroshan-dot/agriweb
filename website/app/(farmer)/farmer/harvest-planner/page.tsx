@@ -163,21 +163,15 @@ export default function FarmerHarvestPlannerPage() {
   });
 
   const harvestMutation = useMutation({
-    mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/harvest`),
-    onSuccess: (_data, planId) => {
+    mutationFn: ({ planId, actualQuantityKg }: { planId: string; actualQuantityKg: number }) =>
+      api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg }),
+    onSuccess: (_data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
-      const plan = plans.find((p) => p.id === planId);
-      const params = new URLSearchParams({
-        name: plan?.cropName || "",
-        price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-        quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
-        unit: "kg",
-        harvestDate: plan?.expectedHarvestDate || "",
-        fromHarvest: planId,
-      });
-      router.push(`/farmer/products/new?${params.toString()}`);
-      toast.success("Harvest marked! Now finish creating your product.");
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
+      router.push("/farmer/batches");
+      toast.success(`Harvest marked at ${vars.actualQuantityKg} kg. Create its batch for traceability.`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to mark harvest"),
   });
@@ -191,25 +185,16 @@ export default function FarmerHarvestPlannerPage() {
   });
 
   const stageMutation = useMutation({
-    mutationFn: ({ planId, action }: { planId: string; action: "next" | "prev" }) =>
-      api.post(`/harvests/plans/${planId}/stage`, { action }),
+    mutationFn: ({ planId, action, actualQuantityKg }: { planId: string; action: "next" | "prev"; actualQuantityKg?: number }) =>
+      api.post(`/harvests/plans/${planId}/stage`, { action, actualQuantityKg }),
     onSuccess: (res: any, vars) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
       const { planId, action } = vars;
       toast.success(res?.message || `Lifecycle updated (${planId})`);
       if (action === "next" && res?.data?.stage === 3) {
-        const plan = plans.find((p) => p.id === planId);
-        const params = new URLSearchParams({
-          name: plan?.cropName || "",
-          price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-          quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
-          unit: "kg",
-          harvestDate: plan?.expectedHarvestDate || "",
-          fromHarvest: planId,
-        });
-        router.push(`/farmer/products/new?${params.toString()}`);
-        toast.success("Harvest marked! Now finish creating your product.");
+        router.push("/farmer/batches");
+        toast.success("Harvest recorded. Create its batch for traceability.");
       }
     },
     onError: (err: any) => toast.error(err?.message || "Failed to update stage"),
@@ -274,11 +259,11 @@ export default function FarmerHarvestPlannerPage() {
       case "batched":
         return 4;
       case "harvested":
-        return batches.some((b: any) => b.cropName === plan.cropName) ? 4 : 3;
+        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
       default: {
         // Fallback inference for legacy plans without an explicit stage field.
         if (plan.status === "harvested") {
-          return batches.some((b: any) => b.cropName === plan.cropName) ? 4 : 3;
+          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
         }
         const p = growthProgress(plan);
         if (p >= 100) return 2;
@@ -944,7 +929,19 @@ export default function FarmerHarvestPlannerPage() {
                         className="flex-1"
                         size="sm"
                         disabled={harvestMutation.isPending}
-                        onClick={() => harvestMutation.mutate(plan.id)}
+                        onClick={() => {
+                          const value = window.prompt(
+                            "Enter the actual harvested quantity (kg):",
+                            String(plan.expectedQuantityKg ?? "")
+                          );
+                          if (value === null) return;
+                          const actualQuantityKg = Number(value);
+                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
+                            toast.error("Enter a valid harvested quantity greater than 0 kg");
+                            return;
+                          }
+                          harvestMutation.mutate({ planId: plan.id, actualQuantityKg });
+                        }}
                       >
                         {harvestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                         Mark Harvested
@@ -985,7 +982,23 @@ export default function FarmerHarvestPlannerPage() {
                       size="sm"
                       className="flex-1"
                       disabled={planStage >= STAGES.length - 1 || stageMutation.isPending}
-                      onClick={() => stageMutation.mutate({ planId: plan.id, action: "next" })}
+                      onClick={() => {
+                        if (getStageIndex(plan) === 2) {
+                          const value = window.prompt(
+                            "Enter the actual harvested quantity (kg):",
+                            String(plan.expectedQuantityKg ?? "")
+                          );
+                          if (value === null) return;
+                          const actualQuantityKg = Number(value);
+                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
+                            toast.error("Enter a valid harvested quantity greater than 0 kg");
+                            return;
+                          }
+                          stageMutation.mutate({ planId: plan.id, action: "next", actualQuantityKg });
+                          return;
+                        }
+                        stageMutation.mutate({ planId: plan.id, action: "next" });
+                      }}
                     >
                       Next <ChevronRight className="ml-1 h-4 w-4" />
                     </Button>

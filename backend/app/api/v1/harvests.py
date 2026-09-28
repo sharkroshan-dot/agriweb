@@ -354,6 +354,7 @@ async def create_harvest_plan(
 async def get_farmer_harvest_plans(
     include_cancelled: bool = Query(False),
     source: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """List the current farmer's harvest plans (newest first)."""
@@ -363,10 +364,12 @@ async def get_farmer_harvest_plans(
     filter = {"farmerId": ObjectId(current_user["_id"]), "deletedAt": None}
     if source:
         filter["source"] = {"$in": [source, None]} if source == "calendar" else source
-    if not include_cancelled:
+    if status:
+        filter["status"] = status
+    elif not include_cancelled:
         filter["status"] = {"$ne": PLAN_CANCELLED}
 
-    plans = await harvest_plan_repo.find_many(filter, sort=[("expectedHarvestDate", -1)], limit=200)
+    plans = await harvest_plan_repo.find_many(filter, sort=[("harvestedAt", -1), ("expectedHarvestDate", -1)], limit=200)
     for p in plans:
         _serialize_plan(p)
         p["preorderCount"] = await harvest_preorder_repo.count({
@@ -462,7 +465,7 @@ async def _apply_harvest(plan: dict) -> int:
     product_id = plan.get("productId")
     if product_id:
         try:
-            qty = int(plan.get("expectedQuantityKg", 0)) or 0
+            qty = int(float(plan.get("actualQuantityKg") or plan.get("expectedQuantityKg") or 0)) or 0
             await product_repository.collection.update_one(
                 {"_id": product_id},
                 {"$inc": {"quantity": qty},
@@ -483,6 +486,7 @@ async def _apply_harvest(plan: dict) -> int:
 @router.post("/plans/{plan_id}/harvest")
 async def mark_harvested(
     plan_id: str,
+    data: HarvestConfirmation,
     current_user: dict = Depends(get_current_user),
 ):
     """Mark a harvest plan as harvested; notify subscribers + confirm pre-orders."""
@@ -501,11 +505,23 @@ async def mark_harvested(
             status_code=400,
             detail="A product was already created from this harvest plan, so it cannot be harvested again.",
         )
+    if data.actualQuantityKg <= 0:
+        raise HTTPException(status_code=400, detail="Actual harvested quantity must be greater than 0")
 
+    now = datetime.utcnow()
     await harvest_plan_repo.update(
         {"_id": ObjectId(plan_id)},
-        {"status": PLAN_HARVESTED, "harvestedAt": datetime.utcnow()},
+        {
+            "status": PLAN_HARVESTED,
+            "stage": "harvested",
+            "harvestedAt": now,
+            "actualQuantityKg": float(data.actualQuantityKg),
+        },
     )
+    plan["status"] = PLAN_HARVESTED
+    plan["stage"] = "harvested"
+    plan["harvestedAt"] = now
+    plan["actualQuantityKg"] = float(data.actualQuantityKg)
 
     notified = await _apply_harvest(plan)
 
@@ -516,8 +532,12 @@ async def mark_harvested(
     }
 
 
+class HarvestConfirmation(BaseModel):
+    actualQuantityKg: float
+
 class StageTransition(BaseModel):
     action: str  # "next" | "prev"
+    actualQuantityKg: Optional[float] = None
 
 
 def _plan_stage_index(plan: dict, has_batch: bool) -> int:
@@ -652,36 +672,38 @@ async def transition_plan_stage(
             },
         )
     elif target == 3:  # Harvested
+        actual_qty = body.actualQuantityKg
+        if actual_qty is None or actual_qty <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Enter the actual harvested quantity before marking this crop harvested.",
+            )
+        if plan.get("productCreated"):
+            raise HTTPException(
+                status_code=400,
+                detail="A product was already created from this harvest plan, so it cannot be harvested again.",
+            )
         await harvest_plan_repo.update(
             {"_id": ObjectId(plan_id)},
-            {"stage": "harvested", "status": PLAN_HARVESTED, "harvestedAt": now, "previousStatus": plan.get("status") or PLAN_PLANNED},
+            {
+                "stage": "harvested",
+                "status": PLAN_HARVESTED,
+                "harvestedAt": now,
+                "actualQuantityKg": float(actual_qty),
+                "previousStatus": plan.get("status") or PLAN_PLANNED,
+            },
         )
+        plan["stage"] = "harvested"
+        plan["status"] = PLAN_HARVESTED
+        plan["harvestedAt"] = now
+        plan["actualQuantityKg"] = float(actual_qty)
         await _apply_harvest(plan)
     elif target == 4:  # Batched
-        if plan.get("status") != PLAN_HARVESTED:
-            await harvest_plan_repo.update(
-                {"_id": ObjectId(plan_id)},
-                {"stage": "harvested", "status": PLAN_HARVESTED, "harvestedAt": plan.get("harvestedAt") or now},
-            )
         if not batch:
-            lot_number = f"BATCH-{datetime.utcnow().strftime('%Y%m%d')}-{str(plan_id)[-4:].upper()}"
-            await harvest_batch_repo.create({
-                "farmerId": plan.get("farmerId"),
-                "lotNumber": lot_number,
-                "cropName": plan.get("cropName"),
-                "quantityKg": float(plan.get("expectedQuantityKg", 0) or 0),
-                "remainingKg": float(plan.get("expectedQuantityKg", 0) or 0),
-                "harvestDate": plan.get("harvestedAt") or now,
-                "qualityGrade": "standard",
-                "storageType": plan.get("storageType") or "normal",
-                "shelfLifeDays": 3,
-                "expiresAt": (plan.get("harvestedAt") or now) + timedelta(days=3),
-                "productId": plan.get("productId"),
-                "sourceHarvestPlanId": ObjectId(plan_id),
-                "notes": f"Auto batch from harvest plan {plan.get('cropName')}",
-                "status": "created",
-                "deletedAt": None,
-            })
+            raise HTTPException(
+                status_code=400,
+                detail="Create a batch from this harvested crop in Batches & Traceability before moving to Batched.",
+            )
         await harvest_plan_repo.update({"_id": ObjectId(plan_id)}, {"stage": "batched"})
 
     # Reverse transitions that need to undo an existing batch.

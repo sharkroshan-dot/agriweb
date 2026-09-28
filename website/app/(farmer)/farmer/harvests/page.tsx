@@ -76,20 +76,15 @@ export default function FarmerHarvestsPage() {
   });
 
   const harvestMutation = useMutation({
-    mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/harvest`),
-    onSuccess: (_data, planId) => {
+    mutationFn: ({ planId, actualQuantityKg }: { planId: string; actualQuantityKg: number }) =>
+      api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg }),
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
-      const plan = plans.find((p) => p.id === planId);
-      const params = new URLSearchParams({
-        name: plan?.cropName || "",
-        price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-        quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
-        unit: "kg",
-        harvestDate: plan?.expectedHarvestDate || "",
-        fromHarvest: planId,
-      });
-      router.push(`/farmer/products/new?${params.toString()}`);
-      toast.success("Harvest marked! Now finish creating your product.");
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
+      router.push("/farmer/batches");
+      toast.success(`Harvest marked at ${vars.actualQuantityKg} kg. Create its batch for traceability.`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to mark harvest"),
   });
@@ -277,7 +272,19 @@ export default function FarmerHarvestsPage() {
                       className="flex-1"
                       size="sm"
                       disabled={harvestMutation.isPending}
-                      onClick={() => harvestMutation.mutate(plan.id)}
+                      onClick={() => {
+                          const value = window.prompt(
+                            "Enter the actual harvested quantity (kg):",
+                            String(plan.expectedQuantityKg ?? "")
+                          );
+                          if (value === null) return;
+                          const actualQuantityKg = Number(value);
+                          if (!Number.isFinite(actualQuantityKg) || actualQuantityKg <= 0) {
+                            toast.error("Enter a valid harvested quantity greater than 0 kg");
+                            return;
+                          }
+                          harvestMutation.mutate({ planId: plan.id, actualQuantityKg });
+                        }}
                     >
                       {harvestMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

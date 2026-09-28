@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 batch_repo = BaseRepository("batches")
+harvest_plan_repo = BaseRepository("harvest_plans")
 
 STORAGE_TYPES = ["normal", "refrigerated", "cold_storage", "frozen"]
 DEFAULT_SHELF_LIFE_DAYS = {"normal": 3, "refrigerated": 5, "cold_storage": 7, "frozen": 30}
@@ -135,24 +136,61 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can create batches")
 
+    if not data.sourceHarvestPlanId:
+        raise HTTPException(
+            status_code=400,
+            detail="A batch must be created from a harvested crop. Mark the harvest first.",
+        )
+    try:
+        harvest_plan_id = ObjectId(data.sourceHarvestPlanId)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid source harvest plan")
+
+    harvest_plan = await harvest_plan_repo.find_one({
+        "_id": harvest_plan_id,
+        "farmerId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not harvest_plan:
+        raise HTTPException(status_code=404, detail="Source harvest plan not found")
+    if harvest_plan.get("status") != "harvested":
+        raise HTTPException(status_code=400, detail="Only harvested crops can be converted into a batch")
+
+    existing_batch = await batch_repo.find_one({
+        "sourceHarvestPlanId": harvest_plan_id,
+        "deletedAt": None,
+        "status": {"$ne": BATCH_CANCELLED},
+    })
+    if existing_batch:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This harvest already has batch {existing_batch.get('lotNumber')}. One harvest event can create only one batch.",
+        )
+
+    actual_qty = float(harvest_plan.get("actualQuantityKg") or 0)
+    if actual_qty <= 0:
+        raise HTTPException(status_code=400, detail="Actual harvested quantity is missing from the harvest record")
+    if abs(float(data.quantityKg) - actual_qty) > 0.001:
+        raise HTTPException(status_code=400, detail=f"Batch quantity must match the actual harvested quantity ({actual_qty:g} kg)")
+
     storage = data.storageType if data.storageType in STORAGE_TYPES else "normal"
     shelf = data.shelfLifeDays or DEFAULT_SHELF_LIFE_DAYS.get(storage, 3)
-    harvest = _to_naive_utc(data.harvestDate) or datetime.utcnow()
+    harvest = _to_naive_utc(harvest_plan.get("harvestedAt")) or datetime.utcnow()
     lot_number = await _next_lot_number()
 
     batch = {
         "farmerId": ObjectId(current_user["_id"]),
         "lotNumber": lot_number,
-        "cropName": data.cropName.strip(),
-        "quantityKg": float(data.quantityKg),
-        "remainingKg": float(data.quantityKg),
+        "cropName": harvest_plan.get("cropName"),
+        "quantityKg": actual_qty,
+        "remainingKg": actual_qty,
         "harvestDate": harvest,
         "qualityGrade": data.qualityGrade,
         "storageType": storage,
         "shelfLifeDays": shelf,
         "expiresAt": harvest + timedelta(days=shelf),
         "productId": ObjectId(data.productId) if data.productId else None,
-        "sourceHarvestPlanId": ObjectId(data.sourceHarvestPlanId) if data.sourceHarvestPlanId else None,
+        "sourceHarvestPlanId": harvest_plan_id,
         "notes": data.notes,
         "status": BATCH_CREATED,
         "createdAt": datetime.utcnow(),
@@ -164,6 +202,12 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
     created = await batch_repo.create(batch)
     if not created:
         raise HTTPException(status_code=400, detail="Failed to create batch")
+
+    # Creating the batch is the explicit transition from Harvested -> Batched.
+    await harvest_plan_repo.update(
+        {"_id": harvest_plan_id},
+        {"stage": "batched", "updatedAt": datetime.utcnow()},
+    )
 
     out = dict(batch)
     out["_id"] = created
