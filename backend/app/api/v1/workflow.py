@@ -97,7 +97,7 @@ async def _business(uid: str):
     status = str(rfq.get("status") or "").lower()
     if status in ("open", "published", "active"):
         return {"currentStep": "RFQ Published", "state": "ACTION_REQUIRED", "next": _href(f"/business/rfqs/{rfq['_id']}", "Review Farmer Quotes", "Review and compare farmer offers before awarding the RFQ."), "entityId": str(rfq["_id"])}
-    order = await _latest(order_repo, {"businessUserId": _id(uid), "deletedAt": None}, "createdAt")
+    order = await _latest(orders, {"businessUserId": _id(uid), "deletedAt": None}, "createdAt")
     if not order:
         return {"currentStep": "RFQ Awarded", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs", "Review Awarded RFQ", "Review the selected offer and proceed to the B2B order."), "entityId": str(rfq["_id"])}
     status = str(order.get("status") or "").lower()
