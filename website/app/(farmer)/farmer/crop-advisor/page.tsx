@@ -87,6 +87,8 @@ export default function FarmerCropAdvisorPage() {
             address.municipality ||
             address.county ||
             "";
+          const state = address.state || "";
+          const country = address.country || "";
           if (city) {
             setForm((current) => ({ ...current, location: city }));
           }
