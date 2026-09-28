@@ -44,8 +44,9 @@ const STAGES = [
   { key: "growing", label: "Growing", icon: Wheat, color: "text-emerald-600" },
   { key: "ready", label: "Ready for Harvest", icon: Clock, color: "text-amber-600" },
   { key: "harvested", label: "Harvested", icon: CheckCircle2, color: "text-blue-600" },
-  { key: "product", label: "Product Created", icon: Store, color: "text-emerald-600" },
-  { key: "batched", label: "Batched", icon: Layers, color: "text-violet-600" },
+  { key: "batched", label: "Batch", icon: Layers, color: "text-violet-600" },
+  { key: "quality", label: "Quality", icon: CheckCircle2, color: "text-amber-600" },
+  { key: "product", label: "Product", icon: Store, color: "text-emerald-600" },
 ];
 
 const SEASONS = ["kharif", "rabi", "summer"];
@@ -195,7 +196,7 @@ export default function FarmerHarvestPlannerPage() {
       setActualQuantityKg("");
       setFinalRatePerKg("");
       setStageCursor(3);
-      toast.success(`Harvest recorded: ${vars.actualQuantityKg} kg at ₹${vars.finalRatePerKg}/kg. Next, create the customer-facing product.`);
+      toast.success(`Harvest recorded: ${vars.actualQuantityKg} kg at ₹${vars.finalRatePerKg}/kg. Next, create the traceable batch.`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to mark harvest"),
   });
