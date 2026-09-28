@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Sprout, Loader2, CloudSun, Thermometer, Droplets, TreePine, RefreshCcw } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
@@ -14,7 +14,7 @@ import toast from "react-hot-toast";
 
 const SOIL_TYPES = ["loamy", "clay", "sandy", "black"];
 const SEASONS = ["kharif", "rabi", "summer"];
-const CROPS = ["Tomato", "Rice", "Wheat", "Potato", "Onion", "Chilli", "Brinjal", "Carrot", "Maize", "Cotton"];
+
 
 export default function FarmerCropAdvisorPage() {
   const [form, setForm] = useState({
@@ -27,6 +27,42 @@ export default function FarmerCropAdvisorPage() {
     areaAcres: "1",
   });
 
+  const { data: harvestPlansData } = useQuery({
+    queryKey: ["farmerCropAdvisorHarvests"],
+    queryFn: () => api.get("/harvests/farmer/plans"),
+    retry: 1,
+  });
+
+  const previousCrops = Array.from(
+    new Set(
+      ((harvestPlansData?.data?.plans || []) as any[])
+        .filter((plan) => plan?.status === "harvested" && String(plan?.cropName || "").trim())
+        .map((plan) => String(plan.cropName).trim())
+    )
+  ).sort((a, b) => a.localeCompare(b));
+
+  const weatherQuery = useQuery({
+    queryKey: ["farmerCropAdvisorWeather", form.location.trim()],
+    queryFn: () =>
+      api.post("/ai/weather-impact", {
+        location: { city: form.location.trim(), state: "Tamil Nadu", country: "India" },
+        productId: null,
+        days: 5,
+      }),
+    enabled: form.location.trim().length > 0,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+
+  useEffect(() => {
+    const temperature = weatherQuery.data?.data?.weather?.temperature;
+    if (typeof temperature !== "number" || !Number.isFinite(temperature)) return;
+    setForm((current) => {
+      const next = String(Math.round(temperature * 10) / 10);
+      return current.temperature === next ? current : { ...current, temperature: next };
+    });
+  }, [weatherQuery.data]);
+
   const advisorMutation = useMutation({
     mutationFn: () =>
       api.post("/ai/crop-recommendation", {
@@ -34,7 +70,7 @@ export default function FarmerCropAdvisorPage() {
         location: form.location || "Farm",
         temperature: Number(form.temperature),
         rainfall: Number(form.rainfall),
-        previousCrop: form.previousCrop || null,
+        previousCrop: form.previousCrop && form.previousCrop !== "none" ? form.previousCrop : null,
         season: form.season,
         areaAcres: Number(form.areaAcres),
       }),
