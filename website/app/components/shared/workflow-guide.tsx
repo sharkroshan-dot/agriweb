@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowRight, CheckCircle2, Circle, Clock3, Workflow } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../lib/api/client";
 
 type Step = { label: string; href: string; description: string };
 type Role = "farmer" | "customer" | "delivery" | "warehouse" | "business" | "admin";
@@ -85,6 +87,8 @@ function isDone(pathname: string, index: number, steps: Step[]) {
 
 export function WorkflowGuide({ role }: { role: Role }) {
   const pathname = usePathname();
+  const { data: workflowData } = useQuery({ queryKey: ["myWorkflow"], queryFn: () => api.get("/workflow/me") });
+  const resolved = workflowData?.data?.data;
   const steps = FLOWS[role];
   const current = steps.findIndex((s) => pathname === s.href || pathname.startsWith(s.href + "/"));
   const currentIndex = current >= 0 ? current : 0;
@@ -99,12 +103,12 @@ export function WorkflowGuide({ role }: { role: Role }) {
           </div>
           <div>
             <p className="text-sm font-semibold text-slate-900">Your workflow</p>
-            <p className="text-xs text-slate-500">Follow the next step — you do not need to know the page structure.</p>
+            <p className="text-xs text-slate-500">{resolved?.reason || "Follow the next step — you do not need to know the page structure."}</p>
           </div>
         </div>
-        {next && (
-          <Link href={next.href} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-            Continue: {next.label}
+        {(resolved?.next || next) && (
+          <Link href={resolved?.next?.href || next!.href} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+            Continue: {resolved?.next?.label || next!.label}
             <ArrowRight className="h-4 w-4" />
           </Link>
         )}
