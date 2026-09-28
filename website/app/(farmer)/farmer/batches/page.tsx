@@ -124,6 +124,12 @@ export default function FarmerBatchesPage() {
     },
     onError: (err: any) => toast.error(err?.message || "Failed to convert batch"),
   });
+  const requestInspectionMutation = useMutation({
+    mutationFn: (batchId: string) => api.post('/quality/inspections/request', { batchId }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['farmerBatches'] }); toast.success('Quality inspection requested'); },
+    onError: (err: any) => toast.error(err?.message || 'Could not request inspection'),
+  });
+
   const urgentMutation = useMutation({
     mutationFn: (inspectionId: string) => api.post(`/quality/inspections/${inspectionId}/urgent`),
     onSuccess: () => {
