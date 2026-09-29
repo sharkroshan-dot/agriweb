@@ -20,6 +20,19 @@ preorders = BaseRepository("harvest_preorders")
 rfqs = BaseRepository("b2b_rfqs")
 delivery_jobs = BaseRepository("delivery_jobs")
 addresses = BaseRepository("addresses")
+warehouse_incoming = BaseRepository("warehouse_incoming")
+warehouse_outgoing = BaseRepository("warehouse_outgoing")
+warehouse_stock = BaseRepository("warehouse_stock")
+
+
+ROLE_STEPS = {
+    "farmer": ["Farm Setup","Crop Planning","Growing","Pre-orders","Harvest","Batch","Quality","Product","Inventory","Orders","Delivery","Earnings"],
+    "customer": ["Browse","Product","Address","Delivery Fee","Checkout","Payment","Order","Tracking","Delivery","Review"],
+    "delivery": ["Availability","Assignment","Accept","Pickup","Verify","Dispatch","Route","Delivery","Proof","Completed","Earnings"],
+    "warehouse": ["Warehouse Setup","Incoming Stock","Receive","Batch Verification","Quality","Storage","Inventory","Pick","Pack","Dispatch","Transfer"],
+    "business": ["Business Setup","Category","RFQ","Farmer Quotes","Compare Quotes","Select Quote","Contract","B2B Order","Payment","Fulfillment","Delivery","Completion"],
+    "admin": ["Overview","Users","Farmers","Products","Harvests","Batches","Quality","Inventory","Orders","Payments","Delivery","Warehouse","Complaints","Settlements","Analytics","AI","Audit"],
+}
 
 def _id(v: Any):
     try:
@@ -88,7 +101,7 @@ async def _customer(uid: str):
         return {"currentStep": "Browse", "state": "ACTION_REQUIRED", "next": _href("/customer/products", "Browse Products", "Start by choosing produce from the marketplace.")}
     status = str(order.get("orderStatus") or "").lower()
     if status in ("delivered", "completed"):
-        return {"currentStep": "Delivered", "state": "ACTION_REQUIRED", "next": _href("/orders", "Review Order", "Your order is completed and ready for review.")}
+        return {"currentStep": "Review", "state": "ACTION_REQUIRED", "next": _href("/customer/reviews", "Review Order", "Your order is completed and ready for review.")}
     return {"currentStep": "Order Tracking", "state": "IN_PROGRESS", "next": _href("/orders", "Track Order", "Continue tracking your active order."), "entityId": str(order["_id"])}
 
 async def _business(uid: str):
@@ -124,9 +137,24 @@ async def _delivery(uid: str):
     return {"currentStep": "Completed", "state": "COMPLETED", "next": _href("/delivery/earnings", "View Earnings", "Review completed delivery earnings."), "entityId": str(job["_id"])}
 
 async def _warehouse(uid: str):
-    # Warehouse has explicit operational APIs; guide users to the live incoming queue.
-    return {"currentStep": "Incoming Stock", "state": "ACTION_REQUIRED",
-            "next": _href("/warehouse/incoming", "Review Incoming Stock", "Receive shipments, record quality checks, and move passed stock into storage.")}
+    incoming = await _latest(warehouse_incoming, {"deletedAt": None, "status": {"$nin": ["received", "completed", "cancelled"]}}, "updatedAt")
+    if incoming:
+        status = str(incoming.get("status") or "pending").lower()
+        if status in ("pending","created","in_transit"):
+            return {"currentStep":"Incoming Stock","state":"ACTION_REQUIRED","next":_href("/warehouse/incoming","Receive Incoming Stock","Receive the shipment before it can enter warehouse inventory."),"entityId":str(incoming["_id"])}
+        if status in ("received","received_pending_quality"):
+            return {"currentStep":"Batch Verification","state":"ACTION_REQUIRED","next":_href("/warehouse/incoming","Verify Batch","Verify traceability and quality before storage."),"entityId":str(incoming["_id"])}
+    outgoing = await _latest(warehouse_outgoing, {"deletedAt": None, "status": {"$nin": ["completed","cancelled"]}}, "updatedAt")
+    if outgoing:
+        status = str(outgoing.get("status") or "").lower()
+        if status in ("pending","created","picking"):
+            return {"currentStep":"Pick & Pack","state":"ACTION_REQUIRED","next":_href("/warehouse/stock","Pick & Pack","Prepare the requested stock for dispatch."),"entityId":str(outgoing["_id"])}
+        if status in ("packed","ready","ready_for_dispatch"):
+            return {"currentStep":"Dispatch","state":"ACTION_REQUIRED","next":_href("/warehouse/stock","Dispatch Shipment","Release the packed shipment to delivery."),"entityId":str(outgoing["_id"])}
+        if status == "dispatched":
+            return {"currentStep":"Transfer","state":"IN_PROGRESS","next":_href("/warehouse/stock","Track Transfer","The shipment is with delivery operations."),"entityId":str(outgoing["_id"])}
+    return {"currentStep":"Inventory","state":"IN_PROGRESS","next":_href("/warehouse/stock","Review Inventory","Review warehouse stock and incoming/outgoing operations.")}
+
 
 
 async def _admin(uid: str):
@@ -160,6 +188,7 @@ async def get_my_workflow(current_user: dict = Depends(get_current_user)):
     role = str(current_user.get("role") or "customer").lower()
     resolver = {"farmer": _farmer, "customer": _customer, "business": _business, "delivery": _delivery, "warehouse": _warehouse, "admin": _admin}.get(role, _customer)
     result = await resolver(uid)
+    result["steps"] = ROLE_STEPS.get(role, ROLE_STEPS["customer"])
     return {"success": True, "role": role, "data": result, "updatedAt": datetime.utcnow().isoformat()}
 
 @router.get("/entity/{entity_type}/{entity_id}")
@@ -177,5 +206,5 @@ async def get_entity_workflow(entity_type: str, entity_id: str, current_user: di
     elif entity_type == "batch":
         result["next"] = _href(f"/farmer/quality?batchId={entity_id}", "Quality Inspection", "Inspect the harvest batch.")
     elif entity_type == "order":
-        result["next"] = _href(f"/customer/orders/{entity_id}", "Open Order", "Continue order fulfillment.")
+        result["next"] = _href(f"/customer/orders", "Open Order", "Continue order fulfillment.")
     return {"success": True, "data": result}
