@@ -1012,7 +1012,7 @@ async def upload_and_send_attachment(
     directory; the URL is served from ``/uploads``. The attachment becomes part
     of the official chat record (and can later be promoted to order evidence).
     """
-    from app.utils.file_security import validate_upload, UploadValidationError
+    from app.utils.file_security import validate_upload, scan_for_malware, UploadValidationError
 
     sender_id, sender_name, sender_role = await _resolve_sender(
         current_user,
@@ -1038,6 +1038,11 @@ async def upload_and_send_attachment(
         )
     except UploadValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    try:
+        scan_for_malware(content_bytes)
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
     filename = f"chat-{uuid.uuid4().hex}{ext}"
     filepath = os.path.join(upload_dir, filename)
