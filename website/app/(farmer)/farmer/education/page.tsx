@@ -35,12 +35,18 @@ const TOPICS = [
 ];
 
 const RESOURCES = [
-  { id: "r1", topic: "quality", title: "How to grade your harvest like a pro", type: "Article", readTime: "5 min", level: "Beginner" },
-  { id: "r2", topic: "storage", title: "Cold-chain basics: keeping produce fresh longer", type: "Video", readTime: "8 min", level: "Beginner" },
-  { id: "r3", topic: "pricing", title: "Reading market prices to price your produce", type: "Article", readTime: "6 min", level: "Intermediate" },
-  { id: "r4", topic: "schemes", title: "PM-KISAN & other schemes you may be eligible for", type: "Guide", readTime: "10 min", level: "Beginner" },
-  { id: "r5", topic: "selling", title: "Using the marketplace to get repeat customers", type: "Video", readTime: "7 min", level: "Intermediate" },
-  { id: "r6", topic: "packaging", title: "Cheap, eco-friendly packaging for farm produce", type: "Article", readTime: "4 min", level: "Beginner" },
+  { id: "icar-crop", topic: "crop", title: "ICAR crop management knowledge resources", type: "Official resource", readTime: "Reference", level: "All levels", description: "Crop-specific production guidance, expert systems and agricultural knowledge resources from ICAR.", source: "ICAR", url: "https://icar.gov.in/en/technologies-and-knowledge-resources" },
+  { id: "icar-publications", topic: "crop", title: "ICAR agricultural publications", type: "Publication", readTime: "Reference", level: "All levels", description: "Agriculture, horticulture, soil, pest management, crop production and other farmer-relevant publications.", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications" },
+  { id: "icar-advisory", topic: "crop", title: "ICAR agro-advisories for farmers", type: "Advisory", readTime: "Reference", level: "All levels", description: "Seasonal agro-advisory material, including regional-language editions.", source: "ICAR", url: "https://icar.gov.in/en/icar-kharif-agro-advisories-farmers-2025-regional-languages-edition-1" },
+  { id: "postharvest", topic: "storage", title: "Post-harvest management and processing", type: "Publication", readTime: "Reference", level: "Intermediate", description: "Guidance covering preservation, post-harvest diseases, storage and processing of fruits and vegetables.", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications" },
+  { id: "quality", topic: "quality", title: "Produce quality and grading", type: "Guide", readTime: "Practical", level: "Beginner", description: "Learn how quality, grading, safe handling and post-harvest practices affect produce value.", source: "AgriConnect + ICAR", url: "https://www.icar.gov.in/en/all-publications" },
+  { id: "storage", topic: "storage", title: "Storage, cold-chain and preservation", type: "Guide", readTime: "Practical", level: "Beginner", description: "Understand preservation, storage and cold-chain principles for reducing post-harvest losses.", source: "AgriConnect + ICAR", url: "https://www.icar.gov.in/en/all-publications" },
+  { id: "pricing", topic: "pricing", title: "Pricing and market decisions", type: "Guide", readTime: "Practical", level: "Intermediate", description: "Use current marketplace information in AgriConnect together with official agricultural knowledge when deciding how to sell.", source: "AgriConnect", url: "/farmer/market-prices" },
+  { id: "selling", topic: "selling", title: "Digital selling and repeat customers", type: "Guide", readTime: "Practical", level: "Beginner", description: "Learn product listing, customer communication, order handling, fulfilment and repeat-sales practices.", source: "AgriConnect", url: "/farmer/products" },
+  { id: "packaging", topic: "packaging", title: "Packaging and fulfilment", type: "Guide", readTime: "Practical", level: "Beginner", description: "Choose packaging and handling practices appropriate to the produce and delivery journey.", source: "AgriConnect + ICAR", url: "https://www.icar.gov.in/en/all-publications" },
+  { id: "schemes", topic: "schemes", title: "PM-KISAN: registration, status and farmer services", type: "Government", readTime: "Official portal", level: "All levels", description: "Official PM-KISAN information including registration, beneficiary status, eKYC, guidelines and farmer services.", source: "Government of India", url: "https://www.pmkisan.gov.in/" },
+  { id: "schemes-kcc", topic: "schemes", title: "Kisan Credit Card and agriculture finance resources", type: "Government", readTime: "Official portal", level: "All levels", description: "Use official government resources to understand available agriculture finance and KCC-related services.", source: "Government of India", url: "https://www.pmkisan.gov.in/" },
+  { id: "trends", topic: "trends", title: "Market trends and demand signals", type: "Dashboard", readTime: "Live data", level: "All levels", description: "Use AgriConnect market, order and demand information to understand selling opportunities and plan production.", source: "AgriConnect", url: "/farmer/market-prices" },
 ];
 
 export default function FarmerEducationPage() {
@@ -247,7 +253,7 @@ export default function FarmerEducationPage() {
                   <li>Common mistakes to avoid and when to seek expert help.</li>
                 </ul>
               </div>
-              <div className="flex flex-wrap gap-2">
+              {selectedResource.url && (selectedResource.url.startsWith("http") ? (\n                <a href={selectedResource.url} target="_blank" rel="noreferrer" className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">\n                  Open official source\n                </a>\n              ) : (\n                <a href={selectedResource.url} className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">\n                  Open in AgriConnect\n                </a>\n              ))}\n              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => { markCompleted(String(selectedResource.id || selectedResource.title)); setSelectedResource(null); }}
