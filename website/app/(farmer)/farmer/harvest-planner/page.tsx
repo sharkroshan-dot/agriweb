@@ -358,15 +358,15 @@ export default function FarmerHarvestPlannerPage() {
       case "ready":
         return 2;
       case "batched":
-        return 5;
+        return 4;
       case "harvested":
-        if (plan.productCreated) return 4;
-        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 5 : 3;
+        if (plan.productCreated) return 6;
+        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
       default: {
         // Fallback inference for legacy plans without an explicit stage field.
         if (plan.status === "harvested") {
-          if (plan.productCreated) return 4;
-          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 5 : 3;
+          if (plan.productCreated) return 6;
+          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
         }
         const p = growthProgress(plan);
         if (p >= 100) return 2;
