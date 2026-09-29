@@ -17,6 +17,11 @@ cooperative_repo = BaseRepository("cooperatives")
 member_repo = BaseRepository("cooperative_members")
 user_repo = BaseRepository("users")
 product_repo = BaseRepository("products")
+harvest_plan_repo = BaseRepository("harvest_plans")
+batch_repo = BaseRepository("batches")
+order_repo = BaseRepository("orders")
+delivery_assignment_repo = BaseRepository("delivery_assignments")
+cooperative_allocation_repo = BaseRepository("cooperative_allocations")
 
 
 def _require_farmer(user: dict) -> None:
@@ -480,6 +485,63 @@ async def cooperative_supply(
 
 
 
+
+@router.get("/{cooperative_id}/dashboard")
+async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    """Return live cooperative production, inventory, orders, distribution and earnings."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    membership = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None})
+    if not membership:
+        raise HTTPException(403, "You are not a member of this cooperative")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    member_ids = await _member_ids(cid)
+    stock = await _stock_for_farmers(member_ids)
+
+    plans = await harvest_plan_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000, sort=[("expectedHarvestDate", 1)])
+    production_rows = []
+    expected_kg = harvested_kg = 0.0
+    for plan in plans:
+        expected = float(plan.get("expectedQuantityKg") or 0)
+        actual = float(plan.get("actualQuantityKg") or 0)
+        expected_kg += expected
+        harvested_kg += actual
+        production_rows.append({"id": str(plan["_id"]), "farmerId": str(plan.get("farmerId")), "cropName": plan.get("cropName") or plan.get("crop") or "Crop", "expectedQuantityKg": round(expected, 2), "actualQuantityKg": round(actual, 2), "expectedHarvestDate": plan.get("expectedHarvestDate"), "status": plan.get("status") or plan.get("stage") or "planned"})
+
+    batches = await batch_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=1000)
+    batch_counts = {}
+    for b in batches:
+        status = str(b.get("qualityStatus") or b.get("status") or "pending")
+        batch_counts[status] = batch_counts.get(status, 0) + 1
+
+    orders = await order_repo.find_many({"farmerId": {"$in": member_ids}, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
+    order_summary = {"total": len(orders), "pending": 0, "processing": 0, "inTransit": 0, "delivered": 0, "completed": 0, "revenue": 0.0}
+    order_rows = []
+    order_ids = []
+    for order in orders:
+        status = str(order.get("orderStatus") or "pending")
+        key = {"pending": "pending", "confirmed": "pending", "processing": "processing", "ready_for_delivery": "processing", "ready_for_pickup": "processing", "dispatched": "inTransit", "in_transit": "inTransit", "delivered": "delivered", "completed": "completed"}.get(status)
+        if key:
+            order_summary[key] += 1
+        if status in ("delivered", "completed"):
+            order_summary["revenue"] += float(order.get("totalAmount") or 0)
+        order_ids.append(order["_id"])
+        order_rows.append({"id": str(order["_id"]), "orderNumber": order.get("orderNumber"), "farmerId": str(order.get("farmerId")), "status": status, "totalAmount": float(order.get("totalAmount") or 0), "createdAt": order.get("createdAt") or order.get("orderDate")})
+
+    assignments = await delivery_assignment_repo.find_many({"orderId": {"$in": order_ids}, "deletedAt": None}, limit=2000) if order_ids else []
+    distribution = {"total": len(assignments), "assigned": 0, "pickedUp": 0, "inTransit": 0, "delivered": 0, "failed": 0}
+    for assignment in assignments:
+        status = str(assignment.get("status") or "").lower()
+        if "assign" in status or "accept" in status: distribution["assigned"] += 1
+        elif "pickup" in status: distribution["pickedUp"] += 1
+        elif "transit" in status: distribution["inTransit"] += 1
+        elif "deliver" in status or status == "completed": distribution["delivered"] += 1
+        elif "fail" in status or "cancel" in status: distribution["failed"] += 1
+
+    allocations = await cooperative_allocation_repo.find_many({"cooperativeId": cid, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
+    allocated_kg = round(sum(float(x.get("quantityKg") or 0) for x in allocations), 2)
+    return {"success": True, "data": {"cooperativeId": str(cid), "role": "manager" if str((coop or {}).get("managerId")) == str(uid) else "member", "production": {"plans": production_rows, "expectedKg": round(expected_kg, 2), "harvestedKg": round(harvested_kg, 2), "batchCounts": batch_counts}, "inventory": {k: v for k, v in stock.items() if k != "farmerAvailableKg"}, "orders": {"summary": order_summary, "recent": order_rows[:20]}, "distribution": distribution, "earnings": {"grossSales": round(order_summary["revenue"], 2), "allocatedB2BKg": allocated_kg}, "reports": {"members": len(member_ids), "productionPlans": len(plans), "batches": len(batches), "products": stock["productCount"], "orders": len(orders), "deliveries": len(assignments)}}}
 @router.post("/{cooperative_id}/b2b-allocation")
 async def allocate_b2b_supply(
     cooperative_id: str,
@@ -513,4 +575,7 @@ async def allocate_b2b_supply(
         if quantity > available:
             raise HTTPException(400, f"Insufficient available stock for {product.get('name', 'product')}")
         result.append({"farmerId": farmer_id, "productId": product_id, "productName": product.get("name"), "quantityKg": round(quantity, 2)})
-    return {"success": True, "data": {"cooperativeId": str(cid), "allocations": result, "totalQuantityKg": round(sum(x["quantityKg"] for x in result), 2)}}
+    if result:
+        now = datetime.utcnow()
+        await cooperative_allocation_repo.create({"cooperativeId": cid, "managerId": uid, "allocations": result, "quantityKg": round(sum(x["quantityKg"] for x in result), 2), "status": "approved", "createdAt": now, "updatedAt": now, "deletedAt": None})
+    return {"success": True, "data": {"cooperativeId": str(cid), "allocations": result, "totalQuantityKg": round(sum(x["quantityKg"] for x in result), 2), "status": "approved"}}
