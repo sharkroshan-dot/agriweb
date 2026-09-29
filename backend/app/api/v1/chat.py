@@ -849,6 +849,8 @@ async def send_quick_action(
     )
     if not await _can_access_conversation(conv_id, sender_id):
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    if await is_restricted(sender_id):
+        raise HTTPException(status_code=403, detail="Messaging access is temporarily restricted pending safety review")
 
     conv = await chat_repository.get_conversation(conv_id)
     if not conv:
@@ -1020,6 +1022,9 @@ async def upload_and_send_attachment(
     )
     if not await _can_access_conversation(conversation_id, sender_id):
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    if await is_restricted(sender_id):
+        raise HTTPException(status_code=403, detail="Messaging access is temporarily restricted pending safety review")
+    enforce_message_rate(sender_id)
 
     upload_dir = settings.UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
