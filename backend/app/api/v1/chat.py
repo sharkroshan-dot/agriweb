@@ -405,7 +405,7 @@ async def _allowed_user_ids(conversation_id: str) -> set:
 
             order = await order_repository.get_by_id(order_id)
             if order:
-                for key in ("farmerId", "customerId", "deliveryPartnerId"):
+                for key in ("farmerId", "customerId", "deliveryPartnerId", "warehouseId"):
                     val = order.get(key)
                     if val:
                         allowed.add(str(val))
