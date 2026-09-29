@@ -158,9 +158,9 @@ def _conv_type(conv_id: str) -> str:
 
 
 async def _ensure_seeded() -> None:
-    """Seed demo conversations on a truly empty database (first boot only)."""
+    """Seed demo conversations only in development/debug mode."""
     global _seeded
-    if _seeded:
+    if _seeded or not settings.DEBUG:
         return
     try:
         count = await chat_repository.count({})
