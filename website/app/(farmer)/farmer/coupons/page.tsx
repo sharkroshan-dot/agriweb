@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Loader2, Plus, Tag, Trash2, Pencil, Users } from "lucide-react";
+import { CalendarDays, Loader2, Plus, Tag, Trash2, Pencil, Users, BadgePercent } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -27,7 +27,7 @@ export default function FarmerCouponsPage() {
   const [tab, setTab] = useState<"offers" | "coupons">("offers");
   const [formOpen, setFormOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
-  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);\n  const [offerFilter, setOfferFilter] = useState("active");\n  const [couponFilter, setCouponFilter] = useState("active");
 
   const { data, isLoading } = useQuery({
     queryKey: ["farmerOffersCoupons"],
@@ -58,31 +58,53 @@ export default function FarmerCouponsPage() {
   const scheduledCoupons = coupons.filter(c => c.expiresAt && new Date(c.expiresAt).getTime() > Date.now() && c.status === "scheduled");
   const activeCoupons = coupons.filter(c => (!c.expiresAt || new Date(c.expiresAt).getTime() >= Date.now()) && c.status === "active");
   const expiredCoupons = coupons.filter(c => c.expiresAt && new Date(c.expiresAt).getTime() < Date.now());
+  const offerGroups: Record<string, Offer[]> = { active: filteredOffers, scheduled: scheduledOffers, expired: expiredOffers };
+  const couponGroups: Record<string, Coupon[]> = { active: activeCoupons, scheduled: scheduledCoupons, expired: expiredCoupons };
+  const visibleOffers = offerGroups[offerFilter] || [];
+  const visibleCoupons = couponGroups[couponFilter] || [];
+  const sectionClass = "rounded-3xl border bg-white p-6";
+  const headingClass = "flex items-center gap-3 text-xl font-bold text-slate-900";
 
   return <div className="space-y-6">
-    <div>
+    <div className="flex items-center gap-2">
+      <BadgePercent className="h-6 w-6 text-emerald-600" />
       <h1 className="text-2xl font-bold">Offers &amp; Coupons</h1>
-      <p className="text-gray-500">Create product offers and farmer-owned coupons for your customers.</p>
     </div>
+    <p className="text-sm text-gray-500">Create product offers and farmer-owned coupons for your customers.</p>
 
-    <div className="flex flex-wrap gap-2 rounded-xl bg-slate-100 p-1">
-      <button onClick={() => setTab("offers")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "offers" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"}`}>My Offers ({offers.length})</button>
-      <button onClick={() => setTab("coupons")} className={`rounded-lg px-4 py-2 text-sm font-medium ${tab === "coupons" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"}`}>My Coupons ({coupons.length})</button>
-      <Button className="ml-auto" onClick={() => { setEditingOffer(null); setEditingCoupon(null); setFormOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Create Offer</Button>
+    <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+      <button onClick={() => setTab("offers")} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${tab === "offers" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"}`}>
+        <Tag className="h-4 w-4" /> My Offers <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === "offers" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{offers.length}</span>
+      </button>
+      <button onClick={() => setTab("coupons")} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${tab === "coupons" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"}`}>
+        <BadgePercent className="h-4 w-4" /> My Coupons <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === "coupons" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}`}>{coupons.length}</span>
+      </button>
+      <Button className="ml-2" onClick={() => { setEditingOffer(null); setEditingCoupon(null); setFormOpen(true); }}><Plus className="mr-2 h-4 w-4" /> Create Offer</Button>
     </div>
 
     {isLoading ? <div className="flex h-40 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-600" /></div> :
-      tab === "offers" ? <OfferList title="Active" rows={filteredOffers} products={products} onEdit={(x:any)=>{setEditingOffer(x);setEditingCoupon(null);setFormOpen(true)}} onDelete={(id:string)=>removeOffer.mutate(id)} /> :
-      <CouponList title="Active" rows={activeCoupons} onEdit={(x:any)=>{setEditingCoupon(x);setEditingOffer(null);setFormOpen(true)}} onDelete={(id:string)=>removeCoupon.mutate(id)} />
+      tab === "offers" ? <section className={sectionClass}>
+        <div className="mb-4 flex items-center justify-between"><h2 className={headingClass}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100"><Tag className="h-5 w-5 text-emerald-600" /></span>My Offers</h2><p className="text-sm text-slate-500">Product discounts for your customers</p></div>
+        <StatusTabs value={offerFilter} setValue={setOfferFilter} counts={{active:filteredOffers.length,scheduled:scheduledOffers.length,expired:expiredOffers.length}} />
+        <OfferList title={offerFilter[0].toUpperCase()+offerFilter.slice(1)} rows={visibleOffers} products={products} onEdit={(x:any)=>{setEditingOffer(x);setEditingCoupon(null);setFormOpen(true)}} onDelete={(id:string)=>removeOffer.mutate(id)} />
+      </section> :
+      <section className={sectionClass}>
+        <div className="mb-4 flex items-center justify-between"><h2 className={headingClass}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100"><BadgePercent className="h-5 w-5 text-emerald-600" /></span>My Coupons</h2><p className="text-sm text-slate-500">Coupons created by you</p></div>
+        <StatusTabs value={couponFilter} setValue={setCouponFilter} counts={{active:activeCoupons.length,scheduled:scheduledCoupons.length,expired:expiredCoupons.length}} />
+        <CouponList title={couponFilter[0].toUpperCase()+couponFilter.slice(1)} rows={visibleCoupons} onEdit={(x:any)=>{setEditingCoupon(x);setEditingOffer(null);setFormOpen(true)}} onDelete={(id:string)=>removeCoupon.mutate(id)} />
+      </section>
     }
-
-    {tab === "offers" && <OfferList title="Scheduled" rows={scheduledOffers} products={products} onEdit={(x:any)=>{setEditingOffer(x);setEditingCoupon(null);setFormOpen(true)}} onDelete={(id:string)=>removeOffer.mutate(id)} />}
-    {tab === "offers" && <OfferList title="Expired" rows={expiredOffers} products={products} onEdit={(x:any)=>{setEditingOffer(x);setEditingCoupon(null);setFormOpen(true)}} onDelete={(id:string)=>removeOffer.mutate(id)} />}
-    {tab === "coupons" && <CouponList title="Scheduled" rows={scheduledCoupons} onEdit={(x:any)=>{setEditingCoupon(x);setEditingOffer(null);setFormOpen(true)}} onDelete={(id:string)=>removeCoupon.mutate(id)} />}
-    {tab === "coupons" && <CouponList title="Expired" rows={expiredCoupons} onEdit={(x:any)=>{setEditingCoupon(x);setEditingOffer(null);setFormOpen(true)}} onDelete={(id:string)=>removeCoupon.mutate(id)} />}
 
     {formOpen && <CreateForm products={products} offer={editingOffer} coupon={editingCoupon} onClose={()=>setFormOpen(false)} onSaved={()=>{setFormOpen(false);qc.invalidateQueries({queryKey:["farmerOffersCoupons"]})}} />}
   </div>;
+}
+
+function StatusTabs({value,setValue,counts}:{value:string;setValue:(v:string)=>void;counts:{active:number;scheduled:number;expired:number}}) {
+  return <div className="mb-4 flex gap-1 rounded-xl bg-slate-100 p-1">
+    {(["active","scheduled","expired"] as const).map((key)=>{const selected=value===key; return <button key={key} onClick={()=>setValue(key)} className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition ${selected?"bg-emerald-600 text-white shadow-sm":"text-slate-600 hover:bg-white/70 hover:text-emerald-700"}`}>
+      {key[0].toUpperCase()+key.slice(1)} <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${selected?"bg-amber-100 text-amber-700":"bg-emerald-100 text-emerald-700"}`}>{counts[key]}</span>
+    </button>})}
+  </div>
 }
 
 function OfferList({title, rows, products, onEdit, onDelete}: any) {
