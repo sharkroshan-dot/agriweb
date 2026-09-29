@@ -307,3 +307,69 @@ def test_ai_translate_tamil():
     result = chat_mod.translate_text("Can you deliver tomorrow?", target_language="tamil")
     assert result["target_language"] == "tamil"
     assert result["mode"] in ("dictionary", "passthrough")
+
+# ============ Security controls ============
+
+@pytest.mark.asyncio
+async def test_blocked_user_cannot_send(monkeypatch):
+    async def fake_get_conversation(cid):
+        return _order_conversation()
+    async def fake_blocked(*args, **kwargs):
+        return True
+    monkeypatch.setattr(chat_repository, "get_conversation", fake_get_conversation)
+    monkeypatch.setattr(chat_mod, "is_blocked", fake_blocked)
+    with pytest.raises(Exception) as excinfo:
+        await chat_mod.send_message(
+            chat_mod.MessageSend(conversation_id=f"order-chat-{ORDER_OID}", content="hello"),
+            _farmer_user(),
+        )
+    assert excinfo.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_stranger_cannot_block_or_report(monkeypatch):
+    stranger = {"_id": "507f1f77bcf86cd799439099", "role": "customer"}
+    async def fake_access(*args, **kwargs):
+        return False
+    monkeypatch.setattr(chat_mod, "_can_access_conversation", fake_access)
+    with pytest.raises(Exception) as block_exc:
+        await chat_mod.block_conversation_user(
+            f"order-chat-{ORDER_OID}",
+            chat_mod.BlockRequest(other_user_id=OID2),
+            stranger,
+        )
+    assert block_exc.value.status_code == 403
+    with pytest.raises(Exception) as report_exc:
+        await chat_mod.report_conversation_user(
+            f"order-chat-{ORDER_OID}",
+            chat_mod.ReportRequest(other_user_id=OID2, reason="spam"),
+            stranger,
+        )
+    assert report_exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_critical_message_is_blocked(monkeypatch):
+    async def fake_access(*args, **kwargs):
+        return True
+    monkeypatch.setattr(chat_mod, "_can_access_conversation", fake_access)
+    monkeypatch.setattr(chat_mod, "_conversation_other_ids", lambda *args: _async_set(OID2))
+    async def fake_blocked(*args, **kwargs):
+        return False
+    monkeypatch.setattr(chat_mod, "is_blocked", fake_blocked)
+    async def fake_rate(*args, **kwargs):
+        return None
+    monkeypatch.setattr(chat_mod, "enforce_message_rate", fake_rate)
+    with pytest.raises(Exception) as excinfo:
+        await chat_mod.send_message(
+            chat_mod.MessageSend(
+                conversation_id=f"order-chat-{ORDER_OID}",
+                content="I will kill you",
+            ),
+            _farmer_user(),
+        )
+    assert excinfo.value.status_code == 403
+
+
+async def _async_set(*items):
+    return set(items)
