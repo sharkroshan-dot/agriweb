@@ -680,6 +680,91 @@ async def get_messages(
     return {"status": "success", "data": msgs}
 
 
+
+class BlockRequest(BaseModel):
+    other_user_id: str
+    reason: Optional[str] = None
+
+
+class ReportRequest(BaseModel):
+    other_user_id: str
+    reason: str
+    message_id: Optional[str] = None
+    details: Optional[str] = None
+
+
+@router.post("/conversations/{conversation_id}/block")
+async def block_conversation_user(
+    conversation_id: str,
+    body: BlockRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["_id"])
+    if not await _can_access_conversation(conversation_id, user_id):
+        raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    if not body.other_user_id or str(body.other_user_id) == user_id:
+        raise HTTPException(status_code=400, detail="Invalid user to block")
+    await block_user(user_id, str(body.other_user_id), body.reason)
+    return {"status": "success", "data": {"blocked": True}}
+
+
+@router.post("/conversations/{conversation_id}/unblock")
+async def unblock_conversation_user(
+    conversation_id: str,
+    body: BlockRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["_id"])
+    if not await _can_access_conversation(conversation_id, user_id):
+        raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    await unblock_user(user_id, str(body.other_user_id))
+    return {"status": "success", "data": {"blocked": False}}
+
+
+@router.post("/conversations/{conversation_id}/report")
+async def report_conversation_user(
+    conversation_id: str,
+    body: ReportRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["_id"])
+    if not await _can_access_conversation(conversation_id, user_id):
+        raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    if not body.other_user_id or str(body.other_user_id) == user_id:
+        raise HTTPException(status_code=400, detail="Invalid user to report")
+    report = await create_report(
+        reporter_id=user_id,
+        reported_id=str(body.other_user_id),
+        conversation_id=conversation_id,
+        reason=body.reason,
+        message_id=body.message_id,
+        details=body.details,
+    )
+    return {"status": "success", "data": report}
+
+
+@router.get("/conversations/{conversation_id}/safety")
+async def conversation_safety(
+    conversation_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    user_id = str(current_user["_id"])
+    if not await _can_access_conversation(conversation_id, user_id):
+        raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    participant = await _derive_participant(
+        await chat_repository.get_conversation(conversation_id) or {"id": conversation_id},
+        user_id,
+    )
+    other_id = str(participant.get("id") or "")
+    return {
+        "status": "success",
+        "data": {
+            "blocked": bool(other_id and await is_blocked(user_id, other_id)),
+            "other_user_id": other_id,
+        },
+    }
+
+
 @router.post("/messages")
 async def send_message(
     body: MessageSend,
