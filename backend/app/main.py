@@ -238,7 +238,7 @@ async def health_check():
     }
 
 # Import and include routers
-from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers
+from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives
 from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality, workflow
 from app.api.v1 import ai
@@ -247,7 +247,7 @@ _ai_router = ai.router
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["Users"])
 app.include_router(products.router, prefix="/api/v1/products", tags=["Products"])
-app.include_router(farmer_offers.router, prefix="/api/v1/farmer-offers", tags=["Farmer Offers & Coupons"])
+app.include_router(farmer_offers.router, prefix="/api/v1/farmer-offers", tags=["Farmer Offers & Coupons"])\napp.include_router(cooperatives.router, prefix="/api/v1/cooperatives", tags=["Farmer Cooperatives"])
 app.include_router(orders.router, prefix="/api/v1/orders", tags=["Orders"])
 app.include_router(payments.router, prefix="/api/v1/payments", tags=["Payments"])
 app.include_router(farmers.router, prefix="/api/v1/farmers", tags=["Farmers"])
