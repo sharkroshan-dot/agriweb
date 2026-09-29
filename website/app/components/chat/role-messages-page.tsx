@@ -174,7 +174,7 @@ function timeAgo(iso: string): string {
 function messageAttachmentUrl(m: ChatMsg): string | null {
   const att = m.attachments?.[0];
   if (!att?.url) return null;
-  if (att.url.startsWith("/uploads/")) {
+  if (att.url.startsWith("/")) {
     const prefix =
       process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "";
     const origin = prefix.replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
