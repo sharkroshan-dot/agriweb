@@ -40,7 +40,7 @@ const statusColors: Record<string, string> = {
 export default function CustomerOrdersPage() {
   const router = useRouter();
   const addItem = useCartStore((s: any) => s.addItem);
-  const [activeTab, setActiveTab] = useState<"delivery">("delivery");
+  const [activeTab, setActiveTab] = useState<"delivery" | "pickup">("delivery");
   const [subTab, setSubTab] = useState<"all" | "active" | "delivered">("all");
 
   const { data, isLoading } = useQuery({
