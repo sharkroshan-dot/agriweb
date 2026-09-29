@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.repositories.chat_repository import chat_repository, chat_message_repository
 from app.services.chat_ai_service import suggest_replies, translate_text, normalize_language
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_user, require_role
 from app.core.config import settings
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.notification_service import NotificationService
@@ -899,6 +899,58 @@ async def send_quick_action(
     await _notify_recipients(conv_id, sender_id, sender_name, action_def["message"], "quick_action")
     await _broadcast(conv_id, {"type": "new_message", "data": saved, "conversation_id": conv_id})
     return {"status": "success", "data": saved}
+
+
+@router.get("/safety/reports")
+async def safety_reports(
+    current_user: dict = Depends(require_role("admin")),
+):
+    from app.repositories.base_repository import BaseRepository
+    reports = await BaseRepository("chat_reports").find_many({"status": "pending"}, limit=200)
+    return {"status": "success", "data": reports or []}
+
+
+@router.post("/safety/reports/{report_id}/resolve")
+async def resolve_safety_report(
+    report_id: str,
+    action: str = Query("reviewed"),
+    current_user: dict = Depends(require_role("admin")),
+):
+    from app.repositories.base_repository import BaseRepository
+    from bson import ObjectId
+    repo = BaseRepository("chat_reports")
+    try:
+        key = {"_id": ObjectId(report_id)}
+    except Exception:
+        key = {"id": report_id}
+    await repo.update(key, {
+        "status": "resolved",
+        "moderator_action": action,
+        "reviewed_by": str(current_user["_id"]),
+        "reviewed_at": datetime.utcnow(),
+    })
+    return {"status": "success", "data": {"report_id": report_id, "status": "resolved"}}
+
+
+class AppealRequest(BaseModel):
+    reason: str = Field(min_length=10, max_length=2000)
+
+
+@router.post("/safety/appeal")
+async def submit_safety_appeal(
+    body: AppealRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    from app.repositories.base_repository import BaseRepository
+    repo = BaseRepository("chat_appeals")
+    doc = {
+        "user_id": str(current_user["_id"]),
+        "reason": body.reason,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+    }
+    inserted = await repo.create(doc)
+    return {"status": "success", "data": {**doc, "id": str(inserted) if inserted else None}}
 
 
 @router.get("/quick-actions")
