@@ -213,8 +213,8 @@ export default function FarmerBulkOrdersPage() {
           onClick={() => setTab("not_submitted")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
             tab === "not_submitted"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"
           }`}
         >
           <ClipboardList className="h-4 w-4" />
@@ -229,8 +229,8 @@ export default function FarmerBulkOrdersPage() {
           onClick={() => setTab("submitted")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
             tab === "submitted"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"
           }`}
         >
           <Send className="h-4 w-4" />
