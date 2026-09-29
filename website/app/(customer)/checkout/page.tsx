@@ -439,7 +439,7 @@ export default function CheckoutPage() {
                 {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
-                  <Button variant="outline" asChild><Link href="/customer/payments">Payment history</Link></Button>
+                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
                   <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
                 </div>
               </div>
