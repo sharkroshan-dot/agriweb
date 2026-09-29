@@ -8,7 +8,7 @@ class ChatPresenceRepository(BaseRepository):
     def __init__(self):
         super().__init__("chat_presence")
 
-    async def heartbeat(self, user_id: str, name: str = "", role: str = "") -> Dict[str, Any]:
+    async def heartbeat(self, user_id: str, name: str = "", role: str = "", active: bool = True) -> Dict[str, Any]:
         now = datetime.utcnow()
         await self.collection.update_one(
             {"user_id": str(user_id)},
@@ -17,6 +17,7 @@ class ChatPresenceRepository(BaseRepository):
                 "name": name,
                 "role": role,
                 "last_seen": now,
+                "active": bool(active),
                 "updated_at": now,
             }},
             upsert=True,
@@ -26,7 +27,7 @@ class ChatPresenceRepository(BaseRepository):
             "name": name,
             "role": role,
             "last_seen": now,
-            "online": True,
+            "online": bool(active),
         }
 
     async def get(self, user_id: str) -> Optional[Dict[str, Any]]:
@@ -38,7 +39,7 @@ class ChatPresenceRepository(BaseRepository):
             return {"user_id": str(user_id), "online": False, "last_seen": None}
 
         last_seen = doc["last_seen"]
-        online = datetime.utcnow() - last_seen <= timedelta(seconds=60)
+        online = bool(doc.get("active")) and datetime.utcnow() - last_seen <= timedelta(seconds=60)
         return {
             "user_id": str(user_id),
             "name": doc.get("name", ""),
