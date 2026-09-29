@@ -80,6 +80,10 @@ async def list_available_coupons(
                 {"expiresAt": {"$gte": now}},
                 {"expiresAt": None},
             ],
+            "$and": [
+                {"$or": [{"ownerType": {"$exists": False}}, {"ownerType": "platform"}, {"ownerType": "farmer"}]},
+                {"$or": [{"startAt": {"$exists": False}}, {"startAt": None}, {"startAt": {"$lte": now}}]},
+            ],
         }
     ).sort("createdAt", -1)
     coupons = await cursor.to_list(length=100)
