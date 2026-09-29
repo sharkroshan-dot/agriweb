@@ -59,7 +59,7 @@ const DEMO_COOPS: Cooperative[] = [
 
 export default function FarmerCooperativePage() {
   const queryClient = useQueryClient();
-  const [showJoin, setShowJoin] = useState(false);
+  const [showJoin, setShowJoin] = useState(false);\n  const [showJoinByCode, setShowJoinByCode] = useState(false);\n  const [inviteCode, setInviteCode] = useState("");
   const [joinForm, setJoinForm] = useState({ name: "", location: "", crops: "" });
 
   const { data: coopData, isLoading } = useQuery({
@@ -74,7 +74,7 @@ export default function FarmerCooperativePage() {
     return DEMO_COOPS;
   }, [coopData]);
 
-  const createMutation = useMutation({
+  const joinMutation = useMutation({\n    mutationFn: (payload: any) => api.post("/cooperatives/join", payload),\n    onSuccess: () => {\n      queryClient.invalidateQueries({ queryKey: ["farmerCooperatives"] });\n      setShowJoinByCode(false);\n      setInviteCode("");\n      toast.success("You joined the cooperative.");\n    },\n    onError: (err: any) => toast.error(err?.message || "Could not join cooperative"),\n  });\n\n  const createMutation = useMutation({
     mutationFn: (payload: any) => api.post("/cooperatives", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farmerCooperatives"] });
@@ -85,7 +85,7 @@ export default function FarmerCooperativePage() {
     onError: (err: any) => toast.error(err?.message || "Failed to create cooperative"),
   });
 
-  const myCoop = apiCoops.find((c: any) => c.role === "admin" || c.role === "member");
+  const myCoop = apiCoops.find((c: any) => c.role === "manager" || c.role === "member" || c.role === "admin");
   const coops: Cooperative[] = apiCoops.map((c: any) => ({ ...c, id: c._id || c.id }));
 
   return (
@@ -141,14 +141,14 @@ export default function FarmerCooperativePage() {
         </Card>
       )}
 
-      {myCoop && (
+      {showJoinByCode && (\n        <Card>\n          <CardHeader>\n            <CardTitle className="text-base">Join a Cooperative</CardTitle>\n            <CardDescription>Enter the invite code shared by the cooperative manager.</CardDescription>\n          </CardHeader>\n          <CardContent className="flex flex-col gap-3 sm:flex-row">\n            <Input value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} placeholder="e.g. AGR-AB12CD34" className="sm:flex-1" />\n            <Button disabled={!inviteCode.trim() || joinMutation.isPending} onClick={() => joinMutation.mutate({ inviteCode: inviteCode.trim() })}>\n              {joinMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}\n              Join Cooperative\n            </Button>\n          </CardContent>\n        </Card>\n      )}\n\n      {myCoop && (
         <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <CheckCircle2 className="h-5 w-5 text-emerald-600" />
               {myCoop.name}
             </CardTitle>
-            <CardDescription>{myCoop.location} · You are {myCoop.role === "admin" ? "an admin" : "a member"}</CardDescription>
+            <CardDescription>{myCoop.location} · You are {myCoop.role === "manager" || myCoop.role === "admin" ? "the manager" : "a member"}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-3">
@@ -195,7 +195,7 @@ export default function FarmerCooperativePage() {
                     <Users2 className="h-5 w-5 text-emerald-600" />
                     <CardTitle className="text-base">{c.name}</CardTitle>
                   </div>
-                  {c.role === "admin" && <Badge variant="success">You manage</Badge>}
+                  {(c.role === "manager" || c.role === "admin") && <Badge variant="success">You manage</Badge>}
                   {c.role === "member" && <Badge variant="outline">Member</Badge>}
                 </div>
                 <CardDescription>{c.location}</CardDescription>
