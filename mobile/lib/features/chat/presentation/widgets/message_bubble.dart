@@ -110,6 +110,9 @@ class MessageBubble extends StatelessWidget {
                         height: 160,
                         width: double.infinity,
                         fit: BoxFit.cover,
+                        headers: ApiService.accessToken.isNotEmpty
+                            ? {"Authorization": "Bearer ${ApiService.accessToken}"}
+                            : const {},
                         errorBuilder: (_, __, ___) => const SizedBox(
                           height: 120,
                           child: Center(child: Icon(Icons.broken_image_outlined)),
