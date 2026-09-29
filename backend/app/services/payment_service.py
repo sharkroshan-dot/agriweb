@@ -40,6 +40,11 @@ class PaymentService:
         """Create a payment intent."""
         # Get order
         order = await order_repository.get_by_id(order_id)
+        order_repo_for_payment = order_repository
+        if not order:
+            from app.repositories.base_repository import BaseRepository
+            order_repo_for_payment = BaseRepository("b2b_orders")
+            order = await order_repo_for_payment.get_by_id(order_id)
         if not order:
             return {"error": "Order not found"}
         
@@ -317,10 +322,15 @@ class PaymentService:
         # cancelled while payment confirmation was in flight.
         if payment.get("orderId"):
             order = await order_repository.get_by_id(str(payment["orderId"]))
+            order_repo_for_payment = order_repository
+            if not order:
+                from app.repositories.base_repository import BaseRepository
+                order_repo_for_payment = BaseRepository("b2b_orders")
+                order = await order_repo_for_payment.get_by_id(str(payment["orderId"]))
             if order and order.get("orderStatus") != "cancelled":
-                await order_repository.update(
+                await order_repo_for_payment.update(
                     {"_id": payment["orderId"]},
-                    {"paymentStatus": "paid", "orderStatus": "confirmed"}
+                    {"paymentStatus": "paid", "status": "confirmed", "orderStatus": "confirmed"}
                 )
                 if order.get("preorderId"):
                     await harvest_preorder_repository.update(
@@ -333,7 +343,7 @@ class PaymentService:
                         },
                     )
             elif order:
-                await order_repository.update(
+                await order_repo_for_payment.update(
                     {"_id": payment["orderId"]},
                     {"paymentStatus": "paid"}
                 )
@@ -829,6 +839,9 @@ class PaymentService:
             return False
         
         order = await order_repository.get_by_id(str(payment["orderId"]))
+        if not order:
+            from app.repositories.base_repository import BaseRepository
+            order = await BaseRepository("b2b_orders").get_by_id(str(payment["orderId"]))
         if not order:
             return False
         
