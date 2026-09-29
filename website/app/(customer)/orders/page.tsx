@@ -135,7 +135,7 @@ export default function CustomerOrdersPage() {
     router.push("/cart");
   };
 
-  const renderOrders = (sectionOrders: any[]) => {
+  const renderOrders = (sectionOrders: any[], isPickup = false) => {
     if (sectionOrders.length === 0) {
       return (
         <Card>
