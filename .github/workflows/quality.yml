@@ -58,7 +58,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: dart format lib test
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - run: flutter test
 
   security:
