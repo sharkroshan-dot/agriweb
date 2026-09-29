@@ -174,14 +174,11 @@ export default function FarmerScorePage() {
                 <span>{b}</span>
               </div>
             ))}
-            <div className="flex items-center justify-between rounded-lg border border-dashed p-3 text-xs text-gray-500">
-              <span>Demo preview: adjust score</span>
-              <button
-                onClick={() => { setToggled((v) => !v); toast(toggled ? "Score restored" : "Showing a lower-score preview"); }}
-                className="rounded-full border px-3 py-1 text-emerald-700 hover:bg-emerald-50"
-              >
-                {toggled ? "Restore score" : "Preview lower"}
-              </button>
+            <div className="rounded-lg border bg-slate-50 p-3 text-xs text-gray-600">
+              <div className="flex items-start gap-2">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                <p>Your score is calculated from completed verification steps. Complete the pending steps above to increase your score.</p>
+              </div>
             </div>
           </CardContent>
         </Card>
