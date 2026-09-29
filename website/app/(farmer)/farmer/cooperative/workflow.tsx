@@ -23,16 +23,39 @@ export default function FarmerCooperativePage(){
  const [inviteCode,setInviteCode]=useState(""); const [search,setSearch]=useState(""); const [location,setLocation]=useState(""); const [crop,setCrop]=useState("");
  const [form,setForm]=useState({name:"",location:"",description:"",crops:""});
  const [allocations,setAllocations]=useState<Record<string,number>>({});
- const {data,isLoading}=useQuery({queryKey:["farmerCooperatives"],queryFn:()=>api.get("/cooperatives/me"),retry:1});
- const cooperatives=data?.data?.cooperatives||[];
- useEffect(()=>{if(cooperatives.length&&!cooperatives.some((x:any)=>x.id===selectedCoopId))setSelectedCoopId(cooperatives[0].id)},[cooperatives,selectedCoopId]);
- const coop=cooperatives.find((x:any)=>x.id===selectedCoopId)||cooperatives[0];
- const {data:dashData,isLoading:dashLoading}=useQuery({queryKey:["cooperativeDashboard",coop?.id],queryFn:()=>api.get("/cooperatives/dashboard/"+coop.id"),enabled:!!coop?.id,retry:1});
- const dash=dashData?.data?.data||dashData?.data||{};
- const {data:supplyData,isLoading:supplyLoading}=useQuery({queryKey:["cooperativeSupply",coop?.id],queryFn:()=>api.get("/cooperatives/"+coop.id+"/supply"),enabled:!!coop?.id&&stage==="inventory",retry:1});
- const supply=supplyData?.data?.products||[];
- const {data:reqData,isLoading:reqLoading}=useQuery({queryKey:["cooperativeJoinRequests",coop?.id],queryFn:()=>api.get("/cooperatives/"+coop.id+"/join-requests"),enabled:!!coop?.id&&coop?.role==="manager"&&stage==="members",retry:1});
- const requests=(reqData?.data?.requests||[]).filter((x:any)=>x.status==="pending");
+  const { data, isLoading } = useQuery({
+    queryKey: ["farmerCooperatives"],
+    queryFn: () => api.get("/cooperatives/me"),
+    retry: 1,
+  });
+  const cooperatives = data?.data?.cooperatives || [];
+  useEffect(() => {
+    if (cooperatives.length && !cooperatives.some((x: any) => x.id === selectedCoopId)) {
+      setSelectedCoopId(cooperatives[0].id);
+    }
+  }, [cooperatives, selectedCoopId]);
+  const coop = cooperatives.find((x: any) => x.id === selectedCoopId) || cooperatives[0];
+  const { data: dashData, isLoading: dashLoading } = useQuery({
+    queryKey: ["cooperativeDashboard", coop?.id],
+    queryFn: () => api.get(`/cooperatives/dashboard/${coop?.id}`),
+    enabled: Boolean(coop?.id),
+    retry: 1,
+  });
+  const dash = dashData?.data?.data || dashData?.data || {};
+  const { data: supplyData, isLoading: supplyLoading } = useQuery({
+    queryKey: ["cooperativeSupply", coop?.id],
+    queryFn: () => api.get(`/cooperatives/${coop?.id}/supply`),
+    enabled: Boolean(coop?.id) && stage === "inventory",
+    retry: 1,
+  });
+  const supply = supplyData?.data?.products || [];
+  const { data: reqData, isLoading: reqLoading } = useQuery({
+    queryKey: ["cooperativeJoinRequests", coop?.id],
+    queryFn: () => api.get(`/cooperatives/${coop?.id}/join-requests`),
+    enabled: Boolean(coop?.id) && coop?.role === "manager" && stage === "members",
+    retry: 1,
+  });
+  const requests = (reqData?.data?.requests || []).filter((x: any) => x.status === "pending");
  const create=useMutation({mutationFn:()=>api.post("/cooperatives",{name:form.name,location:form.location,description:form.description,crops:form.crops.split(",").map(x=>x.trim()).filter(Boolean)}),onSuccess:()=>{qc.invalidateQueries({queryKey:["farmerCooperatives"]});setShowCreate(false);setForm({name:"",location:"",description:"",crops:""});setStage("members");toast.success("Cooperative created successfully")},onError:(e:any)=>toast.error(e?.message||"Failed to create cooperative")});
  const join=useMutation({mutationFn:(id?:string)=>id?api.post("/cooperatives/"+id+"/join-request",{}):api.post("/cooperatives/join",{inviteCode:inviteCode.trim().toUpperCase()}),onSuccess:()=>{qc.invalidateQueries({queryKey:["farmerCooperatives"]});qc.invalidateQueries({queryKey:["cooperativeDiscovery"]});setShowJoin(false);setShowInvite(false);setInviteCode("");toast.success("Join request sent. Waiting for manager approval.")},onError:(e:any)=>toast.error(e?.message||"Could not send join request")});
  const approve=useMutation({mutationFn:(userId:string)=>api.post("/cooperatives/"+coop.id+"/join-requests/approve",{userId}),onSuccess:()=>{qc.invalidateQueries({queryKey:["farmerCooperatives"]});qc.invalidateQueries({queryKey:["cooperativeJoinRequests",coop?.id]});toast.success("Farmer approved")},onError:(e:any)=>toast.error(e?.message||"Approval failed")});
