@@ -91,7 +91,7 @@ export default function FarmerCooperativePage() {
       qc.invalidateQueries({ queryKey: ["farmerCooperatives"] });
       setShowJoin(false); setInviteCode(""); setStage("members");
       qc.invalidateQueries({ queryKey: ["cooperativeDiscovery"] });
-      toast.success(echoMessage((arguments as any)));
+      toast.success("Join request sent. Waiting for manager approval.");
 
     },
     onError: (e: any) => toast.error(e?.message || "Could not send join request"),
