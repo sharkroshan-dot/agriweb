@@ -28,7 +28,7 @@ async def platform_workflow(current_user: dict = Depends(get_current_user)):
 
     async def counts(collection, field=None):
         if field:
-            rows = await collection.aggregate([{"$group": {"_id": "$" + field, "count": {"$sum": 1}}]).to_list(100)
+            rows = await collection.aggregate([{"$group": {"_id": "$" + field, "count": {"$sum": 1}}}]).to_list(100)
             return {str(r.get("_id") or "unknown"): r.get("count", 0) for r in rows}
         return {"total": await collection.count_documents({"deletedAt": None})}
 
