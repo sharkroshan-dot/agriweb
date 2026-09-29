@@ -111,7 +111,7 @@ SAMPLE_MESSAGES = {
 }
 
 # Supported conversation types mirror the farmer dashboard categories.
-CONVERSATION_TYPES = {"customer", "delivery", "b2b", "support"}
+CONVERSATION_TYPES = {"customer", "delivery", "b2b", "support", "cooperative"}
 
 # Quick-action registry: these are structured messages (not free text), so the
 # UI renders them as buttons and the backend validates the key.
@@ -146,6 +146,8 @@ QUICK_ACTIONS = {
 
 
 def _conv_type(conv_id: str) -> str:
+    if conv_id.startswith("cooperative-chat-"):
+        return "cooperative"
     if conv_id.startswith("delivery-chat-"):
         return "delivery"
     if conv_id.startswith("rfq-chat-"):
@@ -202,6 +204,11 @@ class QuickActionSend(BaseModel):
     sender_id: str = "user-1"
     sender_name: str = "You"
     sender_role: str = "farmer"
+
+
+class CooperativeThreadCreate(BaseModel):
+    cooperative_id: str
+    cooperative_name: Optional[str] = None
 
 
 class SupportThreadCreate(BaseModel):
@@ -420,6 +427,19 @@ async def _allowed_user_ids(conversation_id: str) -> set:
                     allowed.add(str(fid))
         except Exception as e:
             logger.error(f"RFQ participant lookup failed for {conversation_id}: {e}")
+
+    elif conversation_id.startswith("cooperative-chat-"):
+        try:
+            from app.repositories.base_repository import BaseRepository
+            from bson import ObjectId
+            coop_id = conversation_id[len("cooperative-chat-"):]
+            member_repo = BaseRepository("cooperative_members")
+            members = await member_repo.find_many({"cooperativeId": ObjectId(coop_id), "status": "active", "deletedAt": None}, limit=500)
+            for member in members or []:
+                if member.get("userId"):
+                    allowed.add(str(member["userId"]))
+        except Exception as e:
+            logger.error(f"Cooperative participant lookup failed for {conversation_id}: {e}")
 
     elif conversation_id.startswith("support-"):
         owner = conversation_id[len("support-"):]
@@ -1049,6 +1069,40 @@ async def create_rfq_thread(
     }
     await chat_repository.upsert_conversation(conv)
     conv["participant"] = await _derive_participant(conv, body.farmer_id)
+    return {"status": "success", "data": conv}
+
+
+@router.post("/threads/cooperative")
+async def create_cooperative_thread(
+    body: CooperativeThreadCreate,
+    current_user: dict = Depends(get_optional_current_user),
+):
+    user_id = str(current_user["_id"])
+    conv_id = f"cooperative-chat-{body.cooperative_id}"
+    allowed = await _allowed_user_ids(conv_id)
+    if user_id not in allowed:
+        raise HTTPException(status_code=403, detail="You are not an active member of this cooperative")
+    now = datetime.utcnow()
+    existing = await chat_repository.get_conversation(conv_id)
+    if existing:
+        existing.setdefault("conversation_type", "cooperative")
+        existing.setdefault("cooperative_id", body.cooperative_id)
+        existing.setdefault("subject", body.cooperative_name or "Cooperative Members")
+        await chat_repository.upsert_conversation(existing)
+        return {"status": "success", "data": existing}
+    conv = {
+        "id": conv_id,
+        "conversation_type": "cooperative",
+        "participants": [{"id": uid, "name": "Cooperative Member", "role": "farmer"} for uid in allowed],
+        "subject": body.cooperative_name or "Cooperative Members",
+        "cooperative_id": body.cooperative_id,
+        "last_message": None,
+        "unread_count": 0,
+        "status": "active",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await chat_repository.upsert_conversation(conv)
     return {"status": "success", "data": conv}
 
 
