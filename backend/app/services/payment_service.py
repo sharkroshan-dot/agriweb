@@ -956,6 +956,11 @@ class PaymentService:
                     await PaymentService._record_pickup_commission(existing, order)
                 else:
                     await PaymentService._record_cash_settlement(payment, order)
+            try:
+                from app.services.settlement_service import SettlementService
+                await SettlementService.create_for_payment(payment_id)
+            except Exception as exc:
+                logger.warning("Settlement creation skipped: %s", exc)
             return True
         
         # Create payment split record
@@ -994,6 +999,11 @@ class PaymentService:
             else:
                 await PaymentService._record_cash_settlement(payment, order)
         
+        try:
+            from app.services.settlement_service import SettlementService
+            await SettlementService.create_for_payment(payment_id)
+        except Exception as exc:
+            logger.warning("Settlement creation skipped: %s", exc)
         logger.info(f"Payment splits created for payment {payment_id}")
         return True
     
