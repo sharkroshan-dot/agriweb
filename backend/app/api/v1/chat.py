@@ -16,7 +16,7 @@ from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.notification_service import NotificationService
 from app.services.chat_security import (
     is_blocked, block_user, unblock_user, create_report, enforce_message_rate,
-    moderate_content, record_moderation_event,
+    moderate_content, record_moderation_event, is_restricted, register_safety_restriction,
 )
 
 logger = logging.getLogger(__name__)
@@ -782,7 +782,15 @@ async def send_message(
     )
     if not await _can_access_conversation(conv_id, sender_id):
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    if await is_restricted(sender_id):
+        raise HTTPException(status_code=403, detail="Messaging access is temporarily restricted pending safety review")
     moderation = await _assert_chat_safety(conv_id, sender_id, body.content)
+    if moderation.get("risk") == "critical":
+        await register_safety_restriction(sender_id, "critical_message", "critical")
+        raise HTTPException(status_code=403, detail="This message was blocked and referred to AgriConnect Safety")
+    if moderation.get("risk") == "high":
+        await register_safety_restriction(sender_id, "high_risk_message", "high")
+        raise HTTPException(status_code=403, detail="Messaging is temporarily restricted pending safety review")
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     if len(body.content) > 5000:
@@ -860,6 +868,9 @@ async def send_quick_action(
         )
     if action_def is None:
         raise HTTPException(status_code=400, detail=f"Unknown quick action: {body.action}")
+    if await is_restricted(sender_id):
+        raise HTTPException(status_code=403, detail="Messaging access is temporarily restricted pending safety review")
+    moderation = await _assert_chat_safety(conv_id, sender_id, action_def["message"])
 
     saved = await chat_message_repository.add_message({
         "conversation_id": conv_id,
@@ -875,6 +886,7 @@ async def send_quick_action(
     })
     if not saved:
         raise HTTPException(status_code=500, detail="Failed to save message")
+    await record_moderation_event(conv_id, sender_id, str(saved.get("id", "")), moderation)
 
     await chat_repository.update_last_message(conv_id, {
         "content": action_def["message"],
