@@ -578,9 +578,16 @@ async def _assert_chat_safety(conversation_id: str, user_id: str, content: str) 
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
     result = moderate_content(content)
+    repeated = await detect_repeated_unwanted(conversation_id, user_id)
+    if repeated.get("flags"):
+        result["flags"] = list(dict.fromkeys(result.get("flags", []) + repeated["flags"]))
+        result["risk"] = "high"
     if result.get("risk") == "critical":
         await register_safety_restriction(user_id, "critical_message", "critical")
         raise HTTPException(status_code=403, detail="This message was blocked and referred to AgriConnect Safety")
+    if result.get("risk") == "high":
+        await register_safety_restriction(user_id, "high_risk_message", "high")
+        raise HTTPException(status_code=403, detail="Messaging is temporarily restricted pending safety review")
     return result
 
 
