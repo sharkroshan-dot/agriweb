@@ -405,10 +405,20 @@ async def _allowed_user_ids(conversation_id: str) -> set:
 
             order = await order_repository.get_by_id(order_id)
             if order:
-                for key in ("farmerId", "customerId", "deliveryPartnerId", "warehouseId"):
+                for key in ("farmerId", "customerId", "deliveryPartnerId"):
                     val = order.get(key)
                     if val:
                         allowed.add(str(val))
+                warehouse_id = order.get("warehouseId")
+                if warehouse_id:
+                    allowed.add(str(warehouse_id))
+                    try:
+                        from app.services.warehouse_service import WarehouseService
+                        warehouse = await WarehouseService.get_warehouse(str(warehouse_id))
+                        if warehouse and warehouse.get("managerId"):
+                            allowed.add(str(warehouse["managerId"]))
+                    except Exception as warehouse_error:
+                        logger.debug(f"Warehouse manager lookup skipped: {warehouse_error}")
         except Exception as e:
             logger.error(f"Order participant lookup failed for {conversation_id}: {e}")
 
