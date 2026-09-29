@@ -8,7 +8,7 @@ import { Footer } from "../components/common/footer";
 import ChatWidget from "../components/shared/chat-widget";
 import { AppPresence } from "../components/chat/app-presence";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
-import { AppPresence } from "../components/chat/app-presence";
+
 
 export default function FarmerLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
