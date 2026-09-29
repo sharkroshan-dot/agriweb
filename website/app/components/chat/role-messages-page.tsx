@@ -378,8 +378,19 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
       socket.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
+          if (payload.type === "typing") {
+            if (payload.data?.user_id !== userId) {
+              setTyping(Boolean(payload.data?.typing));
+              if (payload.data?.typing) {
+                window.clearTimeout(typingTimerRef.current);
+                typingTimerRef.current = window.setTimeout(() => setTyping(false), 2500);
+              }
+            }
+            return;
+          }
           if (payload.type === "new_message" || payload.type === "message_sent") {
             const msg = payload.data as ChatMsg;
+            setTyping(false);
             setMessages((current) => mergeMessages(current, [msg]));
             patchConversation(msg);
           }
