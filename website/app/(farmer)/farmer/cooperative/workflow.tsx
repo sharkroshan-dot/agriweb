@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users2, Plus, Loader2, CheckCircle2, MapPin, Sprout, Package, ShoppingCart, Truck, Wallet, BarChart3, UserPlus, ClipboardList, Warehouse, ArrowRight, X, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -17,9 +19,10 @@ const stages: {key:Stage;title:string;icon:any}[] = [
 
 export default function FarmerCooperativePage(){
  const qc=useQueryClient();
+ const searchParams=useSearchParams();
  const [stage,setStage]=useState<Stage>("setup");
  const [selectedCoopId,setSelectedCoopId]=useState("");
- const [showCreate,setShowCreate]=useState(false); const [showJoin,setShowJoin]=useState(false); const [showInvite,setShowInvite]=useState(false); const [showQr,setShowQr]=useState(false);
+ const [showCreate,setShowCreate]=useState(false); const [showJoin,setShowJoin]=useState(false); const [showInvite,setShowInvite]=useState(false); const [showQr,setShowQr]=useState(false); const [showQrJoin,setShowQrJoin]=useState(false); const [qrInviteCode,setQrInviteCode]=useState("");
  const [inviteCode,setInviteCode]=useState(""); const [search,setSearch]=useState(""); const [location,setLocation]=useState(""); const [crop,setCrop]=useState("");
  const [form,setForm]=useState({name:"",location:"",description:"",crops:""});
  const [allocations,setAllocations]=useState<Record<string,number>>({});
@@ -29,6 +32,12 @@ export default function FarmerCooperativePage(){
     retry: 1,
   });
   const cooperatives = data?.data?.cooperatives || [];
+  useEffect(() => {
+    const code=searchParams.get("invite");
+    if(code && code !== qrInviteCode){ setQrInviteCode(code.toUpperCase()); setShowQrJoin(true); }
+  }, [searchParams, qrInviteCode]);
+  const {data:qrInviteData,isLoading:qrInviteLoading}=useQuery({queryKey:["cooperativeQrInvite",qrInviteCode],queryFn:()=>api.get("/cooperatives/invite/"+encodeURIComponent(qrInviteCode)),enabled:Boolean(qrInviteCode)&&showQrJoin,retry:1});
+  const qrCooperative=qrInviteData?.data?.data;
   useEffect(() => {
     if (cooperatives.length && !cooperatives.some((x: any) => x.id === selectedCoopId)) {
       setSelectedCoopId(cooperatives[0].id);
@@ -107,7 +116,8 @@ export default function FarmerCooperativePage(){
   {stage!=="reports"&&<div className="flex justify-end"><Button variant="outline" onClick={()=>setStage(next)}>Continue to {stages.find(x=>x.key===next)?.title}<ArrowRight className="ml-2 h-4 w-4"/></Button></div>}
   {showJoin&&<Modal title="Find a Cooperative" onClose={()=>setShowJoin(false)}><p className="text-sm text-slate-500">Search by name, location or crop.</p><div className="mt-3 grid gap-2"><Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cooperative name"/><Input value={location} onChange={e=>setLocation(e.target.value)} placeholder="Location"/><Input value={crop} onChange={e=>setCrop(e.target.value)} placeholder="Crop"/></div><div className="mt-4 space-y-2">{discoveryLoading?<Loader2 className="mx-auto h-6 w-6 animate-spin"/>:discovered.map((x:any)=><div key={x.id} className="rounded-xl border p-3"><p className="font-semibold">{x.name}</p><p className="text-xs text-slate-500"><MapPin className="mr-1 inline h-3 w-3"/>{x.location} · {x.memberCount} members</p>{x.joinStatus==="available"&&<Button className="mt-2 w-full" onClick={()=>join.mutate(x.id)}>Request to Join</Button>}<Badge variant="outline">{x.joinStatus}</Badge></div>)}</div><Button variant="outline" className="mt-3 w-full" onClick={()=>{setShowJoin(false);setShowInvite(true)}}>Have invite code?</Button></Modal>}
   {showInvite&&<Modal title="Invite Farmer" onClose={()=>{setShowInvite(false);setFarmerSearch("")}}><p className="text-sm text-slate-500">Search for the farmer by name, phone, or email.</p><Input className="mt-3" value={farmerSearch} onChange={e=>setFarmerSearch(e.target.value)} placeholder="Search farmer"/><div className="mt-3 max-h-72 space-y-2 overflow-y-auto">{farmerSearchLoading?<Loader2 className="mx-auto my-5 h-6 w-6 animate-spin"/>:availableFarmers.length?availableFarmers.map((farmer:any)=><div key={farmer.id} className="flex items-center justify-between rounded-xl border p-3"><div><p className="font-medium">{farmer.name}</p><p className="text-xs text-slate-500">{farmer.phone||farmer.email||"Farmer"}</p></div><Button size="sm" disabled={invite.isPending} onClick={()=>invite.mutate(farmer.id)}>Send Invitation</Button></div>):<p className="py-5 text-center text-sm text-slate-500">No farmers found.</p>}</div></Modal>}
-  {showQr&&<Modal title="Join Cooperative with QR" onClose={()=>setShowQr(false)}><div className="flex flex-col items-center text-center"><div className="rounded-2xl border bg-white p-4"><img src={`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(typeof window!=="undefined"?window.location.origin+"/farmer/cooperative?invite="+(coop?.inviteCode||""):"")}`} alt="Cooperative invitation QR code" className="h-60 w-60" /></div><p className="mt-4 font-semibold">{coop?.name}</p><p className="mt-1 text-sm text-slate-500">Another farmer can scan this QR code to open the cooperative invitation.</p></div></Modal>}
+  {showQrJoin&&<Modal title="Cooperative Invitation" onClose={()=>setShowQrJoin(false)}>{qrInviteLoading?<Loader2 className="mx-auto my-8 h-7 w-7 animate-spin"/>:qrCooperative?<div className="space-y-4"><div className="rounded-xl border p-4"><p className="font-semibold">{qrCooperative.name}</p><p className="text-sm text-slate-500">{qrCooperative.location} · {qrCooperative.memberCount} members</p><p className="mt-2 text-sm">{qrCooperative.description||"Join this farmer cooperative through AgriConnect."}</p></div><Button className="w-full" disabled={join.isPending||qrCooperative.status!=="available"} onClick={()=>join.mutate(undefined)}>{join.isPending?"Sending...":qrCooperative.status==="member"?"Already a member":qrCooperative.status==="manager"?"You manage this cooperative":"Join Cooperative"}</Button></div>:<p className="text-sm text-red-600">This cooperative invitation is invalid or unavailable.</p>}</Modal>}
+  {showQr&&<Modal title="Join Cooperative with QR" onClose={()=>setShowQr(false)}><div className="flex flex-col items-center text-center"><div className="rounded-2xl border bg-white p-4"><QRCodeSVG value={typeof window!=="undefined"?window.location.origin+"/farmer/cooperative?invite="+encodeURIComponent(coop?.inviteCode||""):""} size={240} includeMargin /></div><p className="mt-4 font-semibold">{coop?.name}</p><p className="mt-1 text-sm text-slate-500">Another farmer can scan this QR code to open the cooperative invitation.</p></div></Modal>}
   {showInvite&&false&&<Modal title="Join with Invite Code" onClose={()=>setShowInvite(false)}><Input value={inviteCode} onChange={e=>setInviteCode(e.target.value.toUpperCase())} placeholder="AGR-AB12CD34"/><Button className="mt-3 w-full" disabled={!inviteCode.trim()} onClick={()=>join.mutate(undefined)}>Request to Join</Button></Modal>}
  </div>
 }
