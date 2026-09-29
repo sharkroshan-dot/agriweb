@@ -439,6 +439,9 @@ async def _can_access_conversation(conversation_id: str, user_id: str) -> bool:
     threads (never persisted) are treated as accessible so demo clients can
     still open them, but once the thread exists the rules are enforced.
     """
+    await websocket.accept()
+    logger.info(f"WebSocket connected: {conversation_id} for user {user_name}")
+
     conv = await chat_repository.get_conversation(conversation_id)
     if conv:
         participants = conv.get("participants", [])
@@ -1131,29 +1134,34 @@ async def websocket_endpoint(
     user_role: str = Query("customer"),
     token: str = Query(None),
 ):
-    await websocket.accept()
-    logger.info(f"WebSocket connected: {conversation_id} for user {user_name}")
     await _ensure_seeded()
 
     now = datetime.utcnow()
 
-    # Prefer the authenticated identity when a token is supplied, so the
-    # sender can never be spoofed through query params.
-    if token:
-        try:
-            from app.api.v1.auth import get_current_user as _resolve_ws_user
+    if not token:
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"type": "error", "data": "Authentication required"}))
+        await websocket.close(code=1008)
+        return
 
-            user = await _resolve_ws_user(token)
-            if user:
-                user_id = str(user["_id"])
-                user_name = _display_name(user)
-                user_role = user.get("role") or user_role
-        except HTTPException:
-            await websocket.send_text(json.dumps({"type": "error", "data": "Invalid token"}))
-            await websocket.close(code=1008)
-            return
+    # Prefer the authenticated identity from the token; query parameters are
+    # never trusted for identity.
+    # sender can never be spoofed through query params.
+    try:
+        from app.api.v1.auth import get_current_user as _resolve_ws_user
+
+        user = await _resolve_ws_user(token)
+        user_id = str(user["_id"])
+        user_name = _display_name(user)
+        user_role = user.get("role") or user_role
+    except HTTPException:
+        await websocket.accept()
+        await websocket.send_text(json.dumps({"type": "error", "data": "Invalid token"}))
+        await websocket.close(code=1008)
+        return
 
     if not await _can_access_conversation(conversation_id, user_id):
+        await websocket.accept()
         await websocket.send_text(json.dumps({"type": "error", "data": "Access denied"}))
         await websocket.close(code=1008)
         return
@@ -1183,6 +1191,7 @@ async def websocket_endpoint(
                 if not content:
                     continue
 
+                moderation = await _assert_chat_safety(conversation_id, user_id, content)
                 saved = await chat_message_repository.add_message({
                     "conversation_id": conversation_id,
                     "sender_id": user_id,
@@ -1197,6 +1206,7 @@ async def websocket_endpoint(
                 })
                 if not saved:
                     continue
+                await record_moderation_event(conversation_id, user_id, str(saved.get("id", "")), moderation)
 
                 await chat_repository.update_last_message(conversation_id, {
                     "content": content,
