@@ -138,6 +138,7 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=403, detail="Only farmers can create batches")
 
     product_id = None
+    product = None
     if data.productId:
         try:
             product_id = ObjectId(data.productId)
