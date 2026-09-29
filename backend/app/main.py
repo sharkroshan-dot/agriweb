@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
         from app.repositories.audit_log_repository import audit_log_repository
         await audit_log_repository.ensure_ttl_index()
         expiry_task = asyncio.create_task(reservation_expiry_loop())
-        from app.api.v1 import settlements, subscriptions as _subscriptions
+        from app.api.v1 import subscriptions as _subscriptions
         basket_task = asyncio.create_task(_subscriptions.basket_scheduler_loop())
         logger.info("✅ Database connections established")
     except Exception as exc:
@@ -193,7 +193,7 @@ async def health_check():
     }
 
 # Import and include routers
-from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives
+from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives, settlements
 from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality, workflow
 from app.api.v1 import ai
