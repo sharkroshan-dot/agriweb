@@ -27,7 +27,9 @@ export default function FarmerCouponsPage() {
   const [tab, setTab] = useState<"offers" | "coupons">("offers");
   const [formOpen, setFormOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Offer | null>(null);
-  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);\n  const [offerFilter, setOfferFilter] = useState("active");\n  const [couponFilter, setCouponFilter] = useState("active");
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [offerFilter, setOfferFilter] = useState("active");
+  const [couponFilter, setCouponFilter] = useState("active");
 
   const { data, isLoading } = useQuery({
     queryKey: ["farmerOffersCoupons"],
