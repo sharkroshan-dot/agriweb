@@ -906,6 +906,10 @@ async def create_order_thread(
     await _ensure_seeded()
     if current_user and str(current_user["_id"]) not in (body.customer_id, body.farmer_id):
         raise HTTPException(status_code=403, detail="You are not part of this order")
+    allowed = await _allowed_user_ids(f"order-chat-{body.order_id}")
+    requested = {str(body.customer_id), str(body.farmer_id)}
+    if not requested.issubset(allowed):
+        raise HTTPException(status_code=403, detail="Conversation participants do not match the order")
     now = datetime.utcnow()
     conv_id = f"order-chat-{body.order_id}"
 
@@ -952,6 +956,12 @@ async def create_delivery_thread(
         mine = {body.farmer_id, body.customer_id, body.delivery_partner_id or ""}
         if str(current_user["_id"]) not in mine:
             raise HTTPException(status_code=403, detail="You are not part of this order")
+    allowed = await _allowed_user_ids(f"delivery-chat-{body.order_id}")
+    requested = {str(body.farmer_id), str(body.customer_id)}
+    if body.delivery_partner_id:
+        requested.add(str(body.delivery_partner_id))
+    if not requested.issubset(allowed):
+        raise HTTPException(status_code=403, detail="Conversation participants do not match the order")
     now = datetime.utcnow()
     conv_id = f"delivery-chat-{body.order_id}"
 
@@ -1003,6 +1013,9 @@ async def create_rfq_thread(
     await _ensure_seeded()
     if current_user and str(current_user["_id"]) not in (body.farmer_id, body.business_user_id):
         raise HTTPException(status_code=403, detail="You are not part of this RFQ")
+    allowed = await _allowed_user_ids(f"rfq-chat-{body.rfq_id}")
+    if not {str(body.farmer_id), str(body.business_user_id)}.issubset(allowed):
+        raise HTTPException(status_code=403, detail="Conversation participants do not match the RFQ")
     now = datetime.utcnow()
     conv_id = f"rfq-chat-{body.rfq_id}"
 
