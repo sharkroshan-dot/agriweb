@@ -577,7 +577,11 @@ async def _assert_chat_safety(conversation_id: str, user_id: str, content: str) 
         enforce_message_rate(user_id)
     except ValueError as exc:
         raise HTTPException(status_code=429, detail=str(exc))
-    return moderate_content(content)
+    result = moderate_content(content)
+    if result.get("risk") == "critical":
+        await register_safety_restriction(user_id, "critical_message", "critical")
+        raise HTTPException(status_code=403, detail="This message was blocked and referred to AgriConnect Safety")
+    return result
 
 
 async def _resolve_sender(
