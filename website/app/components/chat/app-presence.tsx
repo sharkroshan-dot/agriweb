@@ -13,7 +13,7 @@ export function AppPresence() {
     let stopped = false;
 
     const send = async (active: boolean) => {
-      if (stopped) return;
+      if (stopped && active) return;
       try {
         await api.post("/chat/presence/heartbeat", {
           name: session.user.name || session.user.email || "",
