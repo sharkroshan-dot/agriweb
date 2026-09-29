@@ -75,7 +75,7 @@ async def create_report(
 ) -> dict[str, Any]:
     allowed = {
         "harassment", "threats", "sexual_harassment", "spam",
-        "fraud_scam", "abusive_language", "inappropriate_image", "other",
+        "fraud_scam", "abusive_language", "inappropriate_image", "hate_abusive_content", "personal_information", "other",
     }
     normalized = reason if reason in allowed else "other"
     doc = {
@@ -98,9 +98,12 @@ def moderate_content(content: str) -> dict[str, Any]:
 
     flags: list[str] = []
     if any(re.search(p, text) for p in THREAT_PATTERNS):
+
         flags.append("threat")
     if any(re.search(p, text) for p in HARASSMENT_PATTERNS):
         flags.append("harassment")
+    if re.search(r"\b(?:phone|mobile|whatsapp|email|home address|bank account|otp|password)\b", text):
+        flags.append("personal_information")
 
     risk = "low"
     if "threat" in flags:
