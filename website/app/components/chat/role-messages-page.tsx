@@ -221,6 +221,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
   const [blocked, setBlocked] = useState(false);
   const [reportReason, setReportReason] = useState("harassment");
   const [reportDetails, setReportDetails] = useState("");
+  const [safetyNotice, setSafetyNotice] = useState("");
   const [safetyBusy, setSafetyBusy] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -412,7 +413,8 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
           );
         });
       }
-    } catch {
+    } catch (error: any) {
+      setSafetyNotice(error?.response?.data?.detail || "Message could not be sent. Please keep communication related to AgriConnect activity.");
       setText(content);
     } finally {
       setSending(false);
@@ -767,6 +769,8 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                         <option value="fraud_scam">Fraud / scam</option>
                         <option value="abusive_language">Abusive language</option>
                         <option value="inappropriate_image">Inappropriate image</option>
+                        <option value="hate_abusive_content">Hate / abusive content</option>
+                        <option value="personal_information">Asking for personal information</option>
                         <option value="other">Other</option>
                       </select>
                       <Button
@@ -940,6 +944,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                       <MapPin className="h-4 w-4" />
                     )}
                   </Button>
+                  {safetyNotice && <div className="border-t bg-amber-50 px-3 py-2 text-xs text-amber-900">{safetyNotice}</div>}
                   <Input
                     value={text}
                     onChange={(e) => setText(e.target.value)}
