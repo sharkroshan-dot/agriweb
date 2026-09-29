@@ -107,29 +107,6 @@ export default function FarmerQualityPage() {
     onError: (err: any) => toast.error(err?.message || "Could not request quality inspection"),
   });
 
-  const submitEvidenceMutation = useMutation({
-    mutationFn: ({ id, photos }: { id: string; photos: string[] }) =>
-      api.post(`/quality/inspections/${id}/evidence`, { photos, notes: "Farmer evidence submitted from Quality workflow" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
-      toast.success("Evidence submitted for verifier review.");
-    },
-    onError: (err: any) => toast.error(err?.message || "Could not submit evidence"),
-  });
-  const aiMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/quality/inspections/${id}/ai-assess`),
-    onSuccess: (_d, id) => {
-      queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
-      const ai = _d?.data?.aiAssessment;
-      if (ai?.mismatch) {
-        toast.error(`AI screening: estimated Grade ${ai.estimatedGrade} differs from your declared grade. Manual inspection required.`);
-      } else {
-        toast.success(`AI screening: estimated Grade ${ai.estimatedGrade} (${Math.round(ai?.confidence * 100)}% confidence).`);
-      }
-    },
-    onError: (err: any) => toast.error(err?.message || "AI screening failed"),
-  });
-
   const records = filter === "all" ? apiRecords : apiRecords.filter((r) => r.status === filter);
 
   const meetsRequirement = (r: InspectionRecord) => {
