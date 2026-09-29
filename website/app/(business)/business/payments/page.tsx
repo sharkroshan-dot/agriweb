@@ -46,13 +46,13 @@ export default function PaymentsPage() {
   const payB2B = async (order: any) => {
     setPayingId(order.orderId);
     try {
-      const res = await api.post(\`/b2b/orders/\${order.orderId}/payment-intent\`, { payment_method: "razorpay" });
+      const res = await api.post(`/b2b/orders/\${order.orderId}/payment-intent`, { payment_method: "razorpay" });
       const intent = res?.data?.data || res?.data || res;
       if (intent?.simulated) {
         await api.post("/payments/verify", {
           payment_id: intent.payment_id,
           razorpay_order_id: intent.order_id,
-          razorpay_payment_id: \`sim_payment_\${intent.payment_id}\`,
+          razorpay_payment_id: `sim_payment_\${intent.payment_id}`,
           razorpay_signature: "simulated_signature",
         });
         queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] });
@@ -65,7 +65,7 @@ export default function PaymentsPage() {
           amount: intent.amount,
           currency: intent.currency || "INR",
           name: intent.name || "AgriConnect",
-          description: intent.description || \`B2B Order \${order.orderNumber}\`,
+          description: intent.description || `B2B Order \${order.orderNumber}`,
           order_id: intent.order_id,
           prefill: intent.prefill || {},
           theme: intent.theme || { color: "#059669" },
