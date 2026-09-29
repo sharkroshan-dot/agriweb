@@ -59,7 +59,9 @@ const DEMO_COOPS: Cooperative[] = [
 
 export default function FarmerCooperativePage() {
   const queryClient = useQueryClient();
-  const [showJoin, setShowJoin] = useState(false);\n  const [showJoinByCode, setShowJoinByCode] = useState(false);\n  const [inviteCode, setInviteCode] = useState("");
+  const [showJoin, setShowJoin] = useState(false);
+  const [showJoinByCode, setShowJoinByCode] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
   const [joinForm, setJoinForm] = useState({ name: "", location: "", crops: "" });
 
   const { data: coopData, isLoading } = useQuery({
@@ -74,7 +76,18 @@ export default function FarmerCooperativePage() {
     return DEMO_COOPS;
   }, [coopData]);
 
-  const joinMutation = useMutation({\n    mutationFn: (payload: any) => api.post("/cooperatives/join", payload),\n    onSuccess: () => {\n      queryClient.invalidateQueries({ queryKey: ["farmerCooperatives"] });\n      setShowJoinByCode(false);\n      setInviteCode("");\n      toast.success("You joined the cooperative.");\n    },\n    onError: (err: any) => toast.error(err?.message || "Could not join cooperative"),\n  });\n\n  const createMutation = useMutation({
+  const joinMutation = useMutation({
+    mutationFn: (payload: any) => api.post("/cooperatives/join", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerCooperatives"] });
+      setShowJoinByCode(false);
+      setInviteCode("");
+      toast.success("You joined the cooperative.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not join cooperative"),
+  });
+
+  const createMutation = useMutation({
     mutationFn: (payload: any) => api.post("/cooperatives", payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farmerCooperatives"] });
@@ -141,7 +154,23 @@ export default function FarmerCooperativePage() {
         </Card>
       )}
 
-      {showJoinByCode && (\n        <Card>\n          <CardHeader>\n            <CardTitle className="text-base">Join a Cooperative</CardTitle>\n            <CardDescription>Enter the invite code shared by the cooperative manager.</CardDescription>\n          </CardHeader>\n          <CardContent className="flex flex-col gap-3 sm:flex-row">\n            <Input value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} placeholder="e.g. AGR-AB12CD34" className="sm:flex-1" />\n            <Button disabled={!inviteCode.trim() || joinMutation.isPending} onClick={() => joinMutation.mutate({ inviteCode: inviteCode.trim() })}>\n              {joinMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}\n              Join Cooperative\n            </Button>\n          </CardContent>\n        </Card>\n      )}\n\n      {myCoop && (
+      {showJoinByCode && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Join a Cooperative</CardTitle>
+            <CardDescription>Enter the invite code shared by the cooperative manager.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row">
+            <Input value={inviteCode} onChange={(e) => setInviteCode(e.target.value.toUpperCase())} placeholder="e.g. AGR-AB12CD34" className="sm:flex-1" />
+            <Button disabled={!inviteCode.trim() || joinMutation.isPending} onClick={() => joinMutation.mutate({ inviteCode: inviteCode.trim() })}>
+              {joinMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Join Cooperative
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {myCoop && (
         <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
