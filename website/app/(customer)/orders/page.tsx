@@ -98,6 +98,10 @@ export default function CustomerOrdersPage() {
     () => orders.filter((o: any) => o.deliveryType !== "pickup"),
     [orders],
   );
+  const pickupOrders = useMemo(
+    () => orders.filter((o: any) => o.deliveryType === "pickup"),
+    [orders],
+  );
 
   const filterOrders = (list: any[]) => {
     if (subTab === "active") return list.filter((o: any) => !["delivered", "cancelled", "picked_up", "refunded"].includes(o.status));
