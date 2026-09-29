@@ -103,7 +103,7 @@ function CouponList({title, rows, onEdit, onDelete}: any) {
 function CreateForm({products, offer, coupon, onClose, onSaved}: any) {
   const isCoupon = !!coupon;
   const [kind,setKind] = useState<"offer"|"coupon">(isCoupon?"coupon":"offer");
-  const [form,setForm] = useState<any>(offer || coupon || { productId: products[0]?.id || "", name:"", code:"", description:"", discountType:"percentage", discountValue:10, minQuantity:1, minOrderValue:0, startAt:new Date().toISOString().slice(0,16), endAt:"", expiresAt:"", eligibility:"all" });
+  const [form,setForm] = useState<any>(offer || coupon || { productId: products[0]?.id || "", name:"", code:"", description:"", discountType:"percentage", discountValue:10, minQuantity:1, minOrderValue:0, startAt:new Date().toISOString().slice(0,16), endAt:"", expiresAt:"", startAt:"", eligibility:"all" });
   const [saving,setSaving]=useState(false);
   const save=async()=>{try{
     setSaving(true);
@@ -113,7 +113,7 @@ function CreateForm({products, offer, coupon, onClose, onSaved}: any) {
       await api[offer?"put":"post"](offer?`/farmer-offers/offers/${offer.id}`:"/farmer-offers/offers",payload);
     } else {
       if(!form.code) throw new Error("Coupon code is required");
-      await api[coupon?"put":"post"](coupon?`/farmer-offers/coupons/${coupon.id}`:"/farmer-offers/coupons",form);
+      await api[coupon?"put":"post"](coupon?`/farmer-offers/coupons/${coupon.id}`:"/farmer-offers/coupons",{...form,startAt:form.startAt?new Date(form.startAt).toISOString():null});
     }
     toast.success(kind==="offer"?"Offer saved":"Coupon saved"); onSaved();
   }catch(e:any){toast.error(e?.response?.data?.detail || e?.message || "Unable to save");}finally{setSaving(false)}};
@@ -122,7 +122,7 @@ function CreateForm({products, offer, coupon, onClose, onSaved}: any) {
     {kind==="offer"?<><select className="w-full rounded-md border p-2" value={form.productId} onChange={e=>setForm({...form,productId:e.target.value})}><option value="">Select Product</option>{products.map((p:any)=><option key={p.id} value={p.id}>{p.name}</option>)}</select><Input placeholder="Offer name" value={form.name||""} onChange={e=>setForm({...form,name:e.target.value})}/></>:<><Input placeholder="Coupon code" value={form.code||""} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})}/><Input placeholder="Description" value={form.description||""} onChange={e=>setForm({...form,description:e.target.value})}/></>}
     <div className="grid gap-3 sm:grid-cols-2"><select className="rounded-md border p-2" value={form.discountType} onChange={e=>setForm({...form,discountType:e.target.value})}><option value="percentage">Discount %</option><option value="fixed">Fixed ₹</option></select><Input type="number" min="0.01" placeholder="Discount value" value={form.discountValue} onChange={e=>setForm({...form,discountValue:Number(e.target.value)})}/></div>
     <div className="grid gap-3 sm:grid-cols-2"><Input type="number" min="0" placeholder="Minimum Quantity" value={form.minQuantity??0} onChange={e=>setForm({...form,minQuantity:Number(e.target.value)})}/><Input type="number" min="0" placeholder="Minimum Order ₹" value={form.minOrderValue??0} onChange={e=>setForm({...form,minOrderValue:Number(e.target.value)})}/></div>
-    {kind==="offer"?<div className="grid gap-3 sm:grid-cols-2"><Input type="datetime-local" value={form.startAt?.slice(0,16)||""} onChange={e=>setForm({...form,startAt:e.target.value})}/><Input type="datetime-local" value={form.endAt?.slice(0,16)||""} onChange={e=>setForm({...form,endAt:e.target.value})}/></div>:<Input type="datetime-local" value={form.expiresAt?.slice(0,16)||""} onChange={e=>setForm({...form,expiresAt:e.target.value ? new Date(e.target.value).toISOString() : null})}/>}
+    {kind==="offer"?<div className="grid gap-3 sm:grid-cols-2"><Input type="datetime-local" value={form.startAt?.slice(0,16)||""} onChange={e=>setForm({...form,startAt:e.target.value})}/><Input type="datetime-local" value={form.endAt?.slice(0,16)||""} onChange={e=>setForm({...form,endAt:e.target.value})}/></div>:<div className="grid gap-3 sm:grid-cols-2"><Input type="datetime-local" value={form.startAt?.slice(0,16)||""} onChange={e=>setForm({...form,startAt:e.target.value})}/><Input type="datetime-local" value={form.expiresAt?.slice(0,16)||""} onChange={e=>setForm({...form,expiresAt:e.target.value ? new Date(e.target.value).toISOString() : null})}/></div>}
     <div><label className="mb-1 block text-sm font-medium">Customer Eligibility</label><select className="w-full rounded-md border p-2" value={form.eligibility||"all"} onChange={e=>setForm({...form,eligibility:e.target.value})}><option value="all">All customers</option><option value="new_customers">New customers</option><option value="repeat_customers">Repeat customers</option><option value="specific">Specific eligible segment</option></select></div>
     <div className="flex justify-end gap-2"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save} disabled={saving}>{saving?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:null}Save</Button></div>
   </CardContent></Card></div>
