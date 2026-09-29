@@ -178,7 +178,7 @@ function messageAttachmentUrl(m: ChatMsg): string | null {
     const prefix =
       process.env.NEXT_PUBLIC_API_URL || process.env.API_URL || "";
     const origin = prefix.replace(/\/api\/v1\/?$/, "").replace(/\/+$/, "");
-    return `${origin}${att.url}`;
+    return origin ? `${origin}${att.url}` : `/api/v1${att.url}`;
   }
   return att.url;
 }
