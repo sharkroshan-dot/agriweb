@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Package,
@@ -67,6 +68,8 @@ const GRADE_OPTIONS = ["Premium", "Standard", "Economy"];
 
 export default function FarmerBatchesPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const fromHarvestId = searchParams.get("fromHarvest") || "";
   const [showForm, setShowForm] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedHarvestId, setSelectedHarvestId] = useState("");
@@ -166,6 +169,23 @@ export default function FarmerBatchesPage() {
   const selectedProduct = batchEligibleProducts.find((product) => String(product._id) === selectedProductId);
   const selectedHarvest = availableHarvests.find((plan) => String(plan.id || plan._id) === selectedHarvestId);
   const selectedHarvestQuantity = Number(selectedHarvest?.actualQuantityKg ?? selectedHarvest?.expectedQuantityKg ?? 0);
+
+  // Guided Harvest -> Batch handoff: hydrate the form from the harvested plan
+  // so the farmer never has to search for the harvest or re-enter its quantity.
+  useEffect(() => {
+    if (!fromHarvestId || harvestedLoading || !availableHarvests.length) return;
+    const plan = availableHarvests.find((item) => String(item.id || item._id) === fromHarvestId);
+    if (!plan) return;
+    const planId = String(plan.id || plan._id);
+    setShowForm(true);
+    setSelectedHarvestId(planId);
+    setForm((previous) => ({
+      ...previous,
+      cropName: String(plan.cropName || ""),
+      quantityKg: String(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? ""),
+      harvestDate: String(plan.harvestedAt || plan.expectedHarvestDate || ""),
+    }));
+  }, [fromHarvestId, harvestedLoading, availableHarvests.length]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
