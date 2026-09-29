@@ -486,7 +486,7 @@ async def cooperative_supply(
 
 
 
-@router.get("/{cooperative_id}/dashboard")
+@router.get("/dashboard/{cooperative_id}")
 async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depends(get_current_user)):
     """Return live cooperative production, inventory, orders, distribution and earnings."""
     _require_farmer(current_user)
