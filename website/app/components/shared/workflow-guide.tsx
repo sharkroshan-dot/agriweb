@@ -89,9 +89,14 @@ export function WorkflowGuide({ role }: { role: Role }) {
   const pathname = usePathname();
   const { data: workflowData } = useQuery({ queryKey: ["myWorkflow"], queryFn: () => api.get("/workflow/me") });
   const resolved = workflowData?.data?.data;
-  const steps = FLOWS[role];
+  const serverSteps = Array.isArray(resolved?.steps) ? resolved.steps : null;
+  const steps = serverSteps?.map((label: string) => {
+    const existing = FLOWS[role].find((s) => s.label === label);
+    return existing || { label, href: resolved?.next?.href || "#", description: "Continue this workflow step." };
+  }) || FLOWS[role];
   const current = steps.findIndex((s) => pathname === s.href || pathname.startsWith(s.href + "/"));
-  const currentIndex = current >= 0 ? current : 0;
+  const resolvedIndex = resolved?.currentStep ? steps.findIndex((s) => s.label === resolved.currentStep) : -1;
+  const currentIndex = resolvedIndex >= 0 ? resolvedIndex : (current >= 0 ? current : 0);
   const next = steps[currentIndex + 1];
 
   return (
