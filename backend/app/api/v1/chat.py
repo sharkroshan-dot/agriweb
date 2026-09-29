@@ -1179,6 +1179,9 @@ async def websocket_endpoint(
         await websocket.close(code=1008)
         return
 
+    await websocket.accept()
+    logger.info(f"WebSocket connected: {conversation_id} for user {user_name}")
+
     conv = await chat_repository.get_conversation(conversation_id)
     if not conv:
         conv = _conversation_doc(conversation_id, user_id, user_name, user_role, now)
