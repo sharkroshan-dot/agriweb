@@ -70,6 +70,8 @@ interface ChatMsg {
   message_type?: string;
   attachments?: ChatAttachment[];
   location?: ChatLocation;
+  read_at?: string | null;
+  delivered_at?: string | null;
 }
 
 function participantName(conv: Conversation, userId: string): string {
@@ -988,7 +990,18 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                                     mine ? "text-emerald-100" : "text-gray-400"
                                   )}
                                 >
-                                  {formatTime(m.created_at)}
+                                  <span>{formatTime(m.created_at)}</span>
+                                  {mine && (
+                                    <span
+                                      className={cn(
+                                        "ml-1 font-semibold",
+                                        mine ? "text-emerald-100" : "text-gray-400"
+                                      )}
+                                      title={m.read_at ? "Read" : m.delivered_at ? "Delivered" : "Sent"}
+                                    >
+                                      {m.read_at ? "✓✓" : m.delivered_at ? "✓✓" : "✓"}
+                                    </span>
+                                  )}
                                 </p>
                               )}
                             </div>
