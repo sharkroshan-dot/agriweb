@@ -1578,6 +1578,14 @@ async def websocket_endpoint(
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
+                if msg.get("type") == "typing":
+                    await _broadcast(
+                        conversation_id,
+                        {"type": "typing", "data": {"user_id": user_id, "typing": bool(msg.get("typing", True))}},
+                        exclude=websocket,
+                    )
+                    continue
+
                 content = msg.get("content", "").strip()
                 if not content:
                     continue
