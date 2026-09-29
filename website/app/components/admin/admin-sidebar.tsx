@@ -87,6 +87,7 @@ export function AdminSidebar() {
         { name: "Farm Baskets", href: "/admin/subscriptions", icon: ShoppingBasket },
         { name: "Admins", href: "/admin/users", icon: Shield, badge: compact(stats.totalAdmins) },
         { name: "Security Center", href: "/admin/security", icon: ShieldAlert },
+        { name: "Communication Safety", href: "/admin/messages/safety", icon: MessageSquare },
       ],
     },
     {
