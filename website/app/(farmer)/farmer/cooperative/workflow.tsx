@@ -34,7 +34,7 @@ export default function FarmerCooperativePage(){
   const cooperatives = data?.data?.cooperatives || [];
   useEffect(() => {
     const code=searchParams.get("invite");
-    if(code && code !== qrInviteCode){ setQrInviteCode(code.toUpperCase()); setShowQrJoin(true); }
+    if(code && code !== qrInviteCode){ const normalized=code.toUpperCase(); setQrInviteCode(normalized); setInviteCode(normalized); setShowQrJoin(true); }
   }, [searchParams, qrInviteCode]);
   const {data:qrInviteData,isLoading:qrInviteLoading}=useQuery({queryKey:["cooperativeQrInvite",qrInviteCode],queryFn:()=>api.get("/cooperatives/invite/"+encodeURIComponent(qrInviteCode)),enabled:Boolean(qrInviteCode)&&showQrJoin,retry:1});
   const qrCooperative=qrInviteData?.data?.data;
