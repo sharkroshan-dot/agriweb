@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users2, Plus, Loader2, CheckCircle2, MapPin, Phone, Mail,
@@ -32,7 +33,11 @@ export default function FarmerCooperativePage() {
   const [stage, setStage] = useState<Stage>("setup");
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
+  const [coopSearch, setCoopSearch] = useState("");
+  const [coopLocation, setCoopLocation] = useState("");
+  const [coopCrop, setCoopCrop] = useState("");
   const [form, setForm] = useState({
     name: "", registrationDetails: "", location: "", contactName: "",
     contactPhone: "", contactEmail: "", description: "", crops: ""
@@ -46,6 +51,14 @@ export default function FarmerCooperativePage() {
 
   const cooperatives = data?.data?.cooperatives || [];
   const coop = cooperatives[0];
+
+  const { data: discoveryData, isLoading: discoveryLoading } = useQuery({
+    queryKey: ["cooperativeDiscovery", coopSearch, coopLocation, coopCrop],
+    queryFn: () => api.get(`/cooperatives/discover?search=${encodeURIComponent(coopSearch)}&location=${encodeURIComponent(coopLocation)}&crop=${encodeURIComponent(coopCrop)}`),
+    enabled: showJoin,
+    retry: 1,
+  });
+  const discoveredCooperatives = discoveryData?.data?.cooperatives || [];
 
   const createMutation = useMutation({
     mutationFn: () => api.post("/cooperatives", {
@@ -71,13 +84,17 @@ export default function FarmerCooperativePage() {
   });
 
   const joinMutation = useMutation({
-    mutationFn: () => api.post("/cooperatives/join", { inviteCode: inviteCode.trim().toUpperCase() }),
+    mutationFn: (cooperativeId?: string) => cooperativeId
+      ? api.post(`/cooperatives/${cooperativeId}/join-request`, {})
+      : api.post("/cooperatives/join", { inviteCode: inviteCode.trim().toUpperCase() }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["farmerCooperatives"] });
       setShowJoin(false); setInviteCode(""); setStage("members");
-      toast.success("Joined cooperative successfully");
+      qc.invalidateQueries({ queryKey: ["cooperativeDiscovery"] });
+      toast.success("Join request sent. Waiting for manager approval.");
+
     },
-    onError: (e: any) => toast.error(e?.message || "Could not join cooperative"),
+    onError: (e: any) => toast.error(e?.message || "Could not send join request"),
   });
 
   const currentIndex = Math.max(0, stages.findIndex(x => x.key === stage));
@@ -151,7 +168,7 @@ export default function FarmerCooperativePage() {
           <div className="mt-5 rounded-xl border p-4">
             <p className="font-semibold">Cooperative Members</p>
             <p className="mt-1 text-sm text-slate-500">Invite farmers using the cooperative invite code. Manager approval controls membership.</p>
-            {coop?.inviteCode && <div className="mt-3 flex items-center gap-2"><Badge variant="outline">{coop.inviteCode}</Badge><span className="text-xs text-slate-500">Share this code with farmers.</span></div>}
+            {coop?.inviteCode && <div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline">{coop.inviteCode}</Badge><Button size="sm" variant="outline" onClick={() => { navigator.clipboard?.writeText(coop.inviteCode); toast.success("Invite code copied"); }}>Copy code</Button><Button size="sm" variant="outline" onClick={() => setShowInvite(true)}>Share code</Button><span className="text-xs text-slate-500">Optional private invitation. Farmers can also discover this cooperative.</span></div>}
           </div>
         </WorkflowCard>
       )}
@@ -225,12 +242,18 @@ export default function FarmerCooperativePage() {
       )}
 
       {showCreate && <Modal title="Create Cooperative" onClose={() => setShowCreate(false)}><p className="text-sm text-slate-500">Use the workflow's Create Cooperative step to register the group.</p><Button className="mt-4 w-full" onClick={() => { setShowCreate(false); setStage("setup"); }}>Open Setup</Button></Modal>}
-      {showJoin && <Modal title="Join Cooperative" onClose={() => setShowJoin(false)}><Input value={inviteCode} onChange={e => setInviteCode(e.target.value.toUpperCase())} placeholder="AGR-AB12CD34" /><Button className="mt-3 w-full" disabled={!inviteCode.trim() || joinMutation.isPending} onClick={() => joinMutation.mutate()}>{joinMutation.isPending ? "Joining..." : "Join Cooperative"}</Button></Modal>}
+      {showJoin && <Modal title="Find a Cooperative" onClose={() => setShowJoin(false)}>
+        <p className="text-sm text-slate-500">You do not need to know another farmer. Search for a cooperative by name, location or crop and send a join request.</p>
+        <div className="mt-4 grid gap-2"><Input value={coopSearch} onChange={e => setCoopSearch(e.target.value)} placeholder="Cooperative name" /><Input value={coopLocation} onChange={e => setCoopLocation(e.target.value)} placeholder="Village / district / location" /><Input value={coopCrop} onChange={e => setCoopCrop(e.target.value)} placeholder="Crop, e.g. Tomato" /></div>
+        <div className="mt-4 space-y-3">{discoveryLoading ? <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin" /></div> : discoveredCooperatives.length ? discoveredCooperatives.map((item: any) => <div key={item.id} className="rounded-xl border p-4"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{item.name}</p><p className="mt-1 text-xs text-slate-500"><MapPin className="mr-1 inline h-3 w-3" />{item.location} · {item.memberCount} members</p><p className="mt-2 text-sm text-slate-500">{item.crops?.join(" · ") || "Multiple crops"}</p></div><Badge variant="outline">{item.joinStatus === "pending" ? "Request pending" : item.joinStatus === "member" ? "Member" : "Available"}</Badge></div>{item.joinStatus === "available" && <Button className="mt-3 w-full" disabled={joinMutation.isPending} onClick={() => joinMutation.mutate(item.id)}>{joinMutation.isPending ? "Sending..." : "Request to Join"}</Button>}</div>) : <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No cooperatives found. Try another location or crop.</p>}</div>
+        <div className="mt-4 border-t pt-4"><Button variant="outline" className="w-full" onClick={() => { setShowJoin(false); setShowInvite(true); }}>Have an invite code?</Button></div>
+      </Modal>}
+      {showInvite && <Modal title="Join with Invite Code" onClose={() => setShowInvite(false)}><p className="text-sm text-slate-500">Use this only when a cooperative manager has privately shared an invite code with you.</p><Input className="mt-4" value={inviteCode} onChange={e => setInviteCode(e.target.value.toUpperCase())} placeholder="AGR-AB12CD34" /><Button className="mt-3 w-full" disabled={!inviteCode.trim() || joinMutation.isPending} onClick={() => joinMutation.mutate()}>{joinMutation.isPending ? "Sending..." : "Request to Join"}</Button></Modal>}
     </div>
   );
 }
 
-function WorkflowCard({title,description,children}:{title:string;description:string;children:React.ReactNode}) {
+function echoMessage(_: any) { return "Join request sent. Waiting for manager approval."; }\n\nfunction WorkflowCard({title,description,children}:{title:string;description:string;children:ReactNode}) {
   return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader><CardContent>{children}</CardContent></Card>;
 }
 function Field({label,value,onChange,placeholder}:{label:string;value:string;onChange:(v:string)=>void;placeholder:string}) {
@@ -243,7 +266,7 @@ function ActionBox({icon:Icon,title,text}:{icon:any;title:string;text:string}) {
   return <div className="rounded-xl border p-5"><Icon className="h-6 w-6 text-emerald-600"/><p className="mt-2 font-semibold">{title}</p><p className="mt-1 text-sm text-slate-500">{text}</p></div>;
 }
 function Notice({text}:{text:string}) { return <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{text}</div>; }
-function Modal({title,onClose,children}:{title:string;onClose:()=>void;children:React.ReactNode}) {
+function Modal({title,onClose,children}:{title:string;onClose:()=>void;children:ReactNode}) {
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><Card className="w-full max-w-md"><CardHeader><div className="flex items-center justify-between"><CardTitle>{title}</CardTitle><Button size="sm" variant="ghost" onClick={onClose}><X className="h-4 w-4"/></Button></div></CardHeader><CardContent>{children}</CardContent></Card></div>;
 }
 function BriefcaseIcon({className}:{className?:string}) { return <ShoppingCart className={className}/>; }
