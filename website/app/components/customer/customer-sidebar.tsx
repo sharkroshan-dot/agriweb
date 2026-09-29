@@ -64,6 +64,7 @@ const navGroups = [
       { name: "Refunds & Returns", href: "/refunds", icon: ArrowUpLeft },
       { name: "Coupons", href: "/coupons", icon: Ticket },
       { name: "Reviews", href: "/reviews", icon: MessageSquare },
+      { name: "Messages", href: "/customer/messages", icon: MessageSquare },
       { name: "My Impact", href: "/impact", icon: Leaf },
       { name: "Profile", href: "/profile", icon: User },
     ],
