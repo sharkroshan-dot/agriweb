@@ -892,6 +892,14 @@ async def send_message(
     })
     if not saved:
         raise HTTPException(status_code=500, detail="Failed to save message")
+    # If the conversation currently has an active recipient connection,
+    # expose a delivered receipt. Read receipts are written by the read endpoint.
+    if conv_id in active_connections and active_connections[conv_id]:
+        saved["delivered_at"] = now
+        await chat_message_repository.collection.update_one(
+            {"id": str(saved.get("id", ""))},
+            {"$set": {"delivered_at": now}},
+        )
     await record_moderation_event(conv_id, sender_id, str(saved.get("id", "")), moderation)
 
     await chat_repository.update_last_message(conv_id, {
