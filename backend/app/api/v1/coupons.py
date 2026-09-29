@@ -80,6 +80,10 @@ async def list_available_coupons(
                 {"expiresAt": {"$gte": now}},
                 {"expiresAt": None},
             ],
+            "$and": [
+                {"$or": [{"ownerType": {"$exists": False}}, {"ownerType": "platform"}, {"ownerType": "farmer"}]},
+                {"$or": [{"startAt": {"$exists": False}}, {"startAt": None}, {"startAt": {"$lte": now}}]},
+            ],
         }
     ).sort("createdAt", -1)
     coupons = await cursor.to_list(length=100)
@@ -129,11 +133,17 @@ async def delete_coupon(coupon_id: str, current_user: dict = Depends(require_rol
 async def validate_coupon(data: CouponValidateRequest, current_user: dict = Depends(get_current_user)):
     collection = MongoDB.get_collection("coupons")
     coupon = await collection.find_one({"code": data.code.upper(), "status": "active"})
+    # Farmer-owned coupons are also valid marketplace coupons. Keep platform/admin
+    # coupon behavior unchanged while allowing a farmer to scope a code to their products.
+    if not coupon:
+        coupon = await collection.find_one({"code": data.code.upper(), "ownerType": "farmer", "status": "active"})
     if not coupon:
         return CouponValidateResponse(valid=False, message="Invalid or expired coupon code")
     now = datetime.utcnow()
     if coupon.get("expiresAt") and coupon["expiresAt"] < now:
         return CouponValidateResponse(valid=False, message="Coupon has expired")
+    if coupon.get("startAt") and coupon["startAt"] > now:
+        return CouponValidateResponse(valid=False, message="Coupon is not active yet")
     if data.orderValue < coupon.get("minOrderValue", 0):
         return CouponValidateResponse(
             valid=False,
