@@ -511,9 +511,6 @@ async def _can_access_conversation(conversation_id: str, user_id: str) -> bool:
     support thread. Unknown threads are denied unless the user is linked to
     the underlying business object.
     """
-    await websocket.accept()
-    logger.info(f"WebSocket connected: {conversation_id} for user {user_name}")
-
     conv = await chat_repository.get_conversation(conversation_id)
     if conv:
         participants = conv.get("participants", [])
