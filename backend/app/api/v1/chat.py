@@ -1104,6 +1104,7 @@ async def upload_and_send_attachment(
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
     if await is_restricted(sender_id):
         raise HTTPException(status_code=403, detail="Messaging access is temporarily restricted pending safety review")
+    await _assert_chat_open_for_sending(conversation_id)
     enforce_message_rate(sender_id)
 
     upload_dir = settings.UPLOAD_DIR
