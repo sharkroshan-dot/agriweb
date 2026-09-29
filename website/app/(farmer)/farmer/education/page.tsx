@@ -49,6 +49,49 @@ const RESOURCES = [
   { id: "trends", topic: "trends", title: "Market trends and demand signals", type: "Dashboard", readTime: "Live data", level: "All levels", description: "Use AgriConnect market, order and demand information to understand selling opportunities and plan production.", source: "AgriConnect", url: "/farmer/market-prices" },
 ];
 
+const SOURCE_GROUPS: Record<string, { name: string; description: string; links: { title: string; source: string; url: string; kind: string }[] }> = {
+  crop: { name: "Crop Management", description: "Crop production, crop protection, varieties, soil, irrigation and seasonal advisories.", links: [
+    { title: "TNAU AgriTech crop guides", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Crop guide" },
+    { title: "ICAR knowledge resources", source: "ICAR", url: "https://www.icar.gov.in/en/technologies-and-knowledge-resources", kind: "Official" },
+    { title: "ICAR farmer advisories", source: "ICAR", url: "https://icar.gov.in/en/icar-kharif-agro-advisories-farmers-2025", kind: "Advisory" },
+    { title: "ICAR publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
+  ]},
+  pricing: { name: "Pricing & Market Decisions", description: "Market information, price discovery, mandi learning and digital agricultural markets.", links: [
+    { title: "e-NAM learning", source: "National Agriculture Market", url: "https://elearning.enam.gov.in/local/staticpage/view.php?page=guest", kind: "e-Learning" },
+    { title: "e-NAM resources", source: "National Agriculture Market", url: "https://enam.gov.in/resources", kind: "Guides" },
+    { title: "e-NAM dashboard", source: "National Agriculture Market", url: "https://enam.gov.in/dashboard", kind: "Market data" },
+    { title: "TNAU agricultural marketing", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
+  ]},
+  selling: { name: "Digital Selling", description: "Learn digital marketplace participation, online trading and customer-oriented selling.", links: [
+    { title: "e-NAM seller learning", source: "National Agriculture Market", url: "https://elearning.enam.gov.in/local/staticpage/view.php?page=guest", kind: "e-Learning" },
+    { title: "e-NAM registration & manuals", source: "National Agriculture Market", url: "https://enam.gov.in/resources", kind: "Official" },
+    { title: "AgriConnect Products", source: "AgriConnect", url: "/farmer/products", kind: "Practice" },
+  ]},
+  packaging: { name: "Packaging & Post-Harvest", description: "Harvest handling, preservation, grading, packaging, storage, processing and loss reduction.", links: [
+    { title: "ICAR post-harvest publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
+    { title: "TNAU post-harvest technology", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
+    { title: "ICAR farmer advisories", source: "ICAR", url: "https://icar.gov.in/en/icar-kharif-agro-advisories-farmers-2025", kind: "Advisory" },
+  ]},
+  quality: { name: "Quality & Grading", description: "Quality assessment, grading, food safety and market-quality practices.", links: [
+    { title: "e-NAM quality resources", source: "National Agriculture Market", url: "https://enam.gov.in/resources", kind: "Guides" },
+    { title: "ICAR agricultural publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
+    { title: "TNAU food safety & quality resources", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
+  ]},
+  storage: { name: "Storage & Cold Chain", description: "Storage, preservation, cold-chain concepts and post-harvest disease management.", links: [
+    { title: "ICAR post-harvest management publications", source: "ICAR", url: "https://www.icar.gov.in/en/all-publications", kind: "Publication" },
+    { title: "TNAU post-harvest technology", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "Reference" },
+  ]},
+  schemes: { name: "Government Schemes & Finance", description: "Official scheme information, farmer services, KCC and government agricultural support.", links: [
+    { title: "PM-KISAN official portal", source: "Government of India", url: "https://www.pmkisan.gov.in/", kind: "Official" },
+    { title: "PM-KISAN farmer services", source: "Government of India", url: "https://www.pmkisan.gov.in/", kind: "Registration & status" },
+    { title: "TNAU schemes & services", source: "Tamil Nadu Agricultural University", url: "https://agritech.tnau.ac.in/", kind: "State reference" },
+  ]},
+  trends: { name: "Market Trends & Demand", description: "Market signals, commodity information, demand context and planning references.", links: [
+    { title: "e-NAM dashboard", source: "National Agriculture Market", url: "https://enam.gov.in/dashboard", kind: "Market data" },
+    { title: "e-NAM commodity list", source: "National Agriculture Market", url: "https://enam.gov.in/commodity/commodity-list", kind: "Commodity reference" },
+    { title: "AgriConnect market prices", source: "AgriConnect", url: "/farmer/market-prices", kind: "Practice" },
+  ]},
+};
 export default function FarmerEducationPage() {
   const [search, setSearch] = useState("");
   const [activeTopic, setActiveTopic] = useState<string>("all");
@@ -185,6 +228,58 @@ export default function FarmerEducationPage() {
         </Card>
       )}
 
+      {activeTopic === "all" ? (
+        <div className="space-y-8">
+          {TOPICS.map((topic) => {
+            const group = SOURCE_GROUPS[topic.id];
+            const topicResources = filtered.filter((r: any) => r.topic === topic.id);
+            if (!group) return null;
+            return (
+              <section key={topic.id} className="space-y-3">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <h2 className="text-lg font-semibold">{group.name}</h2>
+                    <p className="text-sm text-gray-500">{group.description}</p>
+                  </div>
+                  <Badge variant="outline">{group.links.length} sources</Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.links.map((link) => (
+                    <Card key={link.title} className="transition-shadow hover:shadow-md">
+                      <CardHeader>
+                        <div className="flex items-center justify-between gap-2">
+                          <Badge variant="outline">{link.kind}</Badge>
+                          <span className="text-xs text-gray-400">{link.source}</span>
+                        </div>
+                        <CardTitle className="text-base leading-snug">{link.title}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <a href={link.url} target={link.url.startsWith("http") ? "_blank" : undefined} rel={link.url.startsWith("http") ? "noreferrer" : undefined} className="block rounded-md bg-emerald-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-emerald-700">
+                          Open learning source
+                        </a>
+                      </CardContent>
+                    </Card>
+                  ))}
+                  {topicResources.map((r: any) => (
+                    <Card key={r.id || r.title} className="transition-shadow hover:shadow-md">
+                      <CardHeader>
+                        <Badge variant="secondary">AgriConnect learning</Badge>
+                        <CardTitle className="text-base leading-snug">{r.title}</CardTitle>
+                        <CardDescription>{r.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <button type="button" onClick={() => setSelectedResource(r)} className="w-full rounded-md border px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">
+                          Learn in AgriConnect
+                        </button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((r: any) => {
           const topic = topicInfo(r.topic);
@@ -227,6 +322,7 @@ export default function FarmerEducationPage() {
           </Card>
         )}
       </div>
+      )}
 
       {selectedResource && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
