@@ -27,7 +27,7 @@ export default function FarmerCooperativePage(){
  const cooperatives=data?.data?.cooperatives||[];
  useEffect(()=>{if(cooperatives.length&&!cooperatives.some((x:any)=>x.id===selectedCoopId))setSelectedCoopId(cooperatives[0].id)},[cooperatives,selectedCoopId]);
  const coop=cooperatives.find((x:any)=>x.id===selectedCoopId)||cooperatives[0];
- const {data:dashData,isLoading:dashLoading}=useQuery({queryKey:["cooperativeDashboard",coop?.id],queryFn:()=>api.get("/cooperatives/"+coop.id+"/dashboard"),enabled:!!coop?.id,retry:1});
+ const {data:dashData,isLoading:dashLoading}=useQuery({queryKey:["cooperativeDashboard",coop?.id],queryFn:()=>api.get("/cooperatives/dashboard/"+coop.id"),enabled:!!coop?.id,retry:1});
  const dash=dashData?.data?.data||dashData?.data||{};
  const {data:supplyData,isLoading:supplyLoading}=useQuery({queryKey:["cooperativeSupply",coop?.id],queryFn:()=>api.get("/cooperatives/"+coop.id+"/supply"),enabled:!!coop?.id&&stage==="inventory",retry:1});
  const supply=supplyData?.data?.products||[];
