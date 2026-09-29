@@ -223,6 +223,9 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
   const [reportDetails, setReportDetails] = useState("");
   const [safetyNotice, setSafetyNotice] = useState("");
   const [safetyBusy, setSafetyBusy] = useState(false);
+  const [presence, setPresence] = useState<{online:boolean;last_seen?:string|null}>({online:false,last_seen:null});
+  const [typing, setTyping] = useState(false);
+  const typingTimerRef = useRef<number | undefined>(undefined);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -256,7 +259,24 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
   }, [userId, status]);
 
   useEffect(() => {
+    if (status !== "authenticated") return;
+    const heartbeat = () => { void api.post("/chat/presence/heartbeat", { name: userName, role: userRole }).catch(() => {}); };
+    heartbeat();
+    const id = window.setInterval(heartbeat, 30000);
+    return () => window.clearInterval(id);
+  }, [status, userName, userRole]);
+
+  useEffect(() => {
     if (!activeId) return;
+    const otherId = participantName(active, userId) ? (active?.participant?.id || active?.participants?.find((p) => p.id !== userId)?.id) : undefined;
+    if (otherId) {
+      void api.get(`/chat/presence/${otherId}`).then((res: any) => setPresence(res?.data || {online:false,last_seen:null})).catch(() => {});
+      const presenceId = window.setInterval(() => {
+        void api.get(`/chat/presence/${otherId}`).then((res: any) => setPresence(res?.data || {online:false,last_seen:null})).catch(() => {});
+      }, 30000);
+      // Presence polling is intentionally scoped to the active authorized contact.
+      return () => window.clearInterval(presenceId);
+    }
     const loadSafety = async () => {
       try {
         const res: any = await api.get(`/chat/conversations/${activeId}/safety`);
@@ -289,7 +309,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
       cancelled = true;
       window.clearInterval(pollId);
     };
-  }, [activeId]);
+  }, [activeId, userId]);
 
   useEffect(() => {
     if (!activeId) return;
@@ -375,6 +395,13 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     setNearBottom(distance < 140);
+  };
+
+  const handleTyping = () => {
+    setTyping(true);
+    window.clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = window.setTimeout(() => setTyping(false), 1200);
+    if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: "typing", typing: true }));
   };
 
   const send = async () => {
@@ -754,7 +781,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                         ) : (
                           <WifiOff className="h-3 w-3 text-amber-500" />
                         )}
-                        {connected ? "Live" : activeRole || "Reconnecting…"}
+                        {typing ? "typing…" : presence.online ? "online" : presence.last_seen ? `last seen ${timeAgo(presence.last_seen)} ago` : connected ? "Live" : activeRole || "Offline"}
                       </p>
                     </div>
                   </div>
@@ -995,7 +1022,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                   {safetyNotice && <div className="border-t bg-amber-50 px-3 py-2 text-xs text-amber-900">{safetyNotice}</div>}
                   <Input
                     value={text}
-                    onChange={(e) => setText(e.target.value)}
+                    onChange={(e) => { setText(e.target.value); handleTyping(); }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void send();
                     }}
