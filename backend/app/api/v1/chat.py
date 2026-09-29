@@ -783,6 +783,10 @@ async def send_message(
     if not await _can_access_conversation(conv_id, sender_id):
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
     moderation = await _assert_chat_safety(conv_id, sender_id, body.content)
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(body.content) > 5000:
+        raise HTTPException(status_code=400, detail="Message is too long (maximum 5000 characters)")
 
     conv = await chat_repository.get_conversation(conv_id)
     if not conv:
@@ -941,6 +945,9 @@ async def share_location(
         "pickup": "Farm Pickup Location",
         "delivery": "Delivery Meeting Point",
     }.get(body.share_kind, body.label or "Shared Location")
+    if body.share_kind not in {"pickup", "delivery", "custom"}:
+        raise HTTPException(status_code=400, detail="Invalid location sharing type")
+    moderation = await _assert_chat_safety(conv_id, sender_id, kind_label)
     content = f"📍 {kind_label}"
     location = {
         "kind": body.share_kind,
