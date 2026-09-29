@@ -408,3 +408,40 @@ async def cooperative_supply(
             "totalAvailableKg": round(sum(x["availableKg"] for x in rows), 2),
         },
     }
+
+
+
+@router.post("/{cooperative_id}/b2b-allocation")
+async def allocate_b2b_supply(
+    cooperative_id: str,
+    allocations: List[Dict[str, Any]] = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Record a manager-approved allocation of member-owned stock to a cooperative sale."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop or str(coop.get("managerId")) != str(uid):
+        raise HTTPException(403, "Only the cooperative manager can allocate supply")
+    members = await _member_ids(cid)
+    member_set = {str(x) for x in members}
+    result = []
+    for item in allocations:
+        farmer_id = str(item.get("farmerId") or "")
+        product_id = str(item.get("productId") or "")
+        quantity = float(item.get("quantityKg") or 0)
+        if farmer_id not in member_set or quantity <= 0:
+            raise HTTPException(400, "Each allocation must use an active cooperative farmer and a positive quantity")
+        try:
+            product = await product_repo.find_one({"_id": ObjectId(product_id), "farmerId": ObjectId(farmer_id), "isActive": {"$ne": False}})
+        except Exception:
+            product = None
+        if not product:
+            raise HTTPException(404, "Product not found for the selected farmer")
+        stock = await inventory_repository.get_stock_summary(product_id)
+        available = float((stock or {}).get("available_stock") or 0)
+        if quantity > available:
+            raise HTTPException(400, f"Insufficient available stock for {product.get('name', 'product')}")
+        result.append({"farmerId": farmer_id, "productId": product_id, "productName": product.get("name"), "quantityKg": round(quantity, 2)})
+    return {"success": True, "data": {"cooperativeId": str(cid), "allocations": result, "totalQuantityKg": round(sum(x["quantityKg"] for x in result), 2)}}
