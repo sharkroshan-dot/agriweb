@@ -107,6 +107,11 @@ export default function FarmerEarningsPage() {
     queryFn: () => api.get("/farmers/me/earnings"),
   });
 
+  const { data: settlementData } = useQuery({
+    queryKey: ["farmerSettlements"],
+    queryFn: () => api.get("/settlements/me"),
+  });
+
   const withdraw = useMutation({
     mutationFn: (body: any) => api.post("/payments/wallet/withdraw", body),
     onSuccess: () => {
@@ -119,6 +124,7 @@ export default function FarmerEarningsPage() {
   const earnings = (data as any)?.data ?? {};
   const transactions = earnings.recentTransactions ?? [];
   const withdrawals = earnings.withdrawals ?? [];
+  const settlements = (settlementData as any)?.data ?? [];
   const available = Number(earnings.availableBalance ?? 0);
   const withdrawAmount = Number(amount || 0);
 
@@ -208,6 +214,32 @@ export default function FarmerEarningsPage() {
           </Card>
         ))}
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Settlement Status</CardTitle>
+          <CardDescription>Sale shares move through approval and payout reconciliation.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {settlements.length === 0 ? (
+            <p className="py-5 text-center text-sm text-gray-500">No settlement records yet.</p>
+          ) : (
+            <div className="divide-y">
+              {settlements.slice(0, 10).map((s: any) => (
+                <div key={s.id} className="flex items-center justify-between gap-3 py-3">
+                  <div>
+                    <p className="text-sm font-medium">{formatPrice(s.amount ?? 0)}</p>
+                    <p className="text-xs text-gray-500">Order {s.orderId || "—"} · {formatDate(s.createdAt)}</p>
+                  </div>
+                  <Badge variant={s.status === "paid" ? "success" : s.status === "failed" ? "destructive" : "warning"} className="capitalize">
+                    {s.status}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
