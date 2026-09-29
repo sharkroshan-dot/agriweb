@@ -131,7 +131,7 @@ async def create_farmer_coupon(data: CouponCreate, current_user: dict = Depends(
         raise HTTPException(400, "Coupon code already exists")
     now = datetime.utcnow()
     doc = data.model_dump()
-    doc.update({"code": code, "ownerType": "farmer", "farmerId": ObjectId(str(current_user["_id"])), "status": "active", "usedCount": 0, "createdAt": now, "updatedAt": now})
+    doc.update({"code": code, "ownerType": "farmer", "farmerId": ObjectId(str(current_user["_id"])), "status": "scheduled" if data.startAt and data.startAt > now else "active", "usedCount": 0, "createdAt": now, "updatedAt": now})
     result = await coupon_repo.insert_one(doc)
     doc["_id"] = result.inserted_id
     return _serialize(doc)
