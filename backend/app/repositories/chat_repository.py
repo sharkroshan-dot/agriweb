@@ -52,7 +52,7 @@ class ChatRepository(BaseRepository):
             except Exception:
                 pass
             orders = await order_repository.find_many(
-                {"$or": [{"farmerId": {"$in": ids}}, {"customerId": {"$in": ids}}]},
+                {"$or": [{"farmerId": {"$in": ids}}, {"customerId": {"$in": ids}}, {"deliveryPartnerId": {"$in": ids}}]},
                 limit=500,
             )
             return [f"delivery-chat-{str(o.get('_id'))}" for o in (orders or []) if o.get("_id")]
@@ -99,7 +99,7 @@ class ChatRepository(BaseRepository):
             except Exception:
                 pass
             orders = await order_repository.find_many(
-                {"$or": [{"farmerId": {"$in": ids}}, {"customerId": {"$in": ids}}]},
+                {"$or": [{"farmerId": {"$in": ids}}, {"customerId": {"$in": ids}}, {"deliveryPartnerId": {"$in": ids}}]},
                 limit=500,
             )
             return [f"order-chat-{str(o.get('_id'))}" for o in (orders or []) if o.get("_id")]
