@@ -4,7 +4,7 @@ import secrets
 import string
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from pydantic import BaseModel, Field
 
 from app.api.v1.auth import get_current_user
@@ -54,11 +54,11 @@ async def _unique_invite_code() -> str:
     raise HTTPException(status_code=500, detail="Could not generate cooperative invite code")
 
 
-async def _get_members(cooperative_id: ObjectId) -> List[Dict[str, Any]]:
+async def _get_members(cooperative_id: ObjectId, include_pending: bool = False) -> List[Dict[str, Any]]:
     members = await member_repo.find_many(
-        {"cooperativeId": cooperative_id, "status": "active", "deletedAt": None},
+        {"cooperativeId": cooperative_id, "status": {"$in": ["active", "pending"]} if include_pending else "active", "deletedAt": None},
         limit=500,
-        sort=[("role", 1), ("joinedAt", 1)],
+        sort=[("status", 1), ("role", 1), ("joinedAt", 1)],
     )
     ids = [m["userId"] for m in members if m.get("userId")]
     users = await user_repo.find_many({"_id": {"$in": ids}}, limit=500) if ids else []
@@ -180,6 +180,34 @@ async def create_cooperative(
     return {"success": True, "data": _public(created), "message": "Cooperative created. You are the manager."}
 
 
+@router.get("/discover")
+async def discover_cooperatives(
+    search: str = Query("", max_length=100),
+    location: str = Query("", max_length=160),
+    crop: str = Query("", max_length=80),
+    current_user: dict = Depends(get_current_user),
+):
+    _require_farmer(current_user)
+    query: Dict[str, Any] = {"status": "active", "deletedAt": None}
+    if search.strip():
+        query["name"] = {"$regex": search.strip(), "$options": "i"}
+    if location.strip():
+        query["location"] = {"$regex": location.strip(), "$options": "i"}
+    if crop.strip():
+        query["crops"] = {"$regex": crop.strip(), "$options": "i"}
+    coops = await cooperative_repo.find_many(query, limit=100, sort=[("name", 1)])
+    uid = _oid(current_user["_id"], "farmer id")
+    result = []
+    for coop in coops:
+        if str(coop.get("managerId")) == str(uid):
+            continue
+        active = await member_repo.find_one({"cooperativeId": coop["_id"], "userId": uid, "status": "active", "deletedAt": None})
+        pending = await member_repo.find_one({"cooperativeId": coop["_id"], "userId": uid, "status": "pending", "deletedAt": None})
+        member_count = await member_repo.collection.count_documents({"cooperativeId": coop["_id"], "status": "active", "deletedAt": None})
+        result.append({"id": str(coop["_id"]), "name": coop.get("name"), "location": coop.get("location"), "description": coop.get("description"), "crops": coop.get("crops", []), "memberCount": member_count, "joinStatus": "member" if active else ("pending" if pending else "available")})
+    return {"success": True, "data": {"cooperatives": result, "count": len(result)}}
+
+
 @router.get("/me")
 async def my_cooperatives(current_user: dict = Depends(get_current_user)):
     _require_farmer(current_user)
@@ -274,21 +302,12 @@ async def join_cooperative(
     if existing and existing.get("status") == "active":
         return {"success": True, "data": _public(coop), "message": "You are already a member"}
 
+    now = datetime.utcnow()
     if existing:
-        await member_repo.collection.update_one(
-            {"_id": existing["_id"]},
-            {"$set": {"status": "active", "joinedAt": datetime.utcnow(), "deletedAt": None}},
-        )
+        await member_repo.collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "pending", "requestedAt": now, "deletedAt": None}})
     else:
-        await member_repo.create({
-            "cooperativeId": coop["_id"],
-            "userId": uid,
-            "role": "member",
-            "status": "active",
-            "joinedAt": datetime.utcnow(),
-            "deletedAt": None,
-        })
-    return {"success": True, "data": _public(coop), "message": f"You joined {coop.get('name')}"}
+        await member_repo.create({"cooperativeId": coop["_id"], "userId": uid, "role": "member", "status": "pending", "requestedAt": now, "deletedAt": None})
+    return {"success": True, "data": _public(coop), "message": f"Join request sent to {coop.get('name')}. Waiting for manager approval."}
 
 
 @router.get("/{cooperative_id}/members")
@@ -303,6 +322,39 @@ async def cooperative_members(
     if not membership:
         raise HTTPException(403, "You are not a member of this cooperative")
     return {"success": True, "data": {"members": await _get_members(cid)}}
+
+
+@router.get("/{cooperative_id}/join-requests")
+async def cooperative_join_requests(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id"); uid = _oid(current_user["_id"], "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop or str(coop.get("managerId")) != str(uid): raise HTTPException(403, "Only the cooperative manager can view join requests")
+    return {"success": True, "data": {"requests": await _get_members(cid, include_pending=True)}}
+
+
+@router.post("/{cooperative_id}/join-requests/approve")
+async def approve_join_request(cooperative_id: str, data: ManagerAction, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id"); uid = _oid(current_user["_id"], "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop or str(coop.get("managerId")) != str(uid): raise HTTPException(403, "Only the cooperative manager can approve members")
+    target = _oid(data.userId, "farmer id")
+    result = await member_repo.collection.update_one({"cooperativeId": cid, "userId": target, "status": "pending", "deletedAt": None}, {"$set": {"status": "active", "joinedAt": datetime.utcnow(), "approvedAt": datetime.utcnow(), "deletedAt": None}})
+    if not result.modified_count: raise HTTPException(404, "Pending join request not found")
+    return {"success": True, "message": "Farmer approved and added to the cooperative"}
+
+
+@router.post("/{cooperative_id}/join-requests/reject")
+async def reject_join_request(cooperative_id: str, data: ManagerAction, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id"); uid = _oid(current_user["_id"], "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop or str(coop.get("managerId")) != str(uid): raise HTTPException(403, "Only the cooperative manager can reject members")
+    target = _oid(data.userId, "farmer id")
+    result = await member_repo.collection.update_one({"cooperativeId": cid, "userId": target, "status": "pending", "deletedAt": None}, {"$set": {"status": "rejected", "rejectedAt": datetime.utcnow(), "deletedAt": datetime.utcnow()}})
+    if not result.modified_count: raise HTTPException(404, "Pending join request not found")
+    return {"success": True, "message": "Join request rejected"}
 
 
 @router.post("/{cooperative_id}/members/remove")
