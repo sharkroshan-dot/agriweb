@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+
 import { useQuery } from "@tanstack/react-query";
 import { ShieldCheck, BadgeCheck, Loader2, Award, Medal, CheckCircle2, Circle, Info, ArrowRight } from "lucide-react";
 import { api } from "../../../lib/api/client";
@@ -9,7 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Badge } from "../../../components/ui/badge";
 import { Progress } from "../../../components/ui/progress";
 import { VerificationStepsList } from "../../../components/farmer/verification-sections";
-import toast from "react-hot-toast";
 
 const LEVELS = [
   { min: 0, label: "Starting Farmer", color: "text-slate-500" },
@@ -19,7 +18,6 @@ const LEVELS = [
 ];
 
 export default function FarmerScorePage() {
-  const [toggled, setToggled] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["farmerTrustScore"],
@@ -28,7 +26,7 @@ export default function FarmerScorePage() {
   });
 
   const info = data?.data ?? data ?? {};
-  const score = Math.max(0, Math.min(100, Math.round(Number(info.trustScore ?? 0) * (toggled ? 0.85 : 1))));
+  const score = Math.max(0, Math.min(100, Math.round(Number(info.trustScore ?? 0))));
   const status = info.status || {};
   const scoreItems = [
     { key: "mobile", label: "Mobile verified", points: 30, href: "/farmer/verification/mobile" },
