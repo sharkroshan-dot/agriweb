@@ -1107,7 +1107,7 @@ async def get_chat_attachment(
     conversation_id = str(message.get("conversation_id") or "")
     if not await _can_access_conversation(conversation_id, str(current_user["_id"])):
         raise HTTPException(status_code=403, detail="You don't have access to this attachment")
-    filepath = os.path.join(settings.UPLOAD_DIR, filename)
+    filepath = os.path.join(os.path.dirname(settings.UPLOAD_DIR), "chat_private", filename)
     if not os.path.isfile(filepath):
         raise HTTPException(status_code=404, detail="Attachment file not found")
     return FileResponse(filepath, filename=filename)
