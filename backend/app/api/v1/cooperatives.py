@@ -310,6 +310,23 @@ async def join_cooperative(
     return {"success": True, "data": _public(coop), "message": f"Join request sent to {coop.get('name')}. Waiting for manager approval."}
 
 
+@router.post("/{cooperative_id}/join-request")
+async def request_to_join_cooperative(cooperative_id: str, current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id"); uid = _oid(current_user["_id"], "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop: raise HTTPException(404, "Cooperative not found")
+    if str(coop.get("managerId")) == str(uid): raise HTTPException(400, "You already manage this cooperative")
+    existing = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "deletedAt": None})
+    if existing and existing.get("status") == "active": return {"success": True, "message": "You are already a member"}
+    now = datetime.utcnow()
+    if existing:
+        await member_repo.collection.update_one({"_id": existing["_id"]}, {"$set": {"status": "pending", "requestedAt": now, "deletedAt": None}})
+    else:
+        await member_repo.create({"cooperativeId": cid, "userId": uid, "role": "member", "status": "pending", "requestedAt": now, "deletedAt": None})
+    return {"success": True, "data": _public(coop), "message": f"Join request sent to {coop.get('name')}. Waiting for manager approval."}
+
+
 @router.get("/{cooperative_id}/members")
 async def cooperative_members(
     cooperative_id: str,
