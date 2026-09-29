@@ -12,6 +12,7 @@ redis==5.0.1
 
 # Authentication
 PyJWT==2.15.1
+cryptography==50.0.1
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.31
 
