@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 import secrets
 import string
@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
 from app.repositories.inventory_repository import inventory_repository
+from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationType, NotificationPriority
 
 router = APIRouter()
 
@@ -134,6 +136,10 @@ class ManagerAction(BaseModel):
     userId: str
 
 
+class CooperativeInvitationCreate(BaseModel):
+    farmerId: str
+
+
 @router.post("", status_code=201)
 async def create_cooperative(
     data: CooperativeCreate,
@@ -245,6 +251,210 @@ async def my_cooperatives(current_user: dict = Depends(get_current_user)):
             "members": members,
         })
     return {"success": True, "data": {"cooperatives": result, "count": len(result)}}
+
+
+
+@router.get("/farmers/search")
+async def search_farmers(
+    search: str = Query("", max_length=100),
+    limit: int = Query(20, ge=1, le=50),
+    current_user: dict = Depends(get_current_user),
+):
+    """Find other farmers who can receive a cooperative invitation."""
+    _require_farmer(current_user)
+    uid = _oid(current_user["_id"], "farmer id")
+    query: Dict[str, Any] = {
+        "role": "farmer",
+        "deletedAt": None,
+        "_id": {"$ne": uid},
+    }
+    term = search.strip()
+    if term:
+        query["$or"] = [
+            {"firstName": {"$regex": term, "$options": "i"}},
+            {"lastName": {"$regex": term, "$options": "i"}},
+            {"email": {"$regex": term, "$options": "i"}},
+            {"phone": {"$regex": term, "$options": "i"}},
+        ]
+    farmers = await user_repo.find_many(query, limit=limit, sort=[("firstName", 1), ("lastName", 1)])
+    return {
+        "success": True,
+        "data": {
+            "farmers": [
+                {
+                    "id": str(f["_id"]),
+                    "name": f"{f.get('firstName', '')} {f.get('lastName', '')}".strip() or f.get("email", "Farmer"),
+                    "email": f.get("email"),
+                    "phone": f.get("phone"),
+                }
+                for f in farmers
+            ]
+        },
+    }
+
+
+@router.get("/invite/{invite_code}")
+async def cooperative_invite_details(
+    invite_code: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Resolve a QR/deep-link invite without exposing membership internals."""
+    _require_farmer(current_user)
+    code = invite_code.strip().upper()
+    coop = await cooperative_repo.find_one({"inviteCode": code, "status": "active", "deletedAt": None})
+    if not coop:
+        raise HTTPException(404, "Cooperative invitation not found")
+    uid = _oid(current_user["_id"], "farmer id")
+    if str(coop.get("managerId")) == str(uid):
+        status = "manager"
+    else:
+        membership = await member_repo.find_one({"cooperativeId": coop["_id"], "userId": uid, "deletedAt": None})
+        status = membership.get("status") if membership else "available"
+    return {
+        "success": True,
+        "data": {
+            "id": str(coop["_id"]),
+            "name": coop.get("name"),
+            "location": coop.get("location"),
+            "description": coop.get("description"),
+            "crops": coop.get("crops", []),
+            "memberCount": await member_repo.collection.count_documents({"cooperativeId": coop["_id"], "status": "active", "deletedAt": None}),
+            "status": status,
+        },
+    }
+
+
+@router.post("/{cooperative_id}/invitations")
+async def send_cooperative_invitation(
+    cooperative_id: str,
+    data: CooperativeInvitationCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a direct in-app invitation from a cooperative manager to another farmer."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    manager_id = _oid(current_user["_id"], "farmer id")
+    target_id = _oid(data.farmerId, "farmer id")
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop or str(coop.get("managerId")) != str(manager_id):
+        raise HTTPException(403, "Only the cooperative manager can invite farmers")
+    if str(target_id) == str(manager_id):
+        raise HTTPException(400, "You cannot invite yourself")
+    target = await user_repo.find_one({"_id": target_id, "role": "farmer", "deletedAt": None})
+    if not target:
+        raise HTTPException(404, "Farmer not found")
+    existing_member = await member_repo.find_one({"cooperativeId": cid, "userId": target_id, "deletedAt": None})
+    if existing_member and existing_member.get("status") == "active":
+        raise HTTPException(409, "Farmer is already a cooperative member")
+    existing_invite = await cooperative_repo.find_one({
+        "type": "invitation",
+        "cooperativeId": cid,
+        "farmerId": target_id,
+        "status": "pending",
+        "deletedAt": None,
+        "expiresAt": {"$gt": datetime.utcnow()},
+    })
+    if existing_invite:
+        raise HTTPException(409, "A pending invitation already exists for this farmer")
+    inviter_name = f"{current_user.get('firstName', '')} {current_user.get('lastName', '')}".strip() or "Your cooperative manager"
+    now = datetime.utcnow()
+    invitation_id = await cooperative_repo.create({
+        "type": "invitation",
+        "cooperativeId": cid,
+        "farmerId": target_id,
+        "managerId": manager_id,
+        "status": "pending",
+        "createdAt": now,
+        "expiresAt": now + timedelta(days=7),
+        "deletedAt": None,
+    })
+    if not invitation_id:
+        raise HTTPException(500, "Failed to create cooperative invitation")
+    await NotificationService.create_in_app_notification(
+        user_id=str(target_id),
+        type=NotificationType.FARMER,
+        title=f"Invitation to join {coop.get('name', 'a cooperative')}",
+        message=f"{inviter_name} invited you to join {coop.get('name', 'their cooperative')}.",
+        data={
+            "kind": "cooperative_invitation",
+            "invitationId": str(invitation_id),
+            "cooperativeId": str(cid),
+            "cooperativeName": coop.get("name"),
+            "location": coop.get("location"),
+            "expiresAt": (now + timedelta(days=7)).isoformat(),
+        },
+        priority=NotificationPriority.HIGH,
+    )
+    return {"success": True, "data": {"invitationId": str(invitation_id)}, "message": "Invitation sent to the farmer"}
+
+
+@router.post("/invitations/{invitation_id}/accept")
+async def accept_cooperative_invitation(
+    invitation_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_farmer(current_user)
+    iid = _oid(invitation_id, "invitation id")
+    uid = _oid(current_user["_id"], "farmer id")
+    invitation = await cooperative_repo.find_one({
+        "_id": iid,
+        "type": "invitation",
+        "farmerId": uid,
+        "status": "pending",
+        "deletedAt": None,
+    })
+    if not invitation:
+        raise HTTPException(404, "Invitation not found or already handled")
+    if invitation.get("expiresAt") and invitation["expiresAt"] <= datetime.utcnow():
+        await cooperative_repo.update({"_id": iid}, {"status": "expired"})
+        raise HTTPException(410, "This invitation has expired")
+    cid = invitation["cooperativeId"]
+    coop = await cooperative_repo.find_one({"_id": cid, "status": "active", "deletedAt": None})
+    if not coop:
+        raise HTTPException(404, "Cooperative is no longer available")
+    existing = await member_repo.find_one({"cooperativeId": cid, "userId": uid, "deletedAt": None})
+    now = datetime.utcnow()
+    if existing and existing.get("status") == "active":
+        await cooperative_repo.update({"_id": iid}, {"status": "accepted", "respondedAt": now})
+        return {"success": True, "message": "You are already a member of this cooperative"}
+    if existing:
+        await member_repo.collection.update_one(
+            {"_id": existing["_id"]},
+            {"$set": {"status": "active", "role": "member", "joinedAt": now, "approvedAt": now, "deletedAt": None}},
+        )
+    else:
+        await member_repo.create({
+            "cooperativeId": cid,
+            "userId": uid,
+            "role": "member",
+            "status": "active",
+            "joinedAt": now,
+            "approvedAt": now,
+            "deletedAt": None,
+        })
+    await cooperative_repo.update({"_id": iid}, {"status": "accepted", "respondedAt": now})
+    return {"success": True, "data": {"cooperativeId": str(cid)}, "message": f"You joined {coop.get('name', 'the cooperative')}"}
+
+
+@router.post("/invitations/{invitation_id}/reject")
+async def reject_cooperative_invitation(
+    invitation_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    _require_farmer(current_user)
+    iid = _oid(invitation_id, "invitation id")
+    uid = _oid(current_user["_id"], "farmer id")
+    invitation = await cooperative_repo.find_one({
+        "_id": iid,
+        "type": "invitation",
+        "farmerId": uid,
+        "status": "pending",
+        "deletedAt": None,
+    })
+    if not invitation:
+        raise HTTPException(404, "Invitation not found or already handled")
+    await cooperative_repo.update({"_id": iid}, {"status": "rejected", "respondedAt": datetime.utcnow()})
+    return {"success": True, "message": "Cooperative invitation rejected"}
 
 
 @router.get("/{cooperative_id}")
