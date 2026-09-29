@@ -17,6 +17,7 @@ from app.repositories.base_repository import BaseRepository
 block_repository = BaseRepository("chat_blocks")
 report_repository = BaseRepository("chat_reports")
 moderation_repository = BaseRepository("chat_moderation_events")
+restriction_repository = BaseRepository("chat_restrictions")
 
 _RATE: dict[str, list[float]] = {}
 WINDOW_SECONDS = 60
@@ -138,3 +139,22 @@ async def record_moderation_event(
         "action": "flag_for_review",
         "created_at": datetime.utcnow(),
     })
+
+
+async def register_safety_restriction(user_id: str, reason: str, risk: str) -> None:
+    """Create a temporary messaging restriction; never a permanent ban."""
+    await restriction_repository.collection.update_one(
+        {"user_id": str(user_id), "active": True},
+        {"$set": {
+            "user_id": str(user_id),
+            "reason": reason,
+            "risk": risk,
+            "active": True,
+            "created_at": datetime.utcnow(),
+        }},
+        upsert=True,
+    )
+
+
+async def is_restricted(user_id: str) -> bool:
+    return bool(await restriction_repository.find_one({"user_id": str(user_id), "active": True}))
