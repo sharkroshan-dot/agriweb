@@ -237,8 +237,14 @@ class ProductService:
                 # was created before the marketplace product.
                 batch_repo = BaseRepository("batches")
                 await batch_repo.collection.update_many(
-                    {"sourceHarvestPlanId": plan_oid, "deletedAt": None},
-                    {"$set": {"productId": ObjectId(product_id), "updatedAt": datetime.utcnow()}},
+                    {"sourceHarvestPlanId": plan_oid, "deletedAt": None, "qualityStatus": "approved"},
+                    {"$set": {
+                        "productId": ObjectId(product_id),
+                        "status": "listed",
+                        "remainingKg": 0.0,
+                        "convertedAt": datetime.utcnow(),
+                        "updatedAt": datetime.utcnow(),
+                    }},
                 )
             except Exception as e:
                 logger.warning(f"Failed to link harvest plan {data.sourceHarvestPlanId} to product {product_id}: {e}")
