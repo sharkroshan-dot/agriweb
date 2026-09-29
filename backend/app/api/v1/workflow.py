@@ -20,9 +20,10 @@ preorders = BaseRepository("harvest_preorders")
 rfqs = BaseRepository("b2b_rfqs")
 delivery_jobs = BaseRepository("delivery_jobs")
 addresses = BaseRepository("addresses")
-warehouse_incoming = BaseRepository("warehouse_incoming")
-warehouse_outgoing = BaseRepository("warehouse_outgoing")
+warehouse_incoming = BaseRepository("incoming_stock")
+warehouse_outgoing = BaseRepository("outgoing_stock")
 warehouse_stock = BaseRepository("warehouse_stock")
+b2b_orders = BaseRepository("b2b_orders")
 
 
 ROLE_STEPS = {
@@ -111,7 +112,7 @@ async def _business(uid: str):
     status = str(rfq.get("status") or "").lower()
     if status in ("open", "published", "active"):
         return {"currentStep": "RFQ Published", "state": "ACTION_REQUIRED", "next": _href(f"/business/rfqs/{rfq['_id']}", "Review Farmer Quotes", "Review and compare farmer offers before awarding the RFQ."), "entityId": str(rfq["_id"])}
-    order = await _latest(orders, {"businessUserId": _id(uid), "deletedAt": None}, "createdAt")
+    order = await _latest(b2b_orders, {"businessUserId": _id(uid), "deletedAt": None}, "createdAt")
     if not order:
         return {"currentStep": "RFQ Awarded", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs", "Review Awarded RFQ", "Review the selected offer and proceed to the B2B order."), "entityId": str(rfq["_id"])}
     status = str(order.get("status") or order.get("orderStatus") or "").lower()
@@ -206,5 +207,9 @@ async def get_entity_workflow(entity_type: str, entity_id: str, current_user: di
     elif entity_type == "batch":
         result["next"] = _href(f"/farmer/quality?batchId={entity_id}", "Quality Inspection", "Inspect the harvest batch.")
     elif entity_type == "order":
-        result["next"] = _href(f"/customer/orders", "Open Order", "Continue order fulfillment.")
+        result["next"] = _href("/customer/orders", "Open Order", "Continue order fulfillment.")
+    elif entity_type == "rfq":
+        result["next"] = _href(f"/business/rfqs/{entity_id}", "Open RFQ", "Continue quote selection and award.")
+    elif entity_type == "delivery":
+        result["next"] = _href("/delivery/deliveries", "Open Delivery", "Continue pickup, dispatch, route and proof of delivery.")
     return {"success": True, "data": result}
