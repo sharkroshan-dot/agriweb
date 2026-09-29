@@ -128,13 +128,13 @@ async def delete_coupon(coupon_id: str, current_user: dict = Depends(require_rol
 @router.post("/validate", response_model=CouponValidateResponse)
 async def validate_coupon(data: CouponValidateRequest, current_user: dict = Depends(get_current_user)):
     collection = MongoDB.get_collection("coupons")
-    coupon = await collection.find_one({"code": data.code.upper(), "status": "active"})
+    coupon = await collection.find_one({"code": data.code.upper(), "status": "active"})\n    # Farmer-owned coupons are also valid marketplace coupons. Keep platform/admin\n    # coupon behavior unchanged while allowing a farmer to scope a code to their products.\n    if not coupon:\n        coupon = await collection.find_one({"code": data.code.upper(), "ownerType": "farmer", "status": "active"})
     if not coupon:
         return CouponValidateResponse(valid=False, message="Invalid or expired coupon code")
     now = datetime.utcnow()
     if coupon.get("expiresAt") and coupon["expiresAt"] < now:
         return CouponValidateResponse(valid=False, message="Coupon has expired")
-    if data.orderValue < coupon.get("minOrderValue", 0):
+    if coupon.get("startAt") and coupon["startAt"] > now:\n        return CouponValidateResponse(valid=False, message="Coupon is not active yet")\n    if data.orderValue < coupon.get("minOrderValue", 0):
         return CouponValidateResponse(
             valid=False,
             message=f"Minimum order value of Rs {coupon['minOrderValue']} required"
