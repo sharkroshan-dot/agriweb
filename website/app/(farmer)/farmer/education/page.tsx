@@ -183,8 +183,11 @@ export default function FarmerEducationPage() {
         {filtered.map((r: any) => {
           const topic = topicInfo(r.topic);
           const Icon = topic?.icon || BookOpen;
+          const resourceId = String(r.id || r.title);
+          const isSaved = savedIds.includes(resourceId);
+          const isCompleted = completedIds.includes(resourceId);
           return (
-            <Card key={r.id || r.title} className="cursor-pointer transition-shadow hover:shadow-md">
+            <Card key={resourceId} className="transition-shadow hover:shadow-md">
               <CardHeader className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className={cn("flex h-9 w-9 items-center justify-center rounded-lg", topic?.color)}>
@@ -198,6 +201,15 @@ export default function FarmerEducationPage() {
                   {r.type} · {r.readTime}
                 </CardDescription>
               </CardHeader>
+              <CardContent className="flex items-center gap-2 pt-0">
+                <button type="button" onClick={() => setSelectedResource(r)} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+                  Open resource
+                </button>
+                <button type="button" onClick={() => toggleSaved(resourceId)} className={cn("rounded-md border px-3 py-2 text-sm", isSaved ? "border-amber-300 bg-amber-50 text-amber-700" : "border-gray-200 text-gray-600")}>
+                  {isSaved ? "Saved" : "Save"}
+                </button>
+                {isCompleted && <Badge variant="secondary">Done</Badge>}
+              </CardContent>
             </Card>
           );
         })}
