@@ -253,7 +253,7 @@ export default function FarmerCooperativePage() {
   );
 }
 
-function echoMessage(_: any) { return "Join request sent. Waiting for manager approval."; }\n\nfunction WorkflowCard({title,description,children}:{title:string;description:string;children:ReactNode}) {
+function WorkflowCard({title,description,children}:{title:string;description:string;children:ReactNode}) {
   return <Card><CardHeader><CardTitle>{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader><CardContent>{children}</CardContent></Card>;
 }
 function Field({label,value,onChange,placeholder}:{label:string;value:string;onChange:(v:string)=>void;placeholder:string}) {
