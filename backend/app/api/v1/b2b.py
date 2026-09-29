@@ -251,7 +251,6 @@ def _build_cooperative_allocations(rows: List[Dict[str, Any]], quantity: float) 
             allocations.append({"farmerId": row["farmerId"], "productId": row["productId"], "productName": row.get("productName"), "quantityKg": round(take, 2)})
             remaining -= take
     return allocations if remaining <= 0.001 else []
-}
 
 async def _enrich_business_info(rfq: Dict[str, Any]) -> None:
     if not rfq.get("businessProfileId"):
