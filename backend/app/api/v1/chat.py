@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field
 
 from app.repositories.chat_repository import chat_repository, chat_message_repository
 from app.services.chat_ai_service import suggest_replies, translate_text, normalize_language
-from app.api.v1.auth import get_current_user, require_role
+from app.api.v1.auth import get_current_user
+from app.core.security import require_role
 from app.core.config import settings
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.notification_service import NotificationService
