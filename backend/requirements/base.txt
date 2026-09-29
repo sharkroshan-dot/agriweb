@@ -37,11 +37,11 @@ celery==5.3.4
 
 # AI/ML
 scikit-learn==1.5.0
-numpy==1.24.3
+numpy==1.26.4
 pandas==2.1.4
 statsmodels==0.14.1
 joblib==1.3.2
-tensorflow==2.14.0
+tensorflow==2.18.0
 torch==2.9.1
 opencv-python==4.8.1.78
 
