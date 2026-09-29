@@ -98,6 +98,7 @@ export default function CheckoutPage() {
   const [paymentStage, setPaymentStage] = useState("idle");
   const [paymentMessage, setPaymentMessage] = useState("");
   const [selectedUpiApp, setSelectedUpiApp] = useState("");
+  const selectedUpiAppLabel = ({ gpay: "GPay", phonepe: "PhonePe", paytm: "Paytm" } as Record<string, string>)[selectedUpiApp] || "UPI";
 
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
