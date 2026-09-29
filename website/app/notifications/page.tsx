@@ -58,6 +58,7 @@ export default function NotificationsPage() {
   const queryClient = useQueryClient();
   const [selectedNotification, setSelectedNotification] = useState<NotificationDetail | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -113,6 +114,23 @@ export default function NotificationsPage() {
     setIsDetailOpen(true);
     if (!notification.isRead) {
       markRead(notification.id);
+    }
+  };
+
+  const isCooperativeInvitation = (notification: NotificationDetail | null) => notification?.data?.kind === "cooperative_invitation" && Boolean(notification.data?.invitationId);
+
+  const respondToCooperativeInvitation = async (accept: boolean) => {
+    if (!selectedNotification?.data?.invitationId) return;
+    setInviteBusy(true);
+    try {
+      await api.post(`/cooperatives/invitations/${selectedNotification.data.invitationId}/${accept ? "accept" : "reject"}`);
+      refresh();
+      setIsDetailOpen(false);
+      setSelectedNotification(null);
+    } catch (error: any) {
+      window.alert(error?.message || `Could not ${accept ? "accept" : "reject"} the invitation.`);
+    } finally {
+      setInviteBusy(false);
     }
   };
 
@@ -301,6 +319,17 @@ export default function NotificationsPage() {
                     </div>
                   )}
                 </div>
+
+                {isCooperativeInvitation(selectedNotification) && (
+                  <div className="flex gap-3 border-t pt-4">
+                    <Button className="flex-1" disabled={inviteBusy} onClick={() => respondToCooperativeInvitation(true)}>
+                      Accept Invitation
+                    </Button>
+                    <Button variant="outline" className="flex-1" disabled={inviteBusy} onClick={() => respondToCooperativeInvitation(false)}>
+                      Reject
+                    </Button>
+                  </div>
+                )}
 
                 {selectedNotification.actionUrl && (
                   <div className="pt-4 border-t">
