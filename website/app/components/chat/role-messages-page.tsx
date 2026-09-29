@@ -268,15 +268,26 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
 
   useEffect(() => {
     if (!activeId) return;
-    const otherId = participantName(active, userId) ? (active?.participant?.id || active?.participants?.find((p) => p.id !== userId)?.id) : undefined;
+    let cancelled = false;
+    let presenceId: number | undefined;
+    let presenceCleanup: (() => void) | undefined;
+
+    const otherId =
+      active?.participant?.id || active?.participants?.find((p) => p.id !== userId)?.id;
+
     if (otherId) {
-      void api.get(`/chat/presence/${otherId}`).then((res: any) => setPresence(res?.data || {online:false,last_seen:null})).catch(() => {});
-      const presenceId = window.setInterval(() => {
-        void api.get(`/chat/presence/${otherId}`).then((res: any) => setPresence(res?.data || {online:false,last_seen:null})).catch(() => {});
-      }, 30000);
-      // Presence polling is intentionally scoped to the active authorized contact.
-      return () => window.clearInterval(presenceId);
+      const loadPresence = () => {
+        void api.get(`/chat/presence/${otherId}`)
+          .then((res: any) => {
+            if (!cancelled) setPresence(res?.data || { online: false, last_seen: null });
+          })
+          .catch(() => {});
+      };
+      loadPresence();
+      presenceId = window.setInterval(loadPresence, 30000);
+      presenceCleanup = () => window.clearInterval(presenceId);
     }
+
     const loadSafety = async () => {
       try {
         const res: any = await api.get(`/chat/conversations/${activeId}/safety`);
@@ -287,7 +298,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
       }
     };
     void loadSafety();
-    let cancelled = false;
+
     const loadMessages = async () => {
       try {
         const res: any = await api.get(`/chat/conversations/${activeId}/messages`);
@@ -296,21 +307,24 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
         setConversations((current) =>
           current.map((c) => (c.id === activeId ? { ...c, unread_count: 0 } : c))
         );
+        void api.post(`/chat/conversations/${activeId}/read`).catch(() => {});
       } catch {
         if (!cancelled) setMessages([]);
       } finally {
         if (!cancelled) setMsgsLoading(false);
       }
     };
+
     setMsgsLoading(true);
     void loadMessages();
     const pollId = window.setInterval(loadMessages, 4000);
+
     return () => {
       cancelled = true;
       window.clearInterval(pollId);
+      presenceCleanup?.();
     };
   }, [activeId, userId]);
-
   useEffect(() => {
     if (!activeId) return;
     const host =
