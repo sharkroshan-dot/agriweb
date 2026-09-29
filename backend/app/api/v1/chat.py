@@ -328,24 +328,32 @@ async def _rfq_chat_participant(conversation_id: str, user_id: Optional[str] = N
 
 
 async def _derive_participant(conv: dict, user_id: Optional[str] = None) -> dict:
+    """Resolve the other party; never return the authenticated user as contact."""
     participants = conv.get("participants", [])
     conv_id = conv.get("id", "")
     if user_id:
         for p in participants:
-            if str(p.get("id")) != str(user_id):
-                return {"id": str(p.get("id", "")), "name": p.get("name", "Contact"), "role": p.get("role", "")}
+            pid = str(p.get("id", ""))
+            if pid and pid != str(user_id):
+                return {"id": pid, "name": p.get("name", "Contact"), "role": p.get("role", "")}
 
+    # A thread may have been created before the counterpart was persisted.
+    # Resolve the real counterpart from the linked business object instead of
+    # displaying the current user as their own chat.
     enriched = await _delivery_chat_participant(conv_id, user_id)
-    if enriched:
+    if enriched and str(enriched.get("id", "")) != str(user_id):
         return enriched
 
     enriched = await _rfq_chat_participant(conv_id, user_id)
-    if enriched:
+    if enriched and str(enriched.get("id", "")) != str(user_id):
         return enriched
 
-    if participants:
-        return {"id": str(participants[0].get("id", "")), "name": participants[0].get("name", "Contact"), "role": participants[0].get("role", "")}
-    return {"id": "", "name": "Support", "role": "support"}
+    if conv_id.startswith("support-"):
+        return {"id": "support", "name": "AgriConnect Support", "role": "support"}
+
+    # Empty counterpart means this conversation is not displayable as a
+    # direct chat for the current user.
+    return {"id": "", "name": "", "role": ""}
 
 
 def _conversation_doc(conv_id: str, sender_id: str, sender_name: str, sender_role: str, now: datetime) -> dict:
@@ -590,7 +598,10 @@ async def get_conversations(
     visible = []
     for c in convs:
         participant = await _derive_participant(c, user_id)
-        if participant.get("id") and await is_blocked(user_id, str(participant["id"])):
+        # Never show a self-only/stale conversation as a direct chat.
+        if not participant.get("id") or str(participant.get("id")) == str(user_id):
+            continue
+        if await is_blocked(user_id, str(participant["id"])):
             continue
         c["participant"] = participant
         c.setdefault("conversation_type", _conv_type(c.get("id", "")))
