@@ -483,9 +483,48 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
     }
   };
 
+  // The backend stores separate transaction threads (order, delivery, RFQ, etc.).
+  // The sidebar is a contact inbox, so the same person must appear only once.
+  // We keep the most recently active thread as the row that opens when selected.
+  const dedupeByContact = (items: Conversation[]) => {
+    const groups = new Map<string, Conversation>();
+    for (const conversation of items) {
+      const bucket = roleBucket(participantRole(conversation, userId), conversation.conversation_type);
+      // Cooperative chats are group conversations, not one-to-one contacts.
+      const participant = conversation.participant || conversation.participants?.find((p) => p.id !== userId);
+      const contactId =
+        bucket === "cooperative"
+          ? `cooperative:${conversation.id}`
+          : `${bucket}:${participant?.id || participantName(conversation, userId).trim().toLowerCase()}`;
+      const existing = groups.get(contactId);
+      if (!existing) {
+        groups.set(contactId, conversation);
+        continue;
+      }
+      const existingTime = new Date(lastMessageTime(existing)).getTime() || 0;
+      const currentTime = new Date(lastMessageTime(conversation)).getTime() || 0;
+      if (currentTime > existingTime) {
+        groups.set(contactId, {
+          ...conversation,
+          unread_count: (existing.unread_count || 0) + (conversation.unread_count || 0),
+        });
+      } else {
+        groups.set(contactId, {
+          ...existing,
+          unread_count: (existing.unread_count || 0) + (conversation.unread_count || 0),
+        });
+      }
+    }
+    return Array.from(groups.values()).sort(
+      (a, b) =>
+        (new Date(lastMessageTime(b)).getTime() || 0) -
+        (new Date(lastMessageTime(a)).getTime() || 0)
+    );
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return conversations.filter((c) => {
+    const matching = conversations.filter((c) => {
       const role = roleBucket(participantRole(c, userId), c.conversation_type);
       if (roleFilter !== "all" && role !== roleFilter) return false;
       if (!q) return true;
@@ -495,12 +534,21 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
         (c.subject || "").toLowerCase().includes(q)
       );
     });
+    return dedupeByContact(matching);
   }, [conversations, search, userId, roleFilter]);
 
   const roleCounts = useMemo(() => {
-    const counts: Record<RoleFilter, number> = { all: conversations.length, customer: 0, partners: 0, business: 0, support: 0, cooperative: 0 };
-    conversations.forEach((c) => {
-      const b = roleBucket(participantRole(c, userId));
+    const all = dedupeByContact(conversations);
+    const counts: Record<RoleFilter, number> = {
+      all: all.length,
+      customer: 0,
+      partners: 0,
+      business: 0,
+      support: 0,
+      cooperative: 0,
+    };
+    all.forEach((c) => {
+      const b = roleBucket(participantRole(c, userId), c.conversation_type);
       if (b !== "all") counts[b] += 1;
     });
     return counts;
