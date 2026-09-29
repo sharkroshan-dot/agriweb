@@ -832,7 +832,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                         ) : (
                           <WifiOff className="h-3 w-3 text-amber-500" />
                         )}
-                        {typing ? "typing…" : presence.online ? "online" : presence.last_seen ? `last seen ${timeAgo(presence.last_seen)} ago` : connected ? "Live" : activeRole || "Offline"}
+                        {typing ? "typing…" : presence.online ? "online" : presence.last_seen ? `last seen ${timeAgo(presence.last_seen)} ago` : "Offline"}
                       </p>
                     </div>
                   </div>
