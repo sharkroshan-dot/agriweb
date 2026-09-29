@@ -1144,7 +1144,7 @@ async def upload_and_send_attachment(
     await _assert_chat_open_for_sending(conversation_id)
     enforce_message_rate(sender_id)
 
-    upload_dir = settings.UPLOAD_DIR
+    upload_dir = os.path.join(os.path.dirname(settings.UPLOAD_DIR), "chat_private")
     os.makedirs(upload_dir, exist_ok=True)
     content_bytes = await file.read()
     try:
