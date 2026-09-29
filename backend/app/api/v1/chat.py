@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from app.repositories.chat_repository import chat_repository, chat_message_repository
+from app.repositories.chat_presence_repository import chat_presence_repository
 from app.services.chat_ai_service import suggest_replies, translate_text, normalize_language
 from app.api.v1.auth import get_current_user
 from app.core.security import require_role
@@ -44,6 +45,42 @@ async def get_optional_current_user(
     return await get_current_user(credentials.credentials)
 
 router = APIRouter()
+
+
+class PresenceHeartbeat(BaseModel):
+    name: str = ""
+    role: str = ""
+
+
+@router.post("/presence/heartbeat")
+async def presence_heartbeat(
+    body: PresenceHeartbeat,
+    current_user: dict = Depends(get_current_user),
+):
+    return {"status": "success", "data": await chat_presence_repository.heartbeat(
+        str(current_user["_id"]), body.name, body.role
+    )}
+
+
+@router.get("/presence/{user_id}")
+async def presence_status(
+    user_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    # Presence is visible only when the authenticated user can legitimately
+    # converse with the requested user.
+    conversations = await chat_repository.get_conversations(str(current_user["_id"]))
+    allowed = False
+    for conv in conversations:
+        ids = await _conversation_other_ids(conv.get("id", ""), str(current_user["_id"]))
+        if str(user_id) in ids:
+            allowed = True
+            break
+    if not allowed and str(user_id) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="You don't have access to this user's presence")
+    return {"status": "success", "data": await chat_presence_repository.get_status(user_id)}
+
+
 
 # Active websocket connections (runtime only — never persisted).
 active_connections: dict[str, list[WebSocket]] = {}
