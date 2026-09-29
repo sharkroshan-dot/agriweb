@@ -951,13 +951,16 @@ async def resolve_safety_report(
         key = {"_id": ObjectId(report_id)}
     except Exception:
         key = {"id": report_id}
+    report = await repo.find_one(key)
     await repo.update(key, {
         "status": "resolved",
         "moderator_action": action,
         "reviewed_by": str(current_user["_id"]),
         "reviewed_at": datetime.utcnow(),
     })
-    return {"status": "success", "data": {"report_id": report_id, "status": "resolved"}}
+    if action == "restrict" and report and report.get("reported_id"):
+        await register_safety_restriction(str(report["reported_id"]), "moderator_action", "high")
+    return {"status": "success", "data": {"report_id": report_id, "status": "resolved", "action": action}}
 
 
 class AppealRequest(BaseModel):
