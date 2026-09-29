@@ -19,6 +19,9 @@ import {
   Paperclip,
   MapPin,
   X,
+  MoreVertical,
+  ShieldAlert,
+  Ban,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn, formatTime } from "../../../lib/utils";
@@ -210,6 +213,11 @@ export default function FarmerMessagesPage() {
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("all");
   const [uploading, setUploading] = useState(false);
   const [sharingLocation, setSharingLocation] = useState(false);
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [reportReason, setReportReason] = useState("harassment");
+  const [reportDetails, setReportDetails] = useState("");
+  const [safetyBusy, setSafetyBusy] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -244,6 +252,16 @@ export default function FarmerMessagesPage() {
 
   useEffect(() => {
     if (!activeId) return;
+    const loadSafety = async () => {
+      try {
+        const res: any = await api.get(`/chat/conversations/${activeId}/safety`);
+        const ids = res?.data?.blocked_user_ids || [];
+        setBlocked(ids.length > 0);
+      } catch {
+        setBlocked(false);
+      }
+    };
+    void loadSafety();
     let cancelled = false;
     const loadMessages = async () => {
       try {
@@ -356,7 +374,7 @@ export default function FarmerMessagesPage() {
 
   const send = async () => {
     const content = text.trim();
-    if (!content || !activeId || sending) return;
+    if (!content || !activeId || sending || blocked) return;
     setText("");
     setSending(true);
     try {
@@ -488,6 +506,7 @@ export default function FarmerMessagesPage() {
   const active = conversations.find((c) => c.id === activeId);
   const activeName = active ? participantName(active, userId) : "";
   const activeRole = active ? participantRole(active, userId) : "";
+  const activeParticipantId = active?.participant?.id || active?.participants?.find((p) => p.id !== userId)?.id || "";
 
   const openConversation = (id: string) => {
     setActiveId(id);
@@ -685,7 +704,99 @@ export default function FarmerMessagesPage() {
                       </p>
                     </div>
                   </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Chat safety"
+                    title="Block or report"
+                    onClick={() => setSafetyOpen((v) => !v)}
+                  >
+                    <ShieldAlert className="h-4 w-4" />
+                  </Button>
                 </div>
+                {safetyOpen && (
+                  <div className="border-b bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">Marketplace chat safety</p>
+                        <p className="mt-1">
+                          Use this chat only for orders, deliveries, RFQs, cooperative work, or support.
+                          Never share passwords, OTPs, or unnecessary personal information.
+                        </p>
+                      </div>
+                      <button onClick={() => setSafetyOpen(false)} aria-label="Close safety panel">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={safetyBusy || !activeParticipantId || blocked}
+                        onClick={async () => {
+                          if (!activeId || !activeParticipantId) return;
+                          setSafetyBusy(true);
+                          try {
+                            await api.post(`/chat/conversations/${activeId}/block`, {
+                              other_user_id: activeParticipantId,
+                              reason: "user_requested",
+                            });
+                            setBlocked(true);
+                            setText("");
+                          } finally {
+                            setSafetyBusy(false);
+                          }
+                        }}
+                      >
+                        <Ban className="mr-1 h-3.5 w-3.5" /> Block
+                      </Button>
+                      <select
+                        value={reportReason}
+                        onChange={(e) => setReportReason(e.target.value)}
+                        className="rounded-md border bg-white px-2 py-1.5"
+                        aria-label="Report reason"
+                      >
+                        <option value="harassment">Harassment</option>
+                        <option value="threats">Threats</option>
+                        <option value="sexual_harassment">Sexual harassment</option>
+                        <option value="spam">Spam</option>
+                        <option value="fraud_scam">Fraud / scam</option>
+                        <option value="abusive_language">Abusive language</option>
+                        <option value="inappropriate_image">Inappropriate image</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={safetyBusy || !activeParticipantId}
+                        onClick={async () => {
+                          if (!activeId || !activeParticipantId) return;
+                          setSafetyBusy(true);
+                          try {
+                            await api.post(`/chat/conversations/${activeId}/report`, {
+                              other_user_id: activeParticipantId,
+                              reason: reportReason,
+                              details: reportDetails,
+                            });
+                            setReportDetails("");
+                            window.alert("Report submitted to AgriConnect Safety.");
+                          } finally {
+                            setSafetyBusy(false);
+                          }
+                        }}
+                      >
+                        Report
+                      </Button>
+                    </div>
+                    <Input
+                      value={reportDetails}
+                      onChange={(e) => setReportDetails(e.target.value)}
+                      className="mt-2 bg-white"
+                      placeholder="Optional details for the safety team"
+                    />
+                    {blocked && <p className="mt-2 font-medium">Messaging is blocked for this conversation.</p>}
+                  </div>
+                )}
 
                 <div
                   ref={listRef}
@@ -831,11 +942,11 @@ export default function FarmerMessagesPage() {
                     onKeyDown={(e) => {
                       if (e.key === "Enter") void send();
                     }}
-                    placeholder={`Message ${activeName}…`}
-                    disabled={sending}
+                    placeholder={blocked ? "Messaging blocked" : `Message ${activeName}…`}
+                    disabled={sending || blocked}
                     className="h-10 flex-1"
                   />
-                  <Button onClick={() => void send()} disabled={!text.trim() || sending} size="icon">
+                  <Button onClick={() => void send()} disabled={!text.trim() || sending || blocked} size="icon">
                     {sending ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
