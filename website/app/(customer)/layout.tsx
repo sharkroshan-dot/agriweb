@@ -10,7 +10,7 @@ import { BottomNav } from "../components/customer/bottom-nav";
 import ChatWidget from "../components/shared/chat-widget";
 import { AppPresence } from "../components/chat/app-presence";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
-import { AppPresence } from "../components/chat/app-presence";
+
 
 export default function CustomerLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
