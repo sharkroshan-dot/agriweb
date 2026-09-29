@@ -201,7 +201,7 @@ class PaymentService:
                 amount=amount,
                 direction="debit",
                 entry_type="wallet_debit",
-                user_id=str(order["customerId"]),
+                user_id=str(payer_id),
                 order_id=order_id,
                 payment_id=payment_id,
                 reference=transaction_id,
