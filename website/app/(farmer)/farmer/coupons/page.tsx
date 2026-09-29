@@ -127,7 +127,7 @@ function CouponList({title, rows, onEdit, onDelete}: any) {
 function CreateForm({products, offer, coupon, onClose, onSaved}: any) {
   const isCoupon = !!coupon;
   const [kind,setKind] = useState<"offer"|"coupon">(isCoupon?"coupon":"offer");
-  const [form,setForm] = useState<any>(offer || coupon || { productId: products[0]?.id || "", name:"", code:"", description:"", discountType:"percentage", discountValue:10, minQuantity:1, minOrderValue:0, startAt:new Date().toISOString().slice(0,16), endAt:"", expiresAt:"", startAt:"", eligibility:"all" });
+  const [form,setForm] = useState<any>(offer || coupon || { productId: products[0]?.id || "", name:"", code:"", description:"", discountType:"percentage", discountValue:10, minQuantity:1, minOrderValue:0, startAt:new Date().toISOString().slice(0,16), endAt:"", expiresAt:"", eligibility:"all" });
   const [saving,setSaving]=useState(false);
   const save=async()=>{try{
     setSaving(true);
