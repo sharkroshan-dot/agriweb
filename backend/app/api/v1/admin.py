@@ -13,11 +13,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.get("/workflow")
-async def platform_workflow(current_user: dict = Depends(get_current_user)):
+async def platform_workflow(current_user: dict = Depends(require_role("admin"))):
     """Platform-wide transaction workflow state for admin operations."""
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can access workflow")
-
     from app.database.mongodb import MongoDB
     orders = MongoDB.get_collection("orders")
     payments = MongoDB.get_collection("payments")
