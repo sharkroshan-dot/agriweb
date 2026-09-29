@@ -60,6 +60,33 @@ class ChatRepository(BaseRepository):
             logger.error(f"Failed to resolve delivery chats for {user_id}: {e}")
             return []
 
+    async def _warehouse_chat_ids_for_user(self, user_id: str) -> List[str]:
+        """Conversation ids for orders handled by the authenticated warehouse manager."""
+        try:
+            from app.services.warehouse_service import WarehouseService
+            from app.repositories.order_repository import order_repository
+
+            warehouse = await WarehouseService.get_warehouse_by_manager(user_id)
+            if not warehouse or not warehouse.get("_id"):
+                return []
+            wid = str(warehouse["_id"])
+            values = [wid]
+            try:
+                values.append(ObjectId(wid))
+            except Exception:
+                pass
+            orders = await order_repository.find_many(
+                {"warehouseId": {"$in": values}},
+                limit=500,
+            )
+            return list(dict.fromkeys(
+                [f"delivery-chat-{str(o.get('_id'))}" for o in (orders or []) if o.get("_id")]
+                + [f"order-chat-{str(o.get('_id'))}" for o in (orders or []) if o.get("_id")]
+            ))
+        except Exception as e:
+            logger.error(f"Failed to resolve warehouse chats for {user_id}: {e}")
+            return []
+
     async def _order_chat_ids_for_user(self, user_id: str) -> List[str]:
         """Conversation ids for `order-chat-{orderId}` threads the user may
         access (customer <-> farmer threads)."""
@@ -152,8 +179,9 @@ class ChatRepository(BaseRepository):
             order_ids = await self._order_chat_ids_for_user(user_id)
             rfq_ids = await self._rfq_chat_ids_for_user(user_id)
             cooperative_ids = await self._cooperative_chat_ids_for_user(user_id)
+            warehouse_ids = await self._warehouse_chat_ids_for_user(user_id)
             support_ids = [f"support-{user_id}"]
-            linked_ids = list(dict.fromkeys(delivery_ids + order_ids + rfq_ids + cooperative_ids + support_ids))
+            linked_ids = list(dict.fromkeys(delivery_ids + order_ids + rfq_ids + cooperative_ids + warehouse_ids + support_ids))
             pipeline = [
                 {
                     "$match": {
