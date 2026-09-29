@@ -507,9 +507,9 @@ async def _can_access_conversation(conversation_id: str, user_id: str) -> bool:
     """Whether ``user_id`` is allowed to access ``conversation_id``.
 
     A user may access a thread when they are a recorded participant, are part
-    of the linked order/RFQ, or are the owner of a support thread. Unknown
-    threads (never persisted) are treated as accessible so demo clients can
-    still open them, but once the thread exists the rules are enforced.
+    of the linked order/RFQ/cooperative, or are the owner/support agent for a
+    support thread. Unknown threads are denied unless the user is linked to
+    the underlying business object.
     """
     await websocket.accept()
     logger.info(f"WebSocket connected: {conversation_id} for user {user_name}")
