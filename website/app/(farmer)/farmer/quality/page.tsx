@@ -159,25 +159,6 @@ export default function FarmerQualityPage() {
     }
   };
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.lotNumber.trim() || !form.cropName.trim() || !form.weightKg) {
-      toast.error("Lot number, crop name and weight are required");
-      return;
-    }
-    submitMutation.mutate({
-      lotNumber: form.lotNumber.trim(),
-      cropName: form.cropName.trim(),
-      grade: form.grade,
-      size: form.size,
-      freshness: Number(form.freshness),
-      damagedPct: Number(form.damagedPct),
-      weightKg: Number(form.weightKg),
-      inspectorNotes: form.inspectorNotes || undefined,
-      photos,
-      batchId: batches.find((b: any) => b.lotNumber === form.lotNumber.trim())?._id,
-    });
-  };
 
   return (
     <div className="space-y-6">
