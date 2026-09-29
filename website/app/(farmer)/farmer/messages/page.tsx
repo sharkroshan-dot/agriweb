@@ -74,9 +74,10 @@ interface ChatMsg {
 
 function participantName(conv: Conversation, userId: string): string {
   const direct = conv.participant;
-  if (direct?.name) return direct.name;
+  if (direct?.id && direct.id !== userId && direct.name) return direct.name;
   const other = conv.participants?.find((p) => p.id !== userId);
   if (other?.name) return other.name;
+  if (conv.conversation_type === "cooperative" && conv.subject) return conv.subject;
   if (conv.subject && conv.subject !== "Delivery conversation") return conv.subject;
   return "Contact";
 }
