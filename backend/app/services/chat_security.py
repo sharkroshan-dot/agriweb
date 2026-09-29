@@ -105,6 +105,7 @@ def moderate_content(content: str) -> dict[str, Any]:
         flags.append("harassment")
     if re.search(r"\b(?:phone|mobile|whatsapp|email|home address|bank account|otp|password)\b", text):
         flags.append("personal_information")
+        risk = "high"
 
     risk = "low"
     if "threat" in flags:
