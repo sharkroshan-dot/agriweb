@@ -226,6 +226,7 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
   const [safetyNotice, setSafetyNotice] = useState("");
   const [safetyBusy, setSafetyBusy] = useState(false);
   const [presence, setPresence] = useState<{online:boolean;last_seen?:string|null}>({online:false,last_seen:null});
+  const [presenceMap, setPresenceMap] = useState<Record<string, {online:boolean;last_seen?:string|null}>>({});
   const [typing, setTyping] = useState(false);
   const typingTimerRef = useRef<number | undefined>(undefined);
 
@@ -259,6 +260,29 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
       window.clearInterval(pollId);
     };
   }, [userId, status]);
+
+  useEffect(() => {
+    if (status !== "authenticated" || conversations.length === 0) return;
+    let cancelled = false;
+    const loadListPresence = async () => {
+      const contacts = conversations
+        .map((c) => c.participant?.id || c.participants?.find((p) => p.id !== userId)?.id)
+        .filter((id): id is string => Boolean(id && id !== userId));
+      const unique = Array.from(new Set(contacts)).slice(0, 50);
+      const entries = await Promise.all(unique.map(async (id) => {
+        try {
+          const res: any = await api.get(`/chat/presence/${id}`);
+          return [id, res?.data || { online: false, last_seen: null }] as const;
+        } catch {
+          return [id, { online: false, last_seen: null }] as const;
+        }
+      }));
+      if (!cancelled) setPresenceMap(Object.fromEntries(entries));
+    };
+    void loadListPresence();
+    const id = window.setInterval(loadListPresence, 30000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [status, conversations, userId]);
 
   useEffect(() => {
     if (status !== "authenticated") return;
@@ -756,7 +780,14 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
                           </span>
                         )}
                       </div>
-                      <p className="truncate text-xs text-gray-500">{lastMessageText(c)}</p>
+                      <div className="flex items-center gap-1">
+                        {(() => {
+                          const contactId = c.participant?.id || c.participants?.find((p) => p.id !== userId)?.id;
+                          const p = contactId ? presenceMap[contactId] : undefined;
+                          return p?.online ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" title="Online" /> : null;
+                        })()}
+                        <p className="truncate text-xs text-gray-500">{lastMessageText(c)}</p>
+                      </div>
                       {role && <p className="mt-0.5 text-[10px] uppercase tracking-wide text-emerald-600">{role}</p>}
                     </div>
                     {unread > 0 && (
