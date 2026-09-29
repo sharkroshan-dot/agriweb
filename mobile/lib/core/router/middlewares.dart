@@ -10,7 +10,7 @@ class AppRouteMiddleware {
     AppRoutes.forgotPassword,
   };
 
-  static String? redirect(GoRouterState state) {
+  static String? redirect(BuildContext context, GoRouterState state) {
     final path = state.uri.path;
     if (_publicPaths.contains(path)) return null;
 
