@@ -87,9 +87,9 @@ function participantRole(conv: Conversation, userId: string): string {
   return conv.participants?.find((p) => p.id !== userId)?.role || "";
 }
 
-type RoleFilter = "all" | "customer" | "partners" | "business" | "support";
+type RoleFilter = "all" | "customer" | "partners" | "business" | "support" | "cooperative";
 
-function roleBucket(role: string): RoleFilter {
+function roleBucket(role: string, conversationType?: string): RoleFilter {\n  if (conversationType === "cooperative") return "cooperative";
   const r = (role || "").toLowerCase();
   if (r === "customer") return "customer";
   if (["delivery", "delivery_partner", "partner", "driver"].includes(r)) return "partners";
@@ -102,7 +102,7 @@ const ROLE_FILTERS: { key: RoleFilter; label: string }[] = [
   { key: "customer", label: "Customers" },
   { key: "partners", label: "Partners" },
   { key: "business", label: "Buyers" },
-  { key: "support", label: "Support" },
+  { key: "support", label: "Support" },\n  { key: "cooperative", label: "Cooperative" },
 ];
 
 function lastMessageText(conv: Conversation): string {
@@ -480,7 +480,7 @@ export default function FarmerMessagesPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
-      const role = roleBucket(participantRole(c, userId));
+      const role = roleBucket(participantRole(c, userId), c.conversation_type);
       if (roleFilter !== "all" && role !== roleFilter) return false;
       if (!q) return true;
       return (
@@ -492,7 +492,7 @@ export default function FarmerMessagesPage() {
   }, [conversations, search, userId, roleFilter]);
 
   const roleCounts = useMemo(() => {
-    const counts: Record<RoleFilter, number> = { all: conversations.length, customer: 0, partners: 0, business: 0, support: 0 };
+    const counts: Record<RoleFilter, number> = { all: conversations.length, customer: 0, partners: 0, business: 0, support: 0, cooperative: 0 };
     conversations.forEach((c) => {
       const b = roleBucket(participantRole(c, userId));
       if (b !== "all") counts[b] += 1;
