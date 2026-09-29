@@ -66,6 +66,38 @@ export default function CheckoutPage() {
   const { status } = useSession();
   const queryClient = useQueryClient();
   const items = useCartStore((state) => state.items);
+  const resolvedPickup = useRef<Set<string>>(new Set());
+  const removeItem = useCartStore((state) => state.removeItem);
+  const clearCart = useCartStore((state) => state.clearCart);
+  const updateItem = useCartStore((state) => state.updateItem);
+  const displayTotal = useMemo(
+    () => items.reduce((sum, i) => sum + (i.originalPrice || i.price) * i.quantity, 0),
+    [items]
+  );
+
+  const [selectedAddressId, setSelectedAddressId] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState("razorpay");
+  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [isPlacing, setIsPlacing] = useState(false);
+  const [showAddrForm, setShowAddrForm] = useState(false);
+  const [addrForm, setAddrForm] = useState(initialAddrForm);
+  const [razorpayReady, setRazorpayReady] = useState(false);
+  const [savingAddr, setSavingAddr] = useState(false);
+  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const [isEstimatingFee, setIsEstimatingFee] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponAppliedCode, setCouponAppliedCode] = useState("");
+  const [couponError, setCouponError] = useState("");
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [completedOrderId, setCompletedOrderId] = useState("");
+  const [completedTransactionId, setCompletedTransactionId] = useState("");
+  const [paymentStage, setPaymentStage] = useState("idle");
+  const [paymentMessage, setPaymentMessage] = useState("");
+  const [selectedUpiApp, setSelectedUpiApp] = useState("");
+
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
     queryFn: () => api.get("/users/me/addresses"),
