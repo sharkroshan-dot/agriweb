@@ -43,11 +43,15 @@ class PaymentService:
         if not order:
             return {"error": "Order not found"}
         
-        # Get customer
+        # B2B orders use businessUserId as the payer; normal marketplace
+        # orders use customerId. Keep one payment pipeline for both flows.
         from app.services.user_service import UserService
-        customer = await UserService.get_user_by_id(str(order["customerId"]))
+        payer_id = order.get("customerId") or order.get("businessUserId")
+        if not payer_id:
+            return {"error": "Order has no payer"}
+        customer = await UserService.get_user_by_id(str(payer_id))
         if not customer:
-            return {"error": "Customer not found"}
+            return {"error": "Payer not found"}
         
         # Never trust a client-supplied payment amount. The payment intent
         # must be created for the authoritative order total.
@@ -73,7 +77,7 @@ class PaymentService:
         # Create payment record
         payment_data = {
             "orderId": ObjectId(order_id),
-            "userId": order["customerId"],
+            "userId": payer_id,
             "amount": amount,
             "currency": "INR",
             "paymentMethod": payment_method,
@@ -136,7 +140,7 @@ class PaymentService:
         elif payment_method == "wallet":
             # Wallet checkout is an immediate atomic debit. It must never use
             # refund variables or the refund lifecycle.
-            wallet = await wallet_repository.get_by_user_id(str(order["customerId"]))
+            wallet = await wallet_repository.get_by_user_id(str(payer_id))
             if not wallet or not wallet.get("isActive", True):
                 return {"error": "Active wallet not found"}
 
@@ -154,7 +158,7 @@ class PaymentService:
             transaction_id = f"wallet_tx_{payment_id}"
             tx_id = await wallet_transaction_repository.create_transaction({
                 "walletId": wallet["_id"],
-                "userId": order["customerId"],
+                "userId": payer_id,
                 "type": "debit",
                 "amount": amount,
                 "balanceAfter": balance_after,
