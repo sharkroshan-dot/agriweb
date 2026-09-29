@@ -95,27 +95,25 @@ export default function FarmerQualityPage() {
   const products: { _id: string; name: string; quantity: number; unit: string }[] =
     productsData?.data?.products || productsData?.data || [];
 
-  const submitMutation = useMutation({
-    mutationFn: (payload: any) => api.post("/quality/inspections", payload),
+  const requestInspectionMutation = useMutation({
+    mutationFn: (batchId: string) => api.post("/quality/inspections/request", { batchId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
-      setShowInspect(false);
-      setPhotos([]);
-      setForm({
-        lotNumber: "",
-        cropName: "",
-        grade: "A",
-        size: "Medium",
-        freshness: "95",
-        damagedPct: "1",
-        weightKg: "100",
-        inspectorNotes: "",
-      });
-      toast.success("Inspection recorded. Grade & photos saved for traceability.");
+      queryClient.invalidateQueries({ queryKey: ["farmerBatchesForQuality"] });
+      toast.success("Inspection requested. A quality verifier must approve the batch before it can become a product.");
     },
-    onError: (err: any) => toast.error(err?.message || "Failed to save inspection"),
+    onError: (err: any) => toast.error(err?.message || "Could not request quality inspection"),
   });
 
+  const submitEvidenceMutation = useMutation({
+    mutationFn: ({ id, photos }: { id: string; photos: string[] }) =>
+      api.post(`/quality/inspections/${id}/evidence`, { photos, notes: "Farmer evidence submitted from Quality workflow" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
+      toast.success("Evidence submitted for verifier review.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not submit evidence"),
+  });
   const aiMutation = useMutation({
     mutationFn: (id: string) => api.post(`/quality/inspections/${id}/ai-assess`),
     onSuccess: (_d, id) => {
@@ -188,157 +186,45 @@ export default function FarmerQualityPage() {
             Record grades, size, freshness and damage %, with photo proof. Essential for B2B &amp; bulk orders.
           </p>
         </div>
-        <Button onClick={() => setShowInspect((v) => !v)}>
-          {showInspect ? <XCircle className="mr-2 h-4 w-4" /> : <FlaskConical className="mr-2 h-4 w-4" />}
-          {showInspect ? "Cancel" : "New Inspection"}
-        </Button>
+        <div className="rounded-lg border bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Farmer action: request inspection / submit evidence. Quality approval is completed by an authorized verifier.
+        </div>
       </div>
 
-      {showInspect && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Record Inspection</CardTitle>
-            <CardDescription>Attach to a harvest lot or enter details manually.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Lot number *</label>
-                <Select value={form.lotNumber} onValueChange={(v) => {
-                  const lot = batches.find((b: any) => b.lotNumber === v);
-                  setForm((f) => ({ ...f, lotNumber: v, cropName: lot?.cropName || "" }));
-                }}>
-                  <SelectContent>
-                    <SelectItem value="">Select a lot...</SelectItem>
-                    {batches.map((b: any) => (
-                      <SelectItem key={b._id || b.lotNumber} value={b.lotNumber}>
-                        {b.lotNumber} · {b.cropName} ({b.quantityKg} kg)
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-gray-400">No lots? Type a lot number manually below.</p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Crop name *</label>
-                <Input
-                  list="quality-products"
-                  value={form.cropName}
-                  onChange={(e) => setForm({ ...form, cropName: e.target.value })}
-                  placeholder={
-                    form.lotNumber
-                      ? `Auto-filled from lot ${form.lotNumber}`
-                      : "Search your product or type a crop, e.g. Tomato"
-                  }
-                  readOnly={Boolean(form.lotNumber)}
-                  disabled={Boolean(form.lotNumber)}
-                  className={cn(form.lotNumber && "cursor-not-allowed bg-slate-50 text-slate-700")}
-                />
-                <datalist id="quality-products">
-                  {products.map((p) => (
-                    <option key={p._id} value={p.name}>
-                      {p.name} ({p.quantity} {p.unit})
-                    </option>
-                  ))}
-                </datalist>
-                {form.lotNumber && (
-                  <p className="text-[11px] text-gray-400">Crop name is taken from lot {form.lotNumber}.</p>
-                )}
-                {!form.lotNumber && products.length === 0 && (
-                  <p className="text-[11px] text-gray-400">
-                    No products found — create one under Products to list it here.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Grade *</label>
-                <Select value={form.grade} onValueChange={(v) => setForm({ ...form, grade: v })}>
-                  <SelectContent>
-                    {GRADES.map((g) => (
-                      <SelectItem key={g.value} value={g.value}>{g.label} — {g.desc}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Size</label>
-                <Select value={form.size} onValueChange={(v) => setForm({ ...form, size: v })}>
-                  <SelectContent>
-                    {SIZES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Freshness (%)</label>
-                <input type="range" min="50" max="100" value={form.freshness} onChange={(e) => setForm({ ...form, freshness: e.target.value })} className="w-full accent-emerald-600" />
-                <p className="text-right text-xs font-semibold text-emerald-700">{form.freshness}%</p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Damaged / blemished (%)</label>
-                <input type="range" min="0" max="25" value={form.damagedPct} onChange={(e) => setForm({ ...form, damagedPct: e.target.value })} className="w-full accent-red-500" />
-                <p className="text-right text-xs font-semibold text-red-600">{form.damagedPct}%</p>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Verified weight (kg) *</label>
-                <input
-                  type="number"
-                  min="0.1"
-                  step="0.1"
-                  value={form.weightKg}
-                  onChange={(e) => setForm({ ...form, weightKg: e.target.value })}
-                  className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Inspector notes</label>
-                <input
-                  value={form.inspectorNotes}
-                  onChange={(e) => setForm({ ...form, inspectorNotes: e.target.value })}
-                  placeholder="Colour, uniformity, packaging, remarks…"
-                  className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-                />
-              </div>
-
-              <div className="space-y-2 sm:col-span-2">
-                <label className="text-xs font-medium text-gray-500">Photo proof (packaging / product / weight)</label>
-                <div className="flex flex-wrap gap-2">
-                  {photos.map((p, i) => (
-                    <div key={i} className="relative h-20 w-20 overflow-hidden rounded-lg border">
-                      <img src={p} alt={`proof-${i}`} className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setPhotos(photos.filter((_, x) => x !== i))}
-                        className="absolute right-0.5 top-0.5 rounded-full bg-red-500 p-0.5 text-white"
-                        aria-label="remove photo"
-                      >
-                        <XCircle className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setCameraOpen(true)}
-                    disabled={uploading}
-                    className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-gray-400 hover:border-emerald-400 hover:text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Camera className="h-5 w-5" />
-                    <span className="text-[10px]">{uploading ? "Uploading…" : "Add photo"}</span>
-                  </button>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Harvest batches awaiting quality</CardTitle>
+          <CardDescription>Each harvested batch must be independently inspected before a marketplace product can be created.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {batches.filter((b: any) => b.qualityStatus !== "approved" && b.qualityStatus !== "rejected").map((b: any) => {
+            const inspection = apiRecords.find((r: any) => String(r.batchId || "") === String(b._id || b.id));
+            return (
+              <div key={b._id || b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+                <div>
+                  <p className="font-semibold">{b.lotNumber} · {b.cropName}</p>
+                  <p className="text-xs text-slate-500">{b.quantityKg} kg · {b.storageType || "normal"} · {b.qualityStatus || "pending_inspection"}</p>
+                </div>
+                <div className="flex gap-2">
+                  {!inspection && (
+                    <Button size="sm" onClick={() => requestInspectionMutation.mutate(String(b._id || b.id))} disabled={requestInspectionMutation.isPending}>
+                      <FlaskConical className="mr-1.5 h-4 w-4" /> Request Inspection
+                    </Button>
+                  )}
+                  {inspection && inspection.verificationStatus === "farmer_declared" && (
+                    <Button size="sm" variant="outline" onClick={() => aiMutation.mutate(inspection.id)} disabled={aiMutation.isPending}>
+                      <Bot className="mr-1.5 h-4 w-4" /> AI Screening
+                    </Button>
+                  )}
                 </div>
               </div>
-
-              <div className="sm:col-span-2 flex justify-end">
-                <Button type="submit" disabled={submitMutation.isPending}>
-                  {submitMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck className="mr-2 h-4 w-4" />}
-                  Save Inspection
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
+            );
+          })}
+          {batches.filter((b: any) => b.qualityStatus !== "approved" && b.qualityStatus !== "rejected").length === 0 && (
+            <p className="text-sm text-slate-500">No pending batches. Complete a harvest and create a batch first.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="flex flex-wrap gap-2">
         {["all", "passed", "review", "failed"].map((f) => (
