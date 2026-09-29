@@ -97,6 +97,17 @@ export default function FarmerQualityPage() {
   const products: { _id: string; name: string; quantity: number; unit: string }[] =
     productsData?.data?.products || productsData?.data || [];
 
+  const aiMutation = useMutation({
+    mutationFn: (inspectionId: string) =>
+      api.post(`/quality/inspections/${inspectionId}/ai-screen`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerQuality"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerBatchesForQuality"] });
+      toast.success("AI quality screening completed.");
+    },
+    onError: (err: any) => toast.error(err?.message || "AI screening failed"),
+  });
+
   const requestInspectionMutation = useMutation({
     mutationFn: (batchId: string) => api.post("/quality/inspections/request", { batchId }),
     onSuccess: () => {
