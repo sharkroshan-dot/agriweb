@@ -66,6 +66,40 @@ export default function CheckoutPage() {
   const { status } = useSession();
   const queryClient = useQueryClient();
   const items = useCartStore((state) => state.items);
+  const resolvedPickup = useRef<Set<string>>(new Set());
+  const idempotencyKeyRef = useRef<string | null>(null);
+  const removeItem = useCartStore((state) => state.removeItem);
+  const clearCart = useCartStore((state) => state.clearCart);
+  const updateItem = useCartStore((state) => state.updateItem);
+  const displayTotal = useMemo(
+    () => items.reduce((sum, i) => sum + (i.originalPrice || i.price) * i.quantity, 0),
+    [items]
+  );
+
+  const [selectedAddressId, setSelectedAddressId] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState("razorpay");
+  const [specialInstructions, setSpecialInstructions] = useState("");
+  const [isPlacing, setIsPlacing] = useState(false);
+  const [showAddrForm, setShowAddrForm] = useState(false);
+  const [addrForm, setAddrForm] = useState(initialAddrForm);
+  const [razorpayReady, setRazorpayReady] = useState(false);
+  const [savingAddr, setSavingAddr] = useState(false);
+  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const [isEstimatingFee, setIsEstimatingFee] = useState(false);
+  const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const [couponAppliedCode, setCouponAppliedCode] = useState("");
+  const [couponError, setCouponError] = useState("");
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [completedOrderId, setCompletedOrderId] = useState("");
+  const [completedTransactionId, setCompletedTransactionId] = useState("");
+  const [paymentStage, setPaymentStage] = useState("idle");
+  const [paymentMessage, setPaymentMessage] = useState("");
+  const [selectedUpiApp, setSelectedUpiApp] = useState("");
+  const selectedUpiAppLabel = ({ gpay: "GPay", phonepe: "PhonePe", paytm: "Paytm" } as Record<string, string>)[selectedUpiApp] || "UPI";
+
   const { data: addressesData, isError: addressesError, refetch: refetchAddresses } = useQuery({
     queryKey: ["customerAddresses"],
     queryFn: () => api.get("/users/me/addresses"),
@@ -439,7 +473,7 @@ export default function CheckoutPage() {
                 {completedTransactionId && <p className="mt-2 text-xs text-emerald-900">Transaction ID: <span className="font-mono font-semibold">{completedTransactionId}</span></p>}
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Button asChild><Link href={completedOrderId ? `/orders/${completedOrderId}` : "/orders"}>View order</Link></Button>
-                  <Button variant="outline" asChild><Link href="/customer/payments">Payment history</Link></Button>
+                  <Button variant="outline" asChild><Link href="/payments">Payment history</Link></Button>
                   <Button variant="outline" onClick={() => window.print()}>Print receipt</Button>
                 </div>
               </div>

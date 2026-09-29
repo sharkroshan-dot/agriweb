@@ -40,14 +40,23 @@ class PaymentService:
         """Create a payment intent."""
         # Get order
         order = await order_repository.get_by_id(order_id)
+        order_repo_for_payment = order_repository
+        if not order:
+            from app.repositories.base_repository import BaseRepository
+            order_repo_for_payment = BaseRepository("b2b_orders")
+            order = await order_repo_for_payment.get_by_id(order_id)
         if not order:
             return {"error": "Order not found"}
         
-        # Get customer
+        # B2B orders use businessUserId as the payer; normal marketplace
+        # orders use customerId. Keep one payment pipeline for both flows.
         from app.services.user_service import UserService
-        customer = await UserService.get_user_by_id(str(order["customerId"]))
+        payer_id = order.get("customerId") or order.get("businessUserId")
+        if not payer_id:
+            return {"error": "Order has no payer"}
+        customer = await UserService.get_user_by_id(str(payer_id))
         if not customer:
-            return {"error": "Customer not found"}
+            return {"error": "Payer not found"}
         
         # Never trust a client-supplied payment amount. The payment intent
         # must be created for the authoritative order total.
@@ -73,7 +82,7 @@ class PaymentService:
         # Create payment record
         payment_data = {
             "orderId": ObjectId(order_id),
-            "userId": order["customerId"],
+            "userId": payer_id,
             "amount": amount,
             "currency": "INR",
             "paymentMethod": payment_method,
@@ -136,7 +145,7 @@ class PaymentService:
         elif payment_method == "wallet":
             # Wallet checkout is an immediate atomic debit. It must never use
             # refund variables or the refund lifecycle.
-            wallet = await wallet_repository.get_by_user_id(str(order["customerId"]))
+            wallet = await wallet_repository.get_by_user_id(str(payer_id))
             if not wallet or not wallet.get("isActive", True):
                 return {"error": "Active wallet not found"}
 
@@ -154,7 +163,7 @@ class PaymentService:
             transaction_id = f"wallet_tx_{payment_id}"
             tx_id = await wallet_transaction_repository.create_transaction({
                 "walletId": wallet["_id"],
-                "userId": order["customerId"],
+                "userId": payer_id,
                 "type": "debit",
                 "amount": amount,
                 "balanceAfter": balance_after,
@@ -197,7 +206,7 @@ class PaymentService:
                 amount=amount,
                 direction="debit",
                 entry_type="wallet_debit",
-                user_id=str(order["customerId"]),
+                user_id=str(payer_id),
                 order_id=order_id,
                 payment_id=payment_id,
                 reference=transaction_id,
@@ -307,10 +316,15 @@ class PaymentService:
         # cancelled while payment confirmation was in flight.
         if payment.get("orderId"):
             order = await order_repository.get_by_id(str(payment["orderId"]))
+            order_repo_for_payment = order_repository
+            if not order:
+                from app.repositories.base_repository import BaseRepository
+                order_repo_for_payment = BaseRepository("b2b_orders")
+                order = await order_repo_for_payment.get_by_id(str(payment["orderId"]))
             if order and order.get("orderStatus") != "cancelled":
-                await order_repository.update(
+                await order_repo_for_payment.update(
                     {"_id": payment["orderId"]},
-                    {"paymentStatus": "paid", "orderStatus": "confirmed"}
+                    {"paymentStatus": "paid", "status": "confirmed", "orderStatus": "confirmed"}
                 )
                 if order.get("preorderId"):
                     await harvest_preorder_repository.update(
@@ -323,7 +337,7 @@ class PaymentService:
                         },
                     )
             elif order:
-                await order_repository.update(
+                await order_repo_for_payment.update(
                     {"_id": payment["orderId"]},
                     {"paymentStatus": "paid"}
                 )
@@ -820,6 +834,9 @@ class PaymentService:
         
         order = await order_repository.get_by_id(str(payment["orderId"]))
         if not order:
+            from app.repositories.base_repository import BaseRepository
+            order = await BaseRepository("b2b_orders").get_by_id(str(payment["orderId"]))
+        if not order:
             return False
         
         amount = payment.get("amount", 0)
@@ -946,6 +963,11 @@ class PaymentService:
                     await PaymentService._record_pickup_commission(existing, order)
                 else:
                     await PaymentService._record_cash_settlement(payment, order)
+            try:
+                from app.services.settlement_service import SettlementService
+                await SettlementService.create_for_payment(payment_id)
+            except Exception as exc:
+                logger.warning("Settlement creation skipped: %s", exc)
             return True
         
         # Create payment split record
@@ -984,6 +1006,11 @@ class PaymentService:
             else:
                 await PaymentService._record_cash_settlement(payment, order)
         
+        try:
+            from app.services.settlement_service import SettlementService
+            await SettlementService.create_for_payment(payment_id)
+        except Exception as exc:
+            logger.warning("Settlement creation skipped: %s", exc)
         logger.info(f"Payment splits created for payment {payment_id}")
         return True
     

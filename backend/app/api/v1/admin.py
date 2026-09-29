@@ -12,6 +12,60 @@ from app.utils.helpers import escape_regex
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+@router.get("/workflow")
+async def platform_workflow(current_user: dict = Depends(get_current_user)):
+    """Platform-wide transaction workflow state for admin operations."""
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can access workflow")
+
+    from app.database.mongodb import MongoDB
+    orders = MongoDB.get_collection("orders")
+    payments = MongoDB.get_collection("payments")
+    settlements = MongoDB.get_collection("settlements")
+    harvests = MongoDB.get_collection("harvest_plans")
+    batches = MongoDB.get_collection("batches")
+    products = MongoDB.get_collection("products")
+
+    async def counts(collection, field=None):
+        if field:
+            rows = await collection.aggregate([{"$group": {"_id": "$" + field, "count": {"$sum": 1}}}]).to_list(100)
+            return {str(r.get("_id") or "unknown"): r.get("count", 0) for r in rows}
+        return {"total": await collection.count_documents({"deletedAt": None})}
+
+    order_states = await counts(orders, "orderStatus")
+    payment_states = await counts(payments, "status")
+    settlement_states = await counts(settlements, "status")
+    harvest_states = await counts(harvests, "status")
+    batch_states = await counts(batches, "qualityStatus")
+    product_states = await counts(products, "status")
+
+    stuck = []
+    pending_payments = await payments.count_documents({"status": {"$in": ["pending", "failed"]}, "deletedAt": None})
+    pending_settlements = await settlements.count_documents({"status": {"$in": ["pending", "approved", "processing"]}, "deletedAt": None})
+    delivery_ready = await orders.count_documents({"orderStatus": "ready_for_delivery"})
+    if pending_payments:
+        stuck.append({"stage": "payment", "count": pending_payments, "nextAction": "Review or retry payment"})
+    if delivery_ready:
+        stuck.append({"stage": "delivery", "count": delivery_ready, "nextAction": "Assign/accept delivery"})
+    if pending_settlements:
+        stuck.append({"stage": "settlement", "count": pending_settlements, "nextAction": "Approve/process settlement"})
+
+    return {
+        "success": True,
+        "data": {
+            "workflow": [
+                {"stage": "harvest", "states": harvest_states},
+                {"stage": "batch", "states": batch_states},
+                {"stage": "product", "states": product_states},
+                {"stage": "order", "states": order_states},
+                {"stage": "payment", "states": payment_states},
+                {"stage": "settlement", "states": settlement_states},
+            ],
+            "stuck": stuck,
+        },
+    }
+
+
 @router.get("/dashboard")
 async def admin_dashboard(current_user: dict = Depends(require_role("admin"))):
     users_coll = MongoDB.get_collection("users")

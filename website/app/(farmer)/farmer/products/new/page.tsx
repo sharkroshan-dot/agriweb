@@ -73,6 +73,10 @@ export default function AddProductPage() {
     const name = searchParams.get("name");
     if (!name) return;
     const harvestDate = searchParams.get("harvestDate") || "";
+    const fromHarvest = searchParams.get("fromHarvest");
+    const fromBatch = searchParams.get("fromBatch");
+    const quantity = searchParams.get("quantity") || "";
+    const price = searchParams.get("price") || "";
     let harvestDateLocal = "";
     if (harvestDate) {
       const d = new Date(harvestDate);
@@ -87,8 +91,8 @@ export default function AddProductPage() {
       ...prev,
       name,
       slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
-      price: searchParams.get("price") || prev.price,
-      quantity: searchParams.get("quantity") || prev.quantity,
+      price: price || prev.price,
+      quantity: quantity || prev.quantity,
       unit: searchParams.get("unit") || prev.unit,
       harvestDate: harvestDateLocal,
     }));
@@ -141,6 +145,7 @@ export default function AddProductPage() {
   };
 
   const fromHarvestId = searchParams.get("fromHarvest");
+  const fromBatchId = searchParams.get("fromBatch");
 
   const handleBack = async () => {
     if (fromHarvestId) {
@@ -232,8 +237,8 @@ export default function AddProductPage() {
       await api.post("/products/", payload);
       await queryClient.refetchQueries({ queryKey: ["farmerProducts"] });
       if (fromHarvestId) {
-        toast.success("Product created from harvested produce. Continue to Batch in Harvest Planner.");
-        router.push("/farmer/harvest-planner");
+        toast.success("Product created from the approved harvest batch. It is now in inventory and ready for publishing.");
+        router.push("/farmer/products");
       } else {
         toast.success("Product created successfully!");
         router.push("/farmer/products");
@@ -273,14 +278,13 @@ export default function AddProductPage() {
         </Button>
         <div>
           <h1 className="text-3xl font-bold">Add New Product</h1>
-          <p className="text-gray-500">List your fresh produce on AgriConnect</p>
+          <p className="text-gray-500">Create the marketplace product from an approved harvest batch.</p>
         </div>
       </div>
 
       {searchParams.get("fromHarvest") && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
-          Harvest marked successfully! The crop details are pre-filled below. Add an image, category and
-          location, then click Create Product to list it.
+          Quality approved! The harvest and batch details are pre-filled below. Complete the product details and create it to move the approved batch into product inventory.
         </div>
       )}
 

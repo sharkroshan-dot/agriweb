@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Loader2, Wallet, CheckCircle2, Clock, Landmark } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { useEffect, useState } from "react";
 import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
@@ -14,6 +15,18 @@ const statusVariant: Record<string, any> = {
 };
 
 export default function PaymentsPage() {
+  const queryClient = useQueryClient();
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || (window as any).Razorpay) return;
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => { script.remove(); };
+  }, []);
+
   const { data, isLoading } = useQuery({
     queryKey: ["b2b", "payments"],
     queryFn: () => api.get("/b2b/payments"),
@@ -29,6 +42,54 @@ export default function PaymentsPage() {
 
   const summary = data?.data ?? {};
   const payments = summary.payments ?? [];
+
+  const payB2B = async (order: any) => {
+    setPayingId(order.orderId);
+    try {
+      const res = await api.post(`/b2b/orders/\${order.orderId}/payment-intent`, { payment_method: "razorpay" });
+      const intent = res?.data?.data || res?.data || res;
+      if (intent?.simulated) {
+        await api.post("/payments/verify", {
+          payment_id: intent.payment_id,
+          razorpay_order_id: intent.order_id,
+          razorpay_payment_id: `sim_payment_\${intent.payment_id}`,
+          razorpay_signature: "simulated_signature",
+        });
+        queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] });
+        return;
+      }
+      if (!(window as any).Razorpay) throw new Error("Payment gateway is still loading. Please try again.");
+      await new Promise<void>((resolve) => {
+        const rzp = new (window as any).Razorpay({
+          key: intent.key_id,
+          amount: intent.amount,
+          currency: intent.currency || "INR",
+          name: intent.name || "AgriConnect",
+          description: intent.description || `B2B Order \${order.orderNumber}`,
+          order_id: intent.order_id,
+          prefill: intent.prefill || {},
+          theme: intent.theme || { color: "#059669" },
+          handler: async (response: any) => {
+            try {
+              await api.post("/payments/verify", {
+                payment_id: intent.payment_id,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              });
+              queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] });
+            } finally { resolve(); }
+          },
+          modal: { ondismiss: () => resolve() },
+        });
+        rzp.open();
+      });
+    } catch (err: any) {
+      alert(err?.message || "B2B payment failed");
+    } finally {
+      setPayingId(null);
+    }
+  };
 
   const statCards = [
     { label: "Spent This Month", value: formatPrice(summary.totalMonth ?? 0), icon: Wallet, color: "text-emerald-600" },
@@ -85,6 +146,16 @@ export default function PaymentsPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-lg font-bold text-emerald-600">{formatPrice(p.totalAmount)}</p>
+                    {p.paymentStatus !== "paid" ? (
+                      <button
+                        type="button"
+                        onClick={() => payB2B(p)}
+                        disabled={payingId === p.orderId}
+                        className="mt-2 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        {payingId === p.orderId ? "Processing…" : "Pay now"}
+                      </button>
+                    ) : null}
                     <p className="text-xs text-gray-400">
                       {p.advanceAmount ? `advance ${formatPrice(p.advanceAmount)} · ` : ""}
                       {p.startedAt ? new Date(p.startedAt).toLocaleDateString() : ""}

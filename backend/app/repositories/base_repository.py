@@ -23,6 +23,15 @@ class BaseRepository(Generic[T]):
             self._collection = MongoDB.get_collection(self.collection_name)
         return self._collection
     
+    async def get_by_id(self, id_str: str) -> Optional[Dict[str, Any]]:
+        """Return one document by ObjectId or a string id used by test fixtures."""
+        try:
+            oid = ObjectId(str(id_str))
+            return await self.find_one({"_id": oid})
+        except Exception:
+            # Some isolated tests and legacy fixtures use non-ObjectId IDs.
+            return await self.find_one({"_id": id_str})
+
     async def find_one(self, filter: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Find a single document."""
         try:

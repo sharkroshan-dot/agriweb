@@ -238,7 +238,7 @@ async def health_check():
     }
 
 # Import and include routers
-from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives
+from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying, farmer_offers, cooperatives, settlements
 from app.api.v1 import admin, coupons, complaints, kyc, settings as settings_router, delivery_ratings
 from app.api.v1 import quality, workflow
 from app.api.v1 import ai
@@ -301,3 +301,5 @@ if __name__ == "__main__":
         port=8000,
         reload=settings.DEBUG
     )
+
+app.include_router(settlements.router, prefix="/api/v1/settlements", tags=["Settlements"])

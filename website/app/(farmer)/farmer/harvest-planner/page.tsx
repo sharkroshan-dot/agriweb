@@ -217,17 +217,12 @@ export default function FarmerHarvestPlannerPage() {
 
   const createBatchFromHarvest = () => {
     if (!batchConfirm) return;
-    if (!linkedBatchProduct?._id) {
-      toast.error("This harvested crop is not linked to a product yet. Create the product from this harvest first.");
-      return;
-    }
-    const quantity = Number(batchConfirm.actualQuantityKg || batchConfirm.expectedQuantityKg || 0);
+    const quantity = Number(batchConfirm.actualQuantityKg || 0);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       toast.error("Actual harvested quantity is missing.");
       return;
     }
     batchCreateMutation.mutate({
-      productId: String(linkedBatchProduct._id),
       cropName: batchConfirm.cropName,
       quantityKg: quantity,
       harvestDate: batchConfirm.harvestedAt || batchConfirm.expectedHarvestDate,
@@ -255,12 +250,14 @@ export default function FarmerHarvestPlannerPage() {
 
   const batchCreateMutation = useMutation({
     mutationFn: (payload: any) => api.post("/batches", payload),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestedForBatches"] });
       setBatchConfirm(null);
-      toast.success("Batch created successfully. It is now available on Batches & Traceability for quality inspection.");
+      toast.success("Batch created. Next step: complete quality inspection.");
+      const batchId = res?.data?.data?.id || res?.data?.id;
+      router.push(batchId ? `/farmer/batches?batchId=${encodeURIComponent(batchId)}` : "/farmer/batches");
     },
     onError: (err: any) => toast.error(err?.message || "Failed to create batch"),
   });
@@ -361,15 +358,15 @@ export default function FarmerHarvestPlannerPage() {
       case "ready":
         return 2;
       case "batched":
-        return 5;
+        return 4;
       case "harvested":
-        if (plan.productCreated) return 4;
-        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 5 : 3;
+        if (plan.productCreated) return 6;
+        return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
       default: {
         // Fallback inference for legacy plans without an explicit stage field.
         if (plan.status === "harvested") {
-          if (plan.productCreated) return 4;
-          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 5 : 3;
+          if (plan.productCreated) return 6;
+          return batches.some((b: any) => String(b.sourceHarvestPlanId || "") === String(plan.id)) ? 4 : 3;
         }
         const p = growthProgress(plan);
         if (p >= 100) return 2;

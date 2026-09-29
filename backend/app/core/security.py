@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError
 from passlib.context import CryptContext
 import random
 import string
@@ -71,7 +72,7 @@ class Security:
         try:
             payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
             return payload
-        except JWTError:
+        except PyJWTError:
             return {}
     
     @staticmethod

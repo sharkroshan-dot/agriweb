@@ -40,7 +40,7 @@ const statusColors: Record<string, string> = {
 export default function CustomerOrdersPage() {
   const router = useRouter();
   const addItem = useCartStore((s: any) => s.addItem);
-  const [activeTab, setActiveTab] = useState<"pickup" | "delivery">("delivery");
+  const [activeTab, setActiveTab] = useState<"delivery" | "pickup">("delivery");
   const [subTab, setSubTab] = useState<"all" | "active" | "delivered">("all");
 
   const { data, isLoading } = useQuery({
@@ -94,12 +94,12 @@ export default function CustomerOrdersPage() {
     }));
   }, [data]);
 
-  const pickupOrders = useMemo(
-    () => orders.filter((o: any) => o.deliveryType === "pickup"),
-    [orders],
-  );
   const deliveryOrders = useMemo(
     () => orders.filter((o: any) => o.deliveryType !== "pickup"),
+    [orders],
+  );
+  const pickupOrders = useMemo(
+    () => orders.filter((o: any) => o.deliveryType === "pickup"),
     [orders],
   );
 
@@ -139,22 +139,14 @@ export default function CustomerOrdersPage() {
     router.push("/cart");
   };
 
-  const renderOrders = (sectionOrders: any[], isPickup: boolean) => {
+  const renderOrders = (sectionOrders: any[], isPickup = false) => {
     if (sectionOrders.length === 0) {
       return (
         <Card>
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
-            {isPickup ? (
-              <Store className="h-10 w-10 text-muted-foreground" />
-            ) : (
-              <Truck className="h-10 w-10 text-muted-foreground" />
-            )}
-            <p className="font-medium">{isPickup ? "No farm pickup orders" : "No home delivery orders"}</p>
-            <p className="text-sm text-muted-foreground">
-              {isPickup
-                ? "Orders you choose to collect from the farm will appear here."
-                : "Orders delivered to your doorstep will appear here."}
-            </p>
+            <Truck className="h-10 w-10 text-muted-foreground" />
+            <p className="font-medium">No home delivery orders</p>
+            <p className="text-sm text-muted-foreground">Orders delivered to your doorstep will appear here.</p>
             <Button asChild>
               <Link href="/nearby">Browse products</Link>
             </Button>
@@ -184,13 +176,10 @@ export default function CustomerOrdersPage() {
                   <Badge
                     variant="outline"
                     className={
-                      isPickup
-                        ? "border-amber-300 bg-amber-50 text-amber-700"
-                        : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      "border-emerald-200 bg-emerald-50 text-emerald-700"
                     }
                   >
-                    {isPickup ? <Store className="mr-1 h-3 w-3" /> : <Truck className="mr-1 h-3 w-3" />}
-                    {isPickup ? "Pickup" : "Delivery"}
+                    <Truck className="mr-1 h-3 w-3" /> Delivery
                   </Badge>
                   <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>
                     {order.status.replace(/_/g, " ")}

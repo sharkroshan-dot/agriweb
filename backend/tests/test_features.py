@@ -102,7 +102,12 @@ async def test_mark_harvested_confirms_preorders(monkeypatch):
     monkeypatch.setattr(harvests_mod.harvest_preorder_repo, "count", AsyncMock(return_value=0))
     harvests_mod.harvest_plan_repo._collection = AsyncMock()
 
-    result = await harvests_mod.mark_harvested(OID, _farmer_user())
+    from app.api.v1.harvests import HarvestConfirmation
+    result = await harvests_mod.mark_harvested(
+        OID,
+        HarvestConfirmation(actualQuantityKg=500, finalRatePerKg=40),
+        _farmer_user(),
+    )
     assert result["success"] is True
     assert result["data"]["notifiedCount"] == 0
 
@@ -588,10 +593,25 @@ async def test_farmer_creates_batch_with_lot_number(monkeypatch):
 
     monkeypatch.setattr(batches_mod.batch_repo, "create", fake_create)
     monkeypatch.setattr(batches_mod, "_next_lot_number", fake_lot)
+    monkeypatch.setattr(
+        batches_mod.harvest_plan_repo,
+        "find_one",
+        AsyncMock(return_value={
+            "_id": OID,
+            "farmerId": OID,
+            "cropName": "Tomato",
+            "status": "harvested",
+            "actualQuantityKg": 500,
+            "harvestedAt": datetime.utcnow(),
+        }),
+    )
+    monkeypatch.setattr(batches_mod.batch_repo, "find_one", AsyncMock(return_value=None))
+    monkeypatch.setattr(batches_mod.quality_inspection_repo, "create", AsyncMock(return_value=OID2))
+    monkeypatch.setattr(batches_mod.harvest_plan_repo, "update", AsyncMock(return_value=True))
 
     from app.api.v1.batches import BatchCreate
     result = await batches_mod.create_batch(
-        BatchCreate(cropName="Tomato", quantityKg=500, qualityGrade="Premium", storageType="refrigerated"),
+        BatchCreate(cropName="Tomato", quantityKg=500, qualityGrade="Premium", storageType="refrigerated", sourceHarvestPlanId=OID),
         _farmer_user(),
     )
     assert result["success"] is True
@@ -628,6 +648,10 @@ async def test_convert_batch_adds_product_stock(monkeypatch):
         "shelfLifeDays": 3,
         "expiresAt": datetime.utcnow() + timedelta(days=2),
         "status": "created",
+        "qualityStatus": "approved",
+        "verificationStatus": "verified",
+        "verifiedGrade": "Premium",
+        "verifiedAt": datetime.utcnow(),
     }
     product = {"_id": ObjectId(OID2), "farmerId": ObjectId(OID), "name": "Tomato", "quantity": 100, "unit": "kg"}
     product_updated = {}
