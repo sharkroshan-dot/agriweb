@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FlaskConical,
@@ -51,6 +52,7 @@ interface InspectionRecord {
 
 export default function FarmerQualityPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [filter, setFilter] = useState<string>("all");
   const [showInspect, setShowInspect] = useState(false);
   const [form, setForm] = useState({
@@ -312,6 +314,22 @@ export default function FarmerQualityPage() {
                           <Badge variant="success">Consistent with declaration</Badge>
                         )}
                       </div>
+                    )}
+                    {r.verificationStatus === "verified" && (
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const batch = batches.find((b: any) => String(b._id || b.id) === String(r.batchId || ""));
+                          const planId = batch?.sourceHarvestPlanId;
+                          if (!planId) {
+                            toast.error("This verified inspection is not linked to a harvest plan.");
+                            return;
+                          }
+                          router.push(`/farmer/products/new?fromHarvest=${encodeURIComponent(String(planId))}&fromBatch=${encodeURIComponent(String(r.batchId))}&quantity=${encodeURIComponent(String(batch.quantityKg || ""))}&price=${encodeURIComponent(String(batch.finalRatePerKg || ""))}`);
+                        }}
+                      >
+                        <PackageSearch className="mr-1.5 h-4 w-4" /> Create Product
+                      </Button>
                     )}
                     {r.verificationStatus === "farmer_declared" && (
                       <Button
