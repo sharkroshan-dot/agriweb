@@ -110,6 +110,29 @@ class ChatRepository(BaseRepository):
             logger.error(f"Failed to resolve RFQ chats for {user_id}: {e}")
             return []
 
+    async def _cooperative_chat_ids_for_user(self, user_id: str) -> List[str]:
+        """Group-chat ids for active cooperative memberships."""
+        try:
+            from app.repositories.base_repository import BaseRepository
+            ids = [user_id]
+            try:
+                ids.append(str(ObjectId(user_id)))
+            except Exception:
+                pass
+            member_repo = BaseRepository("cooperative_members")
+            memberships = await member_repo.find_many(
+                {"userId": {"$in": ids}, "status": "active", "deletedAt": None},
+                limit=200,
+            )
+            return [
+                f"cooperative-chat-{str(m.get('cooperativeId'))}"
+                for m in (memberships or [])
+                if m.get("cooperativeId")
+            ]
+        except Exception as e:
+            logger.error(f"Failed to resolve cooperative chats for {user_id}: {e}")
+            return []
+
     async def get_conversations(
         self,
         user_id: Optional[str] = None,
@@ -128,8 +151,9 @@ class ChatRepository(BaseRepository):
             delivery_ids = await self._delivery_chat_ids_for_user(user_id)
             order_ids = await self._order_chat_ids_for_user(user_id)
             rfq_ids = await self._rfq_chat_ids_for_user(user_id)
+            cooperative_ids = await self._cooperative_chat_ids_for_user(user_id)
             support_ids = [f"support-{user_id}"]
-            linked_ids = list(dict.fromkeys(delivery_ids + order_ids + rfq_ids + support_ids))
+            linked_ids = list(dict.fromkeys(delivery_ids + order_ids + rfq_ids + cooperative_ids + support_ids))
             pipeline = [
                 {
                     "$match": {
