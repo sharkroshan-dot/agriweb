@@ -263,6 +263,29 @@ class WarehouseService:
                 str(outgoing["warehouseId"]) if outgoing.get("warehouseId") else None,
                 str(outgoing["variantId"]) if outgoing.get("variantId") else None,
             )
+            # Complete the warehouse -> delivery handoff. An outgoing record
+            # always carries orderId, so dispatching it must move the order
+            # into the delivery-ready state instead of leaving the order stuck
+            # in warehouse operations.
+            order_id = outgoing.get("orderId")
+            if order_id:
+                from app.repositories.order_repository import order_repository
+                order = await order_repository.get_by_id(str(order_id))
+                if order and str(order.get("orderStatus") or "").lower() not in ("delivered", "completed", "cancelled"):
+                    await order_repository.update(
+                        {"_id": order["_id"]},
+                        {
+                            "orderStatus": "ready_for_delivery",
+                            "warehouseDispatchedAt": datetime.utcnow(),
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
+                    try:
+                        customer_id = order.get("customerId")
+                        if customer_id:
+                            await NotificationService.send_order_ready(str(customer_id), str(order["_id"]))
+                    except Exception:
+                        logger.exception("Failed to notify customer after warehouse dispatch")
         return await outgoing_stock_repository.get_by_id(outgoing_id)
 
     @staticmethod
