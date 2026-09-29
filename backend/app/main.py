@@ -89,7 +89,7 @@ async def lifespan(app: FastAPI):
         from app.repositories.audit_log_repository import audit_log_repository
         await audit_log_repository.ensure_ttl_index()
         expiry_task = asyncio.create_task(reservation_expiry_loop())
-        from app.api.v1 import subscriptions as _subscriptions
+        from app.api.v1 import settlements, subscriptions as _subscriptions
         basket_task = asyncio.create_task(_subscriptions.basket_scheduler_loop())
         logger.info("✅ Database connections established")
     except Exception as exc:
@@ -256,3 +256,5 @@ if __name__ == "__main__":
         port=8000,
         reload=settings.DEBUG
     )
+
+app.include_router(settlements.router, prefix="/api/v1/settlements", tags=["Settlements"])
