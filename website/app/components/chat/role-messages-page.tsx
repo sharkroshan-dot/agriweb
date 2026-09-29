@@ -284,13 +284,6 @@ export default function RoleMessagesPage({ role = "farmer" }: { role?: string })
     return () => { cancelled = true; window.clearInterval(id); };
   }, [status, conversations, userId]);
 
-  useEffect(() => {
-    if (status !== "authenticated") return;
-    const heartbeat = () => { void api.post("/chat/presence/heartbeat", { name: userName, role: userRole }).catch(() => {}); };
-    heartbeat();
-    const id = window.setInterval(heartbeat, 30000);
-    return () => window.clearInterval(id);
-  }, [status, userName, userRole]);
 
   useEffect(() => {
     if (!activeId) return;
