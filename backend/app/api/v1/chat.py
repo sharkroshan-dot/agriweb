@@ -16,7 +16,7 @@ from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.notification_service import NotificationService
 from app.services.chat_security import (
     is_blocked, block_user, unblock_user, create_report, enforce_message_rate,
-    moderate_content, record_moderation_event, is_restricted, register_safety_restriction,
+    moderate_content, record_moderation_event, is_restricted, register_safety_restriction, detect_repeated_unwanted,
 )
 
 logger = logging.getLogger(__name__)
