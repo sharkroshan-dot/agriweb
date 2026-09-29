@@ -10,19 +10,33 @@ const ROLE_PROTECTED_PREFIXES: Record<string, string> = {
   "/business": "business",
 };
 
+// Route-group pages under (customer) intentionally have short public-looking
+// URLs such as /orders and /harvests.  They are still customer-only pages.
+// Keep genuinely public marketplace/discovery routes outside this list.
+const CUSTOMER_ONLY_PREFIXES = [
+  "/cart", "/checkout", "/orders", "/profile", "/reviews", "/wallet",
+  "/refunds", "/subscriptions", "/agripoints", "/alerts", "/pickups",
+  "/my-deliveries", "/delivery-slots", "/bulk-orders", "/coupons",
+  "/wishlist", "/harvests", "/payments",
+];
+
+function matches(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(prefix + "/");
+}
+
 export default withAuth(
   function middleware(req) {
     const token = req.nextauth.token;
     const { pathname } = req.nextUrl;
-    const requiredRole = Object.entries(ROLE_PROTECTED_PREFIXES).find(
-      ([prefix]) => pathname === prefix || pathname.startsWith(prefix + "/"),
-    )?.[1];
+
+    const requiredRole =
+      Object.entries(ROLE_PROTECTED_PREFIXES).find(([prefix]) => matches(pathname, prefix))?.[1]
+      || (CUSTOMER_ONLY_PREFIXES.some((prefix) => matches(pathname, prefix)) ? "customer" : undefined);
 
     if (requiredRole && token?.role !== requiredRole) {
       const destination = req.nextUrl.clone();
       const role = typeof token?.role === "string" ? token.role : "";
-      destination.pathname =
-        role && ROLE_PROTECTED_PREFIXES ? `/${role}/dashboard` : "/login";
+      destination.pathname = role ? `/${role}/dashboard` : "/login";
       destination.search = "";
       return NextResponse.redirect(destination);
     }
@@ -34,8 +48,11 @@ export default withAuth(
     callbacks: {
       authorized({ token, req }) {
         const { pathname } = req.nextUrl;
-        const publicPaths = ["/", "/login", "/register", "/search", "/product", "/categories", "/roadmap", "/api", "/_next", "/images", "/marketplace", "/nearby", "/trace"];
-        if (publicPaths.some((p) => pathname === p || pathname.startsWith(p + "/"))) return true;
+        const publicPaths = [
+          "/", "/login", "/register", "/search", "/product", "/categories",
+          "/roadmap", "/api", "/_next", "/images", "/marketplace", "/nearby", "/trace",
+        ];
+        if (publicPaths.some((p) => matches(pathname, p))) return true;
         return !!token;
       },
     },
