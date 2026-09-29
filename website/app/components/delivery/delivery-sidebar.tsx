@@ -17,6 +17,7 @@ import {
   LifeBuoy,
   Star,
   RefreshCcw,
+  MessageSquare,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -57,6 +58,7 @@ export function DeliverySidebar() {
       items: [
         { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
         { name: "My Deliveries", href: "/delivery/deliveries", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
+        { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
         { name: "Order Map", href: "/delivery/order-map", icon: Map },
         { name: "Live Route", href: "/delivery/route", icon: MapPin },
         { name: "Auto-Reassignment", href: "/delivery/reassignments", icon: RefreshCcw },
