@@ -107,7 +107,7 @@ async def test_mark_harvested_confirms_preorders(monkeypatch):
         OID,
         HarvestConfirmation(actualQuantityKg=500, finalRatePerKg=40),
         _farmer_user(),
-    
+    )
     assert result["success"] is True
     assert result["data"]["notifiedCount"] == 0
 
