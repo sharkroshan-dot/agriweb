@@ -43,6 +43,7 @@ from app.repositories.user_repository import user_repository
 from app.repositories.farmer_repository import farmer_repository
 from app.repositories.product_repository import product_repository
 from app.services.inventory_service import InventoryService
+from app.services.payment_service import PaymentService
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
@@ -814,6 +815,63 @@ async def accept_offer(
         "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": round(max(0.0, _rfq_quantity(rfq) - float(order.get("quantityKg"))), 2)},
         "message": "Quote accepted; B2B order created",
     }
+
+
+# ================== B2B PAYMENT ==================
+
+@router.post("/orders/{order_id}/payment-intent")
+async def create_b2b_payment_intent(
+    order_id: str,
+    payment_method: str = Body("razorpay", embed=True),
+    current_user: dict = Depends(get_current_user),
+):
+    """Start payment for a B2B order through the shared verified payment pipeline."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business buyers can pay B2B orders")
+    order = await order_repo.get_by_id(order_id)
+    if not order or str(order.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if order.get("paymentStatus") == PAYMENT_PAID:
+        raise HTTPException(status_code=400, detail="B2B order is already paid")
+    if order.get("status") == ORDER_CANCELLED:
+        raise HTTPException(status_code=400, detail="Cancelled orders cannot be paid")
+    result = await PaymentService.create_payment_intent(
+        order_id, float(order.get("totalAmount") or 0), payment_method
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"success": True, "data": result}
+
+
+@router.post("/orders/{order_id}/verify-payment")
+async def verify_b2b_payment(
+    order_id: str,
+    payment_id: str = Body(..., embed=True),
+    razorpay_order_id: str = Body(..., embed=True),
+    razorpay_payment_id: str = Body(..., embed=True),
+    razorpay_signature: str = Body(..., embed=True),
+    current_user: dict = Depends(get_current_user),
+):
+    """Verify B2B Razorpay payment and move the order to confirmed/fulfillment."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business buyers can verify B2B payments")
+    order = await order_repo.get_by_id(order_id)
+    if not order or str(order.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    payment = await payment_repo_for_b2b().get_by_id(payment_id)
+    if not payment or str(payment.get("userId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=400, detail="Payment verification failed")
+    verified = await PaymentService.verify_razorpay_payment(
+        payment_id, razorpay_order_id, razorpay_payment_id, razorpay_signature
+    )
+    if not verified:
+        raise HTTPException(status_code=400, detail="Payment verification failed")
+    return {"success": True, "data": verified}
+
+
+def payment_repo_for_b2b():
+    from app.repositories.payment_repository import payment_repository
+    return payment_repository
 
 
 # ================== ORDERS ==================
