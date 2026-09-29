@@ -89,7 +89,8 @@ function participantRole(conv: Conversation, userId: string): string {
 
 type RoleFilter = "all" | "customer" | "partners" | "business" | "support" | "cooperative";
 
-function roleBucket(role: string, conversationType?: string): RoleFilter {\n  if (conversationType === "cooperative") return "cooperative";
+function roleBucket(role: string, conversationType?: string): RoleFilter {
+  if (conversationType === "cooperative") return "cooperative";
   const r = (role || "").toLowerCase();
   if (r === "customer") return "customer";
   if (["delivery", "delivery_partner", "partner", "driver"].includes(r)) return "partners";
@@ -102,7 +103,8 @@ const ROLE_FILTERS: { key: RoleFilter; label: string }[] = [
   { key: "customer", label: "Customers" },
   { key: "partners", label: "Partners" },
   { key: "business", label: "Buyers" },
-  { key: "support", label: "Support" },\n  { key: "cooperative", label: "Cooperative" },
+  { key: "support", label: "Support" },
+  { key: "cooperative", label: "Cooperative" },
 ];
 
 function lastMessageText(conv: Conversation): string {
