@@ -291,6 +291,35 @@ async def _delivery_chat_participant(conversation_id: str, user_id: Optional[str
         return None
 
 
+async def _order_chat_participant(conversation_id: str, user_id: Optional[str] = None) -> Optional[dict]:
+    """Resolve the counterpart for an order chat when participants are not persisted."""
+    if not conversation_id.startswith("order-chat-"):
+        return None
+    try:
+        order_id = conversation_id[len("order-chat-"):]
+        from app.repositories.order_repository import order_repository
+        from app.repositories.user_repository import user_repository
+        order = await order_repository.get_by_id(order_id)
+        if not order:
+            return None
+        farmer_id = str(order.get("farmerId") or "")
+        customer_id = str(order.get("customerId") or "")
+        if user_id and customer_id == str(user_id):
+            return {"id": farmer_id, "name": order.get("farmerName") or "Farmer", "role": "farmer"}
+        if user_id and farmer_id == str(user_id):
+            return {"id": customer_id, "name": order.get("customerName") or "Customer", "role": "customer"}
+        if order.get("farmerId"):
+            farmer = await user_repository.get_by_id(farmer_id)
+            if farmer:
+                name = _display_name(farmer)
+                return {"id": farmer_id, "name": name, "role": "farmer"}
+        if customer_id:
+            return {"id": customer_id, "name": order.get("customerName") or "Customer", "role": "customer"}
+    except Exception as e:
+        logger.error(f"Order chat participant lookup failed: {e}")
+    return None
+
+
 async def _rfq_chat_participant(conversation_id: str, user_id: Optional[str] = None) -> Optional[dict]:
     """Resolve the friendly counterpart for a `rfq-chat-{rfqId}` thread."""
     if not conversation_id.startswith("rfq-chat-"):
@@ -340,6 +369,10 @@ async def _derive_participant(conv: dict, user_id: Optional[str] = None) -> dict
     # A thread may have been created before the counterpart was persisted.
     # Resolve the real counterpart from the linked business object instead of
     # displaying the current user as their own chat.
+    enriched = await _order_chat_participant(conv_id, user_id)
+    if enriched and str(enriched.get("id", "")) != str(user_id):
+        return enriched
+
     enriched = await _delivery_chat_participant(conv_id, user_id)
     if enriched and str(enriched.get("id", "")) != str(user_id):
         return enriched
