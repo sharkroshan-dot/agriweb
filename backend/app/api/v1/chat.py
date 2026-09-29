@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
@@ -1090,6 +1091,28 @@ async def share_location(
     return {"status": "success", "data": saved}
 
 
+@router.get("/messages/attachment/{filename}")
+async def get_chat_attachment(
+    filename: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Serve a chat attachment only to an authorized conversation participant."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid attachment name")
+    message = await chat_message_repository.find_one({
+        "attachments.url": f"/chat/messages/attachment/{filename}",
+    })
+    if not message:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    conversation_id = str(message.get("conversation_id") or "")
+    if not await _can_access_conversation(conversation_id, str(current_user["_id"])):
+        raise HTTPException(status_code=403, detail="You don't have access to this attachment")
+    filepath = os.path.join(settings.UPLOAD_DIR, filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Attachment file not found")
+    return FileResponse(filepath, filename=filename)
+
+
 @router.post("/messages/attachment")
 async def upload_and_send_attachment(
     conversation_id: str = Query(...),
@@ -1144,7 +1167,7 @@ async def upload_and_send_attachment(
     with open(filepath, "wb") as f:
         f.write(content_bytes)
 
-    url = f"/uploads/{filename}"
+    url = f"/chat/messages/attachment/{filename}"
     now = datetime.utcnow()
     conv = await chat_repository.get_conversation(conversation_id)
     if not conv:
