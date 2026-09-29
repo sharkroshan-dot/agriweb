@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -38,6 +38,7 @@ export default function FarmerCooperativePage() {
   const [coopSearch, setCoopSearch] = useState("");
   const [coopLocation, setCoopLocation] = useState("");
   const [coopCrop, setCoopCrop] = useState("");
+  const [selectedCoopId, setSelectedCoopId] = useState<string>("");
   const [form, setForm] = useState({
     name: "", registrationDetails: "", location: "", contactName: "",
     contactPhone: "", contactEmail: "", description: "", crops: ""
@@ -50,7 +51,12 @@ export default function FarmerCooperativePage() {
   });
 
   const cooperatives = data?.data?.cooperatives || [];
-  const coop = cooperatives[0];
+  useEffect(() => {
+    if (cooperatives.length && !cooperatives.some((item: any) => item.id === selectedCoopId)) {
+      setSelectedCoopId(cooperatives[0].id);
+    }
+  }, [cooperatives, selectedCoopId]);
+  const coop = cooperatives.find((item: any) => item.id === selectedCoopId) || cooperatives[0];
 
   const { data: discoveryData, isLoading: discoveryLoading } = useQuery({
     queryKey: ["cooperativeDiscovery", coopSearch, coopLocation, coopCrop],
@@ -59,6 +65,33 @@ export default function FarmerCooperativePage() {
     retry: 1,
   });
   const discoveredCooperatives = discoveryData?.data?.cooperatives || [];
+
+  const { data: requestData, isLoading: requestsLoading } = useQuery({
+    queryKey: ["cooperativeJoinRequests", coop?.id],
+    queryFn: () => api.get(`/cooperatives/${coop.id}/join-requests`),
+    enabled: Boolean(coop?.id && coop?.role === "manager" && stage === "members"),
+    retry: 1,
+  });
+  const joinRequests = (requestData?.data?.requests || []).filter((item: any) => item.status === "pending");
+
+  const approveMutation = useMutation({
+    mutationFn: (userId: string) => api.post(`/cooperatives/${coop.id}/join-requests/approve`, { userId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["farmerCooperatives"] });
+      qc.invalidateQueries({ queryKey: ["cooperativeJoinRequests", coop?.id] });
+      toast.success("Farmer approved and added to the cooperative");
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not approve farmer"),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (userId: string) => api.post(`/cooperatives/${coop.id}/join-requests/reject`, { userId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cooperativeJoinRequests", coop?.id] });
+      toast.success("Join request rejected");
+    },
+    onError: (e: any) => toast.error(e?.message || "Could not reject request"),
+  });
 
   const createMutation = useMutation({
     mutationFn: () => api.post("/cooperatives", {
@@ -107,20 +140,43 @@ export default function FarmerCooperativePage() {
       <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-medium text-emerald-700">COOPERATIVE WORKFLOW</p>
               <CardTitle className="mt-1 text-2xl">{coop?.name || "Build your farmer cooperative"}</CardTitle>
               <CardDescription className="mt-1">
-                Create the cooperative, build membership, combine production and inventory, fulfil orders, distribute produce and track earnings.
+                {coop ? `You are a ${coop.role === "manager" ? "manager" : "member"} of this cooperative. Your other cooperative memberships remain separate.` : "Create a cooperative or join an existing one."}
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={() => setShowCreate(true)}><Plus className="mr-2 h-4 w-4" />Create Cooperative</Button>
               <Button variant="outline" onClick={() => setShowJoin(true)}><UserPlus className="mr-2 h-4 w-4" />Join</Button>
             </div>
           </div>
         </CardHeader>
       </Card>
+
+      {cooperatives.length > 0 && (
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-3 p-4">
+            <div className="min-w-[220px] flex-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">My Cooperatives</p>
+              <select
+                className="mt-1 w-full rounded-lg border bg-white px-3 py-2 text-sm"
+                value={coop?.id || ""}
+                onChange={e => { setSelectedCoopId(e.target.value); setStage("members"); }}
+              >
+                {cooperatives.map((item: any) => (
+                  <option key={item.id} value={item.id}>{item.name} — {item.role === "manager" ? "Manager" : "Member"}</option>
+                ))}
+              </select>
+            </div>
+            <Badge variant="outline">{coop?.role === "manager" ? "Manager controls enabled" : "Member view"}</Badge>
+            <p className="max-w-xl text-xs text-slate-500">
+              You can manage one cooperative and also belong to another. Switching here changes which cooperative's workflow and permissions you are viewing.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-2 md:grid-cols-4 xl:grid-cols-8">
         {stages.map((s, i) => {
@@ -165,11 +221,44 @@ export default function FarmerCooperativePage() {
             <Metric icon={Users2} label="Cooperative members" value={coop?.memberCount ?? 0} />
             <Metric icon={UserPlus} label="Your role" value={coop?.role === "manager" ? "Manager" : "Member"} />
           </div>
-          <div className="mt-5 rounded-xl border p-4">
-            <p className="font-semibold">Cooperative Members</p>
-            <p className="mt-1 text-sm text-slate-500">Invite farmers using the cooperative invite code. Manager approval controls membership.</p>
-            {coop?.inviteCode && <div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline">{coop.inviteCode}</Badge><Button size="sm" variant="outline" onClick={() => { navigator.clipboard?.writeText(coop.inviteCode); toast.success("Invite code copied"); }}>Copy code</Button><Button size="sm" variant="outline" onClick={() => setShowInvite(true)}>Share code</Button><span className="text-xs text-slate-500">Optional private invitation. Farmers can also discover this cooperative.</span></div>}
-          </div>
+
+          {coop?.role === "manager" ? (
+            <div className="mt-5 space-y-4">
+              <div className="rounded-xl border p-4">
+                <p className="font-semibold">Pending Join Requests</p>
+                <p className="mt-1 text-sm text-slate-500">Farmers can discover this cooperative and request membership. Approve them here.</p>
+                {requestsLoading ? (
+                  <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin" /></div>
+                ) : joinRequests.length ? (
+                  <div className="mt-3 space-y-2">
+                    {joinRequests.map((request: any) => (
+                      <div key={request.userId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 p-3">
+                        <div>
+                          <p className="font-medium">{request.name}</p>
+                          <p className="text-xs text-slate-500">{request.email || request.phone || "Farmer"} · Pending request</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" disabled={approveMutation.isPending} onClick={() => approveMutation.mutate(request.userId)}>Approve</Button>
+                          <Button size="sm" variant="outline" disabled={rejectMutation.isPending} onClick={() => rejectMutation.mutate(request.userId)}>Reject</Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-500">No pending requests.</p>}
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <p className="font-semibold">Cooperative Members</p>
+                <p className="mt-1 text-sm text-slate-500">Share the private invite code when you already know a farmer. Discovery-based joining is also supported.</p>
+                {coop?.inviteCode && <div className="mt-3 flex flex-wrap items-center gap-2"><Badge variant="outline">{coop.inviteCode}</Badge><Button size="sm" variant="outline" onClick={() => { navigator.clipboard?.writeText(coop.inviteCode); toast.success("Invite code copied"); }}>Copy code</Button><Button size="sm" variant="outline" onClick={() => setShowInvite(true)}>Share code</Button></div>}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-5 rounded-xl border bg-slate-50 p-4">
+              <p className="font-semibold">You are a cooperative member</p>
+              <p className="mt-1 text-sm text-slate-500">You can contribute production and inventory to this cooperative. Manager-only approval, allocation and membership controls are hidden.</p>
+            </div>
+          )}
         </WorkflowCard>
       )}
 
