@@ -14,6 +14,10 @@ from app.api.v1.auth import get_current_user
 from app.core.config import settings
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.notification_service import NotificationService
+from app.services.chat_security import (
+    is_blocked, block_user, unblock_user, create_report, enforce_message_rate,
+    moderate_content, record_moderation_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +34,11 @@ async def get_optional_current_user(
     must be valid, otherwise the request is rejected.
     """
     if credentials is None:
-        return None
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication is required for AgriConnect chat",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return await get_current_user(credentials.credentials)
 
 router = APIRouter()
@@ -441,9 +449,33 @@ async def _can_access_conversation(conversation_id: str, user_id: str) -> bool:
     # Thread does not exist yet — first message / WS open. Only allow when the
     # user is genuinely linked to the underlying order/RFQ/support owner.
     allowed = await _allowed_user_ids(conversation_id)
-    if not allowed:
-        return True  # e.g. seed demo threads
-    return user_id in allowed
+    return bool(allowed) and user_id in allowed
+
+
+async def _conversation_other_ids(conversation_id: str, user_id: str) -> set[str]:
+    conv = await chat_repository.get_conversation(conversation_id)
+    ids: set[str] = set()
+    if conv:
+        ids.update(str(p.get("id")) for p in conv.get("participants", []) if p.get("id"))
+    ids.update(await _allowed_user_ids(conversation_id))
+    ids.discard(str(user_id))
+    ids.discard("support")
+    ids.discard("")
+    return ids
+
+
+async def _assert_chat_safety(conversation_id: str, user_id: str, content: str) -> dict:
+    for other_id in await _conversation_other_ids(conversation_id, user_id):
+        if await is_blocked(user_id, other_id):
+            raise HTTPException(
+                status_code=403,
+                detail="Messaging is unavailable because this user is blocked.",
+            )
+    try:
+        enforce_message_rate(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=429, detail=str(exc))
+    return moderate_content(content)
 
 
 async def _resolve_sender(
@@ -532,10 +564,15 @@ async def get_conversations(
     if current_user:
         user_id = str(current_user["_id"])
     convs = await chat_repository.get_conversations(user_id)
+    visible = []
     for c in convs:
-        c["participant"] = await _derive_participant(c, user_id)
+        participant = await _derive_participant(c, user_id)
+        if participant.get("id") and await is_blocked(user_id, str(participant["id"])):
+            continue
+        c["participant"] = participant
         c.setdefault("conversation_type", _conv_type(c.get("id", "")))
-    return {"status": "success", "data": convs}
+        visible.append(c)
+    return {"status": "success", "data": visible}
 
 
 @router.get("/conversations/{conversation_id}")
@@ -583,6 +620,7 @@ async def send_message(
     )
     if not await _can_access_conversation(conv_id, sender_id):
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
+    moderation = await _assert_chat_safety(conv_id, sender_id, body.content)
 
     conv = await chat_repository.get_conversation(conv_id)
     if not conv:
@@ -605,6 +643,7 @@ async def send_message(
     })
     if not saved:
         raise HTTPException(status_code=500, detail="Failed to save message")
+    await record_moderation_event(conv_id, sender_id, str(saved.get("id", "")), moderation)
 
     await chat_repository.update_last_message(conv_id, {
         "content": body.content,
