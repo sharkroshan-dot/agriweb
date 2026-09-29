@@ -67,6 +67,7 @@ export default function CheckoutPage() {
   const queryClient = useQueryClient();
   const items = useCartStore((state) => state.items);
   const resolvedPickup = useRef<Set<string>>(new Set());
+  const idempotencyKeyRef = useRef<string | null>(null);
   const removeItem = useCartStore((state) => state.removeItem);
   const clearCart = useCartStore((state) => state.clearCart);
   const updateItem = useCartStore((state) => state.updateItem);
