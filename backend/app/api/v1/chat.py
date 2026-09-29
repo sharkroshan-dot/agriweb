@@ -50,6 +50,7 @@ router = APIRouter()
 class PresenceHeartbeat(BaseModel):
     name: str = ""
     role: str = ""
+    active: bool = True
 
 
 @router.post("/presence/heartbeat")
@@ -58,7 +59,7 @@ async def presence_heartbeat(
     current_user: dict = Depends(get_current_user),
 ):
     return {"status": "success", "data": await chat_presence_repository.heartbeat(
-        str(current_user["_id"]), body.name, body.role
+        str(current_user["_id"]), body.name, body.role, body.active
     )}
 
 
