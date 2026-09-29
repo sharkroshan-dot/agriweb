@@ -69,13 +69,14 @@ async def _farmer(uid: str):
                               "Create Product", "Quality is approved. Create the customer-facing product from the verified harvest."),
                 "entityId": str(batch["_id"])}
 
-    if str(product.get("qualityStatus") or "").lower() not in ("approved", "verified"):
+    verification = str(product.get("verificationStatus") or product.get("qualityStatus") or "").lower()
+    if verification not in ("verified", "buyer_verified", "approved"):
         return {"currentStep": "Product Created", "state": "IN_PROGRESS",
                 "next": _href(f"/farmer/quality?batchId={batch['_id']}", "Review Quality Approval", "The product is still waiting for the verified quality gate."),
                 "entityId": str(product["_id"])}
     return {"currentStep": "Inventory / Marketplace", "state": "IN_PROGRESS",
             "next": _href("/farmer/restock", "Review Inventory", "The verified product is ready for inventory and marketplace availability."),
-            "entityId": str(product["_id"]), "availableQuantity": float(product.get("quantity", 0) or 0)}
+            "entityId": str(product["_id"]), "availableQuantity": float(product.get("availableQuantity", product.get("quantity", 0)) or 0)}
 
 async def _customer(uid: str):
     po = await _latest(preorders, {"customerId": _id(uid), "deletedAt": None}, "updatedAt")
@@ -87,8 +88,8 @@ async def _customer(uid: str):
         return {"currentStep": "Browse", "state": "ACTION_REQUIRED", "next": _href("/customer/products", "Browse Products", "Start by choosing produce from the marketplace.")}
     status = str(order.get("orderStatus") or "").lower()
     if status in ("delivered", "completed"):
-        return {"currentStep": "Delivered", "state": "ACTION_REQUIRED", "next": _href("/customer/orders", "Review Order", "Your order is completed and ready for review.")}
-    return {"currentStep": "Order Tracking", "state": "IN_PROGRESS", "next": _href("/customer/orders", "Track Order", "Continue tracking your active order."), "entityId": str(order["_id"])}
+        return {"currentStep": "Delivered", "state": "ACTION_REQUIRED", "next": _href("/orders", "Review Order", "Your order is completed and ready for review.")}
+    return {"currentStep": "Order Tracking", "state": "IN_PROGRESS", "next": _href("/orders", "Track Order", "Continue tracking your active order."), "entityId": str(order["_id"])}
 
 async def _business(uid: str):
     rfq = await _latest(rfqs, {"businessUserId": _id(uid), "deletedAt": None}, "updatedAt")
@@ -100,13 +101,17 @@ async def _business(uid: str):
     order = await _latest(orders, {"businessUserId": _id(uid), "deletedAt": None}, "createdAt")
     if not order:
         return {"currentStep": "RFQ Awarded", "state": "ACTION_REQUIRED", "next": _href("/business/rfqs", "Review Awarded RFQ", "Review the selected offer and proceed to the B2B order."), "entityId": str(rfq["_id"])}
-    status = str(order.get("status") or "").lower()
+    status = str(order.get("status") or order.get("orderStatus") or "").lower()
     if status not in ("completed", "delivered"):
         return {"currentStep": "B2B Fulfillment", "state": "IN_PROGRESS", "next": _href("/business/orders", "Continue B2B Order", "Continue preparing, quality checking, dispatching or receiving the order."), "entityId": str(order["_id"])}
     return {"currentStep": "B2B Completed", "state": "COMPLETED", "next": _href("/business/orders", "Review B2B Order", "Review the completed order and invoice."), "entityId": str(order["_id"])}
 
 async def _delivery(uid: str):
     job = await _latest(delivery_jobs, {"acceptedBy": _id(uid), "deletedAt": None}, "updatedAt")
+    if not job:
+        job = await _latest(delivery_jobs, {"partnerId": _id(uid), "deletedAt": None}, "updatedAt")
+    if not job:
+        job = await _latest(delivery_jobs, {"assignedTo": _id(uid), "deletedAt": None}, "updatedAt")
     if not job:
         return {"currentStep": "Availability", "state": "ACTION_REQUIRED", "next": _href("/delivery/dashboard", "View Delivery Jobs", "Check available delivery assignments.")}
     status = str(job.get("status") or "").lower()
