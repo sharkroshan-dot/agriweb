@@ -1051,7 +1051,16 @@ async def mark_conversation_read(
     user_id = str(current_user["_id"]) if current_user else None
     if user_id and not await _can_access_conversation(conversation_id, user_id):
         raise HTTPException(status_code=403, detail="You don't have access to this conversation")
-    await chat_repository.mark_read(conversation_id, user_id or "user-1")
+    reader_id = user_id or "user-1"
+    await chat_repository.mark_read(conversation_id, reader_id)
+    await chat_message_repository.collection.update_many(
+        {
+            "conversation_id": conversation_id,
+            "sender_id": {"$ne": reader_id},
+            "read_at": None,
+        },
+        {"$set": {"read_at": datetime.utcnow()}},
+    )
     return {"status": "success", "data": {"conversation_id": conversation_id, "unread_count": 0}}
 
 
