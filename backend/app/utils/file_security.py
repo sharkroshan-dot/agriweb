@@ -8,6 +8,9 @@ served from ``/uploads`` are blocked.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import tempfile
 from typing import Optional
 
 ALLOWED_EXTENSIONS = {
@@ -135,3 +138,29 @@ def validate_upload(
             raise UploadValidationError("File extension is not allowed")
 
     return ext
+
+
+def scan_for_malware(content: bytes) -> None:
+    """Run ClamAV when installed; fail closed for chat attachments."""
+    scanner = shutil.which("clamscan")
+    if not scanner:
+        raise UploadValidationError(
+            "Attachment scanning is unavailable. Install ClamAV before enabling chat attachments."
+        )
+    with tempfile.NamedTemporaryFile(prefix="agri-chat-", suffix=".upload", delete=True) as tmp:
+        tmp.write(content)
+        tmp.flush()
+        try:
+            result = subprocess.run(
+                [scanner, "--no-summary", "--infected", tmp.name],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise UploadValidationError("Attachment malware scan timed out") from exc
+        if result.returncode == 1:
+            raise UploadValidationError("Attachment rejected by malware scan")
+        if result.returncode != 0:
+            raise UploadValidationError("Attachment malware scan failed")
