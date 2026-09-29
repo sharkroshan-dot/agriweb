@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -538,7 +538,35 @@ async def _conversation_other_ids(conversation_id: str, user_id: str) -> set[str
     return ids
 
 
+async def _assert_chat_open_for_sending(conversation_id: str) -> None:
+    """Keep completed transaction chats readable but eventually read-only."""
+    if not (conversation_id.startswith("order-chat-") or conversation_id.startswith("delivery-chat-")):
+        return
+    try:
+        from app.repositories.order_repository import order_repository
+        order_id = conversation_id.split("-", 2)[2]
+        order = await order_repository.get_by_id(order_id)
+        if not order:
+            return
+        status = str(order.get("orderStatus") or order.get("status") or "").lower()
+        if status not in {"delivered", "picked_up", "cancelled", "refunded"}:
+            return
+        completed_at = order.get("updatedAt") or order.get("updated_at") or order.get("deliveredAt") or order.get("delivered_at")
+        if isinstance(completed_at, str):
+            try:
+                completed_at = datetime.fromisoformat(completed_at.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                completed_at = None
+        if completed_at and datetime.utcnow() - completed_at > timedelta(days=7):
+            raise HTTPException(status_code=403, detail="This transaction chat is now read-only")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Chat closure check skipped for {conversation_id}: {e}")
+
+
 async def _assert_chat_safety(conversation_id: str, user_id: str, content: str) -> dict:
+    await _assert_chat_open_for_sending(conversation_id)
     for other_id in await _conversation_other_ids(conversation_id, user_id):
         if await is_blocked(user_id, other_id):
             raise HTTPException(
