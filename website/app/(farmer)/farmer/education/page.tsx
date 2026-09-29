@@ -349,7 +349,26 @@ export default function FarmerEducationPage() {
                   <li>Common mistakes to avoid and when to seek expert help.</li>
                 </ul>
               </div>
-              {selectedResource.url && (selectedResource.url.startsWith("http") ? (\n                <a href={selectedResource.url} target="_blank" rel="noreferrer" className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">\n                  Open official source\n                </a>\n              ) : (\n                <a href={selectedResource.url} className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">\n                  Open in AgriConnect\n                </a>\n              ))}\n              <div className="flex flex-wrap gap-2">
+              {selectedResource.url && (
+                selectedResource.url.startsWith("http") ? (
+                  <a
+                    href={selectedResource.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                  >
+                    Open official source
+                  </a>
+                ) : (
+                  <a
+                    href={selectedResource.url}
+                    className="inline-flex rounded-md border px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                  >
+                    Open in AgriConnect
+                  </a>
+                )
+              )}
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => { markCompleted(String(selectedResource.id || selectedResource.title)); setSelectedResource(null); }}
