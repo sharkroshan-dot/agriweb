@@ -278,7 +278,7 @@ export default function CustomerOrdersPage() {
             >
               <Store className="h-4 w-4" />
               Farm Pickup
-              {false && (
+              {pickupOrders.length > 0 && (
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
                   {pickupOrders.length}
                 </span>
