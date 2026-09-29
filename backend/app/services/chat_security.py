@@ -158,3 +158,20 @@ async def register_safety_restriction(user_id: str, reason: str, risk: str) -> N
 
 async def is_restricted(user_id: str) -> bool:
     return bool(await restriction_repository.find_one({"user_id": str(user_id), "active": True}))
+
+
+async def detect_repeated_unwanted(conversation_id: str, sender_id: str) -> dict[str, Any]:
+    """Flag repeated one-sided bursts as possible spam/harassment."""
+    cutoff = datetime.utcnow().timestamp() - 600
+    docs = await moderation_repository.collection.database["chat_messages"].find(
+        {"conversation_id": conversation_id}
+    ).sort("created_at", -1).limit(30).to_list(length=30)
+    recent = []
+    for doc in docs:
+        created = doc.get("created_at")
+        ts = created.timestamp() if hasattr(created, "timestamp") else 0
+        if ts >= cutoff:
+            recent.append(doc)
+    if len(recent) >= 10 and all(str(m.get("sender_id")) == str(sender_id) for m in recent[:10]):
+        return {"risk": "high", "flags": ["spam", "repeated_unwanted_messages"]}
+    return {"risk": "low", "flags": []}
