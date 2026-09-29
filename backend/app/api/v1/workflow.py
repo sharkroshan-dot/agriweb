@@ -11,7 +11,7 @@ Common states:
 No workflow step is advanced by this endpoint; the existing domain endpoint
 must perform the actual operation.  This keeps the guide safe and idempotent.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
@@ -197,6 +197,23 @@ async def _farmer(uid: str):
                        entity=entity, blocked={"harvest"}, blocked_reason="This harvest plan was cancelled.")
     if status != "harvested":
         if status == "preorder":
+            expected_date = plan.get("expectedHarvestDate")
+            ready = False
+            try:
+                if isinstance(expected_date, datetime):
+                    ready = expected_date <= datetime.utcnow()
+                elif expected_date:
+                    parsed = datetime.fromisoformat(str(expected_date).replace("Z", "+00:00"))
+                    if parsed.tzinfo:
+                        ready = parsed.astimezone(timezone.utc).replace(tzinfo=None) <= datetime.utcnow()
+                    else:
+                        ready = parsed <= datetime.utcnow()
+            except (TypeError, ValueError):
+                ready = False
+            if ready:
+                return _result("farmer", "harvest", ACTION_REQUIRED,
+                               _href("/farmer/harvest-planner", "Mark Harvested", "The planned harvest date has arrived. Record actual kilograms and the final selling rate."),
+                               completed={"farm_setup", "crop_planning", "growing", "preorders"}, entity=entity)
             return _result("farmer", "preorders", IN_PROGRESS,
                            _href("/farmer/harvest-planner", "Review Pre-orders", "Pre-orders are open; record the actual harvest when the crop is harvested."),
                            completed={"farm_setup", "crop_planning", "growing"}, entity=entity)
