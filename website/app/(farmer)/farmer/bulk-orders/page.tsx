@@ -355,7 +355,7 @@ export default function FarmerBulkOrdersPage() {
         <button
           onClick={() => setTab("bulk")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
-            tab === "bulk" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            tab === "bulk" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"
           }`}
         >
           <Truck className="h-4 w-4" />
@@ -367,7 +367,7 @@ export default function FarmerBulkOrdersPage() {
         <button
           onClick={() => setTab("b2b")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition ${
-            tab === "b2b" ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-700"
+            tab === "b2b" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white/70 hover:text-emerald-700"
           }`}
         >
           <ShoppingCart className="h-4 w-4" />
