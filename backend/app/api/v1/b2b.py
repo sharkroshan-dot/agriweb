@@ -208,6 +208,51 @@ async def _farmer_can_supply(farmer_user_id: str, product_name: str) -> Dict[str
     }
 
 
+
+async def _cooperative_context(user_id: str) -> Optional[Dict[str, Any]]:
+    coop_repo = BaseRepository("cooperatives")
+    member_repo = BaseRepository("cooperative_members")
+    membership = await member_repo.find_one({"userId": ObjectId(user_id), "role": "manager", "status": "active", "deletedAt": None})
+    if not membership:
+        return None
+    return await coop_repo.find_one({"_id": membership.get("cooperativeId"), "status": "active", "deletedAt": None})
+
+
+async def _cooperative_can_supply(coop_id: ObjectId, product_name: str) -> Dict[str, Any]:
+    member_repo = BaseRepository("cooperative_members")
+    members = await member_repo.find_many({"cooperativeId": coop_id, "status": "active", "deletedAt": None}, limit=500)
+    name_key = (product_name or "").strip().lower()
+    rows = []
+    total = 0.0
+    for member in members:
+        farmer_id = member.get("userId")
+        if not farmer_id:
+            continue
+        products = await product_repository.get_by_farmer(str(farmer_id), limit=500)
+        for product in products:
+            product_name_key = (product.get("name") or "").strip().lower()
+            if not name_key or not (product_name_key == name_key or name_key in product_name_key or product_name_key in name_key):
+                continue
+            stock = await InventoryService.get_available_stock(str(product["_id"]))
+            if stock > 0:
+                rows.append({"farmerId": str(farmer_id), "productId": str(product["_id"]), "productName": product.get("name"), "availableKg": float(stock)})
+                total += float(stock)
+    return {"canSupply": total > 0, "availableKg": round(total, 2), "rows": rows}
+
+
+def _build_cooperative_allocations(rows: List[Dict[str, Any]], quantity: float) -> List[Dict[str, Any]]:
+    remaining = float(quantity)
+    allocations = []
+    for row in sorted(rows, key=lambda x: -float(x.get("availableKg") or 0)):
+        if remaining <= 0:
+            break
+        take = min(remaining, float(row.get("availableKg") or 0))
+        if take > 0:
+            allocations.append({"farmerId": row["farmerId"], "productId": row["productId"], "productName": row.get("productName"), "quantityKg": round(take, 2)})
+            remaining -= take
+    return allocations if remaining <= 0.001 else []
+}
+
 async def _enrich_business_info(rfq: Dict[str, Any]) -> None:
     if not rfq.get("businessProfileId"):
         rfq["businessInfo"] = {}
@@ -576,11 +621,24 @@ async def submit_offer(
 
     qty = data.availableQuantityKg or data.minOrderKg or _rfq_quantity(rfq)
     ceiling = rfq.get("priceCeilingPerKg") or rfq.get("budgetMaxPerKg")
+    cooperative = await _cooperative_context(str(current_user["_id"]))
+    cooperative_supply = await _cooperative_can_supply(cooperative["_id"], rfq.get("productName")) if cooperative else {"canSupply": False, "availableKg": 0, "rows": []}
+    if cooperative and cooperative_supply["availableKg"] >= float(qty):
+        supply_allocations = _build_cooperative_allocations(cooperative_supply["rows"], float(qty))
+    else:
+        individual_supply = await _farmer_can_supply(str(current_user["_id"]), rfq.get("productName"))
+        if float(qty) > float(individual_supply["availableKg"]):
+            raise HTTPException(status_code=400, detail="Requested offer quantity exceeds your available supply")
+        supply_allocations = [{"farmerId": str(current_user["_id"]), "productId": individual_supply.get("productId"), "productName": rfq.get("productName"), "quantityKg": float(qty)}]
+    if not supply_allocations:
+        raise HTTPException(status_code=400, detail="Unable to allocate the requested quantity from available supply")
     offer = {
         "rfqId": ObjectId(rfq_id),
         "rfqNumber": rfq.get("rfqNumber"),
         "businessUserId": rfq.get("businessUserId"),
         "farmerId": ObjectId(current_user["_id"]),
+        "cooperativeId": cooperative["_id"] if cooperative and len(supply_allocations) > 1 else None,
+        "supplyAllocations": supply_allocations,
         "productName": rfq.get("productName"),
         "pricePerKg": data.pricePerKg,
         "availableQuantityKg": float(data.availableQuantityKg) if data.availableQuantityKg else float(qty),
