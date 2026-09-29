@@ -133,6 +133,12 @@ export default function AdminDashboardPage() {
     queryFn: () => api.get("/delivery/admin/stats"),
   });
 
+  const workflowQuery = useQuery({
+    queryKey: ["admin-workflow"],
+    queryFn: () => api.get("/admin/workflow"),
+    refetchInterval: 30000,
+  });
+
   const inventoryAnalyticsQuery = useQuery({
     queryKey: ["admin-inventory-analytics"],
     queryFn: () => api.get("/inventory/admin/analytics"),
@@ -143,7 +149,7 @@ export default function AdminDashboardPage() {
     aiAnalyticsQuery.isLoading ||
     demandHeatmapQuery.isLoading ||
     deliveryStatsQuery.isLoading ||
-    inventoryAnalyticsQuery.isLoading;
+    inventoryAnalyticsQuery.isLoading || workflowQuery.isLoading;
 
   const stats = dashboardQuery.data?.stats;
   const ordersTrend = dashboardQuery.data?.ordersTrend;
@@ -153,6 +159,7 @@ export default function AdminDashboardPage() {
   const deliveryRoutes = deliveryStatsQuery.data?.data?.routes ?? [];
   const marketplace = dashboardQuery.data?.marketplace;
   const recentActivity = dashboardQuery.data?.recentActivity;
+  const platformWorkflow = (workflowQuery.data as any)?.data ?? {};
 
   const maxOrderCount =
     ordersTrend && ordersTrend.length > 0
@@ -655,6 +662,45 @@ export default function AdminDashboardPage() {
           )}
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Platform workflow</CardTitle>
+          <CardDescription>Live state across harvest, batch, product, order, payment and settlement.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            {(platformWorkflow.workflow ?? []).map((stage: any) => (
+              <div key={stage.stage} className="rounded-lg border p-3">
+                <p className="text-xs font-medium capitalize text-muted-foreground">{stage.stage}</p>
+                <div className="mt-2 space-y-1">
+                  {Object.entries(stage.states ?? {}).slice(0, 4).map(([state, count]) => (
+                    <div key={state} className="flex justify-between text-xs">
+                      <span className="truncate">{state}</span>
+                      <span className="font-semibold">{String(count)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          {(platformWorkflow.stuck ?? []).length > 0 ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <p className="mb-2 font-semibold text-amber-800">Needs attention</p>
+              <div className="space-y-2">
+                {(platformWorkflow.stuck ?? []).map((item: any) => (
+                  <div key={item.stage} className="flex items-center justify-between text-sm">
+                    <span className="capitalize">{item.stage}: {item.count}</span>
+                    <span className="text-amber-700">{item.nextAction}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No blocked workflow stages detected.</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
