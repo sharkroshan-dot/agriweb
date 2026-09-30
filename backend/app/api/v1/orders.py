@@ -3,7 +3,7 @@ from typing import List, Optional
 from app.api.v1.auth import get_current_user
 from app.schemas.order import (
     OrderResponse, OrderCreate, OrderUpdate,
-    OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage,
+    OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage, BulkOrderProcessRequest,
     OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest, FulfillmentRouteUpdate, DeliveryResponsibilityUpdate
 )
 from app.services.order_service import (
@@ -514,13 +514,29 @@ async def farmer_order_availability(
     }
 
 
-@router.post("/farmer/confirm-available")
-async def farmer_confirm_available_orders(
+@router.post("/farmer/process-available")
+async def farmer_process_available_orders(
+    data: BulkOrderProcessRequest,
     current_user: dict = Depends(get_current_user)
 ):
     if current_user.get("role") != "farmer":
-        raise HTTPException(status_code=403, detail="Only farmers can confirm orders")
-    result = await OrderService.confirm_available_orders(str(current_user["_id"]))
+        raise HTTPException(status_code=403, detail="Only farmers can process orders")
+    if (
+        data.fulfillmentMethod.value == "farmer"
+        and data.deliveryResponsibility is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Select Farmer Delivery or Delivery Partner for Farmer Fulfillment.",
+        )
+    try:
+        result = await OrderService.process_available_orders(
+            str(current_user["_id"]),
+            data.fulfillmentMethod,
+            data.deliveryResponsibility,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"success": True, "data": result}
 
 
