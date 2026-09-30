@@ -976,7 +976,6 @@ export default function OrderDetailPage() {
             </Card>
           )}
 
- (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1010,7 +1009,7 @@ export default function OrderDetailPage() {
                 )}
               </CardContent>
             </Card>
-          )}
+          </Card>
           {chatOpen && order && <LiveChatDialog orderId={orderId} customerName="Delivery partner" onClose={() => setChatOpen(false)} />}
 
           {order.tracking.length > 0 && (
