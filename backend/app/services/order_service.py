@@ -1216,7 +1216,10 @@ class OrderService:
                 total = float(stock.get("total_stock", 0) or 0)
                 reserved = float(stock.get("reserved_stock", 0) or 0)
                 sold = float(stock.get("sold_stock", 0) or 0)
-                row["availableQuantity"] = max(0.0, total - reserved - sold)
+                # Reserved stock belongs to pending customer orders, so it is
+                # available to those orders even though it is not free stock
+                # for a new checkout.
+                row["availableQuantity"] = max(0.0, total - sold)
 
         # Every pending order has a reservation created at checkout. Its own
         # reservation is therefore available to it; orders are evaluated in
@@ -1267,7 +1270,7 @@ class OrderService:
 
         for pid, row in product_rows.items():
             row["fulfillableQuantity"] = min(
-                row["requestedQuantity"], row["availableQuantity"] + row["requestedQuantity"]
+                row["requestedQuantity"], row["availableQuantity"]
             )
             row["shortageQuantity"] = max(
                 0.0, row["requestedQuantity"] - row["availableQuantity"]
