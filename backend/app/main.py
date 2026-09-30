@@ -169,6 +169,12 @@ async def swagger_ui_oauth2_redirect():
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
+# Rate limiting (per-IP, stricter on auth endpoints).
+# Register before CORS so CORS remains the outermost middleware and browser
+# clients receive CORS headers for preflight and error responses.
+from app.middleware.rate_limit import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
+
 # CORS
 cors_origins = settings.BACKEND_CORS_ORIGINS
 cors_regex = settings.BACKEND_CORS_ORIGIN_REGEX
@@ -182,11 +188,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Rate limiting (per-IP, stricter on auth endpoints).
-# Added after CORSMiddleware so browser preflight/error responses retain CORS headers.
-from app.middleware.rate_limit import RateLimitMiddleware
-app.add_middleware(RateLimitMiddleware)
 
 # Security headers (CSP, HSTS, X-Frame-Options, etc.)
 from app.middleware.security_headers import SecurityHeadersMiddleware
