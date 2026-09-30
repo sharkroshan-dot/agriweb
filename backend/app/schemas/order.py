@@ -7,6 +7,16 @@ class DeliveryType(str, Enum):
     DELIVERY = "delivery"
     PICKUP = "pickup"
 
+class FulfillmentMethod(str, Enum):
+    FARM_DIRECT = "farmer"
+    WAREHOUSE = "warehouse"
+
+class FulfillmentStage(str, Enum):
+    PENDING = "pending"
+    PICKED = "picked"
+    PACKED = "packed"
+    DISPATCHED = "dispatched"
+
 class OrderStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
@@ -66,6 +76,8 @@ class OrderBase(BaseModel):
     couponCode: Optional[str] = None
     deliveryType: DeliveryType = DeliveryType.DELIVERY
     deliveryMethod: str = "farmer"
+    fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
+    fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     pickupDate: Optional[datetime] = None
     pickupTimeSlot: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
@@ -98,6 +110,8 @@ class OrderResponse(BaseModel):
     farmer: Dict[str, Any]
     deliveryPartner: Optional[Dict[str, Any]] = None
     warehouse: Optional[Dict[str, Any]] = None
+    fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
+    fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     items: List[OrderItemResponse]
     subtotal: float
     deliveryCharge: float
