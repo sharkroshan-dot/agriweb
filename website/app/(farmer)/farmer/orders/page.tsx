@@ -284,26 +284,42 @@ export default function FarmerOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Orders</h1>
-          <p className="text-gray-500">Customer orders and product availability</p>
+          <p className="text-sm font-medium text-emerald-600">Farmer workspace</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Orders</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Review customer demand, confirm available stock, and manage fulfillment.</p>
         </div>
-      <Card className="border-emerald-200 bg-emerald-50/40">
-        <CardContent className="space-y-5 p-5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Product Availability & Order Processing</h2>
-              <p className="text-sm text-muted-foreground">
-                Customer orders are checked against the actual product stock. Only orders that can be fulfilled are confirmed.
-              </p>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="bg-white px-3 py-1">
+            {orderList.length} visible orders
+          </Badge>
+          <Button variant="outline" size="icon" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
+            <RefreshCw className="h-4 w-4"/>
+          </Button>
+        </div>
+      </div>
+
+      <Card className="overflow-hidden border shadow-sm">
+        <CardContent className="space-y-5 p-5 sm:p-6">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                  <CheckCircle className="h-4 w-4"/>
+                </span>
+                <div>
+                  <h2 className="font-semibold">Ready to process</h2>
+                  <p className="text-xs text-muted-foreground">Only orders with sufficient stock will move forward.</p>
+                </div>
+              </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex w-full flex-col gap-2 sm:flex-row xl:w-auto">
               <Select value={overallFulfillmentMethod} onValueChange={(v: "farmer" | "warehouse") => {
                 setOverallFulfillmentMethod(v);
                 if (v === "warehouse") setOverallDeliveryResponsibility("");
               }}>
-                <SelectTrigger className="w-[220px] bg-white">
+                <SelectTrigger className="w-full bg-white sm:w-[210px]">
                   <SelectValue placeholder="Choose fulfillment" />
                 </SelectTrigger>
                 <SelectContent>
@@ -313,7 +329,7 @@ export default function FarmerOrdersPage() {
               </Select>
               {overallFulfillmentMethod === "farmer" && (
                 <Select value={overallDeliveryResponsibility} onValueChange={(v: "farmer" | "delivery_partner") => setOverallDeliveryResponsibility(v)}>
-                  <SelectTrigger className="w-[220px] bg-white">
+                  <SelectTrigger className="w-full bg-white sm:w-[210px]">
                     <SelectValue placeholder="Choose delivery" />
                   </SelectTrigger>
                   <SelectContent>
@@ -325,6 +341,7 @@ export default function FarmerOrdersPage() {
             </div>
             <Button
               onClick={handleProcessAvailableOrders}
+              size="default"
               disabled={
                 availabilityQuery.isLoading ||
                 !availabilityQuery.data ||
@@ -342,12 +359,12 @@ export default function FarmerOrdersPage() {
             <div className="h-28 animate-pulse rounded-lg bg-white" />
           ) : (
             <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-lg border bg-white p-3">
+              <div className="grid gap-3 border-t pt-4 sm:grid-cols-3">
+                <div className="rounded-lg bg-slate-50 p-3">
                   <p className="text-xs text-muted-foreground">Orders received</p>
                   <p className="text-2xl font-bold">{availabilityQuery.data?.data?.receivedOrders ?? 0}</p>
                 </div>
-                <div className="rounded-lg border bg-white p-3">
+                <div className="rounded-lg bg-slate-50 p-3">
                   <p className="text-xs text-muted-foreground">Can be fulfilled</p>
                   <p className="text-2xl font-bold text-emerald-600">{availabilityQuery.data?.data?.fulfillableOrders ?? 0}</p>
                 </div>
@@ -359,7 +376,7 @@ export default function FarmerOrdersPage() {
 
               <div className="space-y-2">
                 {(availabilityQuery.data?.data?.products || []).map((product: any) => (
-                  <div key={product.productId} className="rounded-lg border bg-white p-4">
+                  <div key={product.productId} className="rounded-lg border bg-white p-3.5 shadow-sm">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <p className="font-semibold">{product.productName}</p>
@@ -423,7 +440,7 @@ export default function FarmerOrdersPage() {
             Split by Location
           </Button>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[180px]"><SelectValue placeholder="Filter by status"/></SelectTrigger>
+            <SelectTrigger className="w-full bg-white sm:w-[180px]"><SelectValue placeholder="Filter by status"/></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Orders</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
@@ -439,7 +456,7 @@ export default function FarmerOrdersPage() {
               <SelectItem value="refunded">Refunded</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4"/></Button>
+           
         </div>
       </div>
 
@@ -689,9 +706,9 @@ export default function FarmerOrdersPage() {
                 {orders.map((order: any) => (
                   <Card key={order.id || order._id}>
                     <CardContent className="p-6">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
                             <Badge variant="outline" className={cn("border", statusColors[getStatus(order)] || "bg-gray-500/10 text-gray-600 border-gray-500/20")}>{statusLabels[getStatus(order)] || getStatus(order)}</Badge>
                             {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
@@ -705,7 +722,7 @@ export default function FarmerOrdersPage() {
                               <Badge variant="outline" className="border-indigo-300 bg-indigo-50 text-indigo-700"><Truck className="mr-1 h-3 w-3" /> Delivery Partner</Badge>
                             )}
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-500">
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
                             <span>Customer: <span className="font-medium text-foreground">{order.customerName}</span></span>
                             <span>•</span>
                             <span>Ordered: {formatDate(order.orderDate)}</span>
@@ -721,12 +738,12 @@ export default function FarmerOrdersPage() {
                               <><span>•</span><span>Picked by: <span className="font-medium text-emerald-600">{order.pickedBy}</span></span></>
                             )}
                           </div>
-                          <div className="mt-1 flex flex-wrap gap-1">
+                          <div className="mt-3 flex flex-wrap gap-1.5">
                             {(order.items || []).slice(0,3).map((item:any, idx:number)=> (<Badge key={idx} variant="outline" className="text-xs">{item.quantity}x {item.productName}</Badge>))}
                             {(order.items || []).length > 3 && (<Badge variant="outline" className="text-xs">+{(order.items || []).length - 3} more</Badge>)}
                           </div>
                         </div>
-                        <div className="flex items-start gap-3">
+                        <div className="flex flex-col items-stretch gap-3 lg:min-w-[180px] lg:items-end">
                           <div className="text-right shrink-0">
   <p className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</p>
   {paymentBadge(order.paymentMethod).label && (
@@ -735,8 +752,8 @@ export default function FarmerOrdersPage() {
     </span>
   )}
 </div>
-                          <div className="flex flex-col gap-1.5 shrink-0">
-                            <Button size="sm" variant="outline" asChild>
+                          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:grid-cols-1">
+                            <Button size="sm" variant="outline" asChild className="w-full">
                               <Link href={`/farmer/orders/${order.id || order._id}`}><Eye className="mr-1.5 h-3.5 w-3.5"/>View</Link>
                             </Button>
                             {getStatus(order) === "pending" && (
@@ -744,7 +761,7 @@ export default function FarmerOrdersPage() {
                                 <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
                                   <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Confirm
                                 </Button>
-                                <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
+                                <Button size="sm" variant="destructive" className="w-full" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
                                   <XCircle className="mr-1.5 h-3.5 w-3.5"/>Cancel
                                 </Button>
                               </>
@@ -763,9 +780,9 @@ export default function FarmerOrdersPage() {
                               <div className="flex flex-col gap-2">
                                 {order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
                                   <>
-                                    <span className="text-xs font-medium text-muted-foreground">Choose fulfillment route</span>
+                                    <span className="text-xs font-medium text-muted-foreground">Fulfillment route</span>
                                     <div className="flex flex-wrap gap-1.5">
-                                      <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
+                                      <Button size="sm" variant="outline" className="justify-start" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
                                         <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
                                       </Button>
                                       <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
@@ -777,9 +794,9 @@ export default function FarmerOrdersPage() {
                                   <>
                                     {!order.deliveryResponsibility && (
                                       <>
-                                        <span className="text-xs font-medium text-muted-foreground">Who will deliver?</span>
+                                        <span className="text-xs font-medium text-muted-foreground">Delivery responsibility</span>
                                         <div className="flex flex-wrap gap-1.5">
-                                          <Button size="sm" variant="outline" onClick={() => setDeliveryResponsibility(order.id || order._id, "farmer")}>
+                                          <Button size="sm" variant="outline" className="justify-start" onClick={() => setDeliveryResponsibility(order.id || order._id, "farmer")}>
                                             <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Delivery
                                           </Button>
                                           <Button size="sm" variant="outline" onClick={() => setDeliveryResponsibility(order.id || order._id, "delivery_partner")}>
@@ -859,8 +876,8 @@ export default function FarmerOrdersPage() {
       ) : (
         <div className="space-y-4">
           {filteredOrderList.map((order: any) => (
-            <Card key={order.id || order._id}>
-              <CardContent className="p-6">
+            <Card key={order.id || order._id} className="overflow-hidden border shadow-sm transition-shadow hover:shadow-md">
+              <CardContent className="p-4 sm:p-5">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
@@ -928,7 +945,7 @@ export default function FarmerOrdersPage() {
                       </Button>
                       {getStatus(order) === "pending" && (
                         <>
-                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
+                          <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
                             <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Confirm
                           </Button>
                           <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
@@ -978,11 +995,11 @@ export default function FarmerOrdersPage() {
                             {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
                             {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
                             {order.deliveryResponsibility === "delivery_partner" && order.fulfillmentStage === "dispatched" && !order.deliveryPartnerId && !order.partnerRequested && (
-                              <span className="text-xs text-muted-foreground">Delivery partner will collect the packed order from the farm.</span>
+                              <span className="text-xs text-muted-foreground">Delivery partner collects the packed order from the farm.</span>
                             )}
                           </div>
                         ) : (
-                          <span className="text-xs text-muted-foreground">Warehouse fulfillment — warehouse will Receive → Check → Store → Pick → Pack → Dispatch, then a delivery partner collects from the warehouse.</span>
+                          <span className="text-xs text-muted-foreground">Warehouse: Receive → Check → Store → Pick → Pack → Dispatch → Delivery partner.</span>
                         )
                       )}
                       {getStatus(order) === "processing" && order.deliveryType === "pickup" && (
