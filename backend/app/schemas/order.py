@@ -75,7 +75,6 @@ class OrderBase(BaseModel):
     paymentMethod: PaymentMethod
     couponCode: Optional[str] = None
     deliveryType: DeliveryType = DeliveryType.DELIVERY
-    deliveryMethod: str = "farmer"
     fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     pickupDate: Optional[datetime] = None
@@ -114,7 +113,6 @@ class AssignPartnerRequest(BaseModel):
 
 class FulfillmentRouteUpdate(BaseModel):
     fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
-    deliveryMethod: str = "farmer"
 
 class OrderResponse(BaseModel):
     id: str
