@@ -630,27 +630,43 @@ export default function FarmerOrdersPage() {
                             )}
                             {getStatus(order) === "processing" && (
                               <div className="flex flex-col gap-2">
-                                <div className="flex flex-wrap gap-1.5">
-                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
-                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
-                                  </Button>
-                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
-                                    <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse Fulfillment
-                                  </Button>
-                                </div>
-                                <span className="text-xs text-muted-foreground">
-                                  Distance: {Number(order.deliveryDetails?.distanceKm || 0).toFixed(1)} km
-                                </span>
-                                {(order.fulfillmentMethod || "farmer") === "farmer" && (
+                                {order.fulfillmentRouteSelected !== true ? (
                                   <>
-                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
+                                    <span className="text-xs font-medium text-muted-foreground">Choose fulfillment route</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                      <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
+                                        <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
+                                      </Button>
+                                      <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
+                                        <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse Fulfillment
+                                      </Button>
+                                    </div>
+                                  </>
+                                ) : order.fulfillmentMethod === "farmer" ? (
+                                  <>
+                                    {!order.deliveryResponsibility && (
+                                      <>
+                                        <span className="text-xs font-medium text-muted-foreground">Who will deliver?</span>
+                                        <div className="flex flex-wrap gap-1.5">
+                                          <Button size="sm" variant="outline" onClick={() => setDeliveryResponsibility(order.id || order._id, "farmer")}>
+                                            <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Delivery
+                                          </Button>
+                                          <Button size="sm" variant="outline" onClick={() => setDeliveryResponsibility(order.id || order._id, "delivery_partner")}>
+                                            <Truck className="mr-1.5 h-3.5 w-3.5"/>Delivery Partner
+                                          </Button>
+                                        </div>
+                                      </>
+                                    )}
+                                    {order.deliveryResponsibility && (!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
                                     {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
                                     {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
                                   </>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">Warehouse will Receive → Check → Store → Pick → Pack → Dispatch.</span>
                                 )}
-                                {order.fulfillmentMethod === "warehouse" && (
-                                  <span className="text-xs text-muted-foreground">Warehouse will Receive → Store → Pick → Pack → Dispatch.</span>
-                                )}
+                                <span className="text-xs text-muted-foreground">
+                                  Distance: {Number(order.deliveryDetails?.distanceKm || 0).toFixed(1)} km
+                                </span>
                               </div>
                             )}
 
