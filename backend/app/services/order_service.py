@@ -10,7 +10,7 @@ from app.repositories.payment_repository import payment_repository
 from app.schemas.order import (
     OrderCreate, OrderUpdate, OrderStatusUpdate,
     OrderFilterParams, OrderStatus, PaymentStatus, DeliveryType,
-    FulfillmentMethod, FulfillmentStage
+    FulfillmentMethod, FulfillmentStage, DeliveryResponsibility
 )
 from app.services.notification_service import NotificationService
 from app.services.payment_service import PaymentService
@@ -1205,6 +1205,42 @@ class OrderService:
             except Exception:
                 logger.exception("Failed to create warehouse incoming work for order %s", order_id)
 
+        return await order_repository.get_by_id(order_id)
+
+    @staticmethod
+    async def set_delivery_responsibility(
+        order_id: str,
+        user_id: str,
+        role: str,
+        responsibility: DeliveryResponsibility,
+    ) -> Optional[Dict[str, Any]]:
+        """Choose who performs final delivery for farmer-fulfilled orders.
+
+        The farmer still performs Pick -> Pack -> Dispatch. If a delivery
+        partner is selected, the partner collects the packed order from the
+        farm after dispatch and delivers it to the customer.
+        """
+        if role != "farmer":
+            return None
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("farmerId")) != user_id:
+            return None
+        if str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
+            return None
+        if str(order.get("deliveryType") or "delivery") != DeliveryType.DELIVERY.value:
+            return None
+        if order.get("fulfillmentMethod") != FulfillmentMethod.FARM_DIRECT.value:
+            return None
+        value = responsibility.value if hasattr(responsibility, "value") else str(responsibility)
+        if value not in (
+            DeliveryResponsibility.FARMER.value,
+            DeliveryResponsibility.DELIVERY_PARTNER.value,
+        ):
+            return None
+
+        await order_repository.update_order_field(
+            order_id, "deliveryResponsibility", value
+        )
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
