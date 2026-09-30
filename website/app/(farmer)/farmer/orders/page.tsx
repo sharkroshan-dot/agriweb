@@ -92,7 +92,7 @@ export default function FarmerOrdersPage() {
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [geoVersion, setGeoVersion] = useState(0);
   const [overallFulfillmentMethod, setOverallFulfillmentMethod] = useState<"farmer" | "warehouse" | "">("");
-  const [overallDeliveryResponsibility, setOverallDeliveryResponsibility] = useState<"farmer" | "delivery_partner" | "">("");
+  const [overallDeliveryResponsibility, setOverallDeliveryResponsibility] = useState<"none" | "farmer" | "delivery_partner" | "">("");
   const geocodingRef = useRef<Record<string, any>>({});
 
   const { data: orders, isLoading, refetch } = useQuery({
@@ -137,7 +137,7 @@ export default function FarmerOrdersPage() {
       return;
     }
     if (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility) {
-      toast.error("Select None — Decide in Order Map, Farmer Delivery, or Delivery Partner.");
+      toast.error("Select a delivery responsibility.");
       return;
     }
     try {
@@ -334,21 +334,44 @@ export default function FarmerOrdersPage() {
                 </SelectContent>
               </Select>
               {overallFulfillmentMethod === "farmer" && (
-                <Select
-                  value={overallDeliveryResponsibility || "none"}
-                  onValueChange={(v: "farmer" | "delivery_partner" | "none") =>
-                    setOverallDeliveryResponsibility(v === "none" ? "" : v)
-                  }
-                >
-                  <SelectTrigger className="w-full bg-white sm:w-[250px]">
-                    <SelectValue placeholder="Choose delivery responsibility" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None — Decide in Order Map</SelectItem>
-                    <SelectItem value="farmer">Farmer Delivery</SelectItem>
-                    <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="w-full space-y-2 sm:w-[520px]">
+                  <p className="text-xs font-semibold text-slate-700">Delivery responsibility</p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <Button
+                      type="button"
+                      variant={overallDeliveryResponsibility === "none" ? "default" : "outline"}
+                      className={overallDeliveryResponsibility === "none" ? "h-auto min-h-11 whitespace-normal bg-amber-600 text-left text-white hover:bg-amber-700" : "h-auto min-h-11 whitespace-normal text-left"}
+                      onClick={() => setOverallDeliveryResponsibility("none")}
+                    >
+                      <span>
+                        <span className="block font-semibold">None</span>
+                        <span className="block text-[11px] font-normal opacity-80">Decide in Order Map</span>
+                      </span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={overallDeliveryResponsibility === "farmer" ? "default" : "outline"}
+                      className={overallDeliveryResponsibility === "farmer" ? "h-auto min-h-11 whitespace-normal bg-emerald-600 text-left text-white hover:bg-emerald-700" : "h-auto min-h-11 whitespace-normal text-left"}
+                      onClick={() => setOverallDeliveryResponsibility("farmer")}
+                    >
+                      <span>
+                        <span className="block font-semibold">Farmer Delivery</span>
+                        <span className="block text-[11px] font-normal opacity-80">I will deliver</span>
+                      </span>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={overallDeliveryResponsibility === "delivery_partner" ? "default" : "outline"}
+                      className={overallDeliveryResponsibility === "delivery_partner" ? "h-auto min-h-11 whitespace-normal bg-blue-600 text-left text-white hover:bg-blue-700" : "h-auto min-h-11 whitespace-normal text-left"}
+                      onClick={() => setOverallDeliveryResponsibility("delivery_partner")}
+                    >
+                      <span>
+                        <span className="block font-semibold">Delivery Partner</span>
+                        <span className="block text-[11px] font-normal opacity-80">Partner collects from farm</span>
+                      </span>
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
             <Button
