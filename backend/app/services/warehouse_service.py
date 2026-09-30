@@ -242,7 +242,7 @@ class WarehouseService:
 
         # For a paid warehouse-fulfilled order, receiving creates the
         # warehouse outbound work item. Pick/Pack/Dispatch remain warehouse-only.
-        if quality_check == "passed" and incoming.get("orderId"):
+        if quality_check == "passed" and incoming.get("orderId") and str(incoming.get("status")) == "received":
             try:
                 from app.repositories.order_repository import order_repository
                 order = await order_repository.get_by_id(str(incoming["orderId"]))
