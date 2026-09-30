@@ -466,9 +466,11 @@ class OrderService:
                 "items": items_data,
             })
             weight_kg = float(sum(it.get("quantity", 0) or 0 for it in items_data))
-            delivery_method = (data.deliveryMethod or "farmer").lower()
-            if delivery_method not in ("farmer", "partner", "pickup"):
-                delivery_method = "farmer"
+            # Customer checkout no longer submits a legacy deliveryMethod field.
+            # Delivery Partner is a downstream transport option, not a third
+            # fulfillment route. Use the selected fulfillment route only to
+            # determine the initial delivery-fee schedule.
+            delivery_method = "partner" if fulfillment_method == FulfillmentMethod.WAREHOUSE.value else "farmer"
             quote = await delivery_fee_service.calculate_delivery_fee(
                 from_location=origin,
                 to_location=(delivery_address or {}).get("location"),
@@ -524,7 +526,9 @@ class OrderService:
             "specialInstructions": data.specialInstructions,
             "couponCode": data.couponCode,
             "deliveryType": data.deliveryType.value,
-            "deliveryMethod": (data.deliveryMethod or "farmer").lower(),
+            # Keep a derived legacy field for existing order consumers; never
+            # read deliveryMethod from OrderCreate because that field was removed.
+            "deliveryMethod": delivery_method,
             "pickupDate": data.pickupDate,
             "pickupTimeSlot": data.pickupTimeSlot,
             "requestedDeliveryDate": data.requestedDeliveryDate,
