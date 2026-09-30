@@ -334,24 +334,21 @@ export default function FarmerOrdersPage() {
                 </SelectContent>
               </Select>
               {overallFulfillmentMethod === "farmer" && (
-                <div className="w-full space-y-2 sm:w-[280px]">
-                  <p className="text-xs font-semibold text-slate-700">Delivery Responsibility</p>
-                  <Select
-                    value={overallDeliveryResponsibility}
-                    onValueChange={(v: "none" | "farmer" | "delivery_partner") =>
-                      setOverallDeliveryResponsibility(v)
-                    }
-                  >
-                    <SelectTrigger className="w-full bg-white">
-                      <SelectValue placeholder="Choose delivery responsibility" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      <SelectItem value="farmer">Farmer Delivery</SelectItem>
-                      <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <Select
+                  value={overallDeliveryResponsibility}
+                  onValueChange={(v: "none" | "farmer" | "delivery_partner") =>
+                    setOverallDeliveryResponsibility(v)
+                  }
+                >
+                  <SelectTrigger className="w-full bg-white sm:w-[210px]">
+                    <SelectValue placeholder="Choose delivery" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="farmer">Farmer Delivery</SelectItem>
+                    <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
+                  </SelectContent>
+                </Select>
               )}
             </div>
             <Button
