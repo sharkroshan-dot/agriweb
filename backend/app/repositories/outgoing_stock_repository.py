@@ -44,6 +44,19 @@ class OutgoingStockRepository(BaseRepository):
             sort=[("createdAt", -1)]
         )
 
+    async def get_by_order_id(self, order_id: str, product_id: str, variant_id: str = "") -> Optional[Dict[str, Any]]:
+        try:
+            query = {
+                "orderId": ObjectId(order_id),
+                "productId": ObjectId(product_id),
+                "deletedAt": None,
+            }
+            query["variantId"] = ObjectId(variant_id) if variant_id else None
+            return await self.find_one(query)
+        except Exception as e:
+            logger.error(f"Error getting outgoing stock by order: {str(e)}")
+            return None
+
     async def update_status(
         self,
         outgoing_id: str,
