@@ -294,9 +294,15 @@ class OrderService:
         subtotal = 0
         farmer_id = None
         warehouse_id = None
-        fulfillment_method = data.fulfillmentMethod.value if hasattr(data.fulfillmentMethod, 'value') else str(data.fulfillmentMethod or 'farmer')
+        fulfillment_method = (
+            data.fulfillmentMethod.value
+            if hasattr(data.fulfillmentMethod, "value")
+            else str(data.fulfillmentMethod)
+            if data.fulfillmentMethod
+            else None
+        )
         if fulfillment_method not in (FulfillmentMethod.FARM_DIRECT.value, FulfillmentMethod.WAREHOUSE.value):
-            fulfillment_method = FulfillmentMethod.FARM_DIRECT.value
+            fulfillment_method = None
         order_farmer_ids = set()
         is_bulk_order = False
         bulk_discount_applied = 0
@@ -512,6 +518,7 @@ class OrderService:
             "warehouseId": ObjectId(warehouse_id) if fulfillment_method == FulfillmentMethod.WAREHOUSE.value and warehouse_id else None,
             "fulfillmentMethod": fulfillment_method,
             "fulfillmentStage": FulfillmentStage.PENDING.value,
+            "fulfillmentRouteSelected": False,
             "items": items_data,
             "subtotal": subtotal,
             "deliveryCharge": delivery_charge,
@@ -1157,6 +1164,7 @@ class OrderService:
         update = {
             "fulfillmentMethod": fm,
             "fulfillmentStage": FulfillmentStage.PENDING.value,
+            "fulfillmentRouteSelected": True,
             "updatedAt": datetime.utcnow(),
         }
 
@@ -1208,6 +1216,8 @@ class OrderService:
         if role == "farmer" and str(order.get("farmerId")) != user_id:
             return None
         if role != "farmer" and role != "admin":
+            return None
+        if order.get("fulfillmentRouteSelected") is not True:
             return None
         current = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
         target = stage.value
