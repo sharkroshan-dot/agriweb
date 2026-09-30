@@ -87,6 +87,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path = request.url.path
+        # CORS preflight must reach CORSMiddleware; never rate-limit OPTIONS.
+        if request.method == "OPTIONS":
+            return await call_next(request)
         # Only limit API traffic; skip static/docs/websocket upgrades.
         if not path.startswith("/api/") or request.headers.get("upgrade", "").lower() == "websocket":
             return await call_next(request)
@@ -110,7 +113,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "detail": "Too many requests. Please try again later.",
                     "retry_after_seconds": retry_after,
                 },
-                headers={"Retry-After": str(retry_after)},
+                headers={
+                    "Retry-After": str(retry_after),
+                    "Cache-Control": "no-store",
+                },
             )
 
         response = await call_next(request)
