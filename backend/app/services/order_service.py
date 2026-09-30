@@ -1331,8 +1331,9 @@ class OrderService:
         blocked = [x for x in blocked if not x["canFulfill"]]
         eligible = [x for x in availability["orders"] if x["canFulfill"]]
 
-        if fulfillment_method == FulfillmentMethod.FARM_DIRECT and delivery_responsibility is None:
-            raise ValueError("Delivery responsibility is required for Farmer Fulfillment.")
+        # Delivery responsibility may be deferred for Farmer Fulfillment.
+        # None means the farmer will choose self-delivery or a partner after
+        # the order is Picked -> Packed -> Dispatched and appears in Order Map.
 
         # Validate warehouse configuration before confirming any order. This
         # prevents a partial batch where some orders become confirmed and then
@@ -1369,12 +1370,16 @@ class OrderService:
                     continue
 
                 if fulfillment_method == FulfillmentMethod.FARM_DIRECT:
-                    responsible = await OrderService.set_delivery_responsibility(
-                        order_id, farmer_id, "farmer", delivery_responsibility
-                    )
-                    if not responsible:
-                        blocked.append({**result, "reason": "Could not set delivery responsibility"})
-                        continue
+                    # Delivery responsibility is optional here. When omitted,
+                    # the order remains unassigned for transport and becomes
+                    # available to the farmer's Order Map after Dispatch.
+                    if delivery_responsibility is not None:
+                        responsible = await OrderService.set_delivery_responsibility(
+                            order_id, farmer_id, "farmer", delivery_responsibility
+                        )
+                        if not responsible:
+                            blocked.append({**result, "reason": "Could not set delivery responsibility"})
+                            continue
 
                     # Farmer fulfillment always follows Pick -> Pack -> Dispatch.
                     for stage in (
