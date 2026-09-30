@@ -136,10 +136,15 @@ export default function FarmerOrdersPage() {
       toast.error("Select Farmer Fulfillment or Warehouse Fulfillment.");
       return;
     }
+    if (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility) {
+      toast.error("Select None — Decide in Order Map, Farmer Delivery, or Delivery Partner.");
+      return;
+    }
     try {
       const response = await api.post("/orders/farmer/process-available", {
         fulfillmentMethod: overallFulfillmentMethod,
-        deliveryResponsibility: null,
+        deliveryResponsibility:
+          overallFulfillmentMethod === "farmer" ? overallDeliveryResponsibility : null,
       });
       const result = response?.data || response;
       const processed = Number(result?.processedOrders || 0);
@@ -150,12 +155,15 @@ export default function FarmerOrdersPage() {
       );
       await refetch();
       await availabilityQuery.refetch();
-
-      if (overallFulfillmentMethod === "farmer" && processed > 0) {
-        router.push("/farmer/order-map?delivery=required");
-        return;
-      }
     } catch (error: any) {
+      let msg = "Failed to process available orders";
+      try {
+        const j = JSON.parse(error.message);
+        msg = j.detail || j.error?.message || j.message || msg;
+      } catch {}
+      toast.error(msg);
+    }
+  };
 
   const handleSelfDeliver = async (orderId: string) => {
     try {
@@ -326,9 +334,21 @@ export default function FarmerOrdersPage() {
                 </SelectContent>
               </Select>
               {overallFulfillmentMethod === "farmer" && (
-                <div className="flex min-h-10 items-center rounded-md border border-amber-200 bg-amber-50 px-3 text-xs text-amber-800 sm:w-[260px]">
-                  Delivery is selected after Dispatch in Order Map.
-                </div>
+                <Select
+                  value={overallDeliveryResponsibility || "none"}
+                  onValueChange={(v: "farmer" | "delivery_partner" | "none") =>
+                    setOverallDeliveryResponsibility(v === "none" ? "" : v)
+                  }
+                >
+                  <SelectTrigger className="w-full bg-white sm:w-[250px]">
+                    <SelectValue placeholder="Choose delivery responsibility" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None — Decide in Order Map</SelectItem>
+                    <SelectItem value="farmer">Farmer Delivery</SelectItem>
+                    <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
+                  </SelectContent>
+                </Select>
               )}
             </div>
             <Button
