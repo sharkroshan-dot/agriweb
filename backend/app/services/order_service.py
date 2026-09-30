@@ -932,25 +932,6 @@ class OrderService:
         if not success:
             return None
 
-        # Processing starts farmer fulfillment preparation. Farmer fulfillment
-        # is the default route, so Pick is immediately available after Process.
-        # The farmer can still switch to Warehouse Fulfillment before picking.
-        if (
-            role == "farmer"
-            and new_status == OrderStatus.PROCESSING
-            and not order.get("fulfillmentMethod")
-        ):
-            await order_repository.update_order_field(
-                order_id,
-                "fulfillmentMethod",
-                FulfillmentMethod.FARM_DIRECT.value,
-            )
-            await order_repository.update_order_field(
-                order_id,
-                "fulfillmentStage",
-                FulfillmentStage.PENDING.value,
-            )
-
         is_pickup = order.get("deliveryType") == DeliveryType.PICKUP.value
         
         if new_status == OrderStatus.CONFIRMED:
