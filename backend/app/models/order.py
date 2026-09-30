@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from bson import ObjectId
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.schemas.order import DeliveryType, OrderStatus, PaymentMethod, PaymentStatus
+from app.schemas.order import DeliveryType, OrderStatus, PaymentMethod, PaymentStatus, FulfillmentMethod, FulfillmentStage
 
 
 def _stringify_id(value: Any) -> Optional[str]:
@@ -88,6 +88,8 @@ class OrderDocument(BaseModel):
 
     deliveryType: DeliveryType = DeliveryType.DELIVERY
     deliveryMethod: str = "farmer"
+    fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
+    fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     deliveryAddressId: Optional[str] = None
     deliveryAddress: Optional[Dict[str, Any]] = None
     pickupDate: Optional[datetime] = None
