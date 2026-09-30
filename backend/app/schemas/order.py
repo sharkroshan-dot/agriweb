@@ -84,7 +84,15 @@ class OrderBase(BaseModel):
     deliveryTimeSlot: Optional[str] = None
 
 class OrderCreate(OrderBase):
-    pass
+    @validator("deliveryType")
+    def delivery_must_be_home_delivery(cls, value):
+        # Farm pickup is no longer part of the marketplace checkout workflow.
+        # Keep the legacy enum value readable for old records, but reject it
+        # for all newly-created orders.
+        if value != DeliveryType.DELIVERY:
+            raise ValueError("Farm pickup is no longer available. Orders are delivered to the customer address.")
+        return value
+
 
 class OrderUpdate(BaseModel):
     orderStatus: Optional[OrderStatus] = None
