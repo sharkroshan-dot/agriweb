@@ -850,6 +850,65 @@ export default function FarmerOrderMapPage() {
         </div>
       </div>
 
+      {(() => {
+        const deferredOrders = allOrders.filter(
+          (stop) =>
+            stop?.readyForFarmerRoute === true &&
+            !stop?.deliveryPartnerId &&
+            !stop?.selfDelivery &&
+            !stop?.deliveryResponsibility
+        );
+        if (!deferredOrders.length) return null;
+        return (
+          <Card className="border-amber-200 bg-amber-50/60">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-amber-900">
+                <Truck className="h-5 w-5" />
+                Delivery Decision Required
+              </CardTitle>
+              <CardDescription className="text-amber-800">
+                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} completed Pick → Pack → Dispatch without a delivery choice.
+                Choose how each order will reach the customer.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {deferredOrders.map((stop) => (
+                <div key={getStopId(stop)} className="flex flex-col gap-3 rounded-lg border bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-semibold">#{stop.orderNumber || "Order"}</p>
+                    <p className="text-xs text-muted-foreground">{formatAddress(stop)}</p>
+                    <Badge variant="outline" className="mt-1">Dispatched · Delivery not selected</Badge>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="success"
+                      disabled={switchMutation.isPending}
+                      onClick={() => switchMutation.mutate({ orderId: getStopId(stop), mode: "self" })}
+                    >
+                      <UserCheck className="mr-1.5 h-4 w-4" />
+                      Deliver Myself
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={switchMutation.isPending}
+                      onClick={() => {
+                        setSelectedPartnerId("auto");
+                        setPartnerPickerTarget(stop);
+                      }}
+                    >
+                      <Truck className="mr-1.5 h-4 w-4" />
+                      Delivery Partner
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       <Card>
         <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
