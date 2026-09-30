@@ -1176,6 +1176,147 @@ class OrderService:
         return await order_repository.get_by_id(order_id)
     
     @staticmethod
+    async def get_farmer_order_availability(farmer_id: str) -> Dict[str, Any]:
+        """Calculate customer demand against the farmer's current inventory.
+
+        Pending customer orders already hold reservations. Therefore the
+        quantity reserved by a specific pending order is included in that
+        order's availability, while the remaining unreserved stock is shared
+        across the other pending orders in deterministic order-date order.
+        """
+        pending = await order_repository.find_many({
+            "farmerId": ObjectId(farmer_id),
+            "orderStatus": OrderStatus.PENDING.value,
+            "deletedAt": None,
+        }, sort=[("orderDate", 1), ("_id", 1)])
+
+        inventory = await inventory_repository.get_by_farmer(farmer_id)
+        stock_by_product = {
+            str(row.get("product_id")): row for row in inventory
+        }
+
+        product_rows: Dict[str, Dict[str, Any]] = {}
+        for order in pending:
+            for item in order.get("items", []):
+                pid = str(item.get("productId"))
+                qty = float(item.get("quantity", 0) or 0)
+                row = product_rows.setdefault(pid, {
+                    "productId": pid,
+                    "productName": item.get("productName") or "Product",
+                    "unit": "kg",
+                    "availableQuantity": 0.0,
+                    "requestedQuantity": 0.0,
+                    "orderCount": 0,
+                    "fulfillableQuantity": 0.0,
+                })
+                row["requestedQuantity"] += qty
+                row["orderCount"] += 1
+                stock = stock_by_product.get(pid, {})
+                row["unit"] = stock.get("unit", row["unit"])
+                total = float(stock.get("total_stock", 0) or 0)
+                reserved = float(stock.get("reserved_stock", 0) or 0)
+                sold = float(stock.get("sold_stock", 0) or 0)
+                row["availableQuantity"] = max(0.0, total - reserved - sold)
+
+        # Every pending order has a reservation created at checkout. Its own
+        # reservation is therefore available to it; orders are evaluated in
+        # creation order against the remaining shared stock.
+        remaining = {
+            pid: float(row["availableQuantity"])
+            for pid, row in product_rows.items()
+        }
+        own_reserved: Dict[str, float] = {}
+        for order in pending:
+            for item in order.get("items", []):
+                pid = str(item.get("productId"))
+                qty = float(item.get("quantity", 0) or 0)
+                stock = stock_by_product.get(pid, {})
+                own_reserved[pid] = own_reserved.get(pid, 0.0) + qty
+                remaining[pid] = remaining.get(pid, 0.0) + qty
+
+        order_results = []
+        for order in pending:
+            can_fulfill = True
+            items = []
+            for item in order.get("items", []):
+                pid = str(item.get("productId"))
+                qty = float(item.get("quantity", 0) or 0)
+                own = qty
+                shared = max(0.0, remaining.get(pid, 0.0) - own)
+                # The order's checkout reservation is counted as its own stock.
+                available_for_order = own + shared
+                item_ok = available_for_order + 1e-9 >= qty
+                can_fulfill = can_fulfill and item_ok
+                items.append({
+                    "productId": pid,
+                    "productName": item.get("productName") or "Product",
+                    "requiredQuantity": qty,
+                    "availableQuantity": available_for_order,
+                    "unit": stock_by_product.get(pid, {}).get("unit", "kg"),
+                    "available": item_ok,
+                })
+                if item_ok:
+                    remaining[pid] = max(0.0, remaining.get(pid, 0.0) - qty)
+            order_results.append({
+                "orderId": str(order["_id"]),
+                "orderNumber": order.get("orderNumber"),
+                "orderDate": order.get("orderDate"),
+                "canFulfill": can_fulfill,
+                "items": items,
+            })
+
+        for pid, row in product_rows.items():
+            row["fulfillableQuantity"] = min(
+                row["requestedQuantity"], row["availableQuantity"] + row["requestedQuantity"]
+            )
+            row["shortageQuantity"] = max(
+                0.0, row["requestedQuantity"] - row["availableQuantity"]
+            )
+
+        return {
+            "products": list(product_rows.values()),
+            "orders": order_results,
+            "receivedOrders": len(pending),
+            "fulfillableOrders": sum(1 for x in order_results if x["canFulfill"]),
+            "blockedOrders": sum(1 for x in order_results if not x["canFulfill"]),
+        }
+
+    @staticmethod
+    async def confirm_available_orders(farmer_id: str) -> Dict[str, Any]:
+        """Confirm only pending orders whose reserved inventory is still intact."""
+        availability = await OrderService.get_farmer_order_availability(farmer_id)
+        confirmed = []
+        blocked = []
+
+        for result in availability["orders"]:
+            if not result["canFulfill"]:
+                blocked.append(result)
+                continue
+            try:
+                updated = await OrderService.update_order_status(
+                    result["orderId"],
+                    farmer_id,
+                    "farmer",
+                    OrderStatusUpdate(status=OrderStatus.CONFIRMED),
+                )
+                if updated:
+                    confirmed.append(result)
+                else:
+                    blocked.append({**result, "reason": "Order could not be confirmed"})
+            except Exception as exc:
+                logger.warning("Bulk confirmation failed for %s: %s", result["orderId"], exc)
+                blocked.append({**result, "reason": "Order could not be confirmed"})
+
+        return {
+            "receivedOrders": availability["receivedOrders"],
+            "confirmedOrders": len(confirmed),
+            "blockedOrders": len(blocked),
+            "confirmed": confirmed,
+            "blocked": blocked,
+            "products": availability["products"],
+        }
+
+    @staticmethod
     async def set_fulfillment_route(
         order_id: str,
         user_id: str,
