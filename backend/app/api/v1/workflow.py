@@ -84,17 +84,17 @@ ROLE_STEPS = {
         ("earnings", "Earnings", "/delivery/earnings"),
     ],
     "warehouse": [
-        ("warehouse_setup", "Warehouse Setup", "/warehouse/warehouse"),
-        ("incoming", "Incoming Stock", "/warehouse/incoming"),
-        ("receive", "Receive", "/warehouse/incoming"),
-        ("batch_verification", "Batch Verification", "/warehouse/incoming"),
-        ("quality", "Quality", "/warehouse/incoming"),
-        ("storage", "Storage", "/warehouse/stock"),
-        ("inventory", "Inventory", "/warehouse/stock"),
-        ("pick", "Pick", "/warehouse/stock"),
-        ("pack", "Pack", "/warehouse/stock"),
-        ("dispatch", "Dispatch", "/warehouse/stock"),
-        ("transfer", "Transfer", "/warehouse/transfers"),
+        ("warehouse_setup", "Warehouse Setup", "/warehouse/settings"),
+        ("incoming", "Incoming Stock", "/incoming"),
+        ("receive", "Receive", "/incoming"),
+        ("batch_verification", "Batch Verification", "/incoming"),
+        ("quality", "Quality", "/warehouse/quality-inspection"),
+        ("storage", "Storage", "/stock"),
+        ("inventory", "Inventory", "/stock"),
+        ("pick", "Pick", "/stock"),
+        ("pack", "Pack", "/stock"),
+        ("dispatch", "Dispatch", "/stock"),
+        ("transfer", "Transfer", "/transfers"),
     ],
     "business": [
         ("business_setup", "Business Setup", "/business/dashboard"),
@@ -369,7 +369,7 @@ async def _warehouse(uid: str):
     warehouse = await WarehouseService.get_warehouse_by_manager(uid)
     if not warehouse:
         return _result("warehouse", "warehouse_setup", ACTION_REQUIRED,
-                       _href("/warehouse/warehouse", "Complete Warehouse Setup", "Create or complete the warehouse profile for this manager."))
+                       _href("/warehouse/settings", "Complete Warehouse Setup", "Create or complete the warehouse profile for this manager."))
     wid = warehouse["_id"]
     incoming = await _latest(warehouse_incoming, {"warehouseId": wid, "deletedAt": None}, "updatedAt")
     if incoming:
@@ -377,7 +377,7 @@ async def _warehouse(uid: str):
         iid = str(incoming["_id"])
         if status in ("pending","created","in_transit","scheduled"):
             return _result("warehouse","receive",ACTION_REQUIRED,
-                           _href(f"/warehouse/incoming?incomingId={iid}","Receive Incoming Stock","Receive the shipment and record quantity and quality."),
+                           _href(f"/incoming?incomingId={iid}","Receive Incoming Stock","Receive the shipment and record quantity and quality."),
                            completed={"warehouse_setup","incoming"},entity={"type":"incoming","id":iid})
         if status in ("received","received_pending_quality","quality_pending"):
             return _result("warehouse","quality",ACTION_REQUIRED,
@@ -393,7 +393,7 @@ async def _warehouse(uid: str):
         oid = str(outgoing["_id"])
         if status in ("pending","created"):
             return _result("warehouse","pick",ACTION_REQUIRED,
-                           _href(f"/warehouse/stock?outgoingId={oid}","Pick Stock","Pick the requested warehouse stock."),
+                           _href(f"/stock?outgoingId={oid}","Pick Stock","Pick the requested warehouse stock."),
                            completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage","inventory"},entity={"type":"outgoing","id":oid})
         if status == "picked":
             return _result("warehouse","pack",ACTION_REQUIRED,
@@ -405,10 +405,10 @@ async def _warehouse(uid: str):
                            completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage","inventory","pick","pack"},entity={"type":"outgoing","id":oid})
         if status == "dispatched":
             return _result("warehouse","transfer",IN_PROGRESS,
-                           _href("/warehouse/transfers","Track Transfer","The shipment has left warehouse operations."),
+                           _href("/transfers","Track Transfer","The shipment has left warehouse operations."),
                            completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage","inventory","pick","pack","dispatch"},entity={"type":"outgoing","id":oid})
     return _result("warehouse","inventory",IN_PROGRESS,
-                   _href("/warehouse/stock","Review Inventory","Review current stock and warehouse operations."),
+                   _href("/stock","Review Inventory","Review current stock and warehouse operations."),
                    completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage"})
 
 async def _business(uid: str):
