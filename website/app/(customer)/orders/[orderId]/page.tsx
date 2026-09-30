@@ -4,13 +4,12 @@ import { useState, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Package, MapPin, Clock, CreditCard, ChevronDown, ChevronUp, Store, CheckCircle, Star, RefreshCw, Phone, Truck, X, MessageCircle, Navigation, Receipt, AlertTriangle, ImagePlus, ArrowUpLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Package, MapPin, Clock, CreditCard, ChevronDown, ChevronUp, CheckCircle, Star, RefreshCw, Phone, Truck, X, MessageCircle, Navigation, Receipt, AlertTriangle, ImagePlus, ArrowUpLeft, Loader2 } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../../../components/ui/dialog";
 import { Map as LiveMap } from "../../../components/shared/map";
-import { QRCodeSVG } from "qrcode.react";
 import { formatPrice, formatDate } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import { useCartStore } from "../../../lib/store/cart-store";
@@ -225,14 +224,8 @@ export default function OrderDetailPage() {
       paymentMethod: o.paymentMethod || "cash",
       specialInstructions: o.specialInstructions,
       deliveryType: o.deliveryType || "delivery",
-      pickupDate: o.pickupDate,
-      pickupTimeSlot: o.pickupTimeSlot,
       requestedDeliveryDate: o.requestedDeliveryDate,
       deliveryTimeSlot: o.deliveryTimeSlot,
-      farmAddress: o.farmAddress || "",
-      farmLocation: o.farmLocation || null,
-      pickupInstructions: o.pickupInstructions || "",
-      pickupCode: o.pickupCode as string | undefined,
       isBulkOrder: o.isBulkOrder || false,
       tracking: (o.statusHistory || []).map((h: any) => ({
         status: (h.status || "").toLowerCase(),
@@ -243,7 +236,7 @@ export default function OrderDetailPage() {
   }, [data]);
 
   const activeTrackingStatuses = new Set([
-    "pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup",
+    "pending", "confirmed", "processing", "ready_for_delivery",
     "dispatched", "in_transit", "shipped", "out_for_delivery",
   ]);
   const isTrackable = !!order && activeTrackingStatuses.has(order.status);
@@ -310,19 +303,10 @@ export default function OrderDetailPage() {
         info: order?.deliveryAddress?.city || "Your address",
       });
     }
-    if (markers.length === 0 && order?.deliveryType === "pickup" && farmMapCenter) {
-      markers.push({
-        id: "farm",
-        lat: farmMapCenter.lat,
-        lng: farmMapCenter.lng,
-        title: "Farm pickup location",
-        info: order?.farmAddress || "Farm",
-      });
-    }
     return markers;
   }, [liveTracking, deliveryDestination, farmMapCenter, order]);
 
-  const trackingMapCenter = liveTracking?.currentLocation || deliveryDestination || farmMapCenter || { lat: 11.2322, lng: 77.34 };
+  const trackingMapCenter = liveTracking?.currentLocation || deliveryDestination || { lat: 11.2322, lng: 77.34 };
   const trackingRoute =
     liveTracking?.currentLocation && deliveryDestination
       ? [liveTracking.currentLocation, deliveryDestination]
@@ -402,12 +386,12 @@ export default function OrderDetailPage() {
   );
   const tracking = showAllTracking ? timeline : timeline.slice(0, 2);
 
-  const canReorder = order.status === "delivered" || order.status === "picked_up";
+  const canReorder = order.status === "delivered";
   const canCancel = cancelEligibility?.eligible === true;
   const cancelRequiresReview = canCancel && cancelEligibility?.requiresReview === true;
   const cancelEstimate = Number(cancelEligibility?.estimatedRefund ?? 0);
   const hasRefund = orderRefunds.length > 0;
-  const canReportProblem = !hasRefund && ["delivered", "picked_up"].includes(order.status);
+  const canReportProblem = !hasRefund && order.status === "delivered";
 
   const CANCEL_REASONS = [
     { value: "ordered_by_mistake", label: "Ordered by mistake" },
@@ -973,7 +957,7 @@ export default function OrderDetailPage() {
                   </div>
                 )}
 
-                {liveTracking?.currentLocation || deliveryDestination || (order.deliveryType === "pickup" && farmMapCenter) ? (
+                {liveTracking?.currentLocation || deliveryDestination ? (
                   <div className="overflow-hidden rounded-xl border">
                     <LiveMap
                       center={trackingMapCenter}
@@ -992,110 +976,7 @@ export default function OrderDetailPage() {
             </Card>
           )}
 
-          {order.deliveryType === "pickup" ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Store className="h-5 w-5" /> Pickup Details
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <p className="flex items-center gap-2 font-medium text-amber-800">
-                    <Store className="h-4 w-4" /> Farm Pickup
-                  </p>
-                  {order.farmAddress && (
-                    <p className="mt-1 text-amber-700">{order.farmAddress}</p>
-                  )}
-                  {order.pickupDate && (
-                    <p className="mt-1 text-xs text-amber-600">
-                      Pickup date: {formatDate(order.pickupDate)}
-                      {order.pickupTimeSlot ? ` (${order.pickupTimeSlot})` : ""}
-                    </p>
-                  )}
-                  {order.pickupInstructions && (
-                    <p className="mt-1 text-xs text-amber-600">{order.pickupInstructions}</p>
-                  )}
-                </div>
-                {farmMapCenter && (
-                  <div className="overflow-hidden rounded-xl border">
-                    <LiveMap
-                      center={farmMapCenter}
-                      zoom={14}
-                      markers={[
-                        {
-                          id: "farm",
-                          lat: farmMapCenter.lat,
-                          lng: farmMapCenter.lng,
-                          title: "Farm pickup location",
-                          info: order.farmAddress || "Farm",
-                        },
-                      ]}
-                      height={220}
-                    />
-                    <a
-                      href={`https://www.google.com/maps/dir/?api=1&destination=${farmMapCenter.lat},${farmMapCenter.lng}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center gap-2 border-t border-amber-100 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-700 hover:bg-amber-100"
-                    >
-                      <Navigation className="h-4 w-4" /> Get Directions to Farm
-                    </a>
-                  </div>
-                )}
-                {order.status !== "ready_for_pickup" || !order.pickupCode ? (
-                  <div className="rounded-lg border border-dashed border-emerald-300 bg-emerald-50/50 p-3 text-center">
-                    <p className="text-xs font-medium text-emerald-700">
-                      {order.status === "ready_for_pickup"
-                        ? "Your pickup code is being issued — refresh the page in a moment."
-                        : "Your pickup QR code will appear here once the farmer marks the order \"Pickup Ready\"."}
-                    </p>
-                  </div>
-                ) : null}
-                {order.status === "ready_for_pickup" && order.pickupCode && (
-                  <div className="rounded-lg border border-emerald-200 bg-white p-4 text-center">
-                    <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
-                      Show this QR &amp; pickup code to the farmer
-                    </p>
-                    <div className="mx-auto mt-3 w-fit rounded-xl border border-emerald-100 bg-white p-3">
-                      <QRCodeSVG
-                        value={JSON.stringify({ t: "agripickup", o: order.orderNumber, c: order.pickupCode })}
-                        size={176}
-                        level="M"
-                        marginSize={0}
-                      />
-                    </div>
-                    <p className="mt-3 flex items-baseline justify-center gap-2">
-                      <span className="font-mono text-3xl font-bold tracking-[0.4em] text-emerald-800">
-                        {order.pickupCode}
-                      </span>
-                    </p>
-                    <p className="mt-1 text-sm font-medium text-slate-600">
-                      Order {String(order.orderNumber).slice(-8)} · {formatPrice(order.total)}
-                    </p>
-                    <p className="mt-2 text-xs text-emerald-700">
-                      The farmer scans the QR (or enters the 6-digit code) to confirm the
-                      hand-off. Only the farmer can confirm it — no one else can collect
-                      your order.
-                    </p>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <CreditCard className="h-4 w-4 text-muted-foreground" />
-                  <span className="capitalize">
-                    {["cash", "cod", "cash_on_delivery"].includes((order.paymentMethod || "").toLowerCase())
-                      ? "Cash on Pickup"
-                      : order.paymentMethod.replace(/_/g, " ")}
-                  </span>
-                </div>
-                {order.specialInstructions && (
-                  <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-muted-foreground">
-                    <span className="font-medium">Instructions:</span> {order.specialInstructions}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
+ (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
