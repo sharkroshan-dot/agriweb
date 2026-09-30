@@ -33,7 +33,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   bool _calculatingDelivery = false;
   String? _deliveryError;
   String _deliveryType = 'delivery';
-  String _fulfillmentMethod = 'farmer';
 
   final _paymentMethods = [
     {'id': 'razorpay', 'label': 'Pay Online (UPI, Cards, Net Banking)', 'icon': Icons.payments_outlined},
@@ -160,7 +159,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         'paymentMethod': _selectedPayment,
         'deliveryAddressId': deliveryAddressId,
         'deliveryType': 'delivery',
-        'fulfillmentMethod': _fulfillmentMethod,
         if (_appliedCouponCode.isNotEmpty) 'couponCode': _appliedCouponCode,
       });
       if (!mounted) return;
@@ -357,28 +355,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                         ),
                       ),
                     ],
-                  ),
-                ),
-                const SizedBox(height: 18),
-                _SectionHeader(title: 'Fulfillment', icon: Icons.inventory_2_outlined),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Choose where Pick, Pack and Dispatch happen'),
-                        const SizedBox(height: 8),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(value: 'farmer', label: Text('Farmer Direct')),
-                            ButtonSegment(value: 'warehouse', label: Text('Warehouse')),
-                          ],
-                          selected: {_fulfillmentMethod},
-                          onSelectionChanged: (value) => setState(() => _fulfillmentMethod = value.first),
-                        ),
-                      ],
-                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
