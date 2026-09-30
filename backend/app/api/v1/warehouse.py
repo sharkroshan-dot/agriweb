@@ -60,10 +60,33 @@ async def update_my_warehouse(
             detail="Only warehouse managers can update their warehouse"
         )
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse and current_user.get("role") == "warehouse":
+        # Self-heal legacy warehouse accounts created before managerId was
+        # standardized. This creates a profile only when none exists at all.
+        from app.repositories.warehouse_repository import warehouse_repository
+        now = datetime.utcnow()
+        warehouse_id = await warehouse_repository.create({
+            "userId": ObjectId(str(current_user["_id"])),
+            "managerId": ObjectId(str(current_user["_id"])),
+            "name": f"Warehouse of {current_user.get('firstName', 'Manager')}",
+            "warehouseName": f"Warehouse of {current_user.get('firstName', 'Manager')}",
+            "location": {},
+            "address": {},
+            "totalCapacity": 0,
+            "coldStorageCapacity": 0,
+            "usedCapacity": 0,
+            "coldStorageUsed": 0,
+            "isActive": True,
+            "isVerified": False,
+            "deletedAt": None,
+            "createdAt": now,
+            "updatedAt": now,
+        })
+        warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Warehouse not found"
+            detail="Warehouse profile could not be created for this account"
         )
     try:
         updated = await WarehouseService.update_warehouse(str(warehouse["_id"]), data)
