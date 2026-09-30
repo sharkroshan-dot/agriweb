@@ -75,8 +75,15 @@ class WarehouseRepository(BaseRepository):
 
     async def get_by_manager(self, manager_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return await self.find_one({
+            warehouse = await self.find_one({
                 "managerId": ObjectId(manager_id),
+                "deletedAt": None
+            })
+            if not warehouse:
+                return None
+            await self.sync_capacity_usage(str(warehouse["_id"]))
+            return await self.find_one({
+                "_id": warehouse["_id"],
                 "deletedAt": None
             })
         except Exception as e:
