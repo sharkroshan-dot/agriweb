@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { FarmerSidebar } from "../components/farmer/farmer-sidebar";
@@ -13,6 +14,8 @@ import { WorkflowGuide } from "../components/shared/workflow-guide";
 export default function FarmerLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  const isOrderPage = pathname === "/farmer/orders" || pathname?.startsWith("/farmer/orders/");
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -36,8 +39,8 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
       <AppPresence />
       <div className="flex flex-1 bg-transparent">
         <FarmerSidebar />
-        <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="site-content mx-auto w-full max-w-[1440px]"><WorkflowGuide role="farmer" />{children}</div>
+        <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 lg:px-7">
+          <div className={`site-content mx-auto w-full max-w-[1440px] ${isOrderPage ? "" : "farmer-workspace"}`}><WorkflowGuide role="farmer" />{children}</div>
         </main>
       </div>
       <Footer />
