@@ -630,7 +630,7 @@ export default function FarmerOrdersPage() {
                             )}
                             {getStatus(order) === "processing" && (
                               <div className="flex flex-col gap-2">
-                                {order.fulfillmentRouteSelected !== true ? (
+                                {order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
                                   <>
                                     <span className="text-xs font-medium text-muted-foreground">Choose fulfillment route</span>
                                     <div className="flex flex-wrap gap-1.5">
@@ -816,7 +816,7 @@ export default function FarmerOrdersPage() {
                         </>
                       )}
                       {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (
-                        order.fulfillmentRouteSelected !== true ? (
+                        order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-xs font-medium text-muted-foreground">Choose fulfillment route</span>
                             <div className="flex flex-wrap gap-1.5">
