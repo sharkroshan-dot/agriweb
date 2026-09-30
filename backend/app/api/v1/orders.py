@@ -3,7 +3,7 @@ from typing import List, Optional
 from app.api.v1.auth import get_current_user
 from app.schemas.order import (
     OrderResponse, OrderCreate, OrderUpdate,
-    OrderStatusUpdate, OrderTrackingResponse,
+    OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage,
     OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest
 )
 from app.services.order_service import (
@@ -225,6 +225,17 @@ async def update_order_status(
         "data": order,
         "message": f"Order status updated to {data.status.value}"
     }
+
+@router.put("/{order_id}/fulfillment-stage")
+async def update_fulfillment_stage(order_id: str, stage: FulfillmentStage, current_user: dict = Depends(get_current_user)):
+    result = await OrderService.update_fulfillment_stage(
+        order_id, str(current_user["_id"]), current_user.get("role"), stage
+    )
+    if not result:
+        raise HTTPException(status_code=400, detail="Invalid fulfillment stage, wrong fulfillment route, or access denied")
+    result["id"] = str(result["_id"])
+    return {"success": True, "data": result, "message": f"Fulfillment stage updated to {stage.value}"}
+
 
 @router.put("/{order_id}/cancel")
 async def cancel_order(
