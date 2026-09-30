@@ -84,7 +84,6 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
 
 export default function FarmerOrdersPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showBulkSummary, setShowBulkSummary] = useState(false);
   const [showDeliveryRoutes, setShowDeliveryRoutes] = useState(false);
@@ -185,13 +184,8 @@ export default function FarmerOrdersPage() {
 
   const orderList = orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
 
-  const filteredOrderList = useMemo(() => {
-    if (typeFilter === "all") return orderList;
-    const isPickupTab = typeFilter === "pickup";
-    return orderList.filter(
-      (o: any) => ((o.deliveryType || "").toLowerCase() === "pickup") === isPickupTab
-    );
-  }, [orderList, typeFilter]);
+  const filteredOrderList = orderList;
+
 
   if (isLoading) {
     return (
@@ -265,34 +259,6 @@ export default function FarmerOrdersPage() {
           </Select>
           <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4"/></Button>
         </div>
-      </div>
-
-      <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
-        {[
-          { value: "all", label: "All", icon: ShoppingBag, pill: "bg-emerald-100 text-emerald-700" },
-          { value: "delivery", label: "Delivery", icon: Truck, pill: "bg-blue-100 text-blue-700" },
-          { value: "pickup", label: "Farm Pickup", icon: Store, pill: "bg-amber-100 text-amber-700" },
-        ].map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => setTypeFilter(tab.value)}
-            className={cn(
-              "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
-              typeFilter === tab.value
-                ? "bg-white text-emerald-700 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
-            )}
-          >
-            <tab.icon className="h-4 w-4" />
-            <span>{tab.label}</span>
-            <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", tab.pill)}>
-              {tab.value === "all"
-                ? orderList.length
-                : orderList.filter((o: any) => ((o.deliveryType || "").toLowerCase() === "pickup") === (tab.value === "pickup")).length}
-            </span>
-          </button>
-        ))}
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -556,9 +522,6 @@ export default function FarmerOrdersPage() {
                             <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
                             <Badge variant="outline" className={cn("border", statusColors[getStatus(order)] || "bg-gray-500/10 text-gray-600 border-gray-500/20")}>{statusLabels[getStatus(order)] || getStatus(order)}</Badge>
                             {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
-                            {order.deliveryType === "pickup" && (
-                              <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700"><Store className="mr-1 h-3 w-3" /> Pickup</Badge>
-                            )}
                             {order.isBulkOrder && (
                               <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700"><ShoppingBag className="mr-1 h-3 w-3" /> Bulk</Badge>
                             )}
@@ -575,11 +538,8 @@ export default function FarmerOrdersPage() {
                             <span>Ordered: {formatDate(order.orderDate)}</span>
                             <span>•</span>
                             <span>{(order.items || []).length} items</span>
-                            {order.deliveryType !== "pickup" && order.deliveryAddress?.city && (
+                            {order.deliveryAddress?.city && (
                               <><span>•</span><span>Deliver to: <span className="font-medium text-foreground">{order.deliveryAddress.city}</span></span></>
-                            )}
-                            {order.deliveryType === "pickup" && order.pickupDate && (
-                              <><span>•</span><span>Pickup: {formatDate(order.pickupDate)}</span></>
                             )}
                             {order.deliveryPartnerId && order.deliveryPartnerName && (
                               <><span>•</span><span>Partner: <span className="font-medium text-indigo-600">{order.deliveryPartnerName}</span></span></>
@@ -636,11 +596,6 @@ export default function FarmerOrdersPage() {
                             {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "warehouse" && (
                               <span className="text-xs text-muted-foreground">Warehouse fulfillment — warehouse will Pick, Pack &amp; Dispatch.</span>
                             )}
-                            {getStatus(order) === "processing" && order.deliveryType === "pickup" && (
-                              <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => handleUpdateStatus(order.id || order._id, 'ready_for_pickup')}>
-                                <Store className="mr-1.5 h-3.5 w-3.5"/>Pickup Ready
-                              </Button>
-                            )}
                             {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
                               <>
                                 <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
@@ -671,13 +626,6 @@ export default function FarmerOrdersPage() {
                                 <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Delivered
                               </Button>
                             )}
-                            {getStatus(order) === "ready_for_pickup" && (
-                              <Link href={`/farmer/orders/${order.id || order._id}`}>
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                                  <ShoppingBag className="mr-1.5 h-3.5 w-3.5"/>Confirm Pickup
-                                </Button>
-                              </Link>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -695,9 +643,7 @@ export default function FarmerOrdersPage() {
           <Package className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-4 text-lg font-semibold">No orders found</h3>
           <p className="mt-2 text-gray-500">
-            {typeFilter !== "all"
-              ? `No ${typeFilter === "pickup" ? "farm pickup" : "delivery"} orders`
-              : statusFilter !== "all"
+            statusFilter !== "all"
                 ? `No ${statusLabels[statusFilter]} orders`
                 : "You haven't received any orders yet"}
           </p>
@@ -713,11 +659,6 @@ export default function FarmerOrdersPage() {
                       <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
                       <Badge variant="outline" className={cn("border", statusColors[getStatus(order)] || "bg-gray-500/10 text-gray-600 border-gray-500/20")}>{statusLabels[getStatus(order)] || getStatus(order)}</Badge>
                       {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
-                      {order.deliveryType === "pickup" && (
-                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
-                          <Store className="mr-1 h-3 w-3" /> Pickup
-                        </Badge>
-                      )}
                       {order.isBulkOrder && (
                         <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700">
                           <ShoppingBag className="mr-1 h-3 w-3" /> Bulk
@@ -744,12 +685,6 @@ export default function FarmerOrdersPage() {
                         <>
                           <span>•</span>
                           <span>Deliver to: <span className="font-medium text-foreground">{order.deliveryAddress.city}</span></span>
-                        </>
-                      )}
-                      {order.deliveryType === "pickup" && order.pickupDate && (
-                        <>
-                          <span>•</span>
-                          <span>Pickup: {formatDate(order.pickupDate)}</span>
                         </>
                       )}
                       {order.deliveryPartnerId && order.deliveryPartnerName && (
