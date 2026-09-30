@@ -74,8 +74,18 @@ class AuthService:
                 from app.repositories.warehouse_repository import warehouse_repository
                 await warehouse_repository.create({
                     "userId": user_id,
+                    "managerId": user_id,
+                    "name": f"Warehouse of {first_name}",
                     "warehouseName": f"Warehouse of {first_name}",
-                    "isVerified": False
+                    "location": {},
+                    "address": {},
+                    "totalCapacity": 0,
+                    "coldStorageCapacity": 0,
+                    "usedCapacity": 0,
+                    "coldStorageUsed": 0,
+                    "isActive": True,
+                    "isVerified": False,
+                    "deletedAt": None,
                 })
         except Exception:
             # Avoid leaving a half-created account behind if the role profile fails.
