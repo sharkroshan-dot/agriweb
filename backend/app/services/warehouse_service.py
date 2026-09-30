@@ -240,6 +240,30 @@ class WarehouseService:
                 if not stock_id:
                     return None
 
+        # For a paid warehouse-fulfilled order, receiving creates the
+        # warehouse outbound work item. Pick/Pack/Dispatch remain warehouse-only.
+        if quality_check == "passed" and incoming.get("orderId"):
+            try:
+                from app.repositories.order_repository import order_repository
+                order = await order_repository.get_by_id(str(incoming["orderId"]))
+                if order and str(order.get("fulfillmentMethod") or "farmer") == "warehouse":
+                    existing_outgoing = await outgoing_stock_repository.get_by_order_id(
+                        str(incoming["orderId"]),
+                        str(incoming["productId"]),
+                        str(incoming.get("variantId") or ""),
+                    )
+                    if not existing_outgoing:
+                        await WarehouseService.create_outgoing(OutgoingStockCreate(
+                            warehouseId=str(incoming["warehouseId"]),
+                            productId=str(incoming["productId"]),
+                            variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
+                            orderId=str(incoming["orderId"]),
+                            quantity=int(quantity),
+                            batchNumber=incoming.get("batchNumber"),
+                        ))
+            except Exception:
+                logger.exception("Failed to create warehouse outgoing work for incoming %s", incoming_id)
+
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
