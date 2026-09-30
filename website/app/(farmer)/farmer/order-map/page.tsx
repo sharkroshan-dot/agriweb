@@ -10,6 +10,7 @@ import {
   Loader2,
   MapPin,
   Navigation,
+  ListChecks,
   Phone,
   RefreshCw,
   Settings2,
@@ -184,7 +185,7 @@ export default function FarmerOrderMapPage() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState(false);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
-
+  // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.\n  const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);\n
   const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assignMode, setAssignMode] = useState<"marketplace" | "manual" | "ai">("marketplace");
@@ -395,6 +396,67 @@ export default function FarmerOrderMapPage() {
 
   const selectedStop =
     allOrders.find((stop) => getStopId(stop) === selectedStopId) || allOrders[0] || null;
+
+  const routeCandidates = useMemo(
+    () =>
+      allOrders.filter(
+        (stop) =>
+          !isDone(stop) &&
+          getCoordinates(stop) &&
+          String(stop?.assignment || "").toLowerCase() !== "partner"
+      ),
+    [allOrders]
+  );
+
+  const selectedRouteOrders = useMemo(
+    () =>
+      routeCandidates
+        .filter((stop) => selectedRouteIds.includes(getStopId(stop)))
+        .sort((a, b) => Number(a.distance ?? 9999) - Number(b.distance ?? 9999)),
+    [routeCandidates, selectedRouteIds]
+  );
+
+  const routePlanStats = useMemo(() => {
+    const weight = selectedRouteOrders.reduce((sum, stop) => sum + Number(stop.quantityKg || 0), 0);
+    const distance = selectedRouteOrders.reduce((sum, stop) => sum + Number(stop.distance || 0), 0);
+    const travelMinutes = selectedRouteOrders.reduce(
+      (sum, stop) => sum + (Number(stop.distance || 0) / 25) * 60 + 10,
+      0
+    );
+    return {
+      count: selectedRouteOrders.length,
+      weight: Math.round(weight * 10) / 10,
+      distance: Math.round(distance * 10) / 10,
+      minutes: Math.round(travelMinutes),
+    };
+  }, [selectedRouteOrders]);
+
+  const toggleRouteOrder = (orderId: string) => {
+    setSelectedRouteIds((current) =>
+      current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]
+    );
+  };
+
+  const openPlannedRoute = () => {
+    if (!selectedRouteOrders.length) {
+      toast.error("Select at least one order for the route");
+      return;
+    }
+    const points = selectedRouteOrders
+      .map((stop) => getCoordinates(stop))
+      .filter(Boolean) as { lat: number; lng: number }[];
+    const origin = farmCoordinates || liveLocation || points[0];
+    const destination = points[points.length - 1];
+    const waypoints = points.slice(0, -1).map((p) => `${p.lat},${p.lng}`).join("|");
+    const params = new URLSearchParams({
+      api: "1",
+      origin: `${origin.lat},${origin.lng}`,
+      destination: `${destination.lat},${destination.lng}`,
+      travelmode: "driving",
+    });
+    if (waypoints) params.set("waypoints", waypoints);
+    window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
+  };
 
   const farmCoordinates =
     farm?.lat != null && farm?.lng != null ? { lat: Number(farm.lat), lng: Number(farm.lng) } : null;
@@ -899,6 +961,82 @@ export default function FarmerOrderMapPage() {
           </CardContent>
         </Card>
       )}
+
+
+      <Card className="border-blue-200 bg-blue-50/30">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <ListChecks className="h-5 w-5 text-blue-600" />
+              Route Planning
+            </CardTitle>
+            <CardDescription>
+              Select orders to build a navigation sequence. Planning does not accept, assign, dispatch, or otherwise change any order.
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setSelectedRouteIds(routeCandidates.map((stop) => getStopId(stop)))}
+              disabled={!routeCandidates.length}
+            >
+              Select Eligible
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>
+              Clear
+            </Button>
+            <Button size="sm" onClick={openPlannedRoute} disabled={!selectedRouteOrders.length}>
+              <Navigation className="mr-1.5 h-4 w-4" />
+              Open Route
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <SummaryStat label="Selected Stops" value={String(routePlanStats.count)} tone="blue" />
+            <SummaryStat label="Product Weight" value={`${routePlanStats.weight} KG`} tone="amber" />
+            <SummaryStat label="Distance" value={`${routePlanStats.distance} KM`} tone="violet" />
+            <SummaryStat label="Est. Travel + Stops" value={`${routePlanStats.minutes} min`} tone="blue" />
+          </div>
+          {routeCandidates.length === 0 ? (
+            <p className="rounded-lg border border-dashed bg-white p-4 text-center text-sm text-muted-foreground">
+              No active orders are currently available for farmer route planning.
+            </p>
+          ) : (
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {routeCandidates.map((stop, index) => {
+                const id = getStopId(stop);
+                const checked = selectedRouteIds.includes(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedStopId(id);
+                      toggleRouteOrder(id);
+                    }}
+                    className={`rounded-lg border p-3 text-left transition ${checked ? "border-blue-500 bg-blue-50" : "bg-white hover:bg-slate-50"}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${checked ? "border-blue-600 bg-blue-600 text-white" : "border-slate-300"}`}>
+                        {checked ? "✓" : index + 1}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold">{stop.buyerName || stop.orderNumber || "Delivery order"}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{formatAddress(stop)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {stop.distance != null ? `${stop.distance} km` : "Distance unavailable"} · {stop.quantityKg ?? stop.quantity ?? 0} kg
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.85fr)]">
         <Card>
