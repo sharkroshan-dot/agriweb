@@ -1920,6 +1920,7 @@ async def _map_order_payload(
         "deliveryTimeSlot": time_slot,
         "timeWindow": f"{time_slot} ({order.get('deliveryDay') or 'Today'})",
         "deliveryType": delivery_type,
+        "deliveryResponsibility": order.get("deliveryResponsibility"),
         "isPickup": is_pickup,
         "distance": dist,
         "inRadius": in_radius,
@@ -2644,6 +2645,7 @@ async def update_order_assignment(
             partner_info = await _partner_display(partner)
 
         if await order_repository.assign_partner_safe(order_id, farmer_id, partner_id, _ACTIVE_DELIVERY_STATUSES):
+            await order_repository.update_order_field(order_id, "deliveryResponsibility", "delivery_partner");
             try:
                 await order_repository.update_order_field(order_id, "deliveryPartnerName", partner_info["name"])
             except Exception:
