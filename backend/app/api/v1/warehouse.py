@@ -137,7 +137,13 @@ async def add_stock(
             detail="Warehouse not found"
         )
     data.warehouseId = str(warehouse["_id"])
-    stock = await WarehouseService.add_stock(data)
+    try:
+        stock = await WarehouseService.add_stock(data)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc)
+        ) from exc
     if not stock:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
