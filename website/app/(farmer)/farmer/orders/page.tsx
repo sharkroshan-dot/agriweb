@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShoppingCart, Clock, CheckCircle, XCircle, Truck, Package, Eye, MoreVertical, RefreshCw, Store, ShoppingBag, UserCheck, Navigation, X, User, Star, Phone, Map as MapIcon } from "lucide-react";
+import { CheckCircle, XCircle, Truck, Package, Eye, MoreVertical, RefreshCw, Store, ShoppingBag, UserCheck, Navigation, X, User, Star, Phone, Map as MapIcon } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -98,6 +98,11 @@ export default function FarmerOrdersPage() {
     queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 50 } }),
   });
 
+  const availabilityQuery = useQuery({
+    queryKey: ["farmerOrderAvailability"],
+    queryFn: () => api.get("/orders/farmer/order-availability"),
+  });
+
   const { data: bulkData, isLoading: bulkLoading } = useQuery({
     queryKey: ["farmerBulkSummary"],
     queryFn: () => api.get("/orders/farmer/bulk-summary"),
@@ -124,104 +129,24 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleProcessAllOrders = async () => {
-    const candidates = orderList.filter((order: any) => {
-      const status = getStatus(order);
-      return !["delivered", "cancelled", "refunded", "in_transit"].includes(status);
-    });
-
-    if (candidates.length === 0) {
-      toast("No orders are waiting for a farmer action.");
-      return;
-    }
-
-    let completed = 0;
-    let blocked = 0;
-    let failed = 0;
-
-    for (const order of candidates) {
-      const orderId = order.id || order._id;
-      if (!orderId) {
-        failed++;
-        continue;
-      }
-
-      try {
-        let status = getStatus(order);
-        let fulfillmentStage = order.fulfillmentStage || "pending";
-
-        // Move the order through the normal farmer workflow without requiring
-        // the farmer to open each order individually.
-        if (status === "pending") {
-          await api.put(`/orders/${orderId}/status`, { status: "confirmed" });
-          status = "confirmed";
-        }
-
-        if (status === "confirmed") {
-          await api.put(`/orders/${orderId}/status`, { status: "processing" });
-          status = "processing";
-        }
-
-        // Fulfillment route and delivery responsibility are intentional
-        // decisions, so bulk processing never guesses them.
-        const routeSelected =
-          order.fulfillmentRouteSelected === true &&
-          Number(order.fulfillmentRouteVersion || 0) === 1;
-
-        if (status === "processing" && !routeSelected) {
-          blocked++;
-          continue;
-        }
-
-        if (
-          status === "processing" &&
-          order.fulfillmentMethod === "farmer" &&
-          !order.deliveryResponsibility
-        ) {
-          blocked++;
-          continue;
-        }
-
-        if (status === "processing" && fulfillmentStage === "pending") {
-          await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, {
-            params: { stage: "picked" },
-          });
-          fulfillmentStage = "picked";
-        }
-
-        if (status === "processing" && fulfillmentStage === "picked") {
-          await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, {
-            params: { stage: "packed" },
-          });
-          fulfillmentStage = "packed";
-        }
-
-        if (status === "processing" && fulfillmentStage === "packed") {
-          await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, {
-            params: { stage: "dispatched" },
-          });
-        }
-
-        completed++;
-      } catch {
-        failed++;
-      }
-    }
-
-    await refetch();
-
-    if (completed > 0) {
+  const handleConfirmAvailableOrders = async () => {
+    try {
+      const response = await api.post("/orders/farmer/confirm-available");
+      const result = response?.data || response;
       toast.success(
-        `Bulk processing completed for ${completed} order${completed === 1 ? "" : "s"}` +
-        (blocked ? `; ${blocked} waiting for fulfillment selection` : "") +
-        (failed ? `; ${failed} failed` : "")
+        result?.confirmedOrders
+          ? `${result.confirmedOrders} order${result.confirmedOrders === 1 ? "" : "s"} confirmed from available product`
+          : "No orders were confirmed",
       );
-    } else if (blocked > 0) {
-      toast(
-        `${blocked} order${blocked === 1 ? "" : "s"} need fulfillment selection before they can continue.`
-      );
-    } else {
-      toast.error("No orders could be processed.");
+      await refetch();
+      await availabilityQuery.refetch();
+    } catch (error: any) {
+      let msg = "Failed to confirm available orders";
+      try {
+        const j = JSON.parse(error.message);
+        msg = j.detail || j.error?.message || j.message || msg;
+      } catch {}
+      toast.error(msg);
     }
   };
 
@@ -344,10 +269,6 @@ export default function FarmerOrdersPage() {
     );
   }
 
-  const pendingCount = orderList.filter((o: any) => getStatus(o) === "pending").length;
-  const inTransitCount = orderList.filter((o: any) => getStatus(o) === "in_transit").length;
-  const deliveredCount = orderList.filter((o: any) => getStatus(o) === "delivered").length;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -355,18 +276,78 @@ export default function FarmerOrdersPage() {
           <h1 className="text-3xl font-bold">Orders</h1>
           <p className="text-gray-500">Manage your orders ({orderList.length})</p>
         </div>
-      <Card className="border-dashed">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-semibold">Bulk order processing</p>
-            <p className="text-sm text-muted-foreground">
-              Process all visible orders with one click. Confirmed and processing orders advance automatically; fulfillment choices are never guessed.
-            </p>
+      <Card className="border-emerald-200 bg-emerald-50/40">
+        <CardContent className="space-y-5 p-5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Product Availability & Order Processing</h2>
+              <p className="text-sm text-muted-foreground">
+                Customer orders are checked against the actual product stock. Only orders that can be fulfilled are confirmed.
+              </p>
+            </div>
+            <Button
+              onClick={handleConfirmAvailableOrders}
+              disabled={availabilityQuery.isLoading || !availabilityQuery.data}
+              className="shrink-0"
+            >
+              <CheckCircle className="mr-2 h-4 w-4" />
+              Confirm Available Orders
+            </Button>
           </div>
-          <Button onClick={handleProcessAllOrders} className="shrink-0">
-            <CheckCircle className="mr-2 h-4 w-4" />
-            Process All Orders
-          </Button>
+
+          {availabilityQuery.isLoading ? (
+            <div className="h-28 animate-pulse rounded-lg bg-white" />
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-xs text-muted-foreground">Orders received</p>
+                  <p className="text-2xl font-bold">{availabilityQuery.data?.data?.receivedOrders ?? 0}</p>
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-xs text-muted-foreground">Can be fulfilled</p>
+                  <p className="text-2xl font-bold text-emerald-600">{availabilityQuery.data?.data?.fulfillableOrders ?? 0}</p>
+                </div>
+                <div className="rounded-lg border bg-white p-3">
+                  <p className="text-xs text-muted-foreground">Waiting for stock</p>
+                  <p className="text-2xl font-bold text-amber-600">{availabilityQuery.data?.data?.blockedOrders ?? 0}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {(availabilityQuery.data?.data?.products || []).map((product: any) => (
+                  <div key={product.productId} className="rounded-lg border bg-white p-4">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-semibold">{product.productName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {product.orderCount} customer order{product.orderCount === 1 ? "" : "s"} · Required {Number(product.requestedQuantity || 0).toLocaleString()} {product.unit}
+                        </p>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="text-sm">
+                          Available: <span className="font-semibold">{Number(product.availableQuantity || 0).toLocaleString()} {product.unit}</span>
+                        </p>
+                        <p className={cn(
+                          "text-xs font-medium",
+                          Number(product.shortageQuantity || 0) > 0 ? "text-amber-600" : "text-emerald-600"
+                        )}>
+                          {Number(product.shortageQuantity || 0) > 0
+                            ? `Shortage ${Number(product.shortageQuantity).toLocaleString()} ${product.unit}`
+                            : "Sufficient product available"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {(availabilityQuery.data?.data?.products || []).length === 0 && (
+                  <p className="rounded-lg border border-dashed bg-white p-4 text-sm text-muted-foreground">
+                    No pending customer orders require confirmation.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -419,16 +400,7 @@ export default function FarmerOrdersPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        {[
-          { label: "Total Orders", value: orderList.length, icon: ShoppingCart, color: "text-blue-600" },
-          { label: "Pending", value: pendingCount, icon: Clock, color: "text-yellow-600" },
-          { label: "In Transit", value: inTransitCount, icon: Truck, color: "text-purple-600" },
-          { label: "Delivered", value: deliveredCount, icon: CheckCircle, color: "text-green-600" }
-        ].map((stat, index) => (
-          <Card key={index}><CardContent className="p-4"><div className="flex items-center justify-between"><div><p className="text-sm text-gray-500">{stat.label}</p><p className="text-2xl font-bold">{stat.value}</p></div><stat.icon className={cn("h-8 w-8", stat.color)} /></div></CardContent></Card>
-        ))}
-      </div>
+
 
       {showDeliveryRoutes && (
         <Card>
