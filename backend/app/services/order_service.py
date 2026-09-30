@@ -1501,11 +1501,14 @@ class OrderService:
         order = await order_repository.get_by_id(order_id)
         if not order or str(order.get("farmerId")) != user_id:
             return None
-        if str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
-            return None
         if str(order.get("deliveryType") or "delivery") != DeliveryType.DELIVERY.value:
             return None
         if order.get("fulfillmentMethod") != FulfillmentMethod.FARM_DIRECT.value:
+            return None
+        # Delivery may be chosen during processing or deferred until Dispatch.
+        if str(order.get("orderStatus")) not in (OrderStatus.PROCESSING.value, OrderStatus.READY_FOR_DELIVERY.value):
+            return None
+        if str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value) not in (FulfillmentStage.PENDING.value, FulfillmentStage.PICKED.value, FulfillmentStage.PACKED.value, FulfillmentStage.DISPATCHED.value):
             return None
         value = responsibility.value if hasattr(responsibility, "value") else str(responsibility)
         if value not in (
