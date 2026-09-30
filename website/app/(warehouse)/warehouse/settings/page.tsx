@@ -150,7 +150,8 @@ export default function WarehouseSettingsPage() {
       refetch();
       refetchPrefs();
     } catch (error) {
-      toast.error("Failed to save settings");
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toast.error(message || "Failed to save settings");
     } finally {
       setIsSaving(false);
     }
@@ -185,8 +186,16 @@ export default function WarehouseSettingsPage() {
             <CardContent className="space-y-4">
               <div><label className="text-sm font-medium">Warehouse Name</label><Input value={form.name} onChange={(event) => updateForm("name", event.target.value)} className="mt-1" required /></div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <div><label className="text-sm font-medium">Total Capacity</label><Input type="number" min="0" value={form.totalCapacity} onChange={(event) => updateForm("totalCapacity", event.target.value)} className="mt-1" required /></div>
-                <div><label className="text-sm font-medium">Cold Storage Capacity</label><Input type="number" min="0" value={form.coldStorageCapacity} onChange={(event) => updateForm("coldStorageCapacity", event.target.value)} className="mt-1" /></div>
+                <div>
+                  <label className="text-sm font-medium">Total Capacity</label>
+                  <Input type="number" min="0" step="0.01" value={form.totalCapacity} onChange={(event) => updateForm("totalCapacity", event.target.value)} className="mt-1" required />
+                  <p className="mt-1 text-xs text-muted-foreground">Maximum physical warehouse capacity. Entered by the warehouse manager.</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Cold Storage Capacity</label>
+                  <Input type="number" min="0" step="0.01" value={form.coldStorageCapacity} onChange={(event) => updateForm("coldStorageCapacity", event.target.value)} className="mt-1" />
+                  <p className="mt-1 text-xs text-muted-foreground">Used quantity is calculated automatically from cold-storage records.</p>
+                </div>
               </div>
               <label className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
                 Active for warehouse operations
@@ -270,10 +279,16 @@ export default function WarehouseSettingsPage() {
 
         <div className="space-y-6">
           <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Status</CardTitle><CardDescription>Current storage utilization.</CardDescription></CardHeader>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Status</CardTitle><CardDescription>Used capacity is calculated automatically from live inventory records.</CardDescription></CardHeader>
             <CardContent className="space-y-5">
-              <div><div className="flex justify-between text-sm"><span>General Capacity</span><span className="font-medium">{warehouse?.usedCapacity || 0} / {warehouse?.totalCapacity || 0}</span></div><Progress value={warehouse?.totalCapacity ? ((warehouse.usedCapacity || 0) / warehouse.totalCapacity) * 100 : 0} className="mt-2" /></div>
-              <div><div className="flex justify-between text-sm"><span>Cold Storage</span><span className="font-medium">{warehouse?.coldStorageUsed || 0} / {warehouse?.coldStorageCapacity || 0}</span></div><Progress value={warehouse?.coldStorageCapacity ? ((warehouse.coldStorageUsed || 0) / warehouse.coldStorageCapacity) * 100 : 0} className="mt-2" /></div>
+              <div>
+                <div className="flex justify-between text-sm"><span>General Capacity</span><span className="font-medium">{warehouse?.usedCapacity ?? 0} / {warehouse?.totalCapacity ?? 0}</span></div>
+                <Progress value={warehouse?.totalCapacity ? Math.min(100, ((warehouse.usedCapacity ?? 0) / warehouse.totalCapacity) * 100) : 0} className="mt-2" />
+              </div>
+              <div>
+                <div className="flex justify-between text-sm"><span>Cold Storage</span><span className="font-medium">{warehouse?.coldStorageUsed ?? 0} / {warehouse?.coldStorageCapacity ?? 0}</span></div>
+                <Progress value={warehouse?.coldStorageCapacity ? Math.min(100, ((warehouse.coldStorageUsed ?? 0) / warehouse.coldStorageCapacity) * 100) : 0} className="mt-2" />
+              </div>
               <Badge variant={form.isActive ? "success" : "secondary"}>{form.isActive ? "Active" : "Inactive"}</Badge>
             </CardContent>
           </Card>
