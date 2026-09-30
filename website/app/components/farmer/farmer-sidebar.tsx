@@ -157,9 +157,9 @@ export function FarmerSidebar() {
   const farmerRatingCount = profileData?.data?.ratingCount ?? 0;
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
-      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+    <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white/95 md:block">
+      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto px-3 py-4 lg:px-4">
+        <div className="mb-4 overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50 to-white p-3.5 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
               <Leaf className="h-5 w-5 text-emerald-600" />
@@ -180,50 +180,104 @@ export function FarmerSidebar() {
           </div>
         </div>
 
-        <nav className="space-y-4">
-          {navGroups.map((group) => (
-            <div key={group.label}>
-              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
-              <div className="space-y-1">
-                {group.items.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={cn(
-                        "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                        isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-slate-100"
-                      )}
-                    >
-                      <div className="flex items-center gap-3">
-                        <item.icon className="h-5 w-5" />
-                        <span>{item.name}</span>
-                      </div>
-                      {item.name === "Orders" && orderCount > 0 && (
-                        <Badge variant={isActive ? "secondary" : "default"} className="px-2 py-0 text-xs">
-                          {orderCount}
-                        </Badge>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+        <nav aria-label="Farmer navigation" className="space-y-2">
+          {navGroups.map((group, groupIndex) => {
+            const groupActive = group.items.some(
+              (item) => pathname === item.href || pathname?.startsWith(item.href + "/")
+            );
+
+            if (groupIndex === 0) {
+              return (
+                <section key={group.label} className="rounded-xl border border-slate-100 bg-white/70 p-1">
+                  <p className="px-3 pb-1 pt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                    {group.label}
+                  </p>
+                  <div className="space-y-0.5">
+                    {group.items.map((item) => {
+                      const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                      return (
+                        <Link
+                          key={item.name}
+                          href={item.href}
+                          aria-current={isActive ? "page" : undefined}
+                          className={cn(
+                            "flex min-h-10 items-center justify-between rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
+                            isActive
+                              ? "bg-emerald-600 text-white shadow-sm"
+                              : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800"
+                          )}
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <item.icon className="h-[18px] w-[18px] shrink-0" />
+                            <span className="truncate">{item.name}</span>
+                          </span>
+                          {item.name === "Orders" && orderCount > 0 && (
+                            <Badge
+                              variant={isActive ? "secondary" : "default"}
+                              className="ml-2 shrink-0 px-1.5 py-0 text-[10px]"
+                            >
+                              {orderCount}
+                            </Badge>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            }
+
+            return (
+              <details
+                key={group.label}
+                open={groupActive}
+                className="group/nav overflow-hidden rounded-xl border border-transparent transition-colors open:border-slate-100 open:bg-white/60"
+              >
+                <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                  <span>{group.label}</span>
+                  <span className="text-base font-normal leading-none text-slate-300 transition-transform group-open/nav:rotate-180">⌄</span>
+                </summary>
+                <div className="space-y-0.5 px-1 pb-1">
+                  {group.items.map((item) => {
+                    const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                    return (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        aria-current={isActive ? "page" : undefined}
+                        className={cn(
+                          "flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
+                          isActive
+                            ? "bg-emerald-600 text-white shadow-sm"
+                            : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800"
+                        )}
+                      >
+                        <item.icon className="h-[18px] w-[18px] shrink-0" />
+                        <span className="truncate">{item.name}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              </details>
+            );
+          })}
         </nav>
 
-        <div className="mt-6 rounded-lg border border-dashed p-4">
-          <div className="flex flex-col items-center text-center">
-            <Plus className="h-8 w-8 text-gray-500" />
-            <p className="mt-2 text-sm font-medium">Add New Product</p>
-            <p className="text-xs text-gray-500">List your fresh produce</p>
-            <Link href="/farmer/products/new" className="mt-3 w-full">
-              <Button size="sm" className="w-full">
-                Add Product
-              </Button>
-            </Link>
+        <div className="mt-5 rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm">
+              <Plus className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-slate-900">Add a product</p>
+              <p className="text-[11px] text-slate-500">List fresh produce</p>
+            </div>
           </div>
+          <Link href="/farmer/products/new" className="mt-3 block">
+            <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700">
+              Add New Product
+            </Button>
+          </Link>
         </div>
       </div>
     </aside>
