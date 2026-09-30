@@ -23,10 +23,42 @@ class WarehouseRepository(BaseRepository):
     async def get_by_id(self, warehouse_id: str) -> Optional[Dict[str, Any]]:
         try:
             obj_id = ObjectId(warehouse_id)
+            warehouse = await self.find_one({"_id": obj_id, "deletedAt": None})
+            if not warehouse:
+                return None
+            await self.sync_capacity_usage(warehouse_id)
             return await self.find_one({"_id": obj_id, "deletedAt": None})
         except Exception as e:
             logger.error(f"Error getting warehouse: {str(e)}")
             return None
+
+    async def sync_capacity_usage(self, warehouse_id: str) -> bool:
+        """Derive used capacity from live inventory records."""
+        try:
+            obj_id = ObjectId(warehouse_id)
+            from app.repositories.warehouse_stock_repository import warehouse_stock_repository
+            from app.repositories.cold_storage_repository import cold_storage_repository
+
+            stock_items = await warehouse_stock_repository.get_by_warehouse_id(
+                warehouse_id, skip=0, limit=100000
+            )
+            cold_items = await cold_storage_repository.get_by_warehouse_id(
+                warehouse_id, skip=0, limit=100000
+            )
+
+            used_capacity = sum(float(item.get("quantity", 0) or 0) for item in stock_items)
+            cold_used = sum(float(item.get("quantity", 0) or 0) for item in cold_items)
+
+            return await self.update(
+                {"_id": obj_id},
+                {
+                    "usedCapacity": max(0, used_capacity),
+                    "coldStorageUsed": max(0, cold_used),
+                },
+            )
+        except Exception as e:
+            logger.error(f"Error syncing warehouse capacity: {str(e)}", exc_info=True)
+            return False
 
     async def get_by_farmer_id(self, farmer_id: str) -> Optional[Dict[str, Any]]:
         try:
@@ -161,8 +193,14 @@ class WarehouseRepository(BaseRepository):
             "expired": expired,
             "incomingToday": incoming_today,
             "outgoingToday": outgoing_today,
-            "capacityUtilization": (warehouse.get("usedCapacity", 0) / warehouse.get("totalCapacity", 1)) * 100,
-            "coldStorageUtilization": (warehouse.get("coldStorageUsed", 0) / warehouse.get("coldStorageCapacity", 1)) * 100 if warehouse.get("coldStorageCapacity", 0) > 0 else 0
+            "capacityUtilization": round(
+                (warehouse.get("usedCapacity", 0) / warehouse.get("totalCapacity", 1)) * 100,
+                1
+            ) if warehouse.get("totalCapacity", 0) > 0 else 0,
+            "coldStorageUtilization": round(
+                (warehouse.get("coldStorageUsed", 0) / warehouse.get("coldStorageCapacity", 1)) * 100,
+                1
+            ) if warehouse.get("coldStorageCapacity", 0) > 0 else 0
         }
 
 
