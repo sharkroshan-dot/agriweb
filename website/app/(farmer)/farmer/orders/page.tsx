@@ -180,18 +180,15 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const setFulfillmentRoute = async (orderId: string, fulfillmentMethod: "farmer" | "warehouse", deliveryMethod: "farmer" | "partner") => {
+  const setFulfillmentRoute = async (orderId: string, fulfillmentMethod: "farmer" | "warehouse") => {
     try {
       await api.put("/orders/" + orderId + "/fulfillment-route", {
         fulfillmentMethod,
-        deliveryMethod,
       });
       toast.success(
         fulfillmentMethod === "warehouse"
           ? "Warehouse fulfillment selected"
-          : deliveryMethod === "partner"
-            ? "Delivery partner route selected"
-            : "Farmer delivery selected"
+          : "Farmer fulfillment selected"
       );
       refetch();
     } catch (error: any) {
@@ -613,14 +610,11 @@ export default function FarmerOrdersPage() {
                             {getStatus(order) === "processing" && (
                               <div className="flex flex-col gap-2">
                                 <div className="flex flex-wrap gap-1.5">
-                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer", "farmer")}>
-                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Delivery
+                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
+                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
                                   </Button>
-                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer", "partner")}>
-                                    <Truck className="mr-1.5 h-3.5 w-3.5"/>Delivery Partner
-                                  </Button>
-                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse", "partner")}>
-                                    <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse
+                                  <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
+                                    <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse Fulfillment
                                   </Button>
                                 </div>
                                 <span className="text-xs text-muted-foreground">
@@ -641,14 +635,19 @@ export default function FarmerOrdersPage() {
 
                             {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
                               <>
-                                {order.deliveryMethod === "partner" ? (
+                                {order.fulfillmentMethod === "warehouse" ? (
                                   <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
-                                    <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Partner
+                                    <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Delivery Partner
                                   </Button>
                                 ) : (
-                                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
-                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
-                                  </Button>
+                                  <>
+                                    <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
+                                      <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
+                                    </Button>
+                                    <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
+                                      <Truck className="mr-1.5 h-3.5 w-3.5"/>Use Delivery Partner
+                                    </Button>
+                                  </>
                                 )}
                               </>
                             )}
