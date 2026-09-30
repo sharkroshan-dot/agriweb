@@ -132,6 +132,7 @@ class OrderResponse(BaseModel):
     fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     fulfillmentRouteSelected: bool = False
+    fulfillmentRouteVersion: int = 0
     deliveryResponsibility: Optional[DeliveryResponsibility] = None
     items: List[OrderItemResponse]
     subtotal: float
