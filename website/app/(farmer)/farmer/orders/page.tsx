@@ -783,16 +783,29 @@ export default function FarmerOrdersPage() {
                           </Button>
                         </>
                       )}
-                      {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "farmer" && (
-                              <>
-                                {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
-                                {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
-                                {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
-                              </>
-                            )}
-                            {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "warehouse" && (
-                              <span className="text-xs text-muted-foreground">Warehouse fulfillment — warehouse will Pick, Pack &amp; Dispatch.</span>
-                            )}
+                      {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (
+                        order.fulfillmentRouteSelected !== true ? (
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-xs font-medium text-muted-foreground">Choose fulfillment route</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
+                                <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
+                                <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse Fulfillment
+                              </Button>
+                            </div>
+                          </div>
+                        ) : order.fulfillmentMethod === "farmer" ? (
+                          <>
+                            {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
+                            {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
+                            {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
+                          </>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Warehouse fulfillment — warehouse will Receive → Check → Store → Pick → Pack → Dispatch.</span>
+                        )
+                      )}
                       {getStatus(order) === "processing" && order.deliveryType === "pickup" && (
                         <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => handleUpdateStatus(order.id || order._id, 'ready_for_pickup')}>
                           <Store className="mr-1.5 h-3.5 w-3.5"/>Pickup Ready
