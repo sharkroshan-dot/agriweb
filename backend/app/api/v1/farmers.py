@@ -1828,6 +1828,8 @@ async def _map_order_payload(
     first = items[0] if items else {}
     product = first.get("productName") or first.get("name") or "Items"
     status = order.get("orderStatus", "pending")
+    fulfillment_method = str(order.get("fulfillmentMethod") or "").lower()
+    fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
     total = float(order.get("totalAmount", 0) or 0)
     payment_method = str(order.get("paymentMethod", "") or "").lower()
     time_slot = order.get("deliveryTimeSlot") or "Morning"
@@ -1902,6 +1904,16 @@ async def _map_order_payload(
             for i in items
         ],
         "status": status,
+        "fulfillmentMethod": fulfillment_method or None,
+        "fulfillmentStage": fulfillment_stage or None,
+        "readyForFarmerRoute": (
+            delivery_type == DeliveryType.DELIVERY.value
+            and fulfillment_method == "farmer"
+            and fulfillment_stage == "dispatched"
+            and not has_partner
+            and not is_delivered
+            and not is_problem
+        ),
         "time": time_slot,
         "deliveryDay": order.get("deliveryDay", ""),
         "deliveryTimeSlot": time_slot,
@@ -1973,6 +1985,16 @@ async def get_my_delivery_map(
         orders_filter["createdAt"] = {"$gte": window_start}
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
+    # The Order Map is intentionally limited to the farmer's post-dispatch
+    # delivery stage. Warehouse-fulfilled and unprepared orders never appear
+    # as personal farmer route stops.
+    orders = [
+        o for o in orders
+        if o.get("deliveryType") == DeliveryType.DELIVERY.value
+        and str(o.get("fulfillmentMethod") or "").lower() == "farmer"
+        and str(o.get("fulfillmentStage") or "").lower() == "dispatched"
+        and not o.get("deliveryPartnerId")
+    ]
 
     # Sweep expired open jobs (open -> no_partner_found) and index the rest by
     # orderId so each map marker can report its marketplace job state.
@@ -2212,13 +2234,23 @@ async def accept_within_for_self_delivery(
     skipped_other = 0
     for order in orders or []:
         oid = str(order["_id"])
-        if order.get("deliveryType") == DeliveryType.PICKUP.value:
+        if order.get("deliveryType") != DeliveryType.DELIVERY.value:
             continue
-        if order.get("selfDelivery"):
-            already_self += 1
+        # Order Map is the farmer's post-dispatch delivery workspace. Only
+        # farmer-fulfilled orders that have actually been dispatched may enter
+        # a personal route. Warehouse fulfillment and unprepared orders stay
+        # in their respective operational workflows.
+        if str(order.get("fulfillmentMethod") or "").lower() != "farmer":
+            skipped_other += 1
+            continue
+        if str(order.get("fulfillmentStage") or "").lower() != "dispatched":
+            skipped_other += 1
             continue
         if order.get("deliveryPartnerId"):
             skipped_partner += 1
+            continue
+        if order.get("selfDelivery"):
+            already_self += 1
             continue
         addr = order.get("deliveryAddress", {}) or {}
         lat, lng = await _stop_coords(addr, oid)
