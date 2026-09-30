@@ -502,6 +502,28 @@ async def admin_get_all_orders(
         }
     }
 
+@router.get("/farmer/order-availability")
+async def farmer_order_availability(
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can access order availability")
+    return {
+        "success": True,
+        "data": await OrderService.get_farmer_order_availability(str(current_user["_id"])),
+    }
+
+
+@router.post("/farmer/confirm-available")
+async def farmer_confirm_available_orders(
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can confirm orders")
+    result = await OrderService.confirm_available_orders(str(current_user["_id"]))
+    return {"success": True, "data": result}
+
+
 @router.get("/farmer/bulk-summary")
 async def farmer_bulk_order_summary(
     current_user: dict = Depends(get_current_user)
