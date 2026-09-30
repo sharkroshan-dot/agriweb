@@ -78,7 +78,6 @@ export default function CheckoutPage() {
 
   const [selectedAddressId, setSelectedAddressId] = useState<string>("");
   const [paymentMethod, setPaymentMethod] = useState("razorpay");
-  const [fulfillmentMethod, setFulfillmentMethod] = useState<"farmer" | "warehouse">("farmer");
   const [specialInstructions, setSpecialInstructions] = useState("");
   const [isPlacing, setIsPlacing] = useState(false);
   const [showAddrForm, setShowAddrForm] = useState(false);
@@ -374,7 +373,6 @@ export default function CheckoutPage() {
         paymentMethod,
         specialInstructions: specialInstructions || undefined,
         deliveryType: "delivery",
-        fulfillmentMethod,
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
@@ -540,24 +538,6 @@ export default function CheckoutPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
-          {/* Fulfillment route */}
-          <Card className="border-slate-200">
-            <CardHeader>
-              <CardTitle>Fulfillment</CardTitle>
-              <CardDescription>Choose where Pick, Pack and Dispatch will happen.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <button type="button" onClick={() => setFulfillmentMethod("farmer")} className={`rounded-lg border p-4 text-left ${fulfillmentMethod === "farmer" ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white"}`}>
-                <p className="font-semibold">Farmer Direct</p>
-                <p className="mt-1 text-sm text-muted-foreground">Farmer picks, packs and dispatches the order.</p>
-              </button>
-              <button type="button" onClick={() => setFulfillmentMethod("warehouse")} className={`rounded-lg border p-4 text-left ${fulfillmentMethod === "warehouse" ? "border-blue-500 bg-blue-50" : "border-slate-200 bg-white"}`}>
-                <p className="font-semibold">Warehouse</p>
-                <p className="mt-1 text-sm text-muted-foreground">Warehouse receives, stores, picks, packs and dispatches.</p>
-              </button>
-            </CardContent>
-          </Card>
-
           {/* Delivery Type */}
           <Card className="border-emerald-200 bg-emerald-50/40">
             <CardHeader>
