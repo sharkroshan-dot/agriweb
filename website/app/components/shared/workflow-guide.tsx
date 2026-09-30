@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Circle, Clock3, Ban, Workflow } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api/client";
@@ -69,6 +70,12 @@ export function WorkflowGuide({ role }: { role: Role }) {
     ? resolved.steps
     : FALLBACK[role];
   const next = resolved?.next as { href?: string; label?: string; reason?: string } | undefined;
+  const backendActiveKey = steps.find((step) => step.active)?.key ?? null;
+  const [selectedKey, setSelectedKey] = useState<string | null>(backendActiveKey);
+
+  useEffect(() => {
+    if (backendActiveKey) setSelectedKey(backendActiveKey);
+  }, [backendActiveKey]);
 
   return (
     <section className="mb-5 rounded-2xl border border-emerald-100 bg-white shadow-sm" aria-label="Workflow progress">
@@ -92,23 +99,27 @@ export function WorkflowGuide({ role }: { role: Role }) {
         )}
       </div>
 
-      <div className="overflow-x-auto p-4">
-        <div className="flex min-w-max items-start gap-2">
-          {steps.map((step, index) => (
-            <div key={step.key || step.label} className="flex items-center gap-2">
+      <div className="p-4">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-11">
+          {steps.map((step) => {
+            const selected = selectedKey === step.key;
+            return (
               <Link
+                key={step.key || step.label}
                 href={step.href || "#"}
-                aria-current={step.active ? "step" : undefined}
-                className={`group flex w-28 flex-col gap-1 rounded-xl border p-2.5 text-left transition ${stateClass(step.state, step.active)}`}
+                aria-current={selected ? "step" : undefined}
+                onClick={() => setSelectedKey(step.key)}
+                className={`group flex min-h-[78px] w-full flex-col gap-1 rounded-xl border p-2.5 text-left transition hover:border-emerald-300 hover:bg-emerald-50/70 ${stateClass(step.state, selected)}`}
                 title={step.state.replace(/_/g, " ")}
               >
-                {stateIcon(step.state)}
-                <span className="text-xs font-semibold text-slate-700">{step.label}</span>
-                <span className="text-[9px] font-medium uppercase tracking-wide text-slate-400">{step.state.replace(/_/g, " ")}</span>
+                <div className={selected ? "text-emerald-700" : undefined}>
+                  {stateIcon(selected ? "COMPLETED" : step.state)}
+                </div>
+                <span className={`text-xs font-semibold ${selected ? "text-emerald-800" : "text-slate-700"}`}>{step.label}</span>
+                <span className={`text-[9px] font-medium uppercase tracking-wide ${selected ? "text-emerald-600" : "text-slate-400"}`}>{selected ? "SELECTED" : step.state.replace(/_/g, " ")}</span>
               </Link>
-              {index < steps.length - 1 && <ArrowRight className="h-4 w-4 shrink-0 text-slate-300" />}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </section>
