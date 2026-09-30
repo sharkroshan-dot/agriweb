@@ -91,7 +91,9 @@ export default function FarmerOrdersPage() {
   const [confirmAction, setConfirmAction] = useState<{ order: any; action: string } | null>(null);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [geoVersion, setGeoVersion] = useState(0);
-  const [overallFulfillmentMethod, setOverallFulfillmentMethod] = useState<"farmer" | "warehouse" | "">("");
+  // Farmer fulfillment is the default selection, so the delivery dropdown
+  // is visible immediately on page load. Switching to warehouse hides it.
+  const [overallFulfillmentMethod, setOverallFulfillmentMethod] = useState<"farmer" | "warehouse">("farmer");
   const [overallDeliveryResponsibility, setOverallDeliveryResponsibility] = useState<"none" | "farmer" | "delivery_partner" | "">("");
   const geocodingRef = useRef<Record<string, any>>({});
 
