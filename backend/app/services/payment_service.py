@@ -342,6 +342,43 @@ class PaymentService:
                     {"paymentStatus": "paid"}
                 )
 
+        # Warehouse fulfillment starts only after payment is confirmed.
+        # Create one incoming-stock work item per order line; the order is
+        # deliberately not marked ready for delivery until warehouse dispatch.
+        if order and str(order.get("fulfillmentMethod") or "farmer") == "warehouse" and order.get("warehouseId"):
+            try:
+                from app.repositories.incoming_stock_repository import incoming_stock_repository
+                existing = await incoming_stock_repository.get_by_warehouse_id(
+                    str(order["warehouseId"]), status=None, skip=0, limit=1000
+                )
+                existing_order_items = {
+                    (str(x.get("orderId")), str(x.get("productId")), str(x.get("variantId") or ""))
+                    for x in existing
+                    if x.get("orderId")
+                }
+                for item in order.get("items", []):
+                    key = (
+                        str(order["_id"]),
+                        str(item.get("productId")),
+                        str(item.get("variantId") or ""),
+                    )
+                    if key in existing_order_items:
+                        continue
+                    await incoming_stock_repository.create_incoming({
+                        "warehouseId": ObjectId(order["warehouseId"]),
+                        "productId": ObjectId(item["productId"]),
+                        "variantId": ObjectId(item["variantId"]) if item.get("variantId") else None,
+                        "farmerId": ObjectId(order["farmerId"]),
+                        "orderId": ObjectId(order["_id"]),
+                        "quantity": int(item.get("quantity", 0)),
+                        "expectedDate": datetime.utcnow(),
+                        "batchNumber": None,
+                        "qualityGrade": None,
+                        "storageType": "ambient",
+                    })
+            except Exception:
+                logger.exception("Failed to create warehouse incoming stock for order %s", payment.get("orderId"))
+
         # Financial ledger: customer payment received.
         await ledger_service.record(
             amount=payment.get("amount", 0),
