@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
+from datetime import datetime, timedelta
 from app.api.v1.auth import get_current_user
 from app.schemas.product import (
     ProductResponse, ProductCreate, ProductUpdate,
@@ -21,6 +22,7 @@ router = APIRouter()
 harvest_plan_repo = BaseRepository("harvest_plans")
 harvest_preorder_repo = BaseRepository("harvest_preorders")
 batch_repo = BaseRepository("batches")
+quality_inspection_repo = BaseRepository("quality_inspections")
 
 def _serialize_product(product: dict) -> dict:
     product["id"] = str(product["_id"])
@@ -300,6 +302,92 @@ async def create_product(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Pre-order reservation could not be finalized. Please retry.",
             )
+
+    # Direct products also enter the same batch + quality gate. Harvest
+    # planning is optional, but marketplace publication is not allowed until
+    # the product has a traceable lot and quality approval.
+    if not data.sourceHarvestPlanId:
+        now = datetime.utcnow()
+        shelf_days = max(1, int((data.expiryDate - data.harvestDate).days)) if data.expiryDate and data.harvestDate else 3
+        grade_map = {"premium": "A", "standard": "B", "economy": "C"}
+        declared_grade = grade_map.get(str(data.qualityGrade.value if hasattr(data.qualityGrade, "value") else data.qualityGrade).lower(), "B")
+        lot_number = f"LOT-DIRECT-{now.strftime('%Y%m%d%H%M%S')}-{str(product['_id'])[-4:]}"
+        batch_id = await batch_repo.create({
+            "farmerId": ObjectId(current_user["_id"]),
+            "lotNumber": lot_number,
+            "cropName": data.name.strip(),
+            "quantityKg": float(data.quantity),
+            "remainingKg": float(data.quantity),
+            "harvestDate": data.harvestDate or now,
+            "qualityGrade": declared_grade,
+            "farmerDeclaredGrade": declared_grade,
+            "storageType": str(data.storageType.value if hasattr(data.storageType, "value") else data.storageType),
+            "shelfLifeDays": shelf_days,
+            "expiresAt": data.expiryDate or now + timedelta(days=shelf_days),
+            "productId": ObjectId(product["_id"]),
+            "sourceHarvestPlanId": None,
+            "qualityStatus": "pending_inspection",
+            "verificationStatus": "farmer_declared",
+            "status": "created",
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        })
+        if not batch_id:
+            await ProductService.delete_product(str(product["_id"]))
+            raise HTTPException(status_code=400, detail="Failed to create the product batch")
+        from app.services.quality_ai import assess_quality
+        inspection_id = await quality_inspection_repo.create({
+            "farmerId": ObjectId(current_user["_id"]),
+            "batchId": ObjectId(batch_id),
+            "lotNumber": lot_number,
+            "cropName": data.name.strip(),
+            "farmerDeclaredGrade": declared_grade,
+            "grade": None,
+            "freshness": 0,
+            "damagedPct": 0,
+            "weightKg": float(data.quantity),
+            "inspectorNotes": "Direct product creation; awaiting authorized verification.",
+            "photos": data.images or [],
+            "status": "pending",
+            "inspectionStatus": "pending",
+            "verificationStatus": "farmer_declared",
+            "verifiedGrade": None,
+            "verificationMethod": None,
+            "verifiedBy": None,
+            "verifiedAt": None,
+            "verificationNotes": None,
+            "requestedAt": now,
+            "inspectionDueAt": now + timedelta(hours=6),
+            "priority": "normal",
+            "aiAssessment": None,
+            "aiAssessedAt": None,
+            "deletedAt": None,
+            "updatedAt": now,
+        })
+        if inspection_id:
+            inspection = await quality_inspection_repo.find_one({"_id": ObjectId(inspection_id)})
+            try:
+                assessment = assess_quality(inspection or {})
+                assessment["assessedAt"] = datetime.utcnow()
+                await quality_inspection_repo.update(
+                    {"_id": ObjectId(inspection_id)},
+                    {"aiAssessment": assessment, "aiAssessedAt": assessment["assessedAt"]},
+                )
+            except Exception:
+                logger.exception("AI quality screening failed for direct product %s", product["_id"])
+            await batch_repo.update({"_id": ObjectId(batch_id)}, {"inspectionId": ObjectId(inspection_id), "inspectionRequestedAt": now})
+        await ProductService.update_product(str(product["_id"]), {
+            "isActive": False,
+            "status": "pending_review",
+            "qualityStatus": "pending_inspection",
+            "verificationStatus": "farmer_declared",
+            "batchId": ObjectId(batch_id),
+            "updatedAt": datetime.utcnow(),
+        })
+        product["isActive"] = False
+        product["status"] = "pending_review"
+        product["qualityStatus"] = "pending_inspection"
 
     # Harvest-linked products are created as catalog records but remain hidden
     # from customers until their source batch passes independent inspection.
