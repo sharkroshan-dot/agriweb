@@ -1130,14 +1130,11 @@ class OrderService:
         user_id: str,
         role: str,
         fulfillment_method: FulfillmentMethod,
-        delivery_method: str,
     ) -> Optional[Dict[str, Any]]:
-        """Let the farmer choose fulfillment after receiving the order.
+        """Farmer chooses only who fulfills the order: farmer or warehouse.
 
-        Customer checkout never selects an internal logistics route. The farmer
-        chooses farmer preparation + self delivery/partner delivery, or
-        warehouse fulfillment. Personal farmer delivery is only allowed inside
-        the farmer's configured delivery radius.
+        Delivery-partner transport is a downstream delivery step. It is never
+        a third farmer fulfillment choice.
         """
         if role != "farmer":
             return None
@@ -1149,125 +1146,16 @@ class OrderService:
         if str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
             return None
 
-        method = str(delivery_method or "farmer").lower()
-        if method not in ("farmer", "partner"):
-            return None
-
         fm = fulfillment_method.value if hasattr(fulfillment_method, "value") else str(fulfillment_method)
         if fm not in (FulfillmentMethod.FARM_DIRECT.value, FulfillmentMethod.WAREHOUSE.value):
             return None
 
-        # Farmer self-delivery is a distance-constrained option. Partner and
-        # warehouse routes remain available outside the farmer's radius.
-        if fm == FulfillmentMethod.FARM_DIRECT.value and method == "farmer":
-            distance = float((order.get("deliveryDetails") or {}).get("distanceKm") or 0)
-            if distance <= 0:
-                origin = await _resolve_tracking_origin(order)
-                destination = (order.get("deliveryAddress") or {}).get("location")
-                if origin and destination:
-                    try:
-                        distance = float(await __import__("app.services.delivery_service", fromlist=["DeliveryService"]).DeliveryService.calculate_distance(origin, destination))
-                    except Exception:
-                        distance = 0
-            try:
-                settings = await __import__("app.services.farmer_settings_service", fromlist=["farmer_settings_service"]).farmer_settings_service.get_settings(user_id)
-                radius = float((settings.get("orders") or {}).get("deliveryRadius", 5) or 5)
-            except Exception:
-                radius = 5.0
-            if distance > radius:
-                return None
-
         update = {
             "fulfillmentMethod": fm,
-            "deliveryMethod": method,
             "fulfillmentStage": FulfillmentStage.PENDING.value,
-            "selfDelivery": fm == FulfillmentMethod.FARM_DIRECT.value and method == "farmer",
             "updatedAt": datetime.utcnow(),
         }
-        if fm == FulfillmentMethod.WAREHOUSE.value:
-            warehouse_id = await OrderService.get_farmer_warehouse(user_id)
-            if not warehouse_id:
-                return None
-            update["warehouseId"] = ObjectId(warehouse_id)
 
-        await order_repository.update({"_id": order["_id"]}, update)
-
-        # Warehouse orders need an incoming work item as soon as the farmer
-        # chooses the route when the payment callback has not already created it.
-        if fm == FulfillmentMethod.WAREHOUSE.value:
-            try:
-                from app.repositories.incoming_stock_repository import incoming_stock_repository
-                existing = await incoming_stock_repository.get_by_warehouse_id(
-                    str(update["warehouseId"]), status=None, skip=0, limit=1000
-                )
-                existing_keys = {
-                    (str(x.get("orderId")), str(x.get("productId")), str(x.get("variantId") or ""))
-                    for x in existing if x.get("orderId")
-                }
-                for item in order.get("items", []):
-                    key = (str(order["_id"]), str(item.get("productId")), str(item.get("variantId") or ""))
-                    if key in existing_keys:
-                        continue
-                    await incoming_stock_repository.create_incoming({
-                        "warehouseId": update["warehouseId"],
-                        "productId": ObjectId(item["productId"]),
-                        "variantId": ObjectId(item["variantId"]) if item.get("variantId") else None,
-                        "farmerId": ObjectId(user_id),
-                        "orderId": order["_id"],
-                        "quantity": int(item.get("quantity", 0)),
-                        "expectedDate": datetime.utcnow(),
-                        "batchNumber": None,
-                        "qualityGrade": None,
-                        "storageType": "ambient",
-                    })
-            except Exception:
-                logger.exception("Failed to create warehouse incoming work for order %s", order_id)
-
-        return await order_repository.get_by_id(order_id)
-
-    @staticmethod
-    async def set_fulfillment_route(
-        order_id: str,
-        user_id: str,
-        role: str,
-        fulfillment_method: FulfillmentMethod,
-        delivery_method: str,
-    ) -> Optional[Dict[str, Any]]:
-        """Let the farmer choose fulfillment after receiving the order."""
-        if role != "farmer":
-            return None
-        order = await order_repository.get_by_id(order_id)
-        if not order or str(order.get("farmerId")) != user_id:
-            return None
-        if str(order.get("deliveryType") or "delivery") != DeliveryType.DELIVERY.value:
-            return None
-        if str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
-            return None
-
-        method = str(delivery_method or "farmer").lower()
-        if method not in ("farmer", "partner"):
-            return None
-        fm = fulfillment_method.value if hasattr(fulfillment_method, "value") else str(fulfillment_method)
-        if fm not in (FulfillmentMethod.FARM_DIRECT.value, FulfillmentMethod.WAREHOUSE.value):
-            return None
-
-        if fm == FulfillmentMethod.FARM_DIRECT.value and method == "farmer":
-            distance = float((order.get("deliveryDetails") or {}).get("distanceKm") or 0)
-            try:
-                settings = await __import__("app.services.farmer_settings_service", fromlist=["farmer_settings_service"]).farmer_settings_service.get_settings(user_id)
-                radius = float((settings.get("orders") or {}).get("deliveryRadius", 5) or 5)
-            except Exception:
-                radius = 5.0
-            if distance > radius:
-                return None
-
-        update = {
-            "fulfillmentMethod": fm,
-            "deliveryMethod": method,
-            "fulfillmentStage": FulfillmentStage.PENDING.value,
-            "selfDelivery": fm == FulfillmentMethod.FARM_DIRECT.value and method == "farmer",
-            "updatedAt": datetime.utcnow(),
-        }
         if fm == FulfillmentMethod.WAREHOUSE.value:
             warehouse_id = await OrderService.get_farmer_warehouse(user_id)
             if not warehouse_id:
