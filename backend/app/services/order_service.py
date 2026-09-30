@@ -9,7 +9,8 @@ from app.repositories.coupon_repository import coupon_repository
 from app.repositories.payment_repository import payment_repository
 from app.schemas.order import (
     OrderCreate, OrderUpdate, OrderStatusUpdate,
-    OrderFilterParams, OrderStatus, PaymentStatus, DeliveryType
+    OrderFilterParams, OrderStatus, PaymentStatus, DeliveryType,
+    FulfillmentMethod, FulfillmentStage
 )
 from app.services.notification_service import NotificationService
 from app.services.payment_service import PaymentService
@@ -293,6 +294,9 @@ class OrderService:
         subtotal = 0
         farmer_id = None
         warehouse_id = None
+        fulfillment_method = data.fulfillmentMethod.value if hasattr(data.fulfillmentMethod, 'value') else str(data.fulfillmentMethod or 'farmer')
+        if fulfillment_method not in (FulfillmentMethod.FARM_DIRECT.value, FulfillmentMethod.WAREHOUSE.value):
+            fulfillment_method = FulfillmentMethod.FARM_DIRECT.value
         order_farmer_ids = set()
         is_bulk_order = False
         bulk_discount_applied = 0
@@ -350,7 +354,10 @@ class OrderService:
                     "Products from different farmers must be checked out separately."
                 )
             farmer_id = product_farmer_id
-            warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
+            if fulfillment_method == FulfillmentMethod.WAREHOUSE.value:
+                warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
+                if not warehouse_id:
+                    raise OrderCreationError('Warehouse fulfillment was selected, but no warehouse is configured for this farmer.')
             
             min_bulk = product.get("minBulkQty", 0)
             bulk_price = product.get("bulkPrice")
@@ -500,7 +507,9 @@ class OrderService:
             "idempotencyKey": data.idempotencyKey,
             "preorderId": ObjectId(data.preorderId) if data.preorderId else None,
             "farmerId": ObjectId(farmer_id),
-            "warehouseId": ObjectId(warehouse_id) if warehouse_id else None,
+            "warehouseId": ObjectId(warehouse_id) if fulfillment_method == FulfillmentMethod.WAREHOUSE.value and warehouse_id else None,
+            "fulfillmentMethod": fulfillment_method,
+            "fulfillmentStage": FulfillmentStage.PENDING.value,
             "items": items_data,
             "subtotal": subtotal,
             "deliveryCharge": delivery_charge,
@@ -864,6 +873,11 @@ class OrderService:
         elif role not in ["admin", "farmer", "delivery", "customer"]:
             return None
         
+        fulfillment_method = str(order.get('fulfillmentMethod') or FulfillmentMethod.FARM_DIRECT.value)
+        if role == 'farmer' and fulfillment_method == FulfillmentMethod.WAREHOUSE.value:
+            if new_status in (OrderStatus.READY_FOR_DELIVERY, OrderStatus.DISPATCHED, OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED):
+                return None
+
         # Additional validation for customer cancellation
         if role == "customer" and new_status == OrderStatus.CANCELLED:
             # The customer may cancel directly only while the order is in an
@@ -1103,6 +1117,33 @@ class OrderService:
         
         return await order_repository.get_by_id(order_id)
     
+    @staticmethod
+    async def update_fulfillment_stage(order_id: str, user_id: str, role: str, stage: FulfillmentStage) -> Optional[Dict[str, Any]]:
+        """Farmer-direct Pick -> Pack -> Dispatch lifecycle."""
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("fulfillmentMethod") or FulfillmentMethod.FARM_DIRECT.value) != FulfillmentMethod.FARM_DIRECT.value:
+            return None
+        if role == "farmer" and str(order.get("farmerId")) != user_id:
+            return None
+        if role != "farmer" and role != "admin":
+            return None
+        current = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
+        target = stage.value
+        allowed = {
+            FulfillmentStage.PENDING.value: {FulfillmentStage.PICKED.value},
+            FulfillmentStage.PICKED.value: {FulfillmentStage.PACKED.value},
+            FulfillmentStage.PACKED.value: {FulfillmentStage.DISPATCHED.value},
+            FulfillmentStage.DISPATCHED.value: set(),
+        }
+        if target not in allowed.get(current, set()) or str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
+            return None
+        update = {"fulfillmentStage": target, "updatedAt": datetime.utcnow()}
+        if target == FulfillmentStage.DISPATCHED.value:
+            update["orderStatus"] = OrderStatus.READY_FOR_DELIVERY.value
+            update["dispatchedAt"] = datetime.utcnow()
+        await order_repository.update({"_id": order["_id"]}, update)
+        return await order_repository.get_by_id(order_id)
+
     @staticmethod
     async def validate_status_transition(
         current_status: str,
