@@ -604,30 +604,9 @@ class OrderService:
             except Exception as exc:
                 logger.warning("Order %s created but coupon usage recording failed: %s", order_id, exc)
 
-        for item in data.items:
-            if hasattr(item, 'reservationId') and item.reservationId:
-                await inventory_service.confirm_reservation(
-                    item.reservationId, order_id
-                )
-            else:
-                confirmed = await inventory_repository.atomic_confirm(
-                    item.productId,
-                    item.quantity,
-                    inventory_id=item.variantId if item.variantId else None,
-                )
-                if not confirmed:
-                    logger.error(
-                        "Inventory confirmation failed for order %s, product %s",
-                        order_id,
-                        item.productId,
-                    )
-                    raise OrderCreationError(
-                        f"Inventory confirmation failed for product {item.productId}"
-                    )
-                await product_repository.decrement_quantity(item.productId, item.quantity)
-                stock = await InventoryService.get_stock(item.productId)
-                if stock:
-                    await broadcast_stock_update(item.productId, stock)
+        # Inventory stays reserved while the order is pending.
+        # Farmer confirmation is the authoritative point that converts the
+        # reservation into sold stock.
         
         if preorder:
             # The normal order confirmation above consumes the pre-order's
@@ -927,6 +906,33 @@ class OrderService:
         if new_status == OrderStatus.READY_FOR_PICKUP and order.get("deliveryType") != DeliveryType.PICKUP.value:
             return None
         
+        committed_inventory: List[tuple[str, float, Optional[str]]] = []
+        if role == "farmer" and new_status == OrderStatus.CONFIRMED and not order.get("preorderId"):
+            try:
+                for item in order.get("items", []):
+                    product_id = str(item["productId"])
+                    quantity = float(item.get("quantity", 0) or 0)
+                    inventory_id = str(item["variantId"]) if item.get("variantId") else None
+                    confirmed = await inventory_repository.atomic_confirm(
+                        product_id, quantity, inventory_id=inventory_id
+                    )
+                    if not confirmed:
+                        raise InsufficientStockError(
+                            product_id,
+                            quantity,
+                            await inventory_service.get_available_stock(product_id),
+                        )
+                    committed_inventory.append((product_id, quantity, inventory_id))
+            except Exception:
+                for product_id, quantity, inventory_id in committed_inventory:
+                    try:
+                        await inventory_repository.atomic_refund(
+                            product_id, quantity, inventory_id=inventory_id
+                        )
+                    except Exception:
+                        logger.exception("Failed to roll back inventory confirmation for order %s", order_id)
+                raise
+
         # Update status
         success = await order_repository.update_order_status(
             order_id,
@@ -937,7 +943,25 @@ class OrderService:
         )
         
         if not success:
+            if committed_inventory:
+                for product_id, quantity, inventory_id in committed_inventory:
+                    try:
+                        await inventory_repository.atomic_refund(
+                            product_id, quantity, inventory_id=inventory_id
+                        )
+                    except Exception:
+                        logger.exception("Failed to roll back inventory after status update failure for order %s", order_id)
             return None
+
+        if role == "farmer" and new_status == OrderStatus.CONFIRMED and committed_inventory:
+            for product_id, quantity, _inventory_id in committed_inventory:
+                try:
+                    await product_repository.decrement_quantity(product_id, quantity)
+                    stock = await InventoryService.get_stock(product_id)
+                    if stock:
+                        await broadcast_stock_update(product_id, stock)
+                except Exception:
+                    logger.exception("Failed to update product stock projection for %s", product_id)
 
         # Every time the farmer starts Processing, require an explicit
         # fulfillment-route choice. This also repairs legacy orders that were
@@ -1435,22 +1459,26 @@ class OrderService:
     
     @staticmethod
     async def release_inventory(order_id: str) -> bool:
-        """Release inventory for cancelled order."""
+        """Release reserved stock for pending orders or refund sold stock for confirmed orders."""
         order = await order_repository.get_by_id(order_id)
         if not order:
             return False
-        
+
+        all_ok = True
         for item in order.get("items", []):
             product_id = str(item["productId"])
-            quantity = item["quantity"]
-            
-            await inventory_repository.atomic_refund(
-                product_id,
-                quantity,
-                inventory_id=str(item.get("variantId")) if item.get("variantId") else None,
+            quantity = float(item.get("quantity", 0) or 0)
+            inventory_id = str(item.get("variantId")) if item.get("variantId") else None
+            released = await inventory_repository.atomic_release(
+                product_id, quantity, inventory_id=inventory_id
             )
-        
-        return True
+            if not released:
+                released = await inventory_repository.atomic_refund(
+                    product_id, quantity, inventory_id=inventory_id
+                )
+            all_ok = all_ok and released
+
+        return all_ok
     
     @staticmethod
     async def get_order_summary(
