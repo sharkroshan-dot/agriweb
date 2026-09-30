@@ -100,6 +100,18 @@ class WarehouseService:
             "deletedAt": None
         })
 
+        warehouse = await warehouse_repository.get_by_id(data.warehouseId)
+        if not warehouse:
+            return None
+        current_used = float(warehouse.get("usedCapacity", 0) or 0)
+        existing_quantity = float(existing.get("quantity", 0) or 0) if existing else 0
+        new_total = current_used - existing_quantity + float(data.quantity)
+        total_capacity = float(warehouse.get("totalCapacity", 0) or 0)
+        if total_capacity > 0 and new_total > total_capacity:
+            raise ValueError(
+                f"Warehouse capacity exceeded. Available: {max(0, total_capacity - current_used):g}, requested: {data.quantity:g}."
+            )
+
         if existing:
             new_quantity = existing.get("quantity", 0) + data.quantity
             await warehouse_stock_repository.update_stock(
@@ -193,6 +205,14 @@ class WarehouseService:
             return None
 
         if quality_check == "passed" and quantity > 0:
+            warehouse = await warehouse_repository.get_by_id(str(incoming["warehouseId"]))
+            if not warehouse:
+                return None
+            current_used = float(warehouse.get("usedCapacity", 0) or 0)
+            total_capacity = float(warehouse.get("totalCapacity", 0) or 0)
+            if total_capacity > 0 and current_used + quantity > total_capacity:
+                return None
+
             stock_filter = {
                 "warehouseId": ObjectId(incoming["warehouseId"]),
                 "productId": ObjectId(incoming["productId"]),
