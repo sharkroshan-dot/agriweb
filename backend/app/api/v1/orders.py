@@ -237,7 +237,6 @@ async def update_fulfillment_route(
         str(current_user["_id"]),
         current_user.get("role"),
         data.fulfillmentMethod,
-        data.deliveryMethod,
     )
     if not result:
         raise HTTPException(
