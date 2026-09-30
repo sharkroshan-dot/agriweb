@@ -185,7 +185,9 @@ export default function FarmerOrderMapPage() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState(false);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
-  // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.\n  const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);\n
+  // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.
+  const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
+
   const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [assignMode, setAssignMode] = useState<"marketplace" | "manual" | "ai">("marketplace");
