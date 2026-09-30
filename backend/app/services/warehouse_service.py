@@ -260,6 +260,12 @@ class WarehouseService:
 
     @staticmethod
     async def create_outgoing(data: OutgoingStockCreate) -> Optional[Dict[str, Any]]:
+        from app.repositories.order_repository import order_repository
+        order = await order_repository.get_by_id(data.orderId)
+        if not order or str(order.get("fulfillmentMethod") or "farmer") != "warehouse":
+            return None
+        if str(order.get("warehouseId")) != str(data.warehouseId):
+            return None
         stock = await warehouse_stock_repository.find_one({
             "warehouseId": ObjectId(data.warehouseId),
             "productId": ObjectId(data.productId),
@@ -293,6 +299,10 @@ class WarehouseService:
         if not outgoing:
             return None
         if warehouse_id and str(outgoing.get("warehouseId")) != str(warehouse_id):
+            return None
+        from app.repositories.order_repository import order_repository
+        order = await order_repository.get_by_id(str(outgoing.get("orderId"))) if outgoing.get("orderId") else None
+        if not order or str(order.get("fulfillmentMethod") or "farmer") != "warehouse":
             return None
         success = await outgoing_stock_repository.update_status(outgoing_id, status, data)
         if not success:
