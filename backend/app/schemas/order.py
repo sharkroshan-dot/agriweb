@@ -111,6 +111,11 @@ class OrderStatusUpdate(BaseModel):
 class AssignPartnerRequest(BaseModel):
     partnerId: Optional[str] = None
 
+
+class FulfillmentRouteUpdate(BaseModel):
+    fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
+    deliveryMethod: str = "farmer"
+
 class OrderResponse(BaseModel):
     id: str
     orderNumber: str
