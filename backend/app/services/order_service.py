@@ -939,6 +939,22 @@ class OrderService:
         if not success:
             return None
 
+        # Every time the farmer starts Processing, require an explicit
+        # fulfillment-route choice. This also repairs legacy orders that were
+        # previously auto-defaulted to Farmer Fulfillment.
+        if role == "farmer" and new_status == OrderStatus.PROCESSING:
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {
+                    "fulfillmentMethod": None,
+                    "fulfillmentRouteSelected": False,
+                    "fulfillmentRouteVersion": 0,
+                    "deliveryResponsibility": None,
+                    "fulfillmentStage": FulfillmentStage.PENDING.value,
+                    "updatedAt": datetime.utcnow(),
+                },
+            )
+
         is_pickup = order.get("deliveryType") == DeliveryType.PICKUP.value
         
         if new_status == OrderStatus.CONFIRMED:
@@ -1165,6 +1181,8 @@ class OrderService:
             "fulfillmentMethod": fm,
             "fulfillmentStage": FulfillmentStage.PENDING.value,
             "fulfillmentRouteSelected": True,
+            "fulfillmentRouteVersion": 1,
+            "deliveryResponsibility": None,
             "updatedAt": datetime.utcnow(),
         }
 
