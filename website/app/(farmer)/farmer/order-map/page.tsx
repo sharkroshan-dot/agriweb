@@ -130,6 +130,38 @@ const getCoordinates = (stop: any): { lat: number; lng: number } | null => {
   return isValidCoordinate(lat, lng) ? { lat, lng } : null;
 };
 
+const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+  const R = 6371;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const la1 = (a.lat * Math.PI) / 180;
+  const la2 = (b.lat * Math.PI) / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
+
+const distanceToRouteKm = (point: { lat: number; lng: number }, route: { lat: number; lng: number }[]) => {
+  if (route.length < 2) return { distanceKm: Infinity, position: 0 };
+  let best = { distanceKm: Infinity, position: 0 };
+  for (let i = 0; i < route.length - 1; i += 1) {
+    const a = route[i];
+    const b = route[i + 1];
+    const latScale = 111.32;
+    const lngScale = 111.32 * Math.cos((point.lat * Math.PI) / 180);
+    const ax = a.lng * lngScale, ay = a.lat * latScale;
+    const bx = b.lng * lngScale, by = b.lat * latScale;
+    const px = point.lng * lngScale, py = point.lat * latScale;
+    const dx = bx - ax, dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    const cx = ax + t * dx, cy = ay + t * dy;
+    const distanceKm = Math.hypot(px - cx, py - cy);
+    const position = i + t;
+    if (distanceKm < best.distanceKm) best = { distanceKm, position };
+  }
+  return best;
+};
+
 const getStatusBadge = (stop: any) => {
   if (isDone(stop)) return <Badge variant="success">Completed</Badge>;
   switch (getStatus(stop)) {
@@ -187,6 +219,15 @@ export default function FarmerOrderMapPage() {
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
+  const [routeDestination, setRouteDestination] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [routeDestinationText, setRouteDestinationText] = useState("");
+  const [routeSearchResults, setRouteSearchResults] = useState<any[]>([]);
+  const [routeSearching, setRouteSearching] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routePickMode, setRoutePickMode] = useState(false);
+  const [routeGeometry, setRouteGeometry] = useState<{ lat: number; lng: number }[]>([]);
+  const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMinutes: number } | null>(null);
+  const [routeMatches, setRouteMatches] = useState<any[]>([]);
 
   const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
@@ -421,8 +462,8 @@ export default function FarmerOrderMapPage() {
 
   const routePlanStats = useMemo(() => {
     const weight = selectedRouteOrders.reduce((sum, stop) => sum + Number(stop.quantityKg || 0), 0);
-    const distance = selectedRouteOrders.reduce((sum, stop) => sum + Number(stop.distance || 0), 0);
-    const travelMinutes = selectedRouteOrders.reduce(
+    const distance = routeInfo?.distanceKm ?? selectedRouteOrders.reduce((sum, stop) => sum + Number(stop.distance || 0), 0);
+    const minutes = routeInfo?.durationMinutes ?? selectedRouteOrders.reduce(
       (sum, stop) => sum + (Number(stop.distance || 0) / 25) * 60 + 10,
       0
     );
@@ -430,14 +471,91 @@ export default function FarmerOrderMapPage() {
       count: selectedRouteOrders.length,
       weight: Math.round(weight * 10) / 10,
       distance: Math.round(distance * 10) / 10,
-      minutes: Math.round(travelMinutes),
+      minutes: Math.round(minutes),
     };
-  }, [selectedRouteOrders]);
+  }, [selectedRouteOrders, routeInfo]);
 
   const toggleRouteOrder = (orderId: string) => {
     setSelectedRouteIds((current) =>
       current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]
     );
+  };
+
+  const chooseRouteDestination = (lat: number, lng: number, label: string) => {
+    setRouteDestination({ lat, lng, label });
+    setRouteDestinationText(label);
+    setRouteSearchResults([]);
+    setRoutePickMode(false);
+  };
+
+  const searchRouteDestination = async () => {
+    const query = routeDestinationText.trim();
+    if (!query) return toast.error("Enter a destination first");
+    setRouteSearching(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(query)}`,
+        { headers: { "Accept-Language": "en", "User-Agent": "agriconnect-farmer-route/1.0" } }
+      );
+      if (!response.ok) throw new Error("Destination search failed");
+      const results = await response.json();
+      setRouteSearchResults(Array.isArray(results) ? results : []);
+      if (!results?.length) toast.error("Destination not found. Try a more specific place or address.");
+    } catch (e: any) {
+      toast.error(e?.message || "Could not search destination");
+    } finally {
+      setRouteSearching(false);
+    }
+  };
+
+  const findOrdersAlongRoute = async () => {
+    if (!routeDestination) return toast.error("Choose a destination first");
+    const origin = farmCoordinates || liveLocation;
+    if (!origin) return toast.error("Farm location or your current location is required");
+    setRouteLoading(true);
+    try {
+      const response = await fetch(
+        `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${routeDestination.lng},${routeDestination.lat}?overview=full&geometries=geojson&steps=false`
+      );
+      if (!response.ok) throw new Error("Route service unavailable");
+      const payload = await response.json();
+      const route = payload?.routes?.[0];
+      const geometry = route?.geometry?.coordinates;
+      if (!route || !Array.isArray(geometry) || geometry.length < 2) {
+        throw new Error("Could not calculate a road route to that destination");
+      }
+      const points = geometry.map((c: number[]) => ({ lat: Number(c[1]), lng: Number(c[0]) }));
+      setRouteGeometry(points);
+      setRouteInfo({
+        distanceKm: Math.round((Number(route.distance || 0) / 1000) * 10) / 10,
+        durationMinutes: Math.max(1, Math.round(Number(route.duration || 0) / 60)),
+      });
+      const matches = routeCandidates
+        .map((stop) => {
+          const coordinates = getCoordinates(stop);
+          if (!coordinates) return null;
+          const match = distanceToRouteKm(coordinates, points);
+          return {
+            ...stop,
+            routeDistanceKm: Math.round(match.distanceKm * 10) / 10,
+            routePosition: match.position,
+            routeCategory: match.distanceKm <= 1.5 ? "along_route" : "small_detour",
+          };
+        })
+        .filter((stop): stop is any => Boolean(stop) && Number(stop.routeDistanceKm) <= 3)
+        .sort((a, b) => Number(a.routePosition) - Number(b.routePosition));
+      setRouteMatches(matches);
+      setSelectedRouteIds([]);
+      if (!matches.length) toast("No eligible dispatched orders were found within 3 km of this route.", { icon: "🗺️" });
+      else toast.success(`${matches.length} eligible order${matches.length === 1 ? "" : "s"} found along your route`);
+    } catch (e: any) {
+      setRouteGeometry([]);
+      setRouteInfo(null);
+      setRouteMatches([]);
+      toast.error(e?.message || "Could not calculate the route");
+    } finally {
+      setRouteLoading(false);
+    }
   };
 
   const deliverSelectedMutation = useMutation({
@@ -471,8 +589,8 @@ export default function FarmerOrderMapPage() {
       .map((stop) => getCoordinates(stop))
       .filter(Boolean) as { lat: number; lng: number }[];
     const origin = farmCoordinates || liveLocation || points[0];
-    const destination = points[points.length - 1];
-    const waypoints = points.slice(0, -1).map((p) => `${p.lat},${p.lng}`).join("|");
+    const destination = routeDestination || points[points.length - 1];
+    const waypoints = points.map((p) => `${p.lat},${p.lng}`).join("|");
     const params = new URLSearchParams({
       api: "1",
       origin: `${origin.lat},${origin.lng}`,
@@ -993,21 +1111,18 @@ export default function FarmerOrderMapPage() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <ListChecks className="h-5 w-5 text-blue-600" />
-              Route Planning
+              I'm Going This Way
             </CardTitle>
             <CardDescription>
-              “I'm going this way” — select the dispatched customer orders along your route. Deliver Myself assigns the selected stops to you; Create Route opens the navigation sequence.
+              Enter where you are going. AgriConnect calculates the road route from your farm/current location and finds eligible dispatched customer orders near that route.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setSelectedRouteIds(routeCandidates.map((stop) => getStopId(stop)))}
-              disabled={!routeCandidates.length}
-            >
-              Select Eligible
-            </Button>
+            {routeMatches.length > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(routeMatches.map((stop) => getStopId(stop)))}>
+                Select All Route Orders
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>
               Clear
             </Button>
@@ -1018,19 +1133,71 @@ export default function FarmerOrderMapPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Destination</label>
+              <div className="mt-1 flex flex-wrap gap-2">
+                <Input
+                  className="min-w-[240px] flex-1"
+                  value={routeDestinationText}
+                  onChange={(e) => setRouteDestinationText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      searchRouteDestination();
+                    }
+                  }}
+                  placeholder="Search destination, market, town or address"
+                />
+                <Button onClick={searchRouteDestination} disabled={routeSearching || !routeDestinationText.trim()}>
+                  {routeSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+                  <span className="ml-1.5">Search</span>
+                </Button>
+                <Button variant={routePickMode ? "default" : "outline"} onClick={() => setRoutePickMode((v) => !v)}>
+                  <Crosshair className="mr-1.5 h-4 w-4" /> Select on Map
+                </Button>
+              </div>
+              {routePickMode && <p className="mt-1 text-xs text-blue-700">Click the map below to choose the destination.</p>}
+              {routeSearchResults.length > 0 && (
+                <div className="mt-2 divide-y rounded-lg border bg-white">
+                  {routeSearchResults.map((result, index) => (
+                    <button
+                      key={`${result.place_id || index}`}
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                      onClick={() => chooseRouteDestination(Number(result.lat), Number(result.lon), String(result.display_name || routeDestinationText))}
+                    >
+                      {result.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {routeDestination && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant="outline">Start: {farmCoordinates ? "My Farm" : "My Location"}</Badge>
+                  <Badge variant="success">Destination: {routeDestination.label}</Badge>
+                  {routeInfo && <Badge variant="secondary">{routeInfo.distanceKm} km · {routeInfo.durationMinutes} min</Badge>}
+                </div>
+              )}
+            </div>
+            <Button size="lg" className="self-end" onClick={findOrdersAlongRoute} disabled={!routeDestination || routeLoading}>
+              {routeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Navigation className="mr-2 h-4 w-4" />}
+              Find Orders Along My Route
+            </Button>
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryStat label="Selected Stops" value={String(routePlanStats.count)} tone="blue" />
             <SummaryStat label="Product Weight" value={`${routePlanStats.weight} KG`} tone="amber" />
             <SummaryStat label="Distance" value={`${routePlanStats.distance} KM`} tone="violet" />
             <SummaryStat label="Est. Travel + Stops" value={`${routePlanStats.minutes} min`} tone="blue" />
           </div>
-          {routeCandidates.length === 0 ? (
+          {routeMatches.length === 0 ? (
             <p className="rounded-lg border border-dashed bg-white p-4 text-center text-sm text-muted-foreground">
-              No active orders are currently available for farmer route planning.
+              {routeDestination ? "Calculate the route to see eligible dispatched orders within 3 km of it." : "Choose a destination to find customer orders along your route."}
             </p>
           ) : (
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
-              {routeCandidates.map((stop, index) => {
+              {routeMatches.map((stop, index) => {
                 const id = getStopId(stop);
                 const checked = selectedRouteIds.includes(id);
                 return (
@@ -1051,8 +1218,11 @@ export default function FarmerOrderMapPage() {
                         <p className="truncate text-sm font-semibold">{stop.buyerName || stop.orderNumber || "Delivery order"}</p>
                         <p className="mt-1 truncate text-xs text-muted-foreground">{formatAddress(stop)}</p>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {stop.distance != null ? `${stop.distance} km` : "Distance unavailable"} · {stop.quantityKg ?? stop.quantity ?? 0} kg
+                          {stop.routeDistanceKm} km from route · {stop.quantityKg ?? stop.quantity ?? 0} kg
                         </p>
+                        <Badge variant={stop.routeCategory === "along_route" ? "success" : "warning"} className="mt-2">
+                          {stop.routeCategory === "along_route" ? "Along Route" : "Small Detour"}
+                        </Badge>
                       </div>
                     </div>
                   </button>
@@ -1099,12 +1269,16 @@ export default function FarmerOrderMapPage() {
                 center={mapCenter}
                 zoom={12}
                 markers={mapMarkers}
+                route={routeGeometry}
                 trackUserLocation
                 userLocation={liveLocation}
                 height="560px"
                 circle={farmCoordinates ? { center: farmCoordinates, radiusKm } : undefined}
                 onMarkerClick={(marker) => {
                   if (marker.id !== "farm") setSelectedStopId(String(marker.id));
+                }}
+                onMapClick={(coords) => {
+                  if (routePickMode) chooseRouteDestination(coords.lat, coords.lng, `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
                 }}
               />
             )}
