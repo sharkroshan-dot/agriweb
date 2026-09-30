@@ -124,6 +124,107 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const handleProcessAllOrders = async () => {
+    const candidates = orderList.filter((order: any) => {
+      const status = getStatus(order);
+      return !["delivered", "cancelled", "refunded", "in_transit"].includes(status);
+    });
+
+    if (candidates.length === 0) {
+      toast("No orders are waiting for a farmer action.");
+      return;
+    }
+
+    let completed = 0;
+    let blocked = 0;
+    let failed = 0;
+
+    for (const order of candidates) {
+      const orderId = order.id || order._id;
+      if (!orderId) {
+        failed++;
+        continue;
+      }
+
+      try {
+        let status = getStatus(order);
+        let fulfillmentStage = order.fulfillmentStage || "pending";
+
+        // Move the order through the normal farmer workflow without requiring
+        // the farmer to open each order individually.
+        if (status === "pending") {
+          await api.put(`/orders/${orderId}/status`, { status: "confirmed" });
+          status = "confirmed";
+        }
+
+        if (status === "confirmed") {
+          await api.put(`/orders/${orderId}/status`, { status: "processing" });
+          status = "processing";
+        }
+
+        // Fulfillment route and delivery responsibility are intentional
+        // decisions, so bulk processing never guesses them.
+        const routeSelected =
+          order.fulfillmentRouteSelected === true &&
+          Number(order.fulfillmentRouteVersion || 0) === 1;
+
+        if (status === "processing" && !routeSelected) {
+          blocked++;
+          continue;
+        }
+
+        if (
+          status === "processing" &&
+          order.fulfillmentMethod === "farmer" &&
+          !order.deliveryResponsibility
+        ) {
+          blocked++;
+          continue;
+        }
+
+        if (status === "processing" && fulfillmentStage === "pending") {
+          await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, {
+            params: { stage: "picked" },
+          });
+          fulfillmentStage = "picked";
+        }
+
+        if (status === "processing" && fulfillmentStage === "picked") {
+          await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, {
+            params: { stage: "packed" },
+          });
+          fulfillmentStage = "packed";
+        }
+
+        if (status === "processing" && fulfillmentStage === "packed") {
+          await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, {
+            params: { stage: "dispatched" },
+          });
+        }
+
+        completed++;
+      } catch {
+        failed++;
+      }
+    }
+
+    await refetch();
+
+    if (completed > 0) {
+      toast.success(
+        `Bulk processing completed for ${completed} order${completed === 1 ? "" : "s"}` +
+        (blocked ? `; ${blocked} waiting for fulfillment selection` : "") +
+        (failed ? `; ${failed} failed` : "")
+      );
+    } else if (blocked > 0) {
+      toast(
+        `${blocked} order${blocked === 1 ? "" : "s"} need fulfillment selection before they can continue.`
+      );
+    } else {
+      toast.error("No orders could be processed.");
+    }
+  };
+
   const handleSelfDeliver = async (orderId: string) => {
     try {
       await api.put(`/orders/${orderId}/self-delivery`);
@@ -254,6 +355,21 @@ export default function FarmerOrdersPage() {
           <h1 className="text-3xl font-bold">Orders</h1>
           <p className="text-gray-500">Manage your orders ({orderList.length})</p>
         </div>
+      <Card className="border-dashed">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold">Bulk order processing</p>
+            <p className="text-sm text-muted-foreground">
+              Process all visible orders with one click. Confirmed and processing orders advance automatically; fulfillment choices are never guessed.
+            </p>
+          </div>
+          <Button onClick={handleProcessAllOrders} className="shrink-0">
+            <CheckCircle className="mr-2 h-4 w-4" />
+            Process All Orders
+          </Button>
+        </CardContent>
+      </Card>
+
         <div className="flex items-center gap-2">
           <Button
             variant={showDeliveryRoutes ? "default" : "outline"}
