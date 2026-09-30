@@ -874,8 +874,15 @@ class OrderService:
             return None
         
         fulfillment_method = str(order.get('fulfillmentMethod') or FulfillmentMethod.FARM_DIRECT.value)
-        if role == 'farmer' and fulfillment_method == FulfillmentMethod.WAREHOUSE.value:
-            if new_status in (OrderStatus.READY_FOR_DELIVERY, OrderStatus.DISPATCHED, OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED):
+        if role == 'farmer':
+            if fulfillment_method == FulfillmentMethod.WAREHOUSE.value and new_status in (
+                OrderStatus.READY_FOR_DELIVERY, OrderStatus.DISPATCHED,
+                OrderStatus.IN_TRANSIT, OrderStatus.DELIVERED,
+            ):
+                return None
+            if fulfillment_method == FulfillmentMethod.FARM_DIRECT.value and new_status in (
+                OrderStatus.READY_FOR_DELIVERY, OrderStatus.DISPATCHED,
+            ):
                 return None
 
         # Additional validation for customer cancellation
