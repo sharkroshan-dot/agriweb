@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, Loader2, MapPin, RefreshCw, Save, Settings, Snowflake, Warehouse } from "lucide-react";
+import { Bell, Loader2, MapPin, RefreshCw, Save, Settings, Snowflake, Warehouse, LocateFixed } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
@@ -100,6 +100,32 @@ export default function WarehouseSettingsPage() {
 
   const updatePrefs = (field: keyof typeof prefs, value: string | number | boolean) => {
     setPrefs((current) => ({ ...current, [field]: value }));
+  };
+
+
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Live location is not supported by this browser");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setForm((current) => ({
+          ...current,
+          latitude: String(coords.latitude),
+          longitude: String(coords.longitude),
+        }));
+        toast.success("Current live location captured");
+      },
+      (error) => {
+        const message = error.code === 1
+          ? "Location permission was denied. Allow location access and try again."
+          : "Unable to get your current location. Please try again.";
+        toast.error(message);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
   };
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
@@ -226,8 +252,20 @@ export default function WarehouseSettingsPage() {
                 <div><label className="text-sm font-medium">State</label><Input value={form.state} onChange={(event) => updateForm("state", event.target.value)} className="mt-1" /></div>
                 <div><label className="text-sm font-medium">Postal Code</label><Input value={form.postalCode} onChange={(event) => updateForm("postalCode", event.target.value)} className="mt-1" /></div>
                 <div><label className="text-sm font-medium">Country</label><Input value={form.country} onChange={(event) => updateForm("country", event.target.value)} className="mt-1" /></div>
-                <div><label className="text-sm font-medium">Latitude</label><Input type="number" step="any" value={form.latitude} onChange={(event) => updateForm("latitude", event.target.value)} className="mt-1" /></div>
-                <div><label className="text-sm font-medium">Longitude</label><Input type="number" step="any" value={form.longitude} onChange={(event) => updateForm("longitude", event.target.value)} className="mt-1" /></div>
+                <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Warehouse live location</p>
+                      <p className="text-xs text-muted-foreground">Use the device's current GPS location for routing and logistics. Latitude and longitude are stored automatically.</p>
+                    </div>
+                    <Button type="button" variant="outline" onClick={useCurrentLocation}>
+                      <LocateFixed className="mr-2 h-4 w-4" />Use Current Live Location
+                    </Button>
+                  </div>
+                  {(form.latitude && form.longitude) && (
+                    <p className="mt-3 text-xs text-muted-foreground">Location captured and ready to save.</p>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
