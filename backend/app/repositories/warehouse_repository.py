@@ -76,13 +76,26 @@ class WarehouseRepository(BaseRepository):
     async def get_by_manager(self, manager_id: str) -> Optional[Dict[str, Any]]:
         try:
             manager_object_id = ObjectId(manager_id)
+            # Existing databases may contain either ObjectId or string user
+            # references. Resolve both formats so legacy warehouse profiles
+            # continue to work after the manager schema was standardized.
             warehouse = await self.find_one({
                 "$or": [
-                    {"managerId": manager_object_id},
-                    {"userId": manager_object_id},
+                    {"managerId": {"$in": [manager_object_id, manager_id]}},
+                    {"userId": {"$in": [manager_object_id, manager_id]}},
                 ],
                 "deletedAt": None
             })
+
+            # Repair legacy records on first successful lookup so all future
+            # warehouse operations use the canonical managerId.
+            if warehouse and warehouse.get("managerId") != manager_object_id:
+                await self.update(
+                    {"_id": warehouse["_id"]},
+                    {"managerId": manager_object_id, "userId": manager_object_id},
+                )
+                warehouse["managerId"] = manager_object_id
+                warehouse["userId"] = manager_object_id
             if not warehouse:
                 return None
             await self.sync_capacity_usage(str(warehouse["_id"]))
