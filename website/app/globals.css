@@ -137,3 +137,86 @@ button { -webkit-tap-highlight-color: transparent; }
   .ui-section-title { @apply text-xl font-bold tracking-tight text-slate-900 sm:text-2xl; }
   .ui-muted { @apply text-sm text-slate-500; }
 }
+
+/* Farmer workspace: consistent visual hierarchy for all non-order pages. */
+@layer components {
+  .farmer-workspace {
+    --workspace-gap: 18px;
+  }
+
+  .farmer-workspace > * + * {
+    margin-top: var(--workspace-gap);
+  }
+
+  .farmer-workspace h1 {
+    color: #0f172a;
+    font-size: clamp(1.55rem, 2vw, 2rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+
+  .farmer-workspace h2 {
+    color: #0f172a;
+    font-size: 1.05rem;
+    font-weight: 750;
+    letter-spacing: -0.015em;
+  }
+
+  .farmer-workspace [class*="rounded-lg"][class*="border"],
+  .farmer-workspace [class*="rounded-xl"][class*="border"] {
+    border-color: #e2e8f0;
+  }
+
+  .farmer-workspace input,
+  .farmer-workspace textarea,
+  .farmer-workspace select {
+    border-radius: 0.75rem;
+  }
+
+  .farmer-workspace button {
+    min-height: 40px;
+  }
+
+  .farmer-workspace table {
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.9rem;
+    background: white;
+  }
+
+  .farmer-workspace th {
+    background: #f8fafc;
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .farmer-workspace th,
+  .farmer-workspace td {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 0.75rem 0.9rem;
+  }
+
+  .farmer-workspace tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .farmer-workspace tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .farmer-workspace .page-toolbar {
+    background: rgba(255,255,255,.96);
+    box-shadow: 0 4px 18px rgba(15,23,42,.04);
+  }
+
+  @media (max-width: 767px) {
+    .farmer-workspace {
+      --workspace-gap: 14px;
+    }
+  }
+}
