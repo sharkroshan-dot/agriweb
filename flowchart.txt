@@ -1,3 +1,59 @@
+AGRICCONNECT AUTHORITATIVE MARKETPLACE WORKFLOW — 2026-09-30
+
+FARMER
+  1. Create / Manage Farm
+  2. Create / Manage Crop
+  3. Choose Product Creation Path
+     A. Planned Harvest:
+        Harvest Planning -> Mark as Harvested -> Create Batch/Lot
+     B. Direct Product:
+        Create Product -> system creates Batch/Lot
+  4. Both paths -> Farmer declares grade -> Authorized verifier verifies quality
+  5. Optional AI quality screening supports the inspection; AI does not replace the authorized verifier.
+  6. Approved -> Product Active -> Marketplace
+     Rejected -> Hold / Correction -> Re-submit
+
+CUSTOMER
+  7. Browse Marketplace -> View Product -> Quantity -> Cart
+  8. Select Delivery Address
+  9. Select Home Delivery
+  10. Coupon (optional) -> Checkout -> Payment -> Place Order
+  11. Delivery charge is calculated from the delivery address and shown before the final payment/order action.
+  12. Customer never selects Farmer / Delivery Partner / Warehouse fulfillment.
+
+FARMER ORDER FULFILLMENT
+  13. Farmer receives order
+  14. System shows customer distance and the farmer's configured delivery radius
+  15. Farmer chooses:
+      A. Farmer fulfillment + Farmer Delivery:
+         Pick -> Pack -> Dispatch -> Customer delivery
+         (self-delivery is allowed only within configured radius)
+      B. Farmer fulfillment + Delivery Partner:
+         Pick -> Pack -> Partner Assignment -> Partner Accept -> Pickup
+      C. Warehouse fulfillment:
+         Incoming Stock -> Receive -> Receiving Check -> Store -> Inventory
+         -> Pick -> Pack -> Dispatch -> Delivery Partner -> Pickup
+
+DELIVERY
+  16. Assignment -> Accept -> Pickup -> In Transit
+  17. Live Location / ETA -> Customer Delivery -> Proof of Delivery
+  18. Order Delivered -> Order Completed -> Review / Rating
+
+GLOBAL RULES
+  - Harvest Planning is optional.
+  - Direct Product Creation is allowed.
+  - Every marketplace product must have a traceable batch/lot.
+  - Every marketplace product must pass authorized quality verification.
+  - AI quality screening is assistive; authorized verification remains authoritative.
+  - Customer checkout does not expose internal fulfillment choices.
+  - Farm Pickup is removed from the new marketplace workflow; new orders are home delivery.
+  - Delivery Partner never packs.
+  - Warehouse packs only warehouse-fulfilled orders.
+  - Proof of delivery uses delivery evidence; OTP is not required by this workflow.
+
+The sections below contain the project's broader/historical implementation documentation.
+Where older sections mention farm pickup or customer-selected fulfillment, the authoritative workflow above takes precedence.
+
 AGRICONNECT FULL PROJECT FLOW CHART
 
 This file explains how the full project links together:
