@@ -75,7 +75,7 @@ class OrderBase(BaseModel):
     paymentMethod: PaymentMethod
     couponCode: Optional[str] = None
     deliveryType: DeliveryType = DeliveryType.DELIVERY
-    fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
+    fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     pickupDate: Optional[datetime] = None
     pickupTimeSlot: Optional[str] = None
@@ -121,8 +121,9 @@ class OrderResponse(BaseModel):
     farmer: Dict[str, Any]
     deliveryPartner: Optional[Dict[str, Any]] = None
     warehouse: Optional[Dict[str, Any]] = None
-    fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
+    fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
+    fulfillmentRouteSelected: bool = False
     items: List[OrderItemResponse]
     subtotal: float
     deliveryCharge: float
