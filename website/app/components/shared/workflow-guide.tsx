@@ -45,10 +45,12 @@ function stateIcon(state: WorkflowStep["state"]) {
 }
 
 function stateClass(state: WorkflowStep["state"], active?: boolean) {
+  // The selected/current step uses the same AgriConnect green treatment
+  // across every role. Active takes visual priority over the workflow state.
+  if (active) return "border-emerald-300 bg-emerald-50 shadow-sm";
   if (state === "COMPLETED") return "border-emerald-100 bg-emerald-50/40";
   if (state === "ACTION_REQUIRED") return "border-amber-300 bg-amber-50";
   if (state === "BLOCKED") return "border-red-200 bg-red-50";
-  if (active) return "border-blue-300 bg-blue-50";
   if (state === "IN_PROGRESS") return "border-blue-100 bg-blue-50/40";
   return "border-slate-200 bg-slate-50";
 }
