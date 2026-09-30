@@ -672,20 +672,15 @@ export default function FarmerOrdersPage() {
 
                             {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
                               <>
-                                {order.fulfillmentMethod === "warehouse" ? (
+                                {order.fulfillmentMethod === "warehouse" || order.deliveryResponsibility === "delivery_partner" ? (
                                   <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
                                     <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Delivery Partner
                                   </Button>
-                                ) : (
-                                  <>
-                                    <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
-                                      <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
-                                    </Button>
-                                    <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
-                                      <Truck className="mr-1.5 h-3.5 w-3.5"/>Use Delivery Partner
-                                    </Button>
-                                  </>
-                                )}
+                                ) : order.deliveryResponsibility === "farmer" ? (
+                                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
+                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
+                                  </Button>
+                                ) : null}
                               </>
                             )}
                             {getStatus(order) === "ready_for_delivery" && order.deliveryType !== "pickup" && (order.selfDelivery || order.deliveryPartnerId || order.partnerRequested) && (
@@ -866,12 +861,15 @@ export default function FarmerOrdersPage() {
                       )}
                       {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
                         <>
-                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
-                            <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => handleAssignPartner(order.id || order._id)}>
-                            <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Partner
-                          </Button>
+                          {order.fulfillmentMethod === "warehouse" || order.deliveryResponsibility === "delivery_partner" ? (
+                            <Button size="sm" variant="outline" onClick={() => handleAssignPartner(order.id || order._id)}>
+                              <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Partner
+                            </Button>
+                          ) : order.deliveryResponsibility === "farmer" ? (
+                            <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
+                              <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
+                            </Button>
+                          ) : null}
                         </>
                       )}
                       {getStatus(order) === "ready_for_delivery" && order.selfDelivery && (
