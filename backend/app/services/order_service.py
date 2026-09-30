@@ -1320,6 +1320,88 @@ class OrderService:
         }
 
     @staticmethod
+    async def process_available_orders(
+        farmer_id: str,
+        fulfillment_method: FulfillmentMethod,
+        delivery_responsibility: Optional[DeliveryResponsibility] = None,
+    ) -> Dict[str, Any]:
+        """Confirm and start processing every currently fulfillable pending order."""
+        availability = await OrderService.get_farmer_order_availability(farmer_id)
+        processed = []
+        blocked = list(availability["orders"])
+
+        # Only orders that passed the availability calculation enter this
+        # workflow. The same explicit fulfillment decision is applied to the
+        # whole batch; the system never guesses a route.
+        blocked = [x for x in blocked if not x["canFulfill"]]
+        eligible = [x for x in availability["orders"] if x["canFulfill"]]
+
+        if fulfillment_method == FulfillmentMethod.FARM_DIRECT and delivery_responsibility is None:
+            raise ValueError("Delivery responsibility is required for Farmer Fulfillment.")
+
+        for result in eligible:
+            order_id = result["orderId"]
+            try:
+                confirmed = await OrderService.update_order_status(
+                    order_id, farmer_id, "farmer",
+                    OrderStatusUpdate(status=OrderStatus.CONFIRMED),
+                )
+                if not confirmed:
+                    blocked.append({**result, "reason": "Could not confirm order"})
+                    continue
+
+                processing = await OrderService.update_order_status(
+                    order_id, farmer_id, "farmer",
+                    OrderStatusUpdate(status=OrderStatus.PROCESSING),
+                )
+                if not processing:
+                    blocked.append({**result, "reason": "Could not start processing"})
+                    continue
+
+                routed = await OrderService.set_fulfillment_route(
+                    order_id, farmer_id, "farmer", fulfillment_method
+                )
+                if not routed:
+                    blocked.append({**result, "reason": "Could not select fulfillment route"})
+                    continue
+
+                if fulfillment_method == FulfillmentMethod.FARM_DIRECT:
+                    responsible = await OrderService.set_delivery_responsibility(
+                        order_id, farmer_id, "farmer", delivery_responsibility
+                    )
+                    if not responsible:
+                        blocked.append({**result, "reason": "Could not set delivery responsibility"})
+                        continue
+
+                    # Farmer fulfillment always follows Pick -> Pack -> Dispatch.
+                    for stage in (
+                        FulfillmentStage.PICKED,
+                        FulfillmentStage.PACKED,
+                        FulfillmentStage.DISPATCHED,
+                    ):
+                        advanced = await OrderService.update_fulfillment_stage(
+                            order_id, farmer_id, "farmer", stage
+                        )
+                        if not advanced:
+                            raise RuntimeError(f"Could not advance fulfillment to {stage.value}")
+
+                processed.append(result)
+            except Exception as exc:
+                logger.warning("Bulk order processing failed for %s: %s", order_id, exc)
+                blocked.append({**result, "reason": str(exc)})
+
+        return {
+            "receivedOrders": availability["receivedOrders"],
+            "processedOrders": len(processed),
+            "blockedOrders": len(blocked),
+            "processed": processed,
+            "blocked": blocked,
+            "products": availability["products"],
+            "fulfillmentMethod": fulfillment_method.value,
+            "deliveryResponsibility": delivery_responsibility.value if delivery_responsibility else None,
+        }
+
+    @staticmethod
     async def set_fulfillment_route(
         order_id: str,
         user_id: str,
