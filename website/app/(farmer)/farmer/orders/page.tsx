@@ -334,43 +334,23 @@ export default function FarmerOrdersPage() {
                 </SelectContent>
               </Select>
               {overallFulfillmentMethod === "farmer" && (
-                <div className="w-full space-y-2 sm:w-[520px]">
-                  <p className="text-xs font-semibold text-slate-700">Delivery responsibility</p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <Button
-                      type="button"
-                      variant={overallDeliveryResponsibility === "none" ? "default" : "outline"}
-                      className={overallDeliveryResponsibility === "none" ? "h-auto min-h-11 whitespace-normal bg-amber-600 text-left text-white hover:bg-amber-700" : "h-auto min-h-11 whitespace-normal text-left"}
-                      onClick={() => setOverallDeliveryResponsibility("none")}
-                    >
-                      <span>
-                        <span className="block font-semibold">None</span>
-                        <span className="block text-[11px] font-normal opacity-80">Decide in Order Map</span>
-                      </span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={overallDeliveryResponsibility === "farmer" ? "default" : "outline"}
-                      className={overallDeliveryResponsibility === "farmer" ? "h-auto min-h-11 whitespace-normal bg-emerald-600 text-left text-white hover:bg-emerald-700" : "h-auto min-h-11 whitespace-normal text-left"}
-                      onClick={() => setOverallDeliveryResponsibility("farmer")}
-                    >
-                      <span>
-                        <span className="block font-semibold">Farmer Delivery</span>
-                        <span className="block text-[11px] font-normal opacity-80">I will deliver</span>
-                      </span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={overallDeliveryResponsibility === "delivery_partner" ? "default" : "outline"}
-                      className={overallDeliveryResponsibility === "delivery_partner" ? "h-auto min-h-11 whitespace-normal bg-blue-600 text-left text-white hover:bg-blue-700" : "h-auto min-h-11 whitespace-normal text-left"}
-                      onClick={() => setOverallDeliveryResponsibility("delivery_partner")}
-                    >
-                      <span>
-                        <span className="block font-semibold">Delivery Partner</span>
-                        <span className="block text-[11px] font-normal opacity-80">Partner collects from farm</span>
-                      </span>
-                    </Button>
-                  </div>
+                <div className="w-full space-y-2 sm:w-[280px]">
+                  <p className="text-xs font-semibold text-slate-700">Delivery Responsibility</p>
+                  <Select
+                    value={overallDeliveryResponsibility}
+                    onValueChange={(v: "none" | "farmer" | "delivery_partner") =>
+                      setOverallDeliveryResponsibility(v)
+                    }
+                  >
+                    <SelectTrigger className="w-full bg-white">
+                      <SelectValue placeholder="Choose delivery responsibility" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      <SelectItem value="farmer">Farmer Delivery</SelectItem>
+                      <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </div>
