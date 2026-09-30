@@ -20,16 +20,18 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../lib/api/client";
 import { Button } from "../ui/button";
 
 const navItems = [
   { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
   { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
-  { name: "Stock Management", href: "/stock", icon: Package, badge: "24 items" },
-  { name: "Incoming Stock", href: "/incoming", icon: ArrowDown, badge: 5 },
+  { name: "Stock Management", href: "/stock", icon: Package },
+  { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
-  { name: "Outgoing Stock", href: "/outgoing", icon: ArrowUp, badge: 3 },
-  { name: "Cold Storage", href: "/cold-storage", icon: Snowflake, badge: "4°C" },
+  { name: "Outgoing Stock", href: "/outgoing", icon: ArrowUp },
+  { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
   { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
   { name: "Payments", href: "/warehouse/payments", icon: CreditCard },
@@ -38,6 +40,23 @@ const navItems = [
 
 export function WarehouseSidebar() {
   const pathname = usePathname();
+  const dashboardQuery = useQuery({
+    queryKey: ["warehouseSidebarDashboard"],
+    queryFn: () => api.get("/warehouse/me/dashboard"),
+    staleTime: 30000,
+    refetchInterval: 60000,
+    retry: 1,
+  });
+  const dashboard: any = dashboardQuery.data || {};
+  const warehouse = dashboard.warehouse || {};
+  const stockSummary = dashboard.stockSummary || {};
+  const warehouseName = warehouse.name || "Warehouse";
+  const capacityNumber = Number(dashboard.capacityUtilization);
+  const totalItemsNumber = Number(stockSummary.totalItems);
+  const lowStockNumber = Number(stockSummary.lowStock);
+  const capacity = Number.isFinite(capacityNumber) ? Math.max(0, Math.round(capacityNumber)) : null;
+  const totalItems = Number.isFinite(totalItemsNumber) ? totalItemsNumber : null;
+  const lowStock = Number.isFinite(lowStockNumber) ? lowStockNumber : null;
 
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
@@ -48,18 +67,22 @@ export function WarehouseSidebar() {
               <Warehouse className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-900">Delhi Central Warehouse</p>
-              <p className="truncate text-[11px] text-slate-500">Capacity: 75% used</p>
+              <p className="truncate text-sm font-semibold text-slate-900">{dashboardQuery.isLoading ? "Loading warehouse..." : warehouseName}</p>
+              <p className="truncate text-[11px] text-slate-500">{capacity === null ? "Capacity: unavailable" : "Capacity: " + capacity + "% used"}</p>
             </div>
           </div>
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-emerald-100 pt-3 text-sm">
             <span className="text-slate-500">Total Items</span>
-            <span className="font-bold">1,245</span>
+            <span className="font-bold">{totalItems === null ? "—" : totalItems.toLocaleString()}</span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <Badge variant="warning" className="w-full justify-center">
-              ⚠️ 10 Low Stock Items
-            </Badge>
+            {lowStock === null ? (
+              <Badge variant="secondary" className="w-full justify-center">Low stock: unavailable</Badge>
+            ) : lowStock > 0 ? (
+              <Badge variant="warning" className="w-full justify-center">⚠️ {lowStock} Low Stock {lowStock === 1 ? "Item" : "Items"}</Badge>
+            ) : (
+              <Badge variant="secondary" className="w-full justify-center">✓ No Low Stock Items</Badge>
+            )}
           </div>
         </div>
 
@@ -106,15 +129,7 @@ export function WarehouseSidebar() {
           </div>
         </div>
 
-        <div className="mt-4 rounded-lg bg-red-50 p-3 border border-red-200">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-red-700">Expiry Alert</p>
-              <p className="text-xs text-red-600">5 items expiring in 3 days</p>
-            </div>
-          </div>
-        </div>
+        {lowStock !== null && lowStock > 0 && <div className="mt-4 rounded-lg bg-amber-50 p-3 border border-amber-200"><div className="flex items-start gap-2"><AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" /><div><p className="text-sm font-medium text-amber-700">Low Stock Alert</p><p className="text-xs text-amber-600">{lowStock} {lowStock === 1 ? "item needs" : "items need"} restocking.</p></div></div></div>}
       </div>
     </aside>
   );
