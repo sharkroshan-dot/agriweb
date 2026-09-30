@@ -171,6 +171,16 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const updateFulfillmentStage = async (orderId: string, stage: "picked" | "packed" | "dispatched") => {
+    try {
+      await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, { params: { stage } });
+      toast.success(stage === "picked" ? "Order picked" : stage === "packed" ? "Order packed" : "Order dispatched");
+      refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update fulfillment stage");
+    }
+  };
+
   const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
 
   const orderList = orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
@@ -616,10 +626,15 @@ export default function FarmerOrdersPage() {
                                 </Button>
                               </>
                             )}
-                            {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (
-                              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleUpdateStatus(order.id || order._id, 'ready_for_delivery')}>
-                                <Truck className="mr-1.5 h-3.5 w-3.5"/>Ready
-                              </Button>
+                            {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "farmer" && (
+                              <>
+                                {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
+                                {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
+                                {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
+                              </>
+                            )}
+                            {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "warehouse" && (
+                              <span className="text-xs text-muted-foreground">Warehouse fulfillment — warehouse will Pick, Pack &amp; Dispatch.</span>
                             )}
                             {getStatus(order) === "processing" && order.deliveryType === "pickup" && (
                               <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => handleUpdateStatus(order.id || order._id, 'ready_for_pickup')}>
@@ -788,11 +803,16 @@ export default function FarmerOrdersPage() {
                           </Button>
                         </>
                       )}
-                      {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (
-                        <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleUpdateStatus(order.id || order._id, 'ready_for_delivery')}>
-                          <Truck className="mr-1.5 h-3.5 w-3.5"/>Ready
-                        </Button>
-                      )}
+                      {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "farmer" && (
+                              <>
+                                {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
+                                {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
+                                {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
+                              </>
+                            )}
+                            {getStatus(order) === "processing" && order.deliveryType !== "pickup" && (order.fulfillmentMethod || "farmer") === "warehouse" && (
+                              <span className="text-xs text-muted-foreground">Warehouse fulfillment — warehouse will Pick, Pack &amp; Dispatch.</span>
+                            )}
                       {getStatus(order) === "processing" && order.deliveryType === "pickup" && (
                         <Button size="sm" className="bg-amber-600 hover:bg-amber-700" onClick={() => handleUpdateStatus(order.id || order._id, 'ready_for_pickup')}>
                           <Store className="mr-1.5 h-3.5 w-3.5"/>Pickup Ready
