@@ -1559,8 +1559,17 @@ class OrderService:
         
         if not partner_id:
             from app.services.delivery_service import DeliveryService
-            delivery_address = order.get("deliveryAddress", {})
-            location = delivery_address.get("location")
+            # For farmer fulfillment, the delivery partner must be able to
+            # collect the packed order from the farm. Therefore assignment is
+            # based on the farm pickup location, not the customer destination.
+            if (
+                order.get("fulfillmentMethod") == FulfillmentMethod.FARM_DIRECT.value
+                and order.get("deliveryResponsibility") == DeliveryResponsibility.DELIVERY_PARTNER.value
+            ):
+                location = await _resolve_tracking_origin(order)
+            else:
+                delivery_address = order.get("deliveryAddress", {})
+                location = delivery_address.get("location")
             partner = await DeliveryService.find_nearest_partner(location)
             if not partner:
                 await order_repository.update_order_field(order_id, "partnerRequested", True)
