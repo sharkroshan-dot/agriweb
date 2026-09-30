@@ -1009,7 +1009,6 @@ export default function OrderDetailPage() {
                 )}
               </CardContent>
             </Card>
-          </Card>
           {chatOpen && order && <LiveChatDialog orderId={orderId} customerName="Delivery partner" onClose={() => setChatOpen(false)} />}
 
           {order.tracking.length > 0 && (
