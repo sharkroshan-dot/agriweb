@@ -122,6 +122,11 @@ class FulfillmentRouteUpdate(BaseModel):
 class DeliveryResponsibilityUpdate(BaseModel):
     deliveryResponsibility: DeliveryResponsibility
 
+
+class BulkOrderProcessRequest(BaseModel):
+    fulfillmentMethod: FulfillmentMethod
+    deliveryResponsibility: Optional[DeliveryResponsibility] = None
+
 class OrderResponse(BaseModel):
     id: str
     orderNumber: str
