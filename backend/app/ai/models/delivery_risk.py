@@ -251,6 +251,7 @@ class DeliveryRiskModel:
                     ),
                     "model": "calibrated_random_forest",
                     "metrics": self.metrics,
+                    "expected_delivery_minutes": self._expected_delivery_minutes(features),
                     "factors": self._factor_summary(features),
                     "recommendation": (
                         "Review or reassign before dispatch"
@@ -268,6 +269,17 @@ class DeliveryRiskModel:
                 "Error predicting delivery risk"
             )
             return self._rule_score(features)
+
+    def _expected_delivery_minutes(self, features):
+        distance = max(0.0, float(features.get("distance_km") or 0))
+        window = max(0.0, float(features.get("time_window_minutes") or 0))
+        # Keep the model response backward-compatible with the service layer.
+        # Use a conservative 30 km/h road-speed estimate and respect a tighter
+        # requested delivery window when one is supplied.
+        estimated = int(round((distance / 30.0) * 60.0)) if distance else 0
+        if window and estimated == 0:
+            estimated = int(window)
+        return estimated
 
     def _factor_summary(self, features):
         factors = []
@@ -399,6 +411,7 @@ class DeliveryRiskModel:
             "confidence": 0.0,
             "model": "explainable_rule_fallback",
             "metrics": {},
+            "expected_delivery_minutes": self._expected_delivery_minutes(features),
             "factors": self._factor_summary(features),
             "recommendation": (
                 "Review or reassign before dispatch"
