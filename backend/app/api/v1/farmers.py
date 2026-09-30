@@ -1911,6 +1911,7 @@ async def _map_order_payload(
             and fulfillment_method == "farmer"
             and fulfillment_stage == "dispatched"
             and not has_partner
+            and str(order.get("deliveryResponsibility") or "") in ("", "farmer")
             and not is_delivered
             and not is_problem
         ),
