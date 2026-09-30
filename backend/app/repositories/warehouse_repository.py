@@ -75,8 +75,12 @@ class WarehouseRepository(BaseRepository):
 
     async def get_by_manager(self, manager_id: str) -> Optional[Dict[str, Any]]:
         try:
+            manager_object_id = ObjectId(manager_id)
             warehouse = await self.find_one({
-                "managerId": ObjectId(manager_id),
+                "$or": [
+                    {"managerId": manager_object_id},
+                    {"userId": manager_object_id},
+                ],
                 "deletedAt": None
             })
             if not warehouse:
