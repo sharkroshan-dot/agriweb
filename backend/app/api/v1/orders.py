@@ -521,14 +521,8 @@ async def farmer_process_available_orders(
 ):
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can process orders")
-    if (
-        data.fulfillmentMethod.value == "farmer"
-        and data.deliveryResponsibility is None
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Select Farmer Delivery or Delivery Partner for Farmer Fulfillment.",
-        )
+    # Delivery responsibility is optional during Farmer Fulfillment.
+    # None means the farmer will decide after Dispatch from Order Map.
     try:
         result = await OrderService.process_available_orders(
             str(current_user["_id"]),
