@@ -17,6 +17,10 @@ class FulfillmentStage(str, Enum):
     PACKED = "packed"
     DISPATCHED = "dispatched"
 
+class DeliveryResponsibility(str, Enum):
+    FARMER = "farmer"
+    DELIVERY_PARTNER = "delivery_partner"
+
 class OrderStatus(str, Enum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
@@ -77,6 +81,7 @@ class OrderBase(BaseModel):
     deliveryType: DeliveryType = DeliveryType.DELIVERY
     fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
+    deliveryResponsibility: Optional[DeliveryResponsibility] = None
     pickupDate: Optional[datetime] = None
     pickupTimeSlot: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
@@ -114,6 +119,9 @@ class AssignPartnerRequest(BaseModel):
 class FulfillmentRouteUpdate(BaseModel):
     fulfillmentMethod: FulfillmentMethod = FulfillmentMethod.FARM_DIRECT
 
+class DeliveryResponsibilityUpdate(BaseModel):
+    deliveryResponsibility: DeliveryResponsibility
+
 class OrderResponse(BaseModel):
     id: str
     orderNumber: str
@@ -124,6 +132,7 @@ class OrderResponse(BaseModel):
     fulfillmentMethod: Optional[FulfillmentMethod] = None
     fulfillmentStage: FulfillmentStage = FulfillmentStage.PENDING
     fulfillmentRouteSelected: bool = False
+    deliveryResponsibility: Optional[DeliveryResponsibility] = None
     items: List[OrderItemResponse]
     subtotal: float
     deliveryCharge: float
