@@ -310,7 +310,7 @@ export default function FarmerOrdersPage() {
                 </span>
                 <div>
                   <h2 className="font-semibold">Ready to process</h2>
-                  <p className="text-xs text-muted-foreground">Only orders with sufficient stock will move forward.</p>
+                  <p className="text-xs text-muted-foreground">Only orders with sufficient stock will move forward. Farmer delivery can be chosen now or later from Order Map.</p>
                 </div>
               </div>
             </div>
@@ -328,11 +328,12 @@ export default function FarmerOrdersPage() {
                 </SelectContent>
               </Select>
               {overallFulfillmentMethod === "farmer" && (
-                <Select value={overallDeliveryResponsibility} onValueChange={(v: "farmer" | "delivery_partner") => setOverallDeliveryResponsibility(v)}>
+                <Select value={overallDeliveryResponsibility || "none"} onValueChange={(v: "farmer" | "delivery_partner" | "none") => setOverallDeliveryResponsibility(v === "none" ? "" : v)}>
                   <SelectTrigger className="w-full bg-white sm:w-[210px]">
                     <SelectValue placeholder="Choose delivery" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="none">None — Decide in Order Map</SelectItem>
                     <SelectItem value="farmer">Farmer Delivery</SelectItem>
                     <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
                   </SelectContent>
@@ -345,8 +346,7 @@ export default function FarmerOrdersPage() {
               disabled={
                 availabilityQuery.isLoading ||
                 !availabilityQuery.data ||
-                !overallFulfillmentMethod ||
-                (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility)
+                !overallFulfillmentMethod
               }
               className="shrink-0"
             >
