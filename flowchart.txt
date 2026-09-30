@@ -24,13 +24,13 @@ CUSTOMER
 FARMER ORDER FULFILLMENT
   13. Farmer receives order
   14. System shows customer distance and the farmer's configured delivery radius
-  15. Farmer chooses:
-      A. Farmer fulfillment + Farmer Delivery:
-         Pick -> Pack -> Dispatch -> Customer delivery
-         (self-delivery is allowed only within configured radius)
-      B. Farmer fulfillment + Delivery Partner:
-         Pick -> Pack -> Partner Assignment -> Partner Accept -> Pickup
-      C. Warehouse fulfillment:
+  15. Farmer chooses exactly one fulfillment route:
+      A. Farmer Fulfillment:
+         Pick -> Pack -> Dispatch -> Customer delivery OR Delivery Partner pickup
+         (farmer self-delivery is allowed only within configured radius)
+      B. Warehouse Fulfillment:
+         Incoming Stock -> Receive -> Receiving Check -> Store -> Inventory
+         -> Pick -> Pack -> Dispatch -> Delivery Partner -> Pickup
          Incoming Stock -> Receive -> Receiving Check -> Store -> Inventory
          -> Pick -> Pack -> Dispatch -> Delivery Partner -> Pickup
 
@@ -46,6 +46,8 @@ GLOBAL RULES
   - Every marketplace product must pass authorized quality verification.
   - AI quality screening is assistive; authorized verification remains authoritative.
   - Customer checkout does not expose internal fulfillment choices.
+  - Farmer fulfillment choice has exactly two options: Farmer Fulfillment or Warehouse Fulfillment.
+  - Delivery Partner is a downstream transport role, not a third farmer fulfillment option.
   - Farm Pickup is removed from the new marketplace workflow; new orders are home delivery.
   - Delivery Partner never packs.
   - Warehouse packs only warehouse-fulfilled orders.
