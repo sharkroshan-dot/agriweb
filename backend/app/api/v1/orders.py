@@ -4,7 +4,7 @@ from app.api.v1.auth import get_current_user
 from app.schemas.order import (
     OrderResponse, OrderCreate, OrderUpdate,
     OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage,
-    OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest, FulfillmentRouteUpdate
+    OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest, FulfillmentRouteUpdate, DeliveryResponsibilityUpdate
 )
 from app.services.order_service import (
     OrderService, ProductNotFoundError, InsufficientStockError,
@@ -245,6 +245,31 @@ async def update_fulfillment_route(
         )
     result["id"] = str(result["_id"])
     return {"success": True, "data": result, "message": "Fulfillment route selected successfully"}
+
+
+@router.put("/{order_id}/delivery-responsibility")
+async def update_delivery_responsibility(
+    order_id: str,
+    data: DeliveryResponsibilityUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    result = await OrderService.set_delivery_responsibility(
+        order_id,
+        str(current_user["_id"]),
+        current_user.get("role"),
+        data.deliveryResponsibility,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=400,
+            detail="Delivery responsibility can only be selected for a processing farmer-fulfilled order.",
+        )
+    result["id"] = str(result["_id"])
+    return {
+        "success": True,
+        "data": result,
+        "message": "Delivery responsibility selected successfully",
+    }
 
 
 @router.put("/{order_id}/fulfillment-stage")
