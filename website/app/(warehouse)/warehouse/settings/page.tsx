@@ -25,7 +25,6 @@ const emptyForm = {
   longitude: "",
   totalCapacity: "",
   coldStorageCapacity: "",
-  isActive: true,
 };
 
 const emptyPrefs = {
@@ -39,6 +38,12 @@ const emptyPrefs = {
   lowStockAlerts: true,
   expiryAlerts: true,
   incomingAlerts: true,
+  allowStockReceiving: true,
+  requireQualityCheck: true,
+  requireBatchNumber: true,
+  trackExpiryDates: true,
+  requireStorageLocation: true,
+  lowCapacityAlerts: true,
 };
 
 export default function WarehouseSettingsPage() {
@@ -74,7 +79,6 @@ export default function WarehouseSettingsPage() {
       longitude: warehouse.location?.coordinates?.[0] ? String(warehouse.location.coordinates[0]) : warehouse.location?.longitude ? String(warehouse.location.longitude) : "",
       totalCapacity: String(warehouse.totalCapacity ?? ""),
       coldStorageCapacity: String(warehouse.coldStorageCapacity ?? ""),
-      isActive: warehouse.isActive ?? true,
     });
   }, [warehouse]);
 
@@ -86,6 +90,7 @@ export default function WarehouseSettingsPage() {
       ...(saved.inventory || {}),
       ...(saved.coldStorage || {}),
       ...(saved.alerts || {}),
+      ...(saved.operations || {}),
     }));
   }, [settingsData?.data]);
 
@@ -123,7 +128,6 @@ export default function WarehouseSettingsPage() {
         },
         totalCapacity: Number(form.totalCapacity || 0),
         coldStorageCapacity: Number(form.coldStorageCapacity || 0),
-        isActive: form.isActive,
       });
 
       await api.put("/settings/mine", {
@@ -142,6 +146,14 @@ export default function WarehouseSettingsPage() {
           lowStockAlerts: prefs.lowStockAlerts,
           expiryAlerts: prefs.expiryAlerts,
           incomingAlerts: prefs.incomingAlerts,
+          lowCapacityAlerts: prefs.lowCapacityAlerts,
+        },
+        operations: {
+          allowStockReceiving: prefs.allowStockReceiving,
+          requireQualityCheck: prefs.requireQualityCheck,
+          requireBatchNumber: prefs.requireBatchNumber,
+          trackExpiryDates: prefs.trackExpiryDates,
+          requireStorageLocation: prefs.requireStorageLocation,
         },
       });
 
@@ -197,10 +209,10 @@ export default function WarehouseSettingsPage() {
                   <p className="mt-1 text-xs text-muted-foreground">Used quantity is calculated automatically from cold-storage records.</p>
                 </div>
               </div>
-              <label className="flex items-center justify-between rounded-lg border p-3 text-sm font-medium">
-                Active for warehouse operations
-                <input type="checkbox" checked={form.isActive} onChange={(event) => updateForm("isActive", event.target.checked)} className="h-4 w-4 accent-emerald-600" />
-              </label>
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">Warehouse status</p>
+                <p className="mt-1 text-xs text-muted-foreground">Activation and verification are controlled by the warehouse workflow and cannot be changed here.</p>
+              </div>
             </CardContent>
           </Card>
 
@@ -257,6 +269,25 @@ export default function WarehouseSettingsPage() {
           </Card>
 
           <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5" />Warehouse operations</CardTitle><CardDescription>Control checks used during receiving and inventory handling.</CardDescription></CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2">
+              {[
+                ["allowStockReceiving", "Allow stock receiving", "Warehouse staff can receive incoming stock."],
+                ["requireQualityCheck", "Require quality check", "Receiving must pass a quality check before stock is added."],
+                ["requireBatchNumber", "Require batch number", "Batch identification is required for received stock."],
+                ["trackExpiryDates", "Track expiry dates", "Inventory records can carry expiry information."],
+                ["requireStorageLocation", "Require storage location", "Stock must be assigned to a storage location."],
+                ["lowCapacityAlerts", "Low capacity alerts", "Notify staff when warehouse capacity is getting high."],
+              ].map(([key, title, description]) => (
+                <div key={key} className="flex items-center justify-between gap-4 rounded-lg border p-3">
+                  <div><p className="text-sm font-medium">{title}</p><p className="text-xs text-muted-foreground">{description}</p></div>
+                  <Switch checked={Boolean(prefs[key as keyof typeof prefs])} onCheckedChange={(on) => updatePrefs(key as keyof typeof prefs, on)} aria-label={title} />
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+
+          <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><Snowflake className="h-5 w-5" />Cold storage settings</CardTitle><CardDescription>Environment defaults for cold rooms.</CardDescription></CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div><label className="text-sm font-medium">Default temperature (°C)</label><Input type="number" step="0.5" value={prefs.defaultTemperature} onChange={(event) => updatePrefs("defaultTemperature", Number(event.target.value))} className="mt-1" /></div>
@@ -289,7 +320,8 @@ export default function WarehouseSettingsPage() {
                 <div className="flex justify-between text-sm"><span>Cold Storage</span><span className="font-medium">{warehouse?.coldStorageUsed ?? 0} / {warehouse?.coldStorageCapacity ?? 0}</span></div>
                 <Progress value={warehouse?.coldStorageCapacity ? Math.min(100, ((warehouse.coldStorageUsed ?? 0) / warehouse.coldStorageCapacity) * 100) : 0} className="mt-2" />
               </div>
-              <Badge variant={form.isActive ? "success" : "secondary"}>{form.isActive ? "Active" : "Inactive"}</Badge>
+              <Badge variant={warehouse?.isActive ? "success" : "secondary"}>{warehouse?.isActive ? "Active" : "Inactive"}</Badge>
+              <div className="rounded-lg border p-3 text-xs text-muted-foreground"><p className="font-medium text-foreground">System calculated</p><p className="mt-1">Used capacity comes from live inventory, receiving, dispatch and transfer records. Managers never enter it manually.</p></div>
             </CardContent>
           </Card>
         </div>
