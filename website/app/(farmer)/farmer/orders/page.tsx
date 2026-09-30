@@ -287,7 +287,7 @@ export default function FarmerOrdersPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Orders</h1>
-          <p className="text-gray-500">Manage your orders ({orderList.length})</p>
+          <p className="text-gray-500">Customer orders and product availability</p>
         </div>
       <Card className="border-emerald-200 bg-emerald-50/40">
         <CardContent className="space-y-5 p-5">
