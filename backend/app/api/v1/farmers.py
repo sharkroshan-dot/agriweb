@@ -2597,8 +2597,9 @@ async def update_order_assignment(
                 detail="A delivery partner has already accepted this order and it cannot be switched back.",
             )
         if await order_repository.reclaim_for_self_delivery(order_id, farmer_id, _ACTIVE_DELIVERY_STATUSES):
-            if order.get("orderStatus") in ("dispatched", "in_transit"):
-                await order_repository.restore_after_reclaim(order_id, "ready_for_delivery")
+            # A dispatched farmer-fulfilled order is already prepared and ready
+            # for transport. Switching it to farmer delivery must not reopen
+            # fulfillment or move it backward to ready_for_delivery.
             await delivery_assignment_repository.cancel_by_order_id(
                 order_id, "Farmer switched order to self-delivery"
             )
