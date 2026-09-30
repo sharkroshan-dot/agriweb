@@ -140,7 +140,10 @@ class WarehouseStockRepository(BaseRepository):
             result = await self.collection.update_one(
                 filter,
                 {
-                    "$inc": {"reservedQuantity": -quantity},
+                    "$inc": {
+                        "quantity": -quantity,
+                        "reservedQuantity": -quantity
+                    },
                     "$set": {"updatedAt": datetime.utcnow()}
                 }
             )
