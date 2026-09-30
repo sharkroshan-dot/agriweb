@@ -381,11 +381,11 @@ async def _warehouse(uid: str):
                            completed={"warehouse_setup","incoming"},entity={"type":"incoming","id":iid})
         if status in ("received","received_pending_quality","quality_pending"):
             return _result("warehouse","quality",ACTION_REQUIRED,
-                           _href(f"/warehouse/incoming?incomingId={iid}","Verify Batch & Quality","Verify traceability and quality before storage."),
+                           _href(f"/incoming?incomingId={iid}","Verify Batch & Quality","Verify traceability and quality before storage."),
                            completed={"warehouse_setup","incoming","receive","batch_verification"},entity={"type":"incoming","id":iid})
         if status in ("rejected","cancelled"):
             return _result("warehouse","incoming",BLOCKED,
-                           _href(f"/warehouse/incoming?incomingId={iid}","Resolve Incoming Stock","The incoming shipment is rejected or cancelled."),
+                           _href(f"/incoming?incomingId={iid}","Resolve Incoming Stock","The incoming shipment is rejected or cancelled."),
                            completed={"warehouse_setup"},entity={"type":"incoming","id":iid},blocked_reason="Incoming stock is rejected or cancelled.")
     outgoing = await _latest(warehouse_outgoing, {"warehouseId": wid, "deletedAt": None}, "updatedAt")
     if outgoing:
@@ -397,11 +397,11 @@ async def _warehouse(uid: str):
                            completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage","inventory"},entity={"type":"outgoing","id":oid})
         if status == "picked":
             return _result("warehouse","pack",ACTION_REQUIRED,
-                           _href(f"/warehouse/stock?outgoingId={oid}","Pack Shipment","Pack and label the picked stock."),
+                           _href(f"/stock?outgoingId={oid}","Pack Shipment","Pack and label the picked stock."),
                            completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage","inventory","pick"},entity={"type":"outgoing","id":oid})
         if status == "packed":
             return _result("warehouse","dispatch",ACTION_REQUIRED,
-                           _href(f"/warehouse/stock?outgoingId={oid}","Dispatch Shipment","Release the packed shipment to delivery."),
+                           _href(f"/stock?outgoingId={oid}","Dispatch Shipment","Release the packed shipment to delivery."),
                            completed={"warehouse_setup","incoming","receive","batch_verification","quality","storage","inventory","pick","pack"},entity={"type":"outgoing","id":oid})
         if status == "dispatched":
             return _result("warehouse","transfer",IN_PROGRESS,
