@@ -1221,21 +1221,14 @@ class OrderService:
                 # for a new checkout.
                 row["availableQuantity"] = max(0.0, total - sold)
 
-        # Every pending order has a reservation created at checkout. Its own
-        # reservation is therefore available to it; orders are evaluated in
-        # creation order against the remaining shared stock.
+        # Evaluate pending orders in deterministic creation order against
+        # the stock that is actually available to all pending orders.
+        # The checkout reservation is already included in total - sold, so do
+        # not add pending demand a second time.
         remaining = {
             pid: float(row["availableQuantity"])
             for pid, row in product_rows.items()
         }
-        own_reserved: Dict[str, float] = {}
-        for order in pending:
-            for item in order.get("items", []):
-                pid = str(item.get("productId"))
-                qty = float(item.get("quantity", 0) or 0)
-                stock = stock_by_product.get(pid, {})
-                own_reserved[pid] = own_reserved.get(pid, 0.0) + qty
-                remaining[pid] = remaining.get(pid, 0.0) + qty
 
         order_results = []
         for order in pending:
@@ -1244,10 +1237,7 @@ class OrderService:
             for item in order.get("items", []):
                 pid = str(item.get("productId"))
                 qty = float(item.get("quantity", 0) or 0)
-                own = qty
-                shared = max(0.0, remaining.get(pid, 0.0) - own)
-                # The order's checkout reservation is counted as its own stock.
-                available_for_order = own + shared
+                available_for_order = remaining.get(pid, 0.0)
                 item_ok = available_for_order + 1e-9 >= qty
                 can_fulfill = can_fulfill and item_ok
                 items.append({
