@@ -403,6 +403,7 @@ export default function FarmerOrderMapPage() {
     () =>
       allOrders.filter(
         (stop) =>
+          stop?.readyForFarmerRoute === true &&
           !isDone(stop) &&
           getCoordinates(stop) &&
           String(stop?.assignment || "").toLowerCase() !== "partner"
@@ -437,6 +438,28 @@ export default function FarmerOrderMapPage() {
     setSelectedRouteIds((current) =>
       current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]
     );
+  };
+
+  const deliverSelectedMutation = useMutation({
+    mutationFn: async () => {
+      for (const orderId of selectedRouteIds) {
+        await api.put(`/farmers/me/delivery-map/orders/${orderId}/assignment`, { mode: "self" });
+      }
+    },
+    onSuccess: () => {
+      toast.success(`Selected orders are assigned to you for delivery`);
+      setSelectedRouteIds([]);
+      refreshAll();
+    },
+    onError: (e: any) => toast.error(getApiError(e)),
+  });
+
+  const deliverSelected = () => {
+    if (!selectedRouteIds.length) {
+      toast.error("Select at least one dispatched order");
+      return;
+    }
+    deliverSelectedMutation.mutate();
   };
 
   const openPlannedRoute = () => {
@@ -666,7 +689,7 @@ export default function FarmerOrderMapPage() {
           <p className="text-sm font-medium text-primary">Self-delivery workbench</p>
           <h1 className="text-3xl font-semibold tracking-tight">Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Plan deliveries by radius. Accept nearby orders for self-delivery or hand far orders to delivery partners. The time filter in the header applies to every panel on this page.
+            Route planning starts after farmer fulfillment. Only farmer-prepared and dispatched orders appear here. Select the customer stops along your route, choose Deliver Myself, then create your navigation route.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -973,7 +996,7 @@ export default function FarmerOrderMapPage() {
               Route Planning
             </CardTitle>
             <CardDescription>
-              Select orders to build a navigation sequence. Planning does not accept, assign, dispatch, or otherwise change any order.
+              “I'm going this way” — select the dispatched customer orders along your route. Deliver Myself assigns the selected stops to you; Create Route opens the navigation sequence.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -990,7 +1013,7 @@ export default function FarmerOrderMapPage() {
             </Button>
             <Button size="sm" onClick={openPlannedRoute} disabled={!selectedRouteOrders.length}>
               <Navigation className="mr-1.5 h-4 w-4" />
-              Open Route
+              Create Route
             </Button>
           </div>
         </CardHeader>
