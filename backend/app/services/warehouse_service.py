@@ -47,6 +47,26 @@ class WarehouseService:
         if not warehouse:
             return None
         update_data = data.dict(exclude_unset=True)
+
+        if "totalCapacity" in update_data:
+            total_capacity = float(update_data["totalCapacity"] or 0)
+            await warehouse_repository.sync_capacity_usage(warehouse_id)
+            current = await warehouse_repository.get_by_id(warehouse_id)
+            current_used = float(current.get("usedCapacity", 0) or 0) if current else 0
+            if total_capacity < current_used:
+                raise ValueError(
+                    f"Total capacity cannot be lower than current used capacity ({current_used:g})."
+                )
+
+        if "coldStorageCapacity" in update_data:
+            cold_capacity = float(update_data["coldStorageCapacity"] or 0)
+            current = await warehouse_repository.get_by_id(warehouse_id)
+            current_cold_used = float(current.get("coldStorageUsed", 0) or 0) if current else 0
+            if cold_capacity < current_cold_used:
+                raise ValueError(
+                    f"Cold storage capacity cannot be lower than current used cold storage ({current_cold_used:g})."
+                )
+
         success = await warehouse_repository.update_warehouse(warehouse_id, update_data)
         if not success:
             return None
@@ -57,6 +77,7 @@ class WarehouseService:
         warehouse = await warehouse_repository.get_by_id(warehouse_id)
         if not warehouse:
             return {}
+        await warehouse_repository.sync_capacity_usage(warehouse_id)
         stats = await warehouse_repository.get_warehouse_stats(warehouse_id)
         low_stock = await warehouse_stock_repository.get_low_stock_items(warehouse_id, limit=10)
         return {
@@ -263,6 +284,7 @@ class WarehouseService:
                 str(outgoing["warehouseId"]) if outgoing.get("warehouseId") else None,
                 str(outgoing["variantId"]) if outgoing.get("variantId") else None,
             )
+            await warehouse_repository.sync_capacity_usage(str(outgoing["warehouseId"]))
             # Complete the warehouse -> delivery handoff. An outgoing record
             # always carries orderId, so dispatching it must move the order
             # into the delivery-ready state instead of leaving the order stuck
@@ -408,6 +430,7 @@ class WarehouseService:
             transfer.get("quantity", 0),
             str(transfer["fromWarehouseId"]) if transfer.get("fromWarehouseId") else None
         )
+        await warehouse_repository.sync_capacity_usage(str(transfer["fromWarehouseId"]))
         stock_data = {
             "warehouseId": transfer["toWarehouseId"],
             "productId": transfer["productId"],
@@ -416,6 +439,7 @@ class WarehouseService:
             "batchNumber": transfer.get("batchNumber")
         }
         await warehouse_stock_repository.create_stock(stock_data)
+        await warehouse_repository.sync_capacity_usage(str(transfer["toWarehouseId"]))
         return await warehouse_transfer_repository.get_by_id(transfer_id)
 
     @staticmethod
