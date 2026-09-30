@@ -639,14 +639,17 @@ export default function FarmerOrdersPage() {
                               </div>
                             )}
 
-                            {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
+                            {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
                               <>
-                                <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
-                                  <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
-                                </Button>
-                                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
-                                  <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Partner
-                                </Button>
+                                {order.deliveryMethod === "partner" ? (
+                                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
+                                    <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Partner
+                                  </Button>
+                                ) : (
+                                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
+                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
+                                  </Button>
+                                )}
                               </>
                             )}
                             {getStatus(order) === "ready_for_delivery" && order.deliveryType !== "pickup" && (order.selfDelivery || order.deliveryPartnerId || order.partnerRequested) && (
