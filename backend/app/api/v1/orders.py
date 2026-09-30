@@ -4,7 +4,7 @@ from app.api.v1.auth import get_current_user
 from app.schemas.order import (
     OrderResponse, OrderCreate, OrderUpdate,
     OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage,
-    OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest
+    OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest, FulfillmentRouteUpdate
 )
 from app.services.order_service import (
     OrderService, ProductNotFoundError, InsufficientStockError,
@@ -225,6 +225,28 @@ async def update_order_status(
         "data": order,
         "message": f"Order status updated to {data.status.value}"
     }
+
+@router.put("/{order_id}/fulfillment-route")
+async def update_fulfillment_route(
+    order_id: str,
+    data: FulfillmentRouteUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    result = await OrderService.set_fulfillment_route(
+        order_id,
+        str(current_user["_id"]),
+        current_user.get("role"),
+        data.fulfillmentMethod,
+        data.deliveryMethod,
+    )
+    if not result:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid fulfillment route, delivery radius, warehouse configuration, order status, or access denied.",
+        )
+    result["id"] = str(result["_id"])
+    return {"success": True, "data": result, "message": "Fulfillment route selected successfully"}
+
 
 @router.put("/{order_id}/fulfillment-stage")
 async def update_fulfillment_stage(order_id: str, stage: FulfillmentStage, current_user: dict = Depends(get_current_user)):
