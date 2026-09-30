@@ -136,32 +136,26 @@ export default function FarmerOrdersPage() {
       toast.error("Select Farmer Fulfillment or Warehouse Fulfillment.");
       return;
     }
-    if (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility) {
-      toast.error("Select Farmer Delivery or Delivery Partner.");
-      return;
-    }
     try {
       const response = await api.post("/orders/farmer/process-available", {
         fulfillmentMethod: overallFulfillmentMethod,
-        deliveryResponsibility: overallFulfillmentMethod === "farmer" ? overallDeliveryResponsibility : null,
+        deliveryResponsibility: null,
       });
       const result = response?.data || response;
+      const processed = Number(result?.processedOrders || 0);
       toast.success(
-        result?.processedOrders
-          ? `${result.processedOrders} order${result.processedOrders === 1 ? "" : "s"} confirmed and processed`
+        processed
+          ? `${processed} order${processed === 1 ? "" : "s"} confirmed and processed`
           : "No availability-qualified orders were processed",
       );
       await refetch();
       await availabilityQuery.refetch();
+
+      if (overallFulfillmentMethod === "farmer" && processed > 0) {
+        router.push("/farmer/order-map?delivery=required");
+        return;
+      }
     } catch (error: any) {
-      let msg = "Failed to process available orders";
-      try {
-        const j = JSON.parse(error.message);
-        msg = j.detail || j.error?.message || j.message || msg;
-      } catch {}
-      toast.error(msg);
-    }
-  };
 
   const handleSelfDeliver = async (orderId: string) => {
     try {
@@ -213,7 +207,11 @@ export default function FarmerOrdersPage() {
     try {
       await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, { params: { stage } });
       toast.success(stage === "picked" ? "Order picked" : stage === "packed" ? "Order packed" : "Order dispatched");
-      refetch();
+      await refetch();
+      if (stage === "dispatched") {
+        router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`);
+        return;
+      }
     } catch (error: any) {
       toast.error(error?.message || "Failed to update fulfillment stage");
     }
@@ -328,16 +326,9 @@ export default function FarmerOrdersPage() {
                 </SelectContent>
               </Select>
               {overallFulfillmentMethod === "farmer" && (
-                <Select value={overallDeliveryResponsibility || "none"} onValueChange={(v: "farmer" | "delivery_partner" | "none") => setOverallDeliveryResponsibility(v === "none" ? "" : v)}>
-                  <SelectTrigger className="w-full bg-white sm:w-[210px]">
-                    <SelectValue placeholder="Choose delivery" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None — Decide in Order Map</SelectItem>
-                    <SelectItem value="farmer">Farmer Delivery</SelectItem>
-                    <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex min-h-10 items-center rounded-md border border-amber-200 bg-amber-50 px-3 text-xs text-amber-800 sm:w-[260px]">
+                  Delivery is selected after Dispatch in Order Map.
+                </div>
               )}
             </div>
             <Button
@@ -962,7 +953,7 @@ export default function FarmerOrdersPage() {
                                   {order.deliveryResponsibility && (!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(orderId, "picked")}><Package className="mr-2 h-4 w-4" />Mark Picked</Button>}
                                   {order.fulfillmentStage === "picked" && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Packed</Button>}
                                   {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
-                                  {order.deliveryResponsibility === "delivery_partner" && order.fulfillmentStage === "dispatched" && !order.deliveryPartnerId && !order.partnerRequested && <p className="rounded-md bg-indigo-50 p-2 text-xs leading-5 text-indigo-700">Delivery partner collects the packed order from the farm.</p>}
+                                  {order.fulfillmentStage === "dispatched" && !order.deliveryPartnerId && <p className="rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800">Order dispatched. Choose Deliver Myself or Delivery Partner in Order Map.</p>}
                                 </div>
                               ) : <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800"><strong>Warehouse fulfillment</strong><br />Receive → Check → Store → Pick → Pack → Dispatch → Delivery</div>
                             )}
