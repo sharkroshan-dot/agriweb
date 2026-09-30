@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
@@ -68,6 +68,20 @@ class WarehouseResponse(WarehouseBase):
     coldStorageUsed: float = 0
     createdAt: datetime
     updatedAt: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_mongo_document(cls, value):
+        if isinstance(value, dict):
+            value = dict(value)
+            if "id" not in value and "_id" in value:
+                value["id"] = str(value["_id"])
+            elif value.get("id") is not None:
+                value["id"] = str(value["id"])
+
+            if value.get("managerId") is not None:
+                value["managerId"] = str(value["managerId"])
+        return value
 
     class Config:
         from_attributes = True
