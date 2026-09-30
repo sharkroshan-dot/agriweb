@@ -1208,6 +1208,8 @@ class OrderService:
                     "requestedQuantity": 0.0,
                     "orderCount": 0,
                     "fulfillableQuantity": 0.0,
+                    "freeQuantity": 0.0,
+                    "reservedQuantity": 0.0,
                 })
                 row["requestedQuantity"] += qty
                 row["orderCount"] += 1
@@ -1216,10 +1218,13 @@ class OrderService:
                 total = float(stock.get("total_stock", 0) or 0)
                 reserved = float(stock.get("reserved_stock", 0) or 0)
                 sold = float(stock.get("sold_stock", 0) or 0)
-                # Reserved stock belongs to pending customer orders, so it is
-                # available to those orders even though it is not free stock
-                # for a new checkout.
+                # Pending checkout reservations are already part of the
+                # reserved_stock figure. For this screen, "available to
+                # pending orders" means stock not already sold; the separate
+                # freeQuantity value shows stock that is not reserved at all.
                 row["availableQuantity"] = max(0.0, total - sold)
+                row["freeQuantity"] = max(0.0, total - reserved - sold)
+                row["reservedQuantity"] = max(0.0, reserved)
 
         # Evaluate pending orders in deterministic creation order against
         # the stock that is actually available to all pending orders.
@@ -1328,6 +1333,14 @@ class OrderService:
 
         if fulfillment_method == FulfillmentMethod.FARM_DIRECT and delivery_responsibility is None:
             raise ValueError("Delivery responsibility is required for Farmer Fulfillment.")
+
+        # Validate warehouse configuration before confirming any order. This
+        # prevents a partial batch where some orders become confirmed and then
+        # fail because the farmer has no warehouse configured.
+        if fulfillment_method == FulfillmentMethod.WAREHOUSE:
+            warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
+            if not warehouse_id:
+                raise ValueError("No warehouse is configured for this farmer. Configure the warehouse before processing orders.")
 
         for result in eligible:
             order_id = result["orderId"]
