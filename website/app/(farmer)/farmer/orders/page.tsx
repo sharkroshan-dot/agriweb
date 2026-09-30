@@ -91,6 +91,8 @@ export default function FarmerOrdersPage() {
   const [confirmAction, setConfirmAction] = useState<{ order: any; action: string } | null>(null);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [geoVersion, setGeoVersion] = useState(0);
+  const [overallFulfillmentMethod, setOverallFulfillmentMethod] = useState<"farmer" | "warehouse" | "">("");
+  const [overallDeliveryResponsibility, setOverallDeliveryResponsibility] = useState<"farmer" | "delivery_partner" | "">("");
   const geocodingRef = useRef<Record<string, any>>({});
 
   const { data: orders, isLoading, refetch } = useQuery({
@@ -129,19 +131,30 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleConfirmAvailableOrders = async () => {
+  const handleProcessAvailableOrders = async () => {
+    if (!overallFulfillmentMethod) {
+      toast.error("Select Farmer Fulfillment or Warehouse Fulfillment.");
+      return;
+    }
+    if (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility) {
+      toast.error("Select Farmer Delivery or Delivery Partner.");
+      return;
+    }
     try {
-      const response = await api.post("/orders/farmer/confirm-available");
+      const response = await api.post("/orders/farmer/process-available", {
+        fulfillmentMethod: overallFulfillmentMethod,
+        deliveryResponsibility: overallFulfillmentMethod === "farmer" ? overallDeliveryResponsibility : null,
+      });
       const result = response?.data || response;
       toast.success(
-        result?.confirmedOrders
-          ? `${result.confirmedOrders} order${result.confirmedOrders === 1 ? "" : "s"} confirmed from available product`
-          : "No orders were confirmed",
+        result?.processedOrders
+          ? `${result.processedOrders} order${result.processedOrders === 1 ? "" : "s"} confirmed and processed`
+          : "No availability-qualified orders were processed",
       );
       await refetch();
       await availabilityQuery.refetch();
     } catch (error: any) {
-      let msg = "Failed to confirm available orders";
+      let msg = "Failed to process available orders";
       try {
         const j = JSON.parse(error.message);
         msg = j.detail || j.error?.message || j.message || msg;
@@ -285,13 +298,43 @@ export default function FarmerOrdersPage() {
                 Customer orders are checked against the actual product stock. Only orders that can be fulfilled are confirmed.
               </p>
             </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Select value={overallFulfillmentMethod} onValueChange={(v: "farmer" | "warehouse") => {
+                setOverallFulfillmentMethod(v);
+                if (v === "warehouse") setOverallDeliveryResponsibility("");
+              }}>
+                <SelectTrigger className="w-[220px] bg-white">
+                  <SelectValue placeholder="Choose fulfillment" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="farmer">Farmer Fulfillment</SelectItem>
+                  <SelectItem value="warehouse">Warehouse Fulfillment</SelectItem>
+                </SelectContent>
+              </Select>
+              {overallFulfillmentMethod === "farmer" && (
+                <Select value={overallDeliveryResponsibility} onValueChange={(v: "farmer" | "delivery_partner") => setOverallDeliveryResponsibility(v)}>
+                  <SelectTrigger className="w-[220px] bg-white">
+                    <SelectValue placeholder="Choose delivery" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="farmer">Farmer Delivery</SelectItem>
+                    <SelectItem value="delivery_partner">Delivery Partner</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
             <Button
-              onClick={handleConfirmAvailableOrders}
-              disabled={availabilityQuery.isLoading || !availabilityQuery.data}
+              onClick={handleProcessAvailableOrders}
+              disabled={
+                availabilityQuery.isLoading ||
+                !availabilityQuery.data ||
+                !overallFulfillmentMethod ||
+                (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility)
+              }
               className="shrink-0"
             >
               <CheckCircle className="mr-2 h-4 w-4" />
-              Confirm Available Orders
+              Confirm & Process Available Orders
             </Button>
           </div>
 
