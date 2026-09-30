@@ -183,7 +183,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Rate limiting (per-IP, stricter on auth endpoints)
+# Rate limiting (per-IP, stricter on auth endpoints).
+# Added after CORSMiddleware so browser preflight/error responses retain CORS headers.
 from app.middleware.rate_limit import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware)
 
