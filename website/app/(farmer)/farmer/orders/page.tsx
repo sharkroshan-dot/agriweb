@@ -716,7 +716,13 @@ export default function FarmerOrdersPage() {
                                     {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
                                   </>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">Warehouse will Incoming → Receive → Store → Pack → Dispatch.</span>
+                                  <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+                                    <strong>Warehouse fulfillment</strong>
+                                    <br />
+                                    Current warehouse stage: <span className="font-semibold">{String(order.warehouseFulfillmentStage || "incoming").replace(/_/g, " ")}</span>
+                                    <br />
+                                    Workflow: Incoming → Receive → Store → Pack → Dispatch
+                                  </div>
                                 )}
                                 <span className="text-xs text-muted-foreground">
                                   Distance: {Number(order.deliveryDetails?.distanceKm || 0).toFixed(1)} km
