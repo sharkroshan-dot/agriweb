@@ -26,6 +26,7 @@ from app.schemas.warehouse_packing import PackingTeamAssignment, PackingComplete
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 from app.services.warehouse_collection_service import serialize_collection
 from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationPriority
 import logging
 
 logger = logging.getLogger(__name__)
@@ -413,6 +414,27 @@ async def receive_incoming_stock(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Failed to receive stock"
         )
+
+    # Notify farmer/customer when warehouse receiving changes the authoritative order workflow.
+    try:
+        order_id = incoming.get("orderId")
+        if order_id:
+            updated_order = await order_repository.get_by_id(str(order_id))
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    stage=updated_order.get("warehouseFulfillmentStage") or "received",
+                    title=f"Order #{updated_order.get('orderNumber') or order_id}: warehouse receiving updated",
+                    message=(
+                        "The warehouse received the shipment and it passed quality check." if quality_check == "passed"
+                        else "The warehouse received the shipment, but the quality check requires attention."
+                    ),
+                    actor_role="warehouse",
+                    priority=NotificationPriority.HIGH if quality_check == "passed" else NotificationPriority.URGENT,
+                )
+    except Exception:
+        logger.exception("Failed to notify workflow roles after warehouse receiving")
+
     return {
         "success": True,
         "data": incoming,
@@ -434,6 +456,20 @@ async def store_incoming_stock(
     )
     if not incoming:
         raise HTTPException(status_code=400, detail="Incoming stock must be received and quality approved before storage")
+    try:
+        order_id = incoming.get("orderId")
+        if order_id:
+            updated_order = await order_repository.get_by_id(str(order_id))
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    stage=updated_order.get("warehouseFulfillmentStage") or "stored",
+                    title=f"Order #{updated_order.get('orderNumber') or order_id}: stock stored",
+                    message="The warehouse has stored the received product. Order allocation and packing can proceed.",
+                    actor_role="warehouse",
+                )
+    except Exception:
+        logger.exception("Failed to notify workflow roles after warehouse storage")
     return {"success": True, "data": incoming, "message": "Stock stored successfully"}
 
 
