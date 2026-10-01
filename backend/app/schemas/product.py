@@ -248,6 +248,7 @@ class ProductReviewUpdate(BaseModel):
 
 class ProductReviewResponse(ProductReviewBase):
     id: str
+    batchId: Optional[str] = None
     productId: str
     userId: str
     userName: str
