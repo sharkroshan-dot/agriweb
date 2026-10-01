@@ -125,3 +125,19 @@ async def hub_dispatch(order_id: str, data: HubDispatchRequest, current_user: di
     now=datetime.utcnow()
     await MongoDB.get_collection("orders").update_one({"_id":oid},{"$set":{"deliveryPartnerId":partner_oid,"orderStatus":"dispatched","logisticsMode":"hub_to_delivery_partner","transferStatus":"local_dispatch","localDispatchAt":now,"updatedAt":now}})
     return {"success":True,"assignmentId":assignment_id,"deliveryPartnerId":partner_id}
+
+@router.post("/ratings")
+async def create_fulfillment_rating(data: FulfillmentRatingCreate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "customer":
+        raise HTTPException(status_code=403, detail="Only customers can submit fulfillment ratings")
+    try: oid = ObjectId(data.orderId)
+    except Exception: raise HTTPException(status_code=400, detail="Invalid order id")
+    orders = MongoDB.get_collection("orders"); ratings = MongoDB.get_collection("fulfillment_ratings")
+    order = await orders.find_one({"_id": oid, "customerId": ObjectId(current_user["_id"]), "orderStatus": "delivered"})
+    if not order: raise HTTPException(status_code=404, detail="Only delivered orders can be rated")
+    if await ratings.find_one({"orderId": oid, "customerId": ObjectId(current_user["_id"])}): raise HTTPException(status_code=409, detail="This order has already been rated")
+    doc = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    doc.update({"orderId": oid, "customerId": ObjectId(current_user["_id"]), "farmerId": order.get("farmerId"), "deliveryPartnerId": order.get("deliveryPartnerId"), "warehouseId": order.get("warehouseId"), "hubId": order.get("nearbyFulfillmentLocationId"), "createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+    result = await ratings.insert_one(doc)
+    doc["id"] = str(result.inserted_id); doc.pop("_id", None)
+    return {"success": True, "data": doc}
