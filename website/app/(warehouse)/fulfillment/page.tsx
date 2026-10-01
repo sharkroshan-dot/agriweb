@@ -11,6 +11,7 @@ import { api } from "../../lib/api/client";
 
 export default function WarehouseFulfillmentPage() {
   const [refreshKey, setRefreshKey] = useState(0);
+  const [selectedForConsolidation, setSelectedForConsolidation] = useState<string[]>([]);
 
   const hubsQuery = useQuery({
     queryKey: ["fulfillmentHubs", refreshKey],
@@ -58,6 +59,17 @@ export default function WarehouseFulfillmentPage() {
       toast.success("Local hub stock dispatched to delivery partner");
     },
     onError: (e: any) => toast.error(e?.message || "Hub dispatch failed"),
+  });
+
+  const consolidateMutation = useMutation({
+    mutationFn: ({ hubId, orderIds }: { hubId: string; orderIds: string[] }) =>
+      api.post(`/fulfillment/hubs/${hubId}/consolidate`, { hubId, orderIds }),
+    onSuccess: () => {
+      setSelectedForConsolidation([]);
+      setRefreshKey((v) => v + 1);
+      toast.success("Consolidated transfer manifest created");
+    },
+    onError: (e: any) => toast.error(e?.message || "Consolidation failed"),
   });
 
   const transferMutation = useMutation({
@@ -121,9 +133,12 @@ export default function WarehouseFulfillmentPage() {
                 <div>
                   <p className="font-semibold">Order {orderId}</p>
                   <p className="text-sm text-muted-foreground">
-                    {quantity} units • {decision.perishabilityRisk || "risk pending"} • {decision.estimatedDistanceKm ?? "—"} km • ETA {decision.estimatedDeliveryMinutes ?? "—"} min
+                    {quantity} units • {decision.perishabilityRisk || "risk pending"} • {decision.estimatedDistanceKm ?? "—"} km • ETA {decision.estimatedDeliveryMinutes ?? "—"} min<br />Nearby stock: {decision.nearbyStockAvailable ?? "—"} • Delivery capacity: {decision.deliveryCapacityAvailable ?? "—"} {decision.deliveryCapacitySufficient === false ? "• insufficient" : ""}
                   </p>
                 </div>
+                {decision.nearbyFulfillmentType === "local_hub" && decision.transferStatus !== "in_transit" && decision.transferStatus !== "received" && (
+                  <input type="checkbox" checked={selectedForConsolidation.includes(orderId)} onChange={(e) => setSelectedForConsolidation((prev) => e.target.checked ? [...prev, orderId] : prev.filter((id) => id !== orderId))} />
+                )}
                 {decision.transferStatus === "in_transit" ? (
                 <Button
                   disabled={hubReceiveMutation.isPending}
@@ -149,6 +164,18 @@ export default function WarehouseFulfillmentPage() {
               </div>
             );
           })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Consolidated transfer</CardTitle></CardHeader>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Select two or more orders targeting the same local hub to create one transfer manifest.</p>
+          <Button disabled={selectedForConsolidation.length < 2 || consolidateMutation.isPending} onClick={() => {
+            const rows = transferOrders.filter((r: any) => selectedForConsolidation.includes(String(r?.incoming?.orderId)));
+            const hubId = rows[0]?.decision?.nearbyFulfillmentLocationId;
+            if (hubId) consolidateMutation.mutate({ hubId, orderIds: selectedForConsolidation });
+          }}>Create Consolidated Manifest ({selectedForConsolidation.length})</Button>
         </CardContent>
       </Card>
 
