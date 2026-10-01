@@ -13,7 +13,6 @@ class FulfillmentMethod(str, Enum):
 
 class FulfillmentStage(str, Enum):
     PENDING = "pending"
-    PICKED = "picked"
     PACKED = "packed"
     DISPATCHED = "dispatched"
 
@@ -126,6 +125,10 @@ class DeliveryResponsibilityUpdate(BaseModel):
 class BulkOrderProcessRequest(BaseModel):
     fulfillmentMethod: FulfillmentMethod
     deliveryResponsibility: Optional[DeliveryResponsibility] = None
+
+
+class BulkFarmerOrderRequest(BaseModel):
+    action: str = Field(..., pattern="^(confirm|process|farmer_fulfillment|warehouse_fulfillment|pack|dispatch)$")
 
 class OrderResponse(BaseModel):
     id: str
