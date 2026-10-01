@@ -1903,6 +1903,24 @@ class OrderService:
             update["fulfillmentStage"] = FulfillmentStage.PACKED.value
 
         await order_repository.update({"_id": order["_id"]}, update)
+        try:
+            updated_order = await order_repository.get_by_id(order_id)
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    stage=FulfillmentStage.PACKED.value,
+                    title=f"Order #{updated_order.get('orderNumber') or order_id}: packing finalized",
+                    message=(
+                        "A packing shortage was found. Your order needs attention."
+                        if cancelled_items else
+                        "Your order has been fully packed and verified."
+                    ),
+                    actor_role=role,
+                    priority=NotificationPriority.URGENT if cancelled_items else NotificationPriority.HIGH,
+                )
+        except Exception as e:
+            logger.warning("Failed to notify roles after farmer packing for %s: %s", order_id, e)
+
         await order_repository.append_tracking_event(
             order_id,
             "fulfillment_shortage_cancelled" if cancelled_items else "fulfillment_packed",
