@@ -43,6 +43,7 @@ from app.repositories.delivery_job_repository import (
     JOB_NO_PARTNER_FOUND,
 )
 from app.services.farmer_settings_service import farmer_settings_service
+from app.services.logistics_routing_service import apply_partner_route
 from app.ai.models.route_optimization import route_optimization_model
 from collections import Counter
 import math
@@ -1677,6 +1678,13 @@ class AssignmentUpdateRequest(BaseModel):
     partnerId: Optional[str] = None
 
 
+class PartnerRouteRequest(BaseModel):
+    route: str = Field(..., pattern="^(nearby|long_distance)$")
+    radius: int = Field(10, ge=1, le=200)
+    orderIds: Optional[list[str]] = None
+    mode: str = Field("marketplace", pattern="^(marketplace|manual|ai)$")
+
+
 class JobExpiryRequest(BaseModel):
     minutes: int = Field(JOB_DEFAULT_EXPIRY_MINUTES, ge=15, le=720)
 
@@ -2410,6 +2418,68 @@ def _ai_partner_plan(targets, available: list) -> list:
             running_slots[best["id"]][slot] += 1
             plan.append((order, best, f"AI match (score {round(best_score, 2)})"))
     return plan
+
+
+@router.post("/me/delivery-map/partner-route")
+async def choose_delivery_partner_route(
+    body: PartnerRouteRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Choose how delivery-partner orders physically move after Farmer Fulfillment.
+
+    nearby: farm -> local hub -> delivery partner -> customer
+    long_distance: farm -> warehouse -> local hub -> delivery partner -> customer
+    """
+    _ensure_farmer(current_user)
+    farmer_id = str(current_user["_id"])
+    farm = await _get_farm_origin(farmer_id)
+    if farm.get("lat") is None:
+        raise HTTPException(status_code=400, detail="Farm location is not set")
+
+    orders = await order_repository.find_many({
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
+        "fulfillmentMethod": "farmer",
+        "fulfillmentStage": "dispatched",
+        "deliveryType": {"$ne": DeliveryType.PICKUP.value},
+        "deletedAt": None,
+    }) or []
+
+    selected = set(body.orderIds or [])
+    targets = []
+    for order in orders:
+        oid = str(order["_id"])
+        if selected and oid not in selected:
+            continue
+        if order.get("selfDelivery") or order.get("deliveryPartnerId"):
+            continue
+        addr = order.get("deliveryAddress") or {}
+        lat, lng = await _stop_coords(addr, oid)
+        if lat is None:
+            continue
+        dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
+        is_nearby = dist <= body.radius
+        if (body.route == "nearby" and not is_nearby) or (body.route == "long_distance" and is_nearby):
+            continue
+        targets.append((order, dist))
+
+    if not targets:
+        return {"success": True, "data": {"route": body.route, "processed": 0, "results": []}}
+
+    results = []
+    for order, dist in targets:
+        route = await apply_partner_route(order, body.route, body.radius)
+        results.append({"orderId": str(order["_id"]), "distanceKm": round(dist, 2), **route})
+
+    return {
+        "success": True,
+        "data": {"route": body.route, "processed": len(results), "results": results},
+        "message": (
+            f"{len(results)} nearby orders routed through local hubs"
+            if body.route == "nearby"
+            else f"{len(results)} long-distance orders routed through warehouse and local hubs"
+        ),
+    }
 
 
 @router.post("/me/delivery-map/assign-outside")
