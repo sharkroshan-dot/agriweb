@@ -15,6 +15,7 @@ import toast from "react-hot-toast";
 
 const statusColors: Record<string, string> = {
   scheduled: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+  ready_for_pickup: "bg-amber-500/10 text-amber-700 border-amber-500/20",
   in_transit: "bg-purple-500/10 text-purple-600 border-purple-500/20",
   received: "bg-green-500/10 text-green-600 border-green-500/20",
   quality_check: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
@@ -225,7 +226,7 @@ export default function WarehouseIncomingPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
-        <div className="flex items-center gap-2"><Button onClick={openScheduleDialog}><Plus className="mr-2 h-4 w-4" />Schedule Incoming</Button><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button></div>
+        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -251,7 +252,7 @@ export default function WarehouseIncomingPage() {
       </Card>
 
       {incomingList.length === 0 ? (
-        <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Schedule incoming stock to receive inventory"}</p><Button className="mt-4" onClick={openScheduleDialog}><Plus className="mr-2 h-4 w-4" />Schedule Incoming</Button></Card>
+        <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Farm collection requests will appear here after the farmer confirms the product is ready."}</p></Card>
       ) : (
         <div className="space-y-4">{incomingList.map((item: any) => {
           const productName = item.productName || item.productId || "Incoming product";
