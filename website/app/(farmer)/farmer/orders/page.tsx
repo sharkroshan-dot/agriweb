@@ -838,11 +838,10 @@ export default function FarmerOrdersPage() {
                       </div>
                     </CardContent>
                   </Card>
-                );
-              })}
+                ))}
             </div>
-          )}
-        </section>
+          </div>
+        );
       })()}
       <Dialog open={!!confirmAction} onOpenChange={(v) => { if (!v) setConfirmAction(null); }}>
         {confirmAction && (() => {
