@@ -1712,6 +1712,161 @@ class OrderService:
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
+    async def finalize_farmer_packing(
+        order_id: str,
+        user_id: str,
+        role: str,
+        packed_items: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Finalize Farmer Fulfillment packing using the quantities actually packed.
+
+        Shortages are discovered at the end of packing. Available quantity is
+        kept on the order; only the unavailable quantity is cancelled. COD
+        orders simply receive a lower final payable amount because no refund
+        is required before delivery.
+        """
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("fulfillmentMethod") or "") != FulfillmentMethod.FARM_DIRECT.value:
+            return None
+        if role == "farmer" and str(order.get("farmerId")) != user_id:
+            return None
+        if role not in ("farmer", "admin") or order.get("fulfillmentRouteSelected") is not True:
+            return None
+        if str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
+            return None
+        stage = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
+        if stage != FulfillmentStage.PENDING.value:
+            return None
+
+        requested = {
+            (str(x.get("productId")), str(x.get("variantId") or "")): max(0.0, float(x.get("packedQuantity") or 0))
+            for x in packed_items
+        }
+        items = order.get("items") or []
+        if not items:
+            return None
+
+        checklist = []
+        updated_items = []
+        cancelled_items = []
+        cancelled_value = 0.0
+        unresolved = False
+
+        for item in items:
+            key = (str(item.get("productId")), str(item.get("variantId") or ""))
+            required = float(item.get("quantity") or 0)
+            actual = min(required, requested.get(key, 0.0))
+            shortage = max(0.0, required - actual)
+            unit_price = float(item.get("unitPrice") or 0)
+            item_copy = dict(item)
+
+            checklist.append({
+                "productId": key[0],
+                "variantId": key[1] or "",
+                "productName": item.get("productName") or "Product",
+                "quantityRequired": required,
+                "availableQuantity": actual,
+                "shortageQuantity": shortage,
+                "finalQuantity": actual,
+                "packedQuantity": actual,
+                "verified": True,
+                "resolutionType": "packed" if shortage <= 0 else "shortage_cancelled",
+                "resolutionStatus": "resolved",
+            })
+
+            if shortage > 0:
+                unresolved = False
+                cancelled_value += shortage * unit_price
+                cancelled_items.append({
+                    "productId": key[0],
+                    "variantId": key[1] or None,
+                    "productName": item.get("productName") or "Product",
+                    "cancelledQuantity": shortage,
+                    "unitPrice": unit_price,
+                    "cancelledValue": shortage * unit_price,
+                    "reason": "Farmer packing shortage",
+                    "cancelledAt": datetime.utcnow(),
+                })
+                item_copy["quantity"] = actual
+                item_copy["totalPrice"] = actual * unit_price
+
+            if actual > 0:
+                updated_items.append(item_copy)
+
+        # A zero-quantity line is removed from the active order and retained
+        # in cancelledItems for a complete audit trail.
+        final_subtotal = sum(float(i.get("totalPrice") or 0) for i in updated_items)
+        original_subtotal = float(order.get("subtotal") or 0)
+        original_discount = float(order.get("discount") or 0)
+        final_discount = min(original_discount, final_subtotal)
+        final_total = max(
+            0.0,
+            final_subtotal
+            + float(order.get("deliveryCharge") or 0)
+            + float(order.get("platformFee") or 0)
+            - final_discount,
+        )
+
+        payment_method = str(order.get("paymentMethod") or "").lower()
+        is_cod = payment_method in ("cash", "cod", "cash_on_delivery")
+        update: Dict[str, Any] = {
+            "items": updated_items,
+            "subtotal": final_subtotal,
+            "discount": final_discount,
+            "totalAmount": final_total,
+            "packingChecklist": checklist,
+            "packingComplete": True,
+            "packedAt": datetime.utcnow(),
+            "shortageDetected": bool(cancelled_items),
+            "shortageResolved": True,
+            "shortageCancelledItems": cancelled_items,
+            "shortageAdjustment": cancelled_value,
+            "finalPayableAmount": final_total,
+            "updatedAt": datetime.utcnow(),
+        }
+
+        if cancelled_items:
+            update["shortageResolution"] = "cancel_unavailable_quantity"
+            update["shortagePaymentHandling"] = "cod_amount_reduced" if is_cod else "refund_required"
+            if not is_cod and str(order.get("paymentStatus") or "").lower() == PaymentStatus.PAID.value:
+                update["refundStatus"] = "pending"
+                update["refundRequiredAmount"] = cancelled_value
+        else:
+            update["shortageResolution"] = "none"
+            update["shortagePaymentHandling"] = "none"
+
+        if not updated_items:
+            update["fulfillmentStage"] = FulfillmentStage.PENDING.value
+            update["packingComplete"] = False
+            update["orderStatus"] = OrderStatus.CANCELLED.value
+            update["cancellationReason"] = "All ordered products were unavailable during final packing."
+        else:
+            update["fulfillmentStage"] = FulfillmentStage.PACKED.value
+
+        await order_repository.update({"_id": order["_id"]}, update)
+        await order_repository.append_tracking_event(
+            order_id,
+            "fulfillment_shortage_cancelled" if cancelled_items else "fulfillment_packed",
+            "Packing shortage resolved" if cancelled_items else "Customer order packed",
+            (
+                f"{len(cancelled_items)} order line(s) had a packing shortage. "
+                + ("COD payable amount was reduced; no customer refund is required." if is_cod
+                   else "A refund is required for the cancelled paid quantity.")
+            ) if cancelled_items else "Every customer order item was packed and verified.",
+            actor_id=user_id,
+            actor_role=role,
+            metadata={
+                "itemCount": len(items),
+                "packedItemCount": len(updated_items),
+                "shortageLineCount": len(cancelled_items),
+                "cancelledValue": cancelled_value,
+                "finalPayableAmount": final_total,
+                "paymentMethod": payment_method,
+            },
+        )
+        return await order_repository.get_by_id(order_id)
+
+    @staticmethod
     async def update_fulfillment_stage(order_id: str, user_id: str, role: str, stage: FulfillmentStage) -> Optional[Dict[str, Any]]:
         """Farmer-direct Pack -> Dispatch lifecycle with a complete-order gate."""
         order = await order_repository.get_by_id(order_id)
@@ -1734,36 +1889,34 @@ class OrderService:
         if not items:
             return None
         if target == FulfillmentStage.PACKED.value:
-            checklist = [{
-                "productId": str(i.get("productId")),
-                "variantId": str(i.get("variantId") or ""),
-                "productName": i.get("productName") or "Product",
-                "quantityRequired": float(i.get("quantity") or 0),
-                "packedQuantity": float(i.get("quantity") or 0),
-                "verified": True,
-            } for i in items]
-            update = {
-                "fulfillmentStage": target,
-                "packingChecklist": checklist,
-                "packingComplete": True,
-                "packedAt": datetime.utcnow(),
-                "updatedAt": datetime.utcnow(),
-            }
-        else:
-            checklist = order.get("packingChecklist") or []
-            complete = bool(order.get("packingComplete")) and len(checklist) == len(items) and all(
-                float(x.get("packedQuantity") or 0) >= float(x.get("quantityRequired") or 0) and x.get("verified") is True
-                for x in checklist
-            )
-            if not complete:
-                return None
-            update = {"fulfillmentStage": target, "updatedAt": datetime.utcnow()}
-            if target == FulfillmentStage.DISPATCHED.value:
-                update["orderStatus"] = OrderStatus.READY_FOR_DELIVERY.value
-                update["dispatchedAt"] = datetime.utcnow()
-                update["dispatchReadyChecklistComplete"] = True
+            # Packing must now be finalized with actual quantities through
+            # finalize_farmer_packing(). Do not silently claim all quantities
+            # were packed.
+            return None
+
+        checklist = order.get("packingChecklist") or []
+        complete = bool(order.get("packingComplete")) and len(checklist) == len(items) and all(
+            float(x.get("packedQuantity") or 0) >= float(x.get("finalQuantity", x.get("quantityRequired", 0)) or 0)
+            and x.get("verified") is True
+            for x in checklist
+        )
+        if not complete or order.get("shortageDetected") and not order.get("shortageResolved"):
+            return None
+        update = {"fulfillmentStage": target, "updatedAt": datetime.utcnow()}
+        if target == FulfillmentStage.DISPATCHED.value:
+            update["orderStatus"] = OrderStatus.READY_FOR_DELIVERY.value
+            update["dispatchedAt"] = datetime.utcnow()
+            update["dispatchReadyChecklistComplete"] = True
         await order_repository.update({"_id": order["_id"]}, update)
-        await order_repository.append_tracking_event(order_id, "fulfillment_packed" if target == FulfillmentStage.PACKED.value else "fulfillment_dispatched", "Customer order packed" if target == FulfillmentStage.PACKED.value else "Customer order dispatched", "Every customer order item is recorded as packed and verified." if target == FulfillmentStage.PACKED.value else "The complete packed customer order passed the dispatch gate.", actor_id=user_id, actor_role=role, metadata={"itemCount": len(items)})
+        await order_repository.append_tracking_event(
+            order_id,
+            "fulfillment_dispatched",
+            "Customer order dispatched",
+            "The final packed customer order passed the dispatch gate.",
+            actor_id=user_id,
+            actor_role=role,
+            metadata={"itemCount": len(items)},
+        )
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
