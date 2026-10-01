@@ -606,6 +606,7 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
                 "requiredQuantity": float(line.get("quantityRequired") or 0),
                 "availableQuantity": float(line.get("packedQuantity") or 0),
                 "shortageQuantity": short,
+                "productName": line.get("productName") or "Product",
                 "shortageType": "packing_shortage",
                 "status": (case or {}).get("status") or "resolution_required",
                 "resolutionType": (case or {}).get("resolutionType"),
