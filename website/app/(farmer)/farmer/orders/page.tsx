@@ -130,6 +130,7 @@ export default function FarmerOrdersPage() {
   };
 
   const [bulkRunning, setBulkRunning] = useState(false);
+  const [runAllConfirmOpen, setRunAllConfirmOpen] = useState(false);
 
   const handleRunAllEligible = async () => {
     try {
@@ -269,6 +270,27 @@ export default function FarmerOrdersPage() {
         </div>
       </div>
 
+      <Dialog open={runAllConfirmOpen} onOpenChange={setRunAllConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Run all eligible orders?</DialogTitle>
+            <DialogDescription>
+              This will process every farmer order that can safely advance. Each order is checked independently; orders needing a fulfillment choice, warehouse action, or delivery decision will stop there.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 rounded-xl bg-slate-50 p-4 text-sm">
+            <div className="flex justify-between"><span>Total visible orders</span><strong>{orderList.length}</strong></div>
+            <p className="text-xs text-muted-foreground">Farmer Fulfillment orders may continue through packing and dispatch. Warehouse Fulfillment orders stop when farmer or warehouse input is required.</p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setRunAllConfirmOpen(false)} disabled={bulkRunning}>Cancel</Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setRunAllConfirmOpen(false); handleRunAllEligible(); }} disabled={bulkRunning}>
+              {bulkRunning ? "Processing..." : "Run All Eligible"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Card className="overflow-hidden border shadow-sm">
         <CardContent className="space-y-4 p-5 sm:p-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -280,7 +302,7 @@ export default function FarmerOrdersPage() {
             </div>
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={bulkRunning} onClick={handleRunAllEligible}>
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={bulkRunning} onClick={() => setRunAllConfirmOpen(true)}>
                   {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                   {bulkRunning ? "Processing Orders..." : "Run All Eligible"}
                 </Button>
