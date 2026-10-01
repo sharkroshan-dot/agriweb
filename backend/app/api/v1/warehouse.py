@@ -18,6 +18,8 @@ from app.schemas.warehouse import (
 )
 from app.services.warehouse_service import WarehouseService
 from app.services.logistics_routing_service import apply_partner_route
+from app.repositories.warehouse_packing_repository import warehouse_packing_repository
+from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
 import logging
 
 logger = logging.getLogger(__name__)
@@ -332,6 +334,67 @@ async def store_incoming_stock(
         raise HTTPException(status_code=400, detail="Incoming stock must be received and quality approved before storage")
     return {"success": True, "data": incoming, "message": "Stock stored successfully"}
 
+
+@router.get("/me/packing-tasks", response_model=dict)
+async def get_packing_tasks(status: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access packing tasks")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse: raise HTTPException(status_code=404, detail="Warehouse not found")
+    tasks = await warehouse_packing_repository.get_by_warehouse(str(warehouse["_id"]), status)
+    for task in tasks:
+        task["id"] = str(task["_id"])
+        for key in ("warehouseId","orderId","farmerId","productId","variantId","batchId"):
+            if task.get(key) is not None: task[key] = str(task[key])
+    return {"success": True, "data": {"tasks": tasks}}
+
+@router.put("/me/packing-tasks/{task_id}/assign")
+async def assign_packing_team(task_id: str, data: PackingTeamAssignment, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse": raise HTTPException(status_code=403, detail="Only warehouse managers can assign packing teams")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    task = await warehouse_packing_repository.get_by_id(task_id)
+    if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
+    await warehouse_packing_repository.update_task(task_id, {"packingTeamId": data.packingTeamId, "status": "assigned"})
+    return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
+
+@router.put("/me/packing-tasks/{task_id}/start")
+async def start_packing_task(task_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse": raise HTTPException(status_code=403, detail="Only warehouse managers can start packing")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    task = await warehouse_packing_repository.get_by_id(task_id)
+    if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
+    if task.get("status") not in ("ready_for_packing","assigned"): raise HTTPException(status_code=400, detail="Task is not ready to start packing")
+    await warehouse_packing_repository.update_task(task_id, {"status":"packing"})
+    return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
+
+@router.put("/me/packing-tasks/{task_id}/complete")
+async def complete_packing_task(task_id: str, data: PackingCompleteRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse": raise HTTPException(status_code=403, detail="Only warehouse managers can complete packing")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    task = await warehouse_packing_repository.get_by_id(task_id)
+    if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
+    required = float(task.get("quantityRequired",0))
+    if data.packedQuantity > required: raise HTTPException(status_code=400, detail="Packed quantity cannot exceed required quantity")
+    if task.get("status") not in ("ready_for_packing","assigned","packing","partially_packed"): raise HTTPException(status_code=400, detail="Task is not packable")
+    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":data.packedQuantity,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":"packed" if data.packedQuantity >= required else "partially_packed"})
+    return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
+
+@router.put("/me/packing-tasks/{task_id}/verify")
+async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse": raise HTTPException(status_code=403, detail="Only warehouse managers can verify packing")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    task = await warehouse_packing_repository.get_by_id(task_id)
+    if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
+    if data.verified and task.get("packedQuantity",0) < task.get("quantityRequired",0): raise HTTPException(status_code=400, detail="Complete the required quantity before verification")
+    await warehouse_packing_repository.update_task(task_id, {"verified":data.verified,"verificationNotes":data.notes,"status":"ready_for_dispatch" if data.verified else "packed"})
+    if data.verified:
+        from app.repositories.order_repository import order_repository
+        order_id=str(task["orderId"])
+        await order_repository.update({"_id":ObjectId(order_id)}, {"warehouseFulfillmentStage":"ready_for_dispatch","updatedAt":datetime.utcnow()})
+        existing=await outgoing_stock_repository.get_by_order_id(order_id,str(task["productId"]),str(task.get("variantId") or ""))
+        if not existing:
+            await WarehouseService.create_outgoing(OutgoingStockCreate(warehouseId=str(warehouse["_id"]),productId=str(task["productId"]),variantId=str(task["variantId"]) if task.get("variantId") else None,orderId=order_id,quantity=int(task.get("packedQuantity",0)),batchNumber=task.get("batchNumber")))
+    return {"success":True,"data":await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.post("/me/outgoing/{outgoing_id}/delivery-route")
 async def choose_warehouse_delivery_route(
