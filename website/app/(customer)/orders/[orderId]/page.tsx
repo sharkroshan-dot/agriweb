@@ -117,6 +117,7 @@ export default function OrderDetailPage() {
     queryKey: ["order", orderId],
     queryFn: () => api.get(`/orders/${orderId}`),
     enabled: !!orderId,
+    refetchInterval: 10000,
   });
 
   const { data: cancelEligibilityData, refetch: refetchEligibility } = useQuery({
@@ -229,9 +230,11 @@ export default function OrderDetailPage() {
       isBulkOrder: o.isBulkOrder || false,
       tracking: (o.statusHistory || []).map((h: any) => ({
         status: (h.status || "").toLowerCase(),
-        date: h.createdAt || h.date,
-        description: h.note || h.status || "Status update",
-      })),
+        eventType: h.eventType || "",
+        date: h.timestamp || h.createdAt || h.date,
+        description: h.title || h.note || String(h.status || "Status update").replace(/_/g, " ").replace(/\\b\\w/g, (c: string) => c.toUpperCase()),
+        actorRole: h.actorRole || "",
+      })).sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()),
     };
   }, [data]);
 
@@ -1014,9 +1017,9 @@ export default function OrderDetailPage() {
           {order.tracking.length > 0 && (
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
+                <div><CardTitle className="flex items-center gap-2">
                   <Package className="h-5 w-5" /> Tracking
-                </CardTitle>
+                </CardTitle><CardDescription>Live fulfillment and delivery updates from farmer, warehouse, and delivery operations.</CardDescription></div>
                 {order.tracking.length > 2 && (
                   <Button variant="ghost" size="sm" onClick={() => setShowAllTracking(!showAllTracking)}>
                     {showAllTracking ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
