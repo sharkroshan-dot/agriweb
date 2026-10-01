@@ -100,29 +100,71 @@ async def apply_partner_route(
         if not warehouse and origin:
             warehouse = await nearest_warehouse(origin)
 
+    warehouse_route = str(order.get("fulfillmentMethod") or "") == "warehouse"
+    if warehouse_route and mode == "nearby":
+        logistics_mode = "warehouse_to_delivery_partner"
+        route_requires_hub = False
+        transfer_status = "warehouse_handoff_pending"
+    elif warehouse_route and mode == "long_distance":
+        logistics_mode = "warehouse_to_local_hub_to_delivery_partner"
+        route_requires_hub = True
+        transfer_status = "hub_handoff_pending"
+    elif mode == "nearby":
+        logistics_mode = "farmer_to_local_hub_to_delivery_partner"
+        route_requires_hub = True
+        transfer_status = "hub_handoff_pending"
+    else:
+        logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+        route_requires_hub = True
+        transfer_status = "pending"
+
+    if warehouse_route and mode == "nearby":
+        hub = None
+
+    pickup = None
+    if mode == "nearby" and warehouse:
+        location = warehouse.get("location") or warehouse.get("coordinates") or {}
+        coords = location.get("coordinates") if isinstance(location, dict) else None
+        pickup = {
+            "type": "warehouse",
+            "id": str(warehouse.get("_id")),
+            "name": warehouse.get("name") or warehouse.get("warehouseName") or "Warehouse",
+            "address": warehouse.get("address") or "",
+            "coordinates": coords or [],
+        }
+    elif mode == "long_distance" and hub:
+        pickup = {
+            "type": "local_hub",
+            "id": str(hub.get("_id")),
+            "name": hub.get("name") or hub.get("hubName") or "Local Fulfillment Hub",
+            "address": hub.get("address") or "",
+            "coordinates": (hub.get("location") or {}).get("coordinates") or (hub.get("coordinates") or {}).get("coordinates") or [],
+        }
+    elif hub:
+        pickup = {
+            "type": "local_hub",
+            "id": str(hub.get("_id")),
+            "name": hub.get("name") or hub.get("hubName") or "Local Fulfillment Hub",
+            "address": hub.get("address") or "",
+            "coordinates": (hub.get("location") or {}).get("coordinates") or (hub.get("coordinates") or {}).get("coordinates") or [],
+        }
+
     update: Dict[str, Any] = {
         "deliveryPartnerRoute": mode,
         "deliveryPartnerRouteSelectedAt": datetime.utcnow(),
-        "nearbyFulfillmentRequired": True,
-        "nearbyFulfillmentType": "local_hub",
-        "nearbyFulfillmentLocationId": hub.get("_id") if hub else None,
+        "nearbyFulfillmentRequired": route_requires_hub,
+        "nearbyFulfillmentType": "local_hub" if route_requires_hub else None,
+        "nearbyFulfillmentLocationId": hub.get("_id") if route_requires_hub and hub else None,
         "nearbyFulfillmentLocation": ({
             "id": str(hub.get("_id")),
             "name": hub.get("name") or hub.get("hubName") or "Local Fulfillment Hub",
             "address": hub.get("address") or "",
             "coordinates": (hub.get("location") or {}).get("coordinates") or (hub.get("coordinates") or {}).get("coordinates") or [],
-        } if hub else None),
+        } if route_requires_hub and hub else None),
+        "deliveryPickupLocation": pickup,
         "deliveryRadiusKm": radius_km,
-        "logisticsMode": (
-            "farmer_to_local_hub_to_delivery_partner"
-            if mode == "nearby" and str(order.get("fulfillmentSource") or "") != "warehouse"
-            else "warehouse_to_local_hub_to_delivery_partner"
-            if mode == "nearby" and str(order.get("fulfillmentSource") or "") == "warehouse"
-            else "farmer_to_warehouse_to_local_hub_to_delivery_partner"
-            if str(order.get("fulfillmentSource") or "") != "warehouse"
-            else "warehouse_to_local_hub_to_delivery_partner"
-        ),
-        "transferStatus": "pending" if mode == "long_distance" else "hub_handoff_pending",
+        "logisticsMode": logistics_mode,
+        "transferStatus": transfer_status,
         "updatedAt": datetime.utcnow(),
     }
     if warehouse:
