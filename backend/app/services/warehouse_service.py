@@ -314,36 +314,97 @@ class WarehouseService:
                 logger.exception("Failed to create transfer-only dispatch for %s", incoming.get("orderId"))
             return await incoming_stock_repository.get_by_id(incoming_id)
 
-        # Warehouse fulfillment creates an order-level packing task after storage.
-        # It must NOT become dispatchable until the packing team completes and verifies it.
+        # Warehouse fulfillment creates exactly one order-level packing task.
+        # The task is created only after EVERY inbound line for the order is stored.
+        # This prevents a multi-product customer order from being treated as packed
+        # when only one product line reached the packing queue.
         if incoming.get("orderId"):
-            try:
-                from app.repositories.order_repository import order_repository
-                from app.repositories.warehouse_packing_repository import warehouse_packing_repository
-                order = await order_repository.get_by_id(str(incoming["orderId"]))
-                if order:
-                    existing_task = await warehouse_packing_repository.get_by_order(str(incoming["orderId"]))
-                    if not existing_task:
-                        first_item = next((i for i in (order.get("items") or [])
-                                            if str(i.get("productId")) == str(incoming.get("productId"))), {})
-                        await warehouse_packing_repository.create_task({
-                            "warehouseId": ObjectId(str(warehouse_id)),
-                            "orderId": ObjectId(str(incoming["orderId"])),
-                            "farmerId": ObjectId(str(incoming.get("farmerId"))),
-                            "productId": ObjectId(str(incoming["productId"])),
-                            "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
-                            "batchId": ObjectId(str(first_item.get("batchId"))) if first_item.get("batchId") else None,
-                            "quantityRequired": float(incoming.get("quantity", 0)),
-                            "status": "ready_for_packing",
-                            "packingResponsibility": "warehouse",
-                        })
-                    await order_repository.update(
-                        {"_id": ObjectId(str(incoming["orderId"]))},
-                        {"warehouseFulfillmentStage": "ready_for_packing", "updatedAt": datetime.utcnow()},
-                    )
-            except Exception:
-                logger.exception("Failed to create warehouse packing task for %s", incoming.get("orderId"))
+            await WarehouseService.ensure_order_packing_task(str(incoming["orderId"]), str(warehouse_id))
         return await incoming_stock_repository.get_by_id(incoming_id)
+
+    @staticmethod
+    async def ensure_order_packing_task(order_id: str, warehouse_id: str) -> Optional[Dict[str, Any]]:
+        """Create/update one packing checklist for the complete customer order.
+
+        A warehouse order is not packable until every ordered product has a
+        matching, quality-approved, stored inbound quantity. One task owns the
+        complete customer package, so no item can silently fall outside the
+        packing/verification workflow.
+        """
+        from app.repositories.order_repository import order_repository
+        from app.repositories.warehouse_packing_repository import warehouse_packing_repository
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("fulfillmentMethod") or "") != "warehouse":
+            return None
+        incoming = await incoming_stock_repository.find_many({
+            "orderId": ObjectId(order_id),
+            "warehouseId": ObjectId(warehouse_id),
+            "packingRequired": True,
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        inbound_by_key = {}
+        for row in incoming:
+            key = (str(row.get("productId")), str(row.get("variantId") or ""))
+            inbound_by_key[key] = inbound_by_key.get(key, 0.0) + float(row.get("quantityReceived") or row.get("quantity") or 0)
+        packing_items = []
+        missing = []
+        for item in order.get("items") or []:
+            key = (str(item.get("productId")), str(item.get("variantId") or ""))
+            required = float(item.get("quantity") or 0)
+            stored_qty = inbound_by_key.get(key, 0.0)
+            if stored_qty + 1e-9 < required:
+                missing.append({"productId": key[0], "variantId": key[1] or None, "required": required, "stored": stored_qty})
+            packing_items.append({
+                "itemKey": f"{key[0]}:{key[1]}",
+                "productId": key[0],
+                "variantId": key[1] or None,
+                "productName": item.get("productName") or "Product",
+                "quantityRequired": required,
+                "packedQuantity": 0.0,
+                "unit": item.get("unit") or "kg",
+            })
+        if missing:
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "warehouseFulfillmentStage": "stored",
+                "packingReadiness": {"complete": False, "missingItems": missing},
+                "updatedAt": datetime.utcnow(),
+            })
+            return None
+        existing = await warehouse_packing_repository.get_by_order(order_id)
+        if existing:
+            existing_items = existing.get("packingItems") or []
+            for item in packing_items:
+                old_item = next((x for x in existing_items if x.get("itemKey") == item["itemKey"]), None)
+                if old_item:
+                    item["packedQuantity"] = float(old_item.get("packedQuantity") or 0)
+            await warehouse_packing_repository.update_task(str(existing["_id"]), {
+                "packingItems": packing_items,
+                "quantityRequired": sum(x["quantityRequired"] for x in packing_items),
+            })
+            task = await warehouse_packing_repository.get_by_id(str(existing["_id"]))
+        else:
+            first = packing_items[0] if packing_items else {}
+            task_id = await warehouse_packing_repository.create_task({
+                "warehouseId": ObjectId(warehouse_id),
+                "orderId": ObjectId(order_id),
+                "farmerId": ObjectId(str(order.get("farmerId"))),
+                "productId": ObjectId(first["productId"]) if first.get("productId") else None,
+                "variantId": ObjectId(first["variantId"]) if first.get("variantId") else None,
+                "quantityRequired": sum(x["quantityRequired"] for x in packing_items),
+                "packedQuantity": 0.0,
+                "packingItems": packing_items,
+                "orderPacking": True,
+                "status": "ready_for_packing",
+                "packingResponsibility": "warehouse",
+            })
+            task = await warehouse_packing_repository.get_by_id(str(task_id)) if task_id else None
+        await order_repository.update({"_id": ObjectId(order_id)}, {
+            "warehouseFulfillmentStage": "ready_for_packing",
+            "packingReadiness": {"complete": True, "missingItems": []},
+            "packingTaskId": task.get("_id") if task else None,
+            "updatedAt": datetime.utcnow(),
+        })
+        return task
 
     @staticmethod
     async def get_incoming_stock(
