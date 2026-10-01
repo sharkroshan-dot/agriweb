@@ -20,6 +20,10 @@ const CUSTOMER_ONLY_PREFIXES = [
   "/wishlist", "/harvests", "/payments",
 ];
 
+const WAREHOUSE_ONLY_PREFIXES = [
+  "/stock", "/incoming", "/outgoing", "/cold-storage", "/transfers",
+];
+
 function matches(pathname: string, prefix: string) {
   return pathname === prefix || pathname.startsWith(prefix + "/");
 }
@@ -31,7 +35,8 @@ export default withAuth(
 
     const requiredRole =
       Object.entries(ROLE_PROTECTED_PREFIXES).find(([prefix]) => matches(pathname, prefix))?.[1]
-      || (CUSTOMER_ONLY_PREFIXES.some((prefix) => matches(pathname, prefix)) ? "customer" : undefined);
+      || (CUSTOMER_ONLY_PREFIXES.some((prefix) => matches(pathname, prefix)) ? "customer" : undefined)
+      || (WAREHOUSE_ONLY_PREFIXES.some((prefix) => matches(pathname, prefix)) ? "warehouse" : undefined);
 
     if (requiredRole && token?.role !== requiredRole) {
       const destination = req.nextUrl.clone();
