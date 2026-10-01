@@ -3,7 +3,7 @@ from bson import ObjectId
 from datetime import datetime
 from app.api.v1.auth import get_current_user
 from app.database.mongodb import MongoDB
-from app.schemas.fulfillment import FulfillmentHubCreate, FulfillmentDecisionResponse, HubTransferCreate, HubReceiveRequest, HubDispatchRequest, FulfillmentRatingCreate
+from app.schemas.fulfillment import FulfillmentHubCreate, FulfillmentDecisionResponse, HubTransferCreate, HubConsolidationCreate, HubReceiveRequest, HubDispatchRequest, FulfillmentRatingCreate
 from app.services.fulfillment_engine import evaluate_order, distance_km
 from app.repositories.delivery_assignment_repository import delivery_assignment_repository
 
@@ -92,6 +92,67 @@ async def transfer_to_hub(order_id: str, data: HubTransferCreate, current_user: 
     await hubs.update_one({"_id":hid},{"$inc":{"availableCapacity":-data.quantity},"$set":{"updatedAt":now}})
     transfer["id"]=str(ins.inserted_id); transfer.pop("_id",None)
     return {"success":True,"data":transfer}
+
+@router.post("/hubs/{hub_id}/consolidate")
+async def consolidate_hub_orders(hub_id: str, data: HubConsolidationCreate, current_user: dict = Depends(get_current_user)):
+    """Create one warehouse->hub manifest for multiple compatible orders.
+
+    Orders must already be routed to this approved hub. The manifest is the
+    single transfer record; each order keeps its own farmer/product/batch IDs.
+    """
+    _manage(current_user)
+    try:
+        hid = ObjectId(hub_id)
+        order_oids = [ObjectId(x) for x in data.orderIds]
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid hub or order id")
+    hubs = MongoDB.get_collection("fulfillment_hubs")
+    orders = MongoDB.get_collection("orders")
+    transfers = MongoDB.get_collection("hub_transfers")
+    hub = await hubs.find_one({"_id": hid, "isLocalFulfillmentHub": True, "isActive": True, "approvalStatus": "approved", "deletedAt": None})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Approved local hub not found")
+    docs = await orders.find({"_id": {"$in": order_oids}}).to_list(length=50)
+    if len(docs) != len(order_oids):
+        raise HTTPException(status_code=404, detail="One or more orders not found")
+    quantities = {}
+    total = 0.0
+    source = None
+    for order in docs:
+        if order.get("fulfillmentSource") != "warehouse" or order.get("nearbyFulfillmentType") != "local_hub":
+            raise HTTPException(status_code=400, detail=f"Order {order.get('orderNumber', str(order['_id']))} is not routed to a local hub")
+        if str(order.get("nearbyFulfillmentLocationId")) != str(hid):
+            raise HTTPException(status_code=400, detail="All orders must target the same local hub")
+        if order.get("transferStatus") not in (None, "pending"):
+            raise HTTPException(status_code=409, detail="One or more orders already has a transfer")
+        src = order.get("currentFulfillmentLocation") or order.get("originLocation") or order.get("farmLocation")
+        if source is None:
+            source = src
+        total += sum(float(i.get("quantity") or 0) for i in order.get("items") or [])
+    if total > float(hub.get("availableCapacity", 0) or 0):
+        raise HTTPException(status_code=400, detail="Hub does not have enough available capacity for the consolidated manifest")
+    now = datetime.utcnow()
+    transfer = {
+        "hubId": hid, "orderIds": order_oids, "quantity": total,
+        "sourceLocation": source, "destinationLocation": hub.get("location"),
+        "transferDistanceKm": distance_km(source, hub.get("location")),
+        "status": "in_transit", "consolidated": True, "notes": data.notes,
+        "createdAt": now, "updatedAt": now,
+        "lines": [{"orderId": o["_id"], "farmerId": o.get("farmerId"),
+                   "productIds": [i.get("productId") for i in o.get("items", [])],
+                   "batchIds": [i.get("batchId") for i in o.get("items", []) if i.get("batchId")],
+                   "quantity": sum(float(i.get("quantity") or 0) for i in o.get("items") or [])} for o in docs],
+    }
+    ins = await transfers.insert_one(transfer)
+    await orders.update_many({"_id": {"$in": order_oids}}, {"$set": {
+        "transferStatus": "in_transit", "nearbyFulfillmentLocationId": hid,
+        "currentFulfillmentLocation": source, "consolidatedTransferId": ins.inserted_id,
+        "updatedAt": now,
+    }})
+    await hubs.update_one({"_id": hid}, {"$inc": {"availableCapacity": -total}, "$set": {"updatedAt": now}})
+    transfer["id"] = str(ins.inserted_id); transfer.pop("_id", None)
+    return {"success": True, "data": transfer}
+
 
 @router.post("/orders/{order_id}/hub-receive")
 async def hub_receive(order_id: str, data: HubReceiveRequest, current_user: dict = Depends(get_current_user)):
