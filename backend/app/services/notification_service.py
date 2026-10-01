@@ -663,7 +663,12 @@ class NotificationService:
                 "stage": stage,
                 "recipientRole": recipient_role,
                 "actorRole": actor_role,
-                "url": f"/orders/{order_id}",
+                "url": {
+                    "customer": f"/orders/{order_id}",
+                    "farmer": f"/farmer/orders/{order_id}",
+                    "warehouse": f"/warehouse/packing?orderId={order_id}",
+                    "delivery": f"/delivery/deliveries?orderId={order_id}",
+                }.get(recipient_role, "/notifications"),
             }
             try:
                 created = await NotificationService.create_in_app_notification(
