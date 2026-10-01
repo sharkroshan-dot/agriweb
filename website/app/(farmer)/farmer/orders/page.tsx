@@ -348,20 +348,15 @@ export default function FarmerOrdersPage() {
               </p>
             </div>
             <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={bulkRunning} onClick={() => setRunAllConfirmOpen(true)}>
                   {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                  {bulkRunning ? "Processing Orders..." : "Run All Eligible"}
+                  {bulkRunning ? "Processing Orders..." : "Overall Processing"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("confirm")}>Confirm All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>Process All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Farmer Fulfillment All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Warehouse Fulfillment All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("pack")}>Pack All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch All</Button>
+                <span className="text-xs text-muted-foreground">Advances each eligible order to its next valid stage.</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-emerald-700">Run All Eligible</span> automatically advances each order through the farmer-owned stages it can safely complete. It stops at fulfillment selection, warehouse collection, or delivery decisions that require your input.
+                Overall Processing works progressively: each order advances only as far as its current workflow allows. Manual decisions such as fulfillment selection and delivery routing remain on the individual order.
               </p>
             </div>
           </div>
