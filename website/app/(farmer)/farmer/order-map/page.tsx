@@ -586,7 +586,9 @@ export default function FarmerOrderMapPage() {
       });
     },
     onSuccess: () => {
-      const selfCount = Number((res as any)?.data?.selfDeliveryCount ?? selectedRouteIds.length);\n      const partnerCount = Number((res as any)?.data?.partnerCount ?? 0);\n      toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed to delivery partners`);
+      const selfCount = Number((res as any)?.data?.selfDeliveryCount ?? selectedRouteIds.length);
+      const partnerCount = Number((res as any)?.data?.partnerCount ?? 0);
+      toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed to delivery partners`);
       setSelectedRouteIds([]);
       refreshAll();
     },
@@ -870,7 +872,8 @@ export default function FarmerOrderMapPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {selfDeliveryMethod === "radius" && (\n            {RADIUS_OPTIONS.map((distance) => (
+          {selfDeliveryMethod === "radius" && (
+            {RADIUS_OPTIONS.map((distance) => (
             <Button
               key={distance}
               size="sm"
@@ -880,7 +883,8 @@ export default function FarmerOrderMapPage() {
               {distance} km
             </Button>
           ))}
-          )}\n          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          )}
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           {DELIVERED_WINDOWS.map((w) => (
             <Button
               key={w.value}
@@ -1225,7 +1229,8 @@ export default function FarmerOrderMapPage() {
       )}
 
 
-      {selfDeliveryMethod === "route" && (\n<Card className="border-blue-200 bg-blue-50/30">
+      {selfDeliveryMethod === "route" && (
+<Card className="border-blue-200 bg-blue-50/30">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -1354,7 +1359,8 @@ export default function FarmerOrderMapPage() {
             </div>
           )}
         </CardContent>
-      </Card>\n      )}
+      </Card>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.85fr)]">
         <Card>
