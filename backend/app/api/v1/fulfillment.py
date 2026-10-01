@@ -79,6 +79,8 @@ async def transfer_to_hub(order_id: str, data: HubTransferCreate, current_user: 
     if not order or not hub: raise HTTPException(status_code=404, detail="Order or hub not found")
     if order.get("fulfillmentSource") != "warehouse" or order.get("nearbyFulfillmentType") != "local_hub":
         raise HTTPException(status_code=400, detail="This order is not approved for warehouse-to-hub fulfillment")
+    if order.get("orderStatus") not in ("transfer_pending", "dispatched"):
+        raise HTTPException(status_code=400, detail="Warehouse order must be dispatched before hub transfer")
     if data.quantity > float(hub.get("availableCapacity",0)): raise HTTPException(status_code=400, detail="Hub does not have enough available capacity")
     if await transfers.find_one({"orderId": oid, "status": {"$in":["in_transit","received"]}}): raise HTTPException(status_code=409, detail="Order already has a hub transfer")
     source = order.get("currentFulfillmentLocation") or order.get("originLocation") or order.get("farmLocation")
@@ -86,7 +88,7 @@ async def transfer_to_hub(order_id: str, data: HubTransferCreate, current_user: 
     now = datetime.utcnow()
     transfer={"orderId":oid,"hubId":hid,"quantity":data.quantity,"sourceLocation":source,"destinationLocation":hub.get("location"),"transferDistanceKm":distance,"status":"in_transit","notes":data.notes,"createdAt":now,"updatedAt":now,"farmerId":order.get("farmerId"),"productIds":[i.get("productId") for i in order.get("items",[])],"batchIds":[i.get("batchId") for i in order.get("items",[]) if i.get("batchId")]}
     ins=await transfers.insert_one(transfer)
-    await orders.update_one({"_id":oid},{"$set":{"transferStatus":"in_transit","nearbyFulfillmentLocationId":hid,"currentFulfillmentLocation":hub.get("location"),"updatedAt":now}})
+    await orders.update_one({"_id":oid},{"$set":{"transferStatus":"in_transit","nearbyFulfillmentLocationId":hid,"currentFulfillmentLocation": source,"updatedAt":now}})
     await hubs.update_one({"_id":hid},{"$inc":{"availableCapacity":-data.quantity},"$set":{"updatedAt":now}})
     transfer["id"]=str(ins.inserted_id); transfer.pop("_id",None)
     return {"success":True,"data":transfer}
