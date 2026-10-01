@@ -406,7 +406,8 @@ class WarehouseService:
         total_required = sum(x["quantityRequired"] for x in packing_items)
         total_available = sum(x["quantityAvailable"] for x in packing_items)
         total_packed = sum(x["packedQuantity"] for x in packing_items)
-        has_shortage = bool(shortages)
+        # No final shortage exists until actual packing is completed.
+        has_shortage = False
         has_packable_stock = total_available > 1e-9
 
         if existing:
