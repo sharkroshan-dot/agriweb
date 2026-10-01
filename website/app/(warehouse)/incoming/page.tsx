@@ -171,6 +171,20 @@ export default function WarehouseIncomingPage() {
     }
   };
 
+  const handleStoreIncoming = async (item: any) => {
+    if (!item?.id) return;
+    try {
+      setIsSaving(true);
+      await api.put(`/warehouse/me/incoming/${item.id}/store`);
+      toast.success("Stock stored successfully");
+      refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to store incoming stock");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-6">
