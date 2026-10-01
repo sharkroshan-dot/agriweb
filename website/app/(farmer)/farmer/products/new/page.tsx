@@ -231,8 +231,13 @@ export default function AddProductPage() {
 
       await api.post("/products/", payload);
       await queryClient.refetchQueries({ queryKey: ["farmerProducts"] });
-      toast.success("Product created successfully!");
-      router.push("/farmer/products");
+      if (fromHarvestId) {
+        toast.success("Product draft created. Complete quality verification before marketplace activation.");
+        router.push("/farmer/quality");
+      } else {
+        toast.success("Product draft created. Complete quality verification before marketplace activation.");
+        router.push("/farmer/quality");
+      }
     } catch (error: any) {
       console.error("PRODUCT CREATE ERROR:", error);
       const raw =
