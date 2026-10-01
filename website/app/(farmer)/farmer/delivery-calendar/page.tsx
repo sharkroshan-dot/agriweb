@@ -3,7 +3,7 @@ import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflo
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
@@ -123,6 +123,7 @@ function DeliveryRow({ d }: { d: any }) {
       </p>
       <div className="mt-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
+          {workflowIds.length > 0 && <Button variant="outline" onClick={() => router.push(`/farmer/smart-route?orderIds=${encodeURIComponent(workflowOrderIds)}`)}>Continue to Smart Route</Button>
           {d.total != null && (
             <p className="text-xs font-medium text-gray-700">{formatPrice(d.total)}</p>
           )}
@@ -143,6 +144,9 @@ function DeliveryRow({ d }: { d: any }) {
 
 export default function DeliveryCalendarPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const workflowOrderIds = searchParams.get("orderIds") || "";
+  const workflowIds = workflowOrderIds ? workflowOrderIds.split(",").filter(Boolean) : [];
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [weekOffset, setWeekOffset] = useState(0);
   const [monthOffset, setMonthOffset] = useState(0);
@@ -152,7 +156,7 @@ export default function DeliveryCalendarPage() {
 
   const { data: calendarData, isLoading } = useQuery({
     queryKey: ["deliveryCalendar", viewMode],
-    queryFn: () => api.get("/farmers/me/delivery-calendar"),
+    queryFn: () => api.get(`/farmers/me/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
   });
 
   const slots = (calendarData as any)?.slots ?? [];
@@ -428,7 +432,7 @@ export default function DeliveryCalendarPage() {
                       ) : (
                         <p className="text-sm text-gray-500">No deliveries in this slot</p>
                       )}
-                      <Button size="sm" className="mt-2" onClick={() => router.push("/farmer/route")}>
+                      <Button size="sm" className="mt-2" onClick={() => router.push(`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`)}>
                         <Truck className="mr-2 h-4 w-4" />
                         View Route
                       </Button>
