@@ -743,32 +743,55 @@ async def update_outgoing_status(
     current_user: dict = Depends(get_current_user)
 ):
     if current_user.get("role") != "warehouse":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only warehouse managers can update outgoing status"
-        )
+        raise HTTPException(status_code=403, detail="Only warehouse managers can update outgoing status")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Warehouse not found"
-        )
-    outgoing = await WarehouseService.update_outgoing_status(
-        outgoing_id,
-        status,
-        str(warehouse["_id"]),
-        {"notes": notes} if notes else None
-    )
-    if not outgoing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Outgoing record not found"
-        )
-    return {
-        "success": True,
-        "data": outgoing,
-        "message": f"Outgoing status updated to {status}"
-    }
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    outgoing = await outgoing_stock_repository.get_by_id(outgoing_id)
+    if not outgoing or str(outgoing.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Outgoing record not found")
+    if status != "dispatched":
+        updated = await WarehouseService.update_outgoing_status(outgoing_id, status, str(warehouse["_id"]), {"notes": notes} if notes else None)
+        if not updated:
+            raise HTTPException(status_code=400, detail="Outgoing status update is not allowed")
+        return {"success": True, "data": updated, "message": f"Outgoing status updated to {status}"}
+
+    # Dispatch is an ORDER-level operation. A multi-product customer order
+    # must leave the warehouse as one complete shipment; never dispatch only
+    # the line that happened to be clicked in the UI.
+    order_id = str(outgoing.get("orderId") or "")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="Outgoing record is not linked to an order")
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Warehouse order not found")
+    all_outgoing = await outgoing_stock_repository.find_many({
+        "orderId": ObjectId(order_id), "warehouseId": ObjectId(str(warehouse["_id"])), "deletedAt": None
+    }, skip=0, limit=1000)
+    required = {(str(i.get("productId")), str(i.get("variantId") or "")): float(i.get("quantity") or 0) for i in (order.get("items") or [])}
+    by_key = {(str(x.get("productId")), str(x.get("variantId") or "")): x for x in all_outgoing}
+    missing=[]
+    for key, qty in required.items():
+        row=by_key.get(key)
+        if not row or float(row.get("quantity") or 0) + 1e-9 < qty:
+            missing.append({"productId":key[0],"variantId":key[1] or None,"required":qty,"outgoing":float((row or {}).get("quantity") or 0)})
+        if row and str(row.get("deliveryPartnerRoute") or "") not in ("nearby","long_distance"):
+            missing.append({"productId":key[0],"reason":"Delivery route not selected"})
+    if missing:
+        raise HTTPException(status_code=400, detail={"message":"This customer order cannot be dispatched because one or more order lines are incomplete.","missing":missing})
+    if any(str(x.get("status") or "pending") == "dispatched" for x in all_outgoing) and not all(str(x.get("status") or "pending") == "dispatched" for x in all_outgoing):
+        raise HTTPException(status_code=409, detail="This order is partially dispatched. Resolve the shipment before continuing.")
+    dispatched=[]
+    for row in all_outgoing:
+        if str(row.get("status") or "pending") == "dispatched":
+            dispatched.append(str(row["_id"]))
+            continue
+        updated = await WarehouseService.update_outgoing_status(str(row["_id"]), "dispatched", str(warehouse["_id"]), {"notes": notes} if notes else None)
+        if not updated:
+            raise HTTPException(status_code=400, detail=f"Could not dispatch complete order line {row.get('productId')}")
+        dispatched.append(str(row["_id"]))
+    await order_repository.append_tracking_event(order_id, "warehouse_order_dispatched", "Complete customer order dispatched", "All packed customer-order lines were dispatched together from the warehouse.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"outgoingCount":len(dispatched),"route":outgoing.get("deliveryPartnerRoute")})
+    return {"success":True,"data":{"orderId":order_id,"outgoingIds":dispatched},"message":"Complete customer order dispatched. No order line was left behind."}
 
 @router.get("/me/cold-storage", response_model=dict)
 async def get_my_cold_storage(
