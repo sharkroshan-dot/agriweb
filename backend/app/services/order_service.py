@@ -791,12 +791,35 @@ class OrderService:
                 logger.warning(f"Failed to send confirmation notification: {e}")
         elif new_status == OrderStatus.READY_FOR_DELIVERY and not is_pickup:
             try:
+                # The second logistics decision happens after Farmer Pack -> Dispatch,
+                # matching the required workflow. A long/high-risk farmer route is
+                # rerouted to warehouse before a delivery partner is assigned.
+                from app.services.fulfillment_engine import evaluate_order
+                decision = await evaluate_order(order_id, persist=True)
+                if decision.get("fulfillmentSource") == "warehouse":
+                    await order_repository.collection.update_one(
+                        {"_id": ObjectId(order_id)},
+                        {"$set": {
+                            "orderStatus": "transfer_pending",
+                            "logisticsMode": "farmer_to_warehouse",
+                            "transferStatus": "pending",
+                            "updatedAt": datetime.utcnow(),
+                        }},
+                    )
+                    try:
+                        await NotificationService.send_custom_notification(
+                            str(order["customerId"]),
+                            "Your order has been routed through our warehouse to protect delivery time and freshness.",
+                        )
+                    except Exception:
+                        pass
+                    return await order_repository.get_by_id(order_id)
                 await NotificationService.send_order_ready(
                     str(order["customerId"]),
                     order_id
                 )
             except Exception as e:
-                logger.warning(f"Failed to send ready notification: {e}")
+                logger.warning(f"Ready-stage fulfillment decision failed: {e}")
         elif new_status == OrderStatus.READY_FOR_PICKUP and is_pickup:
             try:
                 from app.core.security import SecurityService
