@@ -115,6 +115,29 @@ async def get_order(
     
     return order
 
+@router.get("/{order_id}/shortage-resolutions")
+async def get_customer_shortage_resolutions(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "customer":
+        raise HTTPException(status_code=403, detail="Only customers can view shortage decisions")
+    order = await OrderService.get_order(order_id, str(current_user["_id"]), "customer")
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+    cases = await warehouse_shortage_repository.get_by_warehouse(str(order.get("warehouseId")), status=None, limit=1000) if order.get("warehouseId") else []
+    cases = [
+        x for x in cases
+        if str(x.get("orderId")) == order_id and x.get("status") not in ("resolved", "cancelled")
+    ]
+    for x in cases:
+        for key in ("_id", "orderId", "warehouseId", "productId", "variantId", "customerApprovedBy"):
+            if x.get(key) is not None:
+                x[key] = str(x[key])
+    return {"success": True, "data": {"shortages": cases}}
+
+
 @router.get("/{order_id}/track", response_model=OrderTrackingResponse)
 async def track_order(
     order_id: str,
