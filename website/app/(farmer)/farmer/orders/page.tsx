@@ -125,6 +125,18 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const handleDispatchToWarehouse = async (orderId: string) => {
+    try {
+      await api.post(`/orders/${orderId}/dispatch-to-warehouse`);
+      toast.success("Order dispatched to warehouse");
+      refetch();
+    } catch (error: any) {
+      let msg = "Failed to dispatch to warehouse";
+      try { const j = JSON.parse(error.message); msg = j.detail || j.error?.message || j.message || msg; } catch {}
+      toast.error(msg);
+    }
+  };
+
   const handleSelfDeliver = async (orderId: string) => {
     try {
       await api.put(`/orders/${orderId}/self-delivery`);
@@ -608,9 +620,15 @@ export default function FarmerOrdersPage() {
                             )}
                             {getStatus(order) === "confirmed" && (
                               <>
-                                <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
-                                  <Package className="mr-1.5 h-3.5 w-3.5"/>Process
-                                </Button>
+                                {order.fulfillmentSource === "warehouse" ? (
+                                  <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => handleDispatchToWarehouse(order.id || order._id)}>
+                                    <Truck className="mr-1.5 h-3.5 w-3.5"/>Dispatch to Warehouse
+                                  </Button>
+                                ) : (
+                                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
+                                    <Package className="mr-1.5 h-3.5 w-3.5"/>Process
+                                  </Button>
+                                )}
                                 <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
                                   <XCircle className="mr-1.5 h-3.5 w-3.5"/>Cancel
                                 </Button>
@@ -780,9 +798,15 @@ export default function FarmerOrdersPage() {
                       )}
                       {getStatus(order) === "confirmed" && (
                         <>
-                          <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
-                            <Clock className="mr-1.5 h-3.5 w-3.5"/>Process
-                          </Button>
+                          {order.fulfillmentSource === "warehouse" ? (
+                            <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => handleDispatchToWarehouse(order.id || order._id)}>
+                              <Truck className="mr-1.5 h-3.5 w-3.5"/>Dispatch to Warehouse
+                            </Button>
+                          ) : (
+                            <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
+                              <Clock className="mr-1.5 h-3.5 w-3.5"/>Process
+                            </Button>
+                          )}
                           <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
                             <XCircle className="mr-1.5 h-3.5 w-3.5"/>Cancel
                           </Button>
