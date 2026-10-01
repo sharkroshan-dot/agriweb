@@ -195,6 +195,45 @@ async def _propagate_verification(inspection: dict) -> None:
         )
 
 
+async def ensure_batch_inspection(batch: dict) -> Optional[str]:
+    """Create the pending quality inspection required for a newly created batch."""
+    batch_id = batch.get("_id")
+    if not batch_id:
+        return None
+    existing = await inspection_repo.find_one({"batchId": batch_id, "deletedAt": None})
+    if existing:
+        return str(existing["_id"])
+    farmer_id = batch.get("farmerId")
+    grade = str(batch.get("qualityGrade") or "A").upper()
+    if grade not in VALID_GRADES:
+        grade = "A"
+    inspection = {
+        "farmerId": farmer_id,
+        "batchId": batch_id,
+        "lotNumber": batch.get("lotNumber") or f"BATCH-{str(batch_id)[-6:].upper()}",
+        "cropName": batch.get("cropName") or "Harvest Batch",
+        "grade": grade,
+        "farmerDeclaredGrade": grade,
+        "size": None,
+        "freshness": 0.0,
+        "damagedPct": 0.0,
+        "weightKg": float(batch.get("actualQuantityKg") or batch.get("quantityKg") or 0),
+        "inspectorNotes": "Pending independent quality verification.",
+        "photos": [],
+        "status": STATUS_REVIEW,
+        "verificationStatus": VERIFICATION_STATUS_DECLARED,
+        "verifiedGrade": None,
+        "verificationMethod": None,
+        "verifiedBy": None,
+        "verifiedAt": None,
+        "verificationNotes": None,
+        "inspectedAt": datetime.utcnow(),
+        "deletedAt": None,
+    }
+    created = await inspection_repo.create(inspection)
+    return str(created) if created else None
+
+
 def _require_verifier(current_user: dict) -> None:
     role = current_user.get("role")
     if role not in VERIFIER_ROLES:
