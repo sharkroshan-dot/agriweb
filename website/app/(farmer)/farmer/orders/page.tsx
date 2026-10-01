@@ -29,6 +29,10 @@ const statusColors: Record<string,string> = {
   picked_up: "bg-teal-500/10 text-teal-600 border-teal-500/20",
   cancelled: "bg-red-500/10 text-red-600 border-red-500/20",
   refunded: "bg-gray-500/10 text-gray-600 border-gray-500/20",
+  transfer_pending: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+  transferred: "bg-orange-500/10 text-orange-600 border-orange-500/20",
+  hub_received: "bg-cyan-500/10 text-cyan-600 border-cyan-500/20",
+  local_dispatch: "bg-indigo-500/10 text-indigo-600 border-indigo-500/20",
 };
 
 const statusLabels: Record<string,string> = {
@@ -43,6 +47,10 @@ const statusLabels: Record<string,string> = {
   picked_up: "Picked Up",
   cancelled: "Cancelled",
   refunded: "Refunded",
+  transfer_pending: "Warehouse Transfer Pending",
+  transferred: "Transferred",
+  hub_received: "Hub Received",
+  local_dispatch: "Local Dispatch",
 };
 
 const paymentBadge = (method?: string): { label: string; cod: boolean } => {
