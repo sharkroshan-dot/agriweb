@@ -400,57 +400,9 @@ class WarehouseService:
                     "shortage": short,
                 })
 
-        # Keep exactly one shortage case per affected order line.
-        for line in shortages:
-            query = {
-                "orderId": ObjectId(order_id),
-                "warehouseId": ObjectId(warehouse_id),
-                "productId": ObjectId(line["productId"]),
-                "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
-                "status": {"$nin": ["resolved", "cancelled"]},
-                "deletedAt": None,
-            }
-            existing_shortage = await warehouse_shortage_repository.find_one(query)
-            payload = {
-                "orderId": ObjectId(order_id),
-                "warehouseId": ObjectId(warehouse_id),
-                "productId": ObjectId(line["productId"]),
-                "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
-                "requiredQuantity": line["required"],
-                "availableQuantity": line["available"],
-                "shortageQuantity": line["shortage"],
-                "shortageType": "farmer_supply",
-                "resolutionType": (existing_shortage or {}).get("resolutionType"),
-                "notes": "Only the unavailable quantity is blocked. Available quantity may be packed immediately.",
-            }
-            if existing_shortage:
-                await warehouse_shortage_repository.update_case(
-                    str(existing_shortage["_id"]), payload
-                )
-            else:
-                await warehouse_shortage_repository.create_case(payload)
-
-        # Automatically close stale shortage cases once replenishment/other
-        # stock makes the complete line available again.
-        current_keys = {
-            (s["productId"], str(s.get("variantId") or "")) for s in shortages
-        }
-        open_cases = await warehouse_shortage_repository.get_by_warehouse(
-            warehouse_id, status=None, limit=1000
-        )
-        for case in open_cases:
-            if str(case.get("orderId")) != str(order_id):
-                continue
-            key = (str(case.get("productId")), str(case.get("variantId") or ""))
-            if key not in current_keys and case.get("status") not in ("resolved", "cancelled"):
-                await warehouse_shortage_repository.update_case(str(case["_id"]), {
-                    "status": "resolved",
-                    "resolutionType": case.get("resolutionType") or "stock_replenished",
-                    "resolvedAt": datetime.utcnow(),
-                    "resolvedQuantity": float(case.get("shortageQuantity") or 0),
-                    "notes": "Stock is now sufficient for the complete order line.",
-                })
-
+        # Do not create a business shortage during allocation. Inventory availability
+        # is only a planning signal. The authoritative shortage is created after
+        # the packing team records actual packed quantities.
         total_required = sum(x["quantityRequired"] for x in packing_items)
         total_available = sum(x["quantityAvailable"] for x in packing_items)
         total_packed = sum(x["packedQuantity"] for x in packing_items)
