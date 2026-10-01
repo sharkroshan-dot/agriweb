@@ -327,6 +327,9 @@ class OrderService:
                 "attributes": product.get("attributes", {}),
                 "pickupAvailable": product.get("pickupAvailable", False),
                 "farmAddress": product.get("farmAddress", ""),
+                "farmerId": str(product.get("farmerId")) if product.get("farmerId") else None,
+                "batchId": str(product.get("batchId")) if product.get("batchId") else None,
+                "harvestedAt": product.get("harvestedAt"),
             })
             
             if data.deliveryType == DeliveryType.PICKUP:
@@ -497,6 +500,12 @@ class OrderService:
             order_id
         )
         
+        try:
+            from app.services.fulfillment_engine import evaluate_order
+            await evaluate_order(order_id, persist=True)
+        except Exception as exc:
+            logger.warning("Fulfillment decision could not be evaluated for order %s: %s", order_id, exc)
+
         order = await order_repository.get_by_id(order_id)
         order["id"] = str(order["_id"])
         order["paymentIntent"] = payment_intent
