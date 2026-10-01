@@ -20,6 +20,7 @@ import logging
 from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
 from app.repositories.product_repository import product_repository
+from app.repositories.inventory_repository import inventory_repository
 from app.services.quality_ai import assess_quality
 from app.core.quality import (
     VERIFICATION_STATUS_DECLARED,
