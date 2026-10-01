@@ -373,360 +373,301 @@ Frontend stores token/session
 Protected pages and APIs work
 
 
-8. CUSTOMER ORDER FLOW
+8. CUSTOMER + FARMER ORDER FLOW
 
-Customer
+CUSTOMER
  |
  v
-Browse Marketplace
+Marketplace (approved batches/products only)
  |
  v
-Search / Filter Products
+Product / Farm / Batch details
  |
  v
-View Product Details
- |
- v
-Add Product To Cart
- |
- v
-Cart Store Saves Items
- |
- v
-Checkout Page
- |
- v
-Select Delivery Address or Pickup Option
- |
- v
-Apply Coupon
- |
- v
-Place Order
- |
- v
-Frontend API Client
- |
- v
-Backend /api/v1/orders
- |
- v
-Order Schema Validation
- |
- v
-OrderService.create_order()
- |
- +--> Product Repository checks product
- |
- +--> Inventory Service checks stock
- |
- +--> Coupon Repository validates coupon
- |
- +--> Payment Service creates payment intent
- |
- +--> Order Repository saves order
- |
- +--> Inventory Repository reserves/reduces stock
- |
- +--> Notification Service informs farmer
+Cart -> Checkout -> Address / Slot -> Coupon -> Payment
  |
  v
 Order Created
  |
  v
-Customer Sees Confirmation
+Stock Reservation
  |
  v
-Farmer Receives Order
+FARMER RECEIVES ORDER
  |
  v
-Farmer Confirms and Prepares Order
+FARMER CONFIRMS ORDER
  |
  v
-Delivery or Pickup Starts
+FULFILLMENT DECISION
  |
- v
-Order Delivered or Picked Up
+ +--> FARMER ROUTE
+ |      |
+ |      v
+ |   Farmer packs
+ |      |
+ |      v
+ |   Farmer dispatch
+ |      |
+ |      v
+ |   Distance / ETA / shelf-life / risk check
+ |      |
+ |      +--> Nearby
+ |      |      |
+ |      |      v
+ |      |   Delivery Partner
+ |      |
+ |      +--> Too Long / High Risk
+ |             |
+ |             v
+ |          Warehouse Inbound
  |
- v
-Payment Finalized
- |
- v
-Rating / Review / Analytics
+ +--> WAREHOUSE ROUTE
+        |
+        v
+     Farmer -> Warehouse
+        |
+        v
+     Receive -> Quality Check -> Store
+        |
+        v
+     Pick -> Pack -> Dispatch
+        |
+        v
+     SECOND Logistics Decision
+        |
+        +--> Direct
+        |      |
+        |      v
+        |   Delivery Partner
+        |
+        +--> Too Far / High Risk
+               |
+               v
+            Approved Local Hub
+               |
+               v
+            Transfer
+               |
+               v
+            Hub Receive + Verify
+               |
+               v
+            Local Dispatch
+               |
+               v
+            Delivery Partner
 
+9. FARMER HARVEST + QUALITY FLOW
 
-9. ORDER STATUS FLOW
-
-pending
+FARMER
  |
- v
-confirmed
- |
- v
-processing
- |
- +----------------------+
- |                      |
- v                      v
-ready_for_delivery     ready_for_pickup
- |                      |
- v                      v
-dispatched             picked_up
- |
- v
-in_transit
- |
- v
-delivered
-
-Cancellation flow:
-
-pending / confirmed / processing
- |
- v
-cancelled
- |
- v
-release inventory
- |
- v
-refund if already paid
- |
- v
-notify customer and farmer
-
-
-10. FARMER FLOW
-
-Farmer Login
- |
- v
-Farmer Dashboard
- |
- +--> Manage Profile and Farm Details
- |
- +--> Add Product
+ +--> PLAN HARVEST
  |       |
  |       v
- |   Product Form
+ |   Expected date + expected quantity + planned rate
  |       |
  |       v
- |   Backend Product API
- |       |
- |       v
- |   ProductService
- |       |
- |       v
- |   ProductRepository / InventoryRepository
- |       |
- |       v
- |   MongoDB
+ |   Ready for Harvest
  |
- +--> View Orders
- |       |
- |       v
- |   Confirm Order
- |       |
- |       v
- |   Process Order
- |       |
- |       v
- |   Ready for Delivery or Pickup
+ +--> DIRECT PRODUCT
+         |
+         v
+     Product Draft
+         |
+         v
+     Create / Link Batch
+         |
+         v
+     Quality Verification
+         |
+         +--> APPROVED
+         |      |
+         |      v
+         |   Activate marketplace
+         |
+         +--> REJECTED
+                |
+                v
+             REWORK
+                |
+                v
+             New inspection
  |
- +--> Manage Delivery Slots
- |
- +--> View Earnings
- |
- +--> View Analytics
- |
- +--> View AI Insights
- |
- +--> Handle B2B RFQs
+ +--> MARK HARVESTED
+         |
+         v
+     ACTUAL QUANTITY (kg)
+         +
+     FINAL SELLING RATE (₹/kg)
+         |
+         v
+     CREATE HARVEST BATCH
+         |
+         v
+     Link Product Draft
+         |
+         v
+     QUALITY VERIFICATION
+         |
+         +--> APPROVED -> Activate marketplace + confirm eligible pre-orders
+         |
+         +--> REJECTED -> Rework -> Re-inspection
 
+10. ORDER STATUS / LOGISTICS STATUS
 
-11. DELIVERY + FULFILLMENT FLOW
+Commercial order:
+PENDING
+ -> CONFIRMED
+ -> PROCESSING
+ -> READY_FOR_DELIVERY
+ -> DISPATCHED
+ -> IN_TRANSIT
+ -> DELIVERED
 
+Nearby logistics:
+NEARBY_FULFILLMENT_REQUIRED
+ -> TRANSFER_PENDING
+ -> TRANSFERRED
+ -> HUB_RECEIVED
+ -> LOCAL_DISPATCH
+ -> DISPATCHED
+ -> IN_TRANSIT
+ -> DELIVERED
+
+Warehouse inbound:
+FARMER -> WAREHOUSE
+ -> RECEIVE
+ -> QUALITY_CHECK
+ -> STORE
+ -> PICK
+ -> PACK
+ -> DISPATCH
+
+11. DELIVERY PARTNER FLOW
+
+Delivery Partner
+ |
+ v
+Available Jobs
+ |
+ v
+Accept Job
+ |
+ v
+Route Planning
+ |
+ v
+Pickup QR / Pickup Verification
+ |
+ v
+In Transit
+ |
+ v
+Out for Delivery
+ |
+ v
 Customer
  |
  v
-Order + payment + stock reservation
+OTP / QR / POD
  |
  v
-Fulfillment Decision Engine
- |
- +--> Farmer source
- |      |
- |      +--> acceptable distance/time/risk
- |      |       |
- |      |       v
- |      |   Farmer Direct
- |      |
- |      +--> nearby distance/time/risk
- |              |
- |              v
- |        Farmer Nearby -> Delivery Partner
- |
- +--> Farmer source too far / high risk
-        |
-        v
-      Warehouse Inbound
-        |
-        v
-      Receive -> Quality Check -> Inventory
-        |
-        v
-      Pick -> Pack -> Dispatch
-        |
-        v
-      Warehouse Logistics Decision
-        |
-        +--> acceptable
-        |      |
-        |      v
-        |  Warehouse Direct -> Delivery Partner
-        |
-        +--> too far / high risk
-               |
-               v
-          Approved Local Hub
-               |
-               v
-          Transfer Manifest
-               |
-               v
-          Hub Receive + Quality Verify
-               |
-               v
-          Local Inventory
-               |
-               v
-          Hub -> Delivery Partner
-               |
-               v
-          Customer
-               |
-               v
-          OTP / QR / POD
-               |
-               v
-          Delivered
+DELIVERED
 
-Critical rule:
-Farmer Direct -> Nearby -> Delivery Partner.
-A hub is NOT inserted into the farmer-nearby path.
-Only the warehouse too-far/high-risk path can use an approved Local Hub.\n\n12. WAREHOUSE FLOW
+12. WAREHOUSE + LOCAL HUB FLOW
 
-Warehouse User Login
+Warehouse
  |
  v
-Warehouse Dashboard
+Receive
  |
- +--> Incoming Stock
- |      |
- |      v
- |   Receive -> Quality Check -> Store
+ v
+Quality Check
  |
- +--> Stock Management
+ v
+Store
  |
- +--> Outgoing Stock
- |      |
- |      v
- |   Pick -> Pack -> Dispatch
+ v
+Pick
  |
- +--> Fulfillment Routing
- |      |
- |      +--> distance
- |      +--> ETA
- |      +--> remaining shelf life
- |      +--> perishability risk
- |      +--> nearby hub capacity
- |      |
- |      +--> Direct -> Delivery Partner
- |      |
- |      +--> Nearby -> Approved Local Hub
- |                 -> Transfer -> Hub Receive
- |                 -> Local Dispatch -> Delivery Partner
+ v
+Pack
  |
- +--> Manage Transfers
- +--> Cold Storage
- +--> Warehouse Analytics
+ v
+Dispatch
+ |
+ v
+Distance + ETA + Remaining Shelf Life + Perishability Risk
+ |
+ +--> Direct -> Delivery Partner
+ |
+ +--> Too Far / High Risk
+         |
+         v
+      Approved Local Hub
+         |
+         v
+      Transfer Manifest
+         |
+         v
+      Hub Receive
+         |
+         v
+      Quality Verify
+         |
+         v
+      Local Inventory
+         |
+         v
+      Local Dispatch
+         |
+         v
+      Delivery Partner
+         |
+         v
+      Customer
 
-Warehouse does not choose a hub only because of distance.
-The decision uses distance + travel time + remaining shelf life + storage condition + nearby capacity + delivery capacity.\n\n13. ADMIN FLOW
+13. LOCAL HUB RULE
 
-Admin Login
- |
- v
-Admin Dashboard
- |
- +--> Manage Users
- |
- +--> Manage Farmers
- |
- +--> Manage Products
- |
- +--> Manage Orders
- |
- +--> Manage Payments
- |
- +--> Manage Finance and Settlements
- |
- +--> Manage Delivery
- |
- +--> Manage Warehouses
- |
- +--> Manage Coupons
- |
- +--> Handle Complaints
- |
- +--> View Reports
- |
- +--> View Analytics
- |
- +--> View Ratings
- |
- +--> View Security and Audit Logs
- |
- +--> View AI Dashboard
- |
- v
-Admin APIs
- |
- v
-AdminService / Other Services
- |
- v
-Repositories
- |
- v
-MongoDB / Redis
+A Local Hub is a controlled logistics location.
 
+Farmer Nearby path:
+FARMER -> NEARBY -> DELIVERY PARTNER
 
-14. BUSINESS / B2B FLOW
+NOT:
+FARMER -> NEARBY -> HUB -> DELIVERY PARTNER
 
-Business User Login
- |
- v
-Business Dashboard
- |
- +--> View Business Profile
- |
- +--> Create or Manage RFQs
- |
- +--> View B2B Orders
- |
- v
-B2B APIs
- |
- v
-B2B backend logic
- |
- v
-Farmers respond or fulfill orders
- |
- v
-Orders / Payments / Delivery continue through normal project flow
+Warehouse long-distance path:
+WAREHOUSE -> TOO FAR / HIGH RISK -> APPROVED LOCAL HUB -> DELIVERY PARTNER
 
+A hub must be:
+- approved
+- active
+- capacity available
+- location configured
+- supported product configured
+- cold-storage capability checked when required
+
+14. TRACEABILITY + RATING FLOW
+
+Farmer
+ -> Harvest
+ -> Batch
+ -> Product
+ -> Order
+ -> Warehouse / Local Hub
+ -> Delivery Assignment
+ -> Customer
+ -> POD
+ -> Delivered
+
+Ratings remain separated:
+- Product/Farmer quality: freshness, quality, quantity accuracy, batch quality
+- Warehouse/Hub: handling, packaging, storage, fulfillment accuracy
+- Delivery Partner: on-time delivery, handling, communication, delivery experience
+
+A delivery delay or warehouse/hub logistics problem must not be treated as a farmer product-quality rating.
 
 15. PAYMENT FLOW
 
