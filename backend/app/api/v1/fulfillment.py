@@ -96,7 +96,8 @@ async def approve_hub(hub_id: str, current_user: dict = Depends(get_current_user
     result = await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": hid, "isLocalFulfillmentHub": True, "deletedAt": None}, {"$set": {"approvalStatus": "approved", "isActive": True, "updatedAt": datetime.utcnow()}})
     if not result.modified_count: raise HTTPException(status_code=404, detail="Hub not found")
     return {"success": True, "message": "Local fulfillment hub approved"}
-\n@router.get("/hubs")
+
+@router.get("/hubs")
 async def list_hubs(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") not in ("admin", "warehouse", "delivery"):
         raise HTTPException(status_code=403, detail="Access denied")
