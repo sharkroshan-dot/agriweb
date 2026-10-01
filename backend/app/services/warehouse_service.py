@@ -219,6 +219,30 @@ class WarehouseService:
                 str(outgoing["productId"]),
                 outgoing.get("quantity", 0)
             )
+            partner_id = (data or {}).get("deliveryPartnerId")
+            order_id = outgoing.get("orderId")
+            if partner_id and order_id:
+                try:
+                    from app.repositories.delivery_assignment_repository import delivery_assignment_repository
+                    existing_assignment = await delivery_assignment_repository.get_by_order_id(str(order_id))
+                    if not existing_assignment:
+                        await delivery_assignment_repository.create_assignment({
+                            "orderId": ObjectId(str(order_id)),
+                            "deliveryPartnerId": ObjectId(str(partner_id)),
+                            "priority": 1,
+                        })
+                    from app.database.mongodb import MongoDB
+                    await MongoDB.get_collection("orders").update_one(
+                        {"_id": ObjectId(str(order_id))},
+                        {"$set": {
+                            "deliveryPartnerId": ObjectId(str(partner_id)),
+                            "orderStatus": "dispatched",
+                            "logisticsMode": "warehouse_direct_delivery_partner",
+                            "updatedAt": datetime.utcnow(),
+                        }},
+                    )
+                except Exception as exc:
+                    logger.warning("Could not create delivery assignment for warehouse dispatch: %s", exc)
         return await outgoing_stock_repository.get_by_id(outgoing_id)
 
     @staticmethod
