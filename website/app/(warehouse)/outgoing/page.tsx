@@ -30,6 +30,18 @@ export default function WarehouseOutgoingPage() {
     return !q || [item.orderId, item.productId, item.batchNumber, item.deliveryPartnerId].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
   });
 
+  const chooseDeliveryRoute = async (id: string, route: "nearby" | "long_distance") => {
+    try {
+      await api.post(`/warehouse/me/outgoing/${id}/delivery-route`, { route, radius: 10 });
+      toast.success(route === "nearby"
+        ? "Nearby route: Local Hub → Delivery Partner"
+        : "Long-distance route: Warehouse → Local Hub → Delivery Partner");
+      refetch();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to choose delivery route");
+    }
+  };
+
   const updateStatus = async (id: string, status: string) => {
     try {
       await api.put(`/warehouse/me/outgoing/${id}/status`, undefined, { params: { status } });
@@ -50,7 +62,18 @@ export default function WarehouseOutgoingPage() {
         <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search dispatch orders..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9" /></div>
         <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-[180px]"><SelectValue placeholder="Filter status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="pending">Ready to Pack</SelectItem><SelectItem value="packed">Packed</SelectItem><SelectItem value="dispatched">Dispatched</SelectItem></SelectContent></Select>
       </div>
-      {isLoading ? <div className="space-y-3">{[1,2,3].map((i)=><div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div> : outgoing.length === 0 ? <Card className="p-12 text-center"><ArrowUp className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No outgoing shipments</h3><p className="mt-2 text-muted-foreground">Outbound stock records will appear here once created.</p></Card> : <div className="space-y-4">{outgoing.map((item: any) => <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><h3 className="font-semibold">{item.orderId || "Dispatch Order"}</h3><Badge className={statusColors[item.status] || "bg-slate-100 text-slate-700"}>{item.status === "pending" ? "Ready to Pack" : item.status === "packed" ? "Packed" : item.status === "dispatched" ? "Dispatched" : item.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">{item.productName || item.productId} · {item.quantity || 0} units</p><div className="mt-3 flex flex-wrap gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1"><Truck className="h-4 w-4" />{item.deliveryPartnerId || "Unassigned"}</span><span className="flex items-center gap-1"><Clock3 className="h-4 w-4" />{item.dispatchDate ? new Date(item.dispatchDate).toLocaleString() : "Not dispatched"}</span>{item.priority === "high" && <span className="flex items-center gap-1 text-red-600"><AlertCircle className="h-4 w-4" />High priority</span>}</div></div><div className="flex items-center gap-2">{item.status === "pending" && <Button size="sm" variant="outline" onClick={() => updateStatus(item.id,"packed")}><PackageCheck className="mr-2 h-4 w-4"/>Pack</Button>}{item.status === "packed" && <Button size="sm" onClick={() => updateStatus(item.id,"dispatched")}><Send className="mr-2 h-4 w-4"/>Dispatch</Button>}</div></div></CardContent></Card>)}</div>}
+      {isLoading ? <div className="space-y-3">{[1,2,3].map((i)=><div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div> : outgoing.length === 0 ? <Card className="p-12 text-center"><ArrowUp className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No outgoing shipments</h3><p className="mt-2 text-muted-foreground">Outbound stock records will appear here once created.</p></Card> : <div className="space-y-4">{outgoing.map((item: any) => <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><h3 className="font-semibold">{item.orderId || "Dispatch Order"}</h3><Badge className={statusColors[item.status] || "bg-slate-100 text-slate-700"}>{item.status === "pending" ? "Ready to Pack" : item.status === "packed" ? "Packed" : item.status === "dispatched" ? "Dispatched" : item.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">{item.productName || item.productId} · {item.quantity || 0} units</p><div className="mt-3 flex flex-wrap gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1"><Truck className="h-4 w-4" />{item.deliveryPartnerId || "Unassigned"}</span><span className="flex items-center gap-1"><Clock3 className="h-4 w-4" />{item.dispatchDate ? new Date(item.dispatchDate).toLocaleString() : "Not dispatched"}</span>{item.priority === "high" && <span className="flex items-center gap-1 text-red-600"><AlertCircle className="h-4 w-4" />High priority</span>}</div></div><div className="flex items-center gap-2">{item.status === "pending" && <Button size="sm" variant="outline" onClick={() => updateStatus(item.id,"packed")}><PackageCheck className="mr-2 h-4 w-4"/>Pack</Button>}
+{item.status === "packed" && <Button size="sm" onClick={() => updateStatus(item.id,"dispatched")}><Send className="mr-2 h-4 w-4"/>Dispatch</Button>}
+{item.status === "dispatched" && (
+  <div className="flex flex-wrap gap-2">
+    <Button size="sm" variant="outline" onClick={() => chooseDeliveryRoute(item.id, "nearby")}>
+      Nearby → Local Hub
+    </Button>
+    <Button size="sm" variant="outline" onClick={() => chooseDeliveryRoute(item.id, "long_distance")}>
+      Long Distance → Warehouse/Hub
+    </Button>
+  </div>
+)}</div></div></CardContent></Card>)}</div>}
     </div>
   );
 }
