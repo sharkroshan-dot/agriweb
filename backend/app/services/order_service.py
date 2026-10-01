@@ -1938,12 +1938,22 @@ class OrderService:
             if not product:
                 return None
 
-            target["quantity"] = packed
-            target["totalPrice"] = packed * float(target.get("unitPrice") or 0)
+            # Reserve the approved substitute quantity before changing the
+            # order. This prevents approving a substitute that is already out
+            # of stock.
             substitute_qty = approved - packed
             if substitute_qty <= 1e-9:
                 return None
+            inventory_ok = await inventory_repository.atomic_confirm(
+                substitute_product_id,
+                substitute_qty,
+                inventory_id=substitute_variant_id if substitute_variant_id else None,
+            )
+            if not inventory_ok:
+                return None
 
+            target["quantity"] = packed
+            target["totalPrice"] = packed * float(target.get("unitPrice") or 0)
             substitute_variant = None
             if substitute_variant_id and ObjectId.is_valid(substitute_variant_id):
                 variants = product.get("variants") or []
