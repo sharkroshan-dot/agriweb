@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -183,6 +184,7 @@ export default function SmartRoutePage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+      <DeliveryWorkflowNav current="smart-route" />
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
