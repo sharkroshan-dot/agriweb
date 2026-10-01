@@ -642,175 +642,18 @@ export default function FarmerOrdersPage() {
                                     </div>
                                   </>
                                 ) : order.fulfillmentMethod === "farmer" ? (
-                                  <>
-                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
-                                    {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
-                                  </>
-                                ) : (
-                                  <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
-                                    <strong>Warehouse fulfillment</strong>
-                                    <br />
-                                    Current warehouse stage: <span className="font-semibold">{String(order.warehouseFulfillmentStage || "incoming").replace(/_/g, " ")}</span>
-                                    <br />
-                                    Workflow: Incoming → Receive → Store → Pack → Dispatch
-                                  </div>
-                                )}
-                                <span className="text-xs text-muted-foreground">
-                                  Distance: {Number(order.deliveryDetails?.distanceKm || 0).toFixed(1)} km
-                                </span>
-                              </div>
-                            )}
-
-                            {getStatus(order) === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
-                              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(order.id || order._id)}`)}>
-                                <Navigation className="mr-1.5 h-3.5 w-3.5"/>Open Order Map
-                              </Button>
-                            )}
-                            {getStatus(order) === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && order.deliveryType !== "pickup" && (order.selfDelivery || order.deliveryPartnerId || order.partnerRequested) && (
-                              <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(order.id || order._id, 'dispatched')}>
-                                <Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch
-                              </Button>
-                            )}
-                            {getStatus(order) === "dispatched" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && (
-                              <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => handleUpdateStatus(order.id || order._id, 'in_transit')}>
-                                <Truck className="mr-1.5 h-3.5 w-3.5"/>In Transit
-                              </Button>
-                            )}
-                            {getStatus(order) === "dispatched" && order.fulfillmentMethod === "farmer" && (order.selfDelivery || order.deliveryPartnerId) && (
-                              <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(order.id || order._id, 'in_transit')}>
-                                <Truck className="mr-1.5 h-3.5 w-3.5"/>In Transit
-                              </Button>
-                            )}
-                            {getStatus(order) === "in_transit" && (
-                              <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleUpdateStatus(order.id || order._id, 'delivered')}>
-                                <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Delivered
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-
-      {!showMapView && (
-        <section className="space-y-4">
-          <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-base font-semibold">Customer Orders</h2>
-              <p className="text-sm text-muted-foreground">Review each order and complete the next required step.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="bg-slate-50 px-3 py-1">{filteredOrderList?.length || 0} orders</Badge>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-[170px] bg-white"><SelectValue placeholder="Filter status" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All statuses</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="confirmed">Confirmed</SelectItem>
-                  <SelectItem value="processing">Processing</SelectItem>
-                  <SelectItem value="ready_for_delivery">Ready for Delivery</SelectItem>
-                  <SelectItem value="dispatched">Dispatched</SelectItem>
-                  <SelectItem value="in_transit">In Transit</SelectItem>
-                  <SelectItem value="delivered">Delivered</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {!filteredOrderList || filteredOrderList.length === 0 ? (
-            <Card className="border-dashed shadow-none">
-              <CardContent className="flex flex-col items-center justify-center px-6 py-14 text-center">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100"><Package className="h-7 w-7 text-slate-400" /></div>
-                <h3 className="mt-4 text-base font-semibold">No orders found</h3>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">{statusFilter !== "all" ? "There are no " + (statusLabels[statusFilter] || statusFilter) + " orders right now." : "New customer orders will appear here."}</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {filteredOrderList.map((order: any) => {
-                const orderId = order.id || order._id;
-                const status = getStatus(order);
-                const payment = paymentBadge(order.paymentMethod);
-                const itemCount = (order.items || []).length;
-                return (
-                  <Card key={orderId} className="overflow-hidden border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
-                    <CardContent className="p-0">
-                      <div className="flex flex-col lg:flex-row">
-                        <div className="min-w-0 flex-1 p-4 sm:p-5">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Link href={"/farmer/orders/" + orderId} className="text-sm font-semibold text-slate-900 hover:text-emerald-700">#{order.orderNumber || String(orderId).slice(-8)}</Link>
-                                <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5 text-xs", statusColors[status] || "bg-slate-50 text-slate-600 border-slate-200")}>{statusLabels[status] || status}</Badge>
-                                {order.paymentStatus === "paid" && <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-xs">Paid</Badge>}
-                              </div>
-                              <p className="mt-1 text-sm text-muted-foreground">{formatDate(order.orderDate)}</p>
-                            </div>
-                            <div className="text-left sm:text-right">
-                              <p className="text-lg font-bold tracking-tight text-slate-900">{formatPrice(order.totalAmount)}</p>
-                              {payment.label && <span className={cn("mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold", payment.cod ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-200 bg-blue-50 text-blue-700")}>{payment.label}</span>}
-                            </div>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p><p className="mt-1 truncate text-sm font-medium text-slate-900">{order.customerName || "Customer"}</p></div>
-                            <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Items</p><p className="mt-1 text-sm font-medium text-slate-900">{itemCount} item{itemCount === 1 ? "" : "s"}</p></div>
-                            <div className="rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Delivery</p><p className="mt-1 truncate text-sm font-medium text-slate-900">{order.deliveryAddress?.city || "Home delivery"}</p></div>
-                          </div>
-
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {(order.items || []).slice(0, 2).map((item: any, idx: number) => <span key={idx} className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">{item.productName} · {item.quantity}</span>)}
-                            {itemCount > 2 && <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">+{itemCount - 2} more</span>}
-                          </div>
-                        </div>
-
-                        <div className="border-t bg-slate-50/70 p-4 lg:w-[280px] lg:border-l lg:border-t-0 sm:p-5">
-                          <div className="mb-3 flex items-center justify-between">
-                            <div><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p><p className="mt-0.5 text-sm font-medium text-slate-900">{status === "pending" ? "Review order" : status === "confirmed" ? "Start processing" : status === "processing" ? "Complete fulfillment" : status === "ready_for_delivery" ? "Arrange delivery" : status === "dispatched" ? "Track delivery" : status === "in_transit" ? "Complete delivery" : "View order"}</p></div>
-                            <Link href={"/farmer/orders/" + orderId} className="text-xs font-medium text-emerald-700 hover:underline">Details</Link>
-                          </div>
-
-                          <div className="space-y-2">
-                            {status === "pending" && <>
-                              <Button className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => setConfirmAction({ order, action: "confirmed" })}><CheckCircle className="mr-2 h-4 w-4" />Confirm Order</Button>
-                              <Button variant="outline" className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmAction({ order, action: "cancelled" })}><XCircle className="mr-2 h-4 w-4" />Cancel</Button>
-                            </>}
-                            {status === "confirmed" && <>
-                              <Button className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(orderId, "processing")}><Package className="mr-2 h-4 w-4" />Start Processing</Button>
-                              <Button variant="outline" className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmAction({ order, action: "cancelled" })}><XCircle className="mr-2 h-4 w-4" />Cancel Order</Button>
-                            </>}
-                            {status === "processing" && order.deliveryType !== "pickup" && (
-                              order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
-                                <div className="space-y-2"><p className="text-xs font-medium text-slate-600">Choose fulfillment</p><div className="grid gap-2">
-                                  <Button size="sm" variant="outline" className="justify-start bg-white" onClick={() => setFulfillmentRoute(orderId, "farmer")}><UserCheck className="mr-2 h-4 w-4 text-emerald-600" />Farmer Fulfillment</Button>
-                                  <Button size="sm" variant="outline" className="justify-start bg-white" onClick={() => setFulfillmentRoute(orderId, "warehouse")}><Store className="mr-2 h-4 w-4 text-blue-600" />Warehouse Fulfillment</Button>
-                                </div></div>
-                              ) : order.fulfillmentMethod === "farmer" ? (
                                 <div className="space-y-2">
                                   {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Packed</Button>}
                                   {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  <div className="space-y-2">
-                                    {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
-                                      <strong>Warehouse transfer for long-distance delivery</strong>
-                                      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                                        {[["ready_for_pickup","Warehouse collection requested"],["team_assigned","Collection team assigned"],["en_route","Team en route"],["arrived_at_farm","Team arrived at farm"],["collected","Packed orders collected"],["departed_farm","Departed farm"],["arrived_warehouse","Arrived at warehouse"]].map(([key,label]) => {
-                                          const stages=["ready_for_pickup","team_assigned","en_route","arrived_at_farm","collected","departed_farm","arrived_warehouse"]; const idx=stages.indexOf(String(order.warehouseCollectionStatus)); const complete=idx>=stages.indexOf(key); return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
-                                        })}
-                                      </div>
-                                      <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
-                                    </div>}
-                                  </div>
-                                </div>
+                                  {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
+                                    <strong>Warehouse transfer for long-distance delivery</strong>
+                                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                                      {[["ready_for_pickup","Warehouse collection requested"],["team_assigned","Collection team assigned"],["en_route","Team en route"],["arrived_at_farm","Team arrived at farm"],["collected","Packed orders collected"],["departed_farm","Departed farm"],["arrived_warehouse","Arrived at warehouse"]].map(([key,label]) => {
+                                        const stages=["ready_for_pickup","team_assigned","en_route","arrived_at_farm","collected","departed_farm","arrived_warehouse"]; const idx=stages.indexOf(String(order.warehouseCollectionStatus)); const complete=idx>=stages.indexOf(key); return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
+                                      })}
+                                    </div>
+                                    <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
+                                  </div>}
                               ) : (
                                 <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
                                   <div>
