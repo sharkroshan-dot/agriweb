@@ -443,6 +443,33 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
                 }
     return {"success": True, "data": {"tasks": tasks}}
 
+@router.get("/me/packing-tasks/{task_id}/label")
+async def get_packing_label(task_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access packing labels")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    task = await warehouse_packing_repository.get_by_id(task_id)
+    if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Packing task not found")
+    order = await order_repository.get_by_id(str(task["orderId"])) if task.get("orderId") else None
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found for packing task")
+    customer = await UserService.get_user_by_id(str(order.get("customerId"))) if order.get("customerId") else None
+    address = order.get("deliveryAddress") or {}
+    items = [
+        {"productName": item.get("productName") or "Product", "quantity": float(item.get("quantity", 0) or 0), "unit": item.get("unit") or "kg"}
+        for item in (order.get("items") or [])
+    ]
+    return {"success": True, "data": {
+        "packageId": task.get("packageId") or f"PKG-{str(task['_id'])[-8:]}",
+        "orderId": str(order["_id"]),
+        "orderNumber": order.get("orderNumber"),
+        "customer": {"name": f"{customer.get('firstName','')} {customer.get('lastName','')}".strip() if customer else "Customer", "phone": customer.get("phone") if customer else None},
+        "items": items,
+        "address": address,
+        "quantityTotal": sum(x["quantity"] for x in items),
+    }}
+
 @router.put("/me/packing-tasks/{task_id}/assign")
 async def assign_packing_team(task_id: str, data: PackingTeamAssignment, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "warehouse": raise HTTPException(status_code=403, detail="Only warehouse managers can assign packing teams")
