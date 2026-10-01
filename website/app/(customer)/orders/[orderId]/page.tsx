@@ -155,6 +155,45 @@ export default function OrderDetailPage() {
     }));
   }, [orderRefundsData]);
 
+  const [fulfillmentSectionRating, setFulfillmentSectionRating] = useState<Record<string, number>>({});
+  const [fulfillmentSubmitting, setFulfillmentSubmitting] = useState(false);
+  const [fulfillmentRated, setFulfillmentRated] = useState(false);
+
+  const submitFulfillmentSections = async () => {
+    if (!order) return;
+    if (!fulfillmentSectionRating.product || !fulfillmentSectionRating.warehouse || !fulfillmentSectionRating.delivery) {
+      toast.error("Please rate product/farmer, warehouse/hub, and delivery.");
+      return;
+    }
+    setFulfillmentSubmitting(true);
+    try {
+      const p = fulfillmentSectionRating.product;
+      const w = fulfillmentSectionRating.warehouse;
+      const d = fulfillmentSectionRating.delivery;
+      await api.post("/fulfillment/ratings", {
+        orderId: order.id,
+        productQuality: p,
+        freshness: p,
+        quantityAccuracy: p,
+        farmerPerformance: p,
+        warehouseHandling: w,
+        packaging: w,
+        storageHandling: w,
+        fulfillmentAccuracy: w,
+        deliveryOnTime: d,
+        deliveryHandling: d,
+        deliveryCommunication: d,
+        comment: "Customer section ratings",
+      });
+      setFulfillmentRated(true);
+      toast.success("Product, fulfillment, and delivery ratings saved separately.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save fulfillment ratings.");
+    } finally {
+      setFulfillmentSubmitting(false);
+    }
+  };
+
   const [partnerRating, setPartnerRating] = useState<Record<string, number>>({});
   const [partnerFeedback, setPartnerFeedback] = useState("");
   const [partnerSubmitting, setPartnerSubmitting] = useState(false);
@@ -1259,6 +1298,30 @@ export default function OrderDetailPage() {
                 </div>
               );
             })}
+          </CardContent>
+        </Card>
+      )}
+
+      {order.status === "delivered" && (
+        <Card id="fulfillment-rating">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Star className="h-5 w-5 text-yellow-500" /> Rate each fulfillment stage</CardTitle>
+            <CardDescription>These ratings are stored separately so delivery or warehouse problems do not become a farmer/product rating.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {[
+              { key: "product", title: "Product & Farmer", text: "Quality, freshness, quantity accuracy and farmer performance" },
+              { key: "warehouse", title: "Warehouse / Local Hub", text: "Handling, packaging, storage and fulfillment accuracy" },
+              { key: "delivery", title: "Delivery", text: "On-time delivery, handling and communication" },
+            ].map((section) => (
+              <div key={section.key} className="rounded-lg border p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div><p className="font-medium">{section.title}</p><p className="text-xs text-muted-foreground">{section.text}</p></div>
+                  <StarPicker value={fulfillmentSectionRating[section.key] || 0} onChange={(v) => setFulfillmentSectionRating(prev => ({...prev, [section.key]: v}))} disabled={fulfillmentRated} />
+                </div>
+              </div>
+            ))}
+            <div className="flex justify-end"><Button onClick={submitFulfillmentSections} disabled={fulfillmentSubmitting || fulfillmentRated}>{fulfillmentRated ? "Ratings saved" : fulfillmentSubmitting ? "Saving..." : "Save stage ratings"}</Button></div>
           </CardContent>
         </Card>
       )}
