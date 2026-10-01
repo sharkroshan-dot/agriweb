@@ -397,8 +397,12 @@ class WarehouseService:
         if not outgoing:
             return None
         current_status = str(outgoing.get("status") or "pending")
+        # Packing verification creates an outgoing record in "pending",
+        # which represents the UI stage "Ready for Dispatch". The warehouse
+        # now dispatches that verified package directly; the delivery route is
+        # chosen only after dispatch.
         allowed = {
-            "pending": {"packed"},
+            "pending": {"dispatched"},
             "packed": {"dispatched"},
             "dispatched": set(),
         }
