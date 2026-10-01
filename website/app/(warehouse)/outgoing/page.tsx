@@ -34,8 +34,8 @@ export default function WarehouseOutgoingPage() {
     try {
       await api.post(`/warehouse/me/outgoing/${id}/delivery-route`, { route, radius: 10 });
       toast.success(route === "nearby"
-        ? "Nearby route: Local Hub → Delivery Partner"
-        : "Long-distance route: Warehouse → Local Hub → Delivery Partner");
+        ? "Nearby route: Warehouse → Delivery Partner → Customer"
+        : "Long-distance route: Warehouse → Local Hub → Delivery Partner → Customer");
       refetch();
     } catch (e: any) {
       toast.error(e?.message || "Failed to choose delivery route");
@@ -66,10 +66,10 @@ export default function WarehouseOutgoingPage() {
 {item.status === "dispatched" && (
   <div className="flex flex-wrap gap-2">
     <Button size="sm" variant="outline" onClick={() => chooseDeliveryRoute(item.id, "nearby")}>
-      Nearby → Local Hub
+      Nearby → Delivery Partner
     </Button>
     <Button size="sm" variant="outline" onClick={() => chooseDeliveryRoute(item.id, "long_distance")}>
-      Long Distance → Local Hub
+      Long Distance → Local Hub → Delivery Partner
     </Button>
   </div>
 )}</div></div></CardContent></Card>)}</div>}
