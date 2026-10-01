@@ -64,7 +64,7 @@ export function NotificationBell() {
     queryKey: [...NOTIFICATIONS_QUERY_KEY, "count"],
     queryFn: () => api.get("/notifications/unread/count"),
     enabled: true,
-    refetchInterval: 10000,
+    refetchInterval: 3000,
     refetchIntervalInBackground: true,
     refetchOnWindowFocus: true,
   });
@@ -73,7 +73,7 @@ export function NotificationBell() {
     queryKey: [...NOTIFICATIONS_QUERY_KEY, "list"],
     queryFn: () => api.get("/notifications/", { params: { limit: 10 } }),
     enabled: open,
-    refetchInterval: open ? 15000 : false,
+    refetchInterval: open ? 5000 : false,
     refetchOnWindowFocus: true,
   });
 
