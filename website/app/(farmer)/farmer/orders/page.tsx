@@ -614,8 +614,10 @@ export default function FarmerOrdersPage() {
           });
         return (
           <div className="space-y-4">
-            <MapWithMarkers markers={allMapMarkers} />
-            <div className="flex flex-wrap gap-2">
+            {showMapView && (
+              <>
+                <MapWithMarkers markers={allMapMarkers} />
+                <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => setSelectedCity(null)}
@@ -655,7 +657,9 @@ export default function FarmerOrdersPage() {
                   </span>
                 </button>
               ))}
-            </div>
+                </div>
+              </>
+            )}
             {(activeCity === null ? groupEntries : groupEntries.filter(([city]) => city === activeCity)).map(([city, orders]) => (
               <div key={city} className="space-y-4">
                 {orders.map((order: any) => (
