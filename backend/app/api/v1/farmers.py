@@ -628,7 +628,10 @@ _CALENDAR_SLOT_ORDER = {"Morning": 0, "Mid-day": 1, "Afternoon": 2}
 
 
 @router.get("/me/delivery-calendar")
-async def get_delivery_calendar(\n    orderIds: Optional[str] = Query(None),\n    current_user: dict = Depends(get_current_user),\n):
+async def get_delivery_calendar(
+    orderIds: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     """Get farmer's delivery calendar with weekly slots.
 
     Slots are aggregated by (delivery day, time slot) so the calendar can
@@ -729,7 +732,10 @@ async def get_delivery_calendar(\n    orderIds: Optional[str] = Query(None),\n  
 
 
 @router.get("/me/smart-route")
-async def get_smart_route(\n    orderIds: Optional[str] = Query(None),\n    current_user: dict = Depends(get_current_user),\n):
+async def get_smart_route(
+    orderIds: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     """Get farmer's AI-optimized route with cost & savings analysis."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
@@ -1338,7 +1344,10 @@ async def get_my_deliveries(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/me/route")
-async def get_my_route(\n    orderIds: Optional[str] = Query(None),\n    current_user: dict = Depends(get_current_user),\n):
+async def get_my_route(
+    orderIds: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
     """Get farmer's optimized pickup/delivery route for today."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
