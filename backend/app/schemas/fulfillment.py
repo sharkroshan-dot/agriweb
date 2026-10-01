@@ -18,6 +18,9 @@ class FulfillmentDecisionResponse(BaseModel):
     nearbyFulfillmentLocationId: Optional[str] = None
     nearbyFulfillmentLocation: Optional[str] = None
     hubToCustomerDistanceKm: Optional[float] = None
+    nearbyStockAvailable: Optional[float] = None
+    deliveryCapacityAvailable: Optional[float] = None
+    deliveryCapacitySufficient: Optional[bool] = None
     logisticsMode: Optional[str] = None
     decision: str
     nextStep: str
@@ -41,6 +44,11 @@ class HubTransferCreate(BaseModel):
     hubId: str
     quantity: int = Field(gt=0)
     transferDistanceKm: Optional[float] = None
+    notes: Optional[str] = None
+
+class HubConsolidationCreate(BaseModel):
+    hubId: str
+    orderIds: List[str] = Field(min_length=2, max_length=50)
     notes: Optional[str] = None
 
 class HubReceiveRequest(BaseModel):
