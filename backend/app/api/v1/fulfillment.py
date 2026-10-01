@@ -164,6 +164,15 @@ async def consolidate_hub_orders(hub_id: str, data: HubConsolidationCreate, curr
         src = order.get("currentFulfillmentLocation") or order.get("originLocation") or order.get("farmLocation")
         if source is None:
             source = src
+        elif distance_km(source, src) not in (None, 0) and distance_km(source, src) > 0.5:
+            raise HTTPException(status_code=400, detail="All consolidated orders must originate from the same warehouse/location")
+        # A consolidated manifest cannot mix incompatible cold-chain requirements.
+        product_ids = [str(i.get("productId")) for i in order.get("items") or [] if i.get("productId")]
+        if product_ids:
+            products = await MongoDB.get_collection("products").find({"_id": {"$in": [ObjectId(x) for x in product_ids if ObjectId.is_valid(x)]}}).to_list(length=50)
+            requires_cold = any(bool(p.get("coldStorageRequired") or p.get("storageTemperature")) for p in products)
+            if requires_cold and not hub.get("coldStorageAvailable"):
+                raise HTTPException(status_code=400, detail="Selected hub does not provide required cold storage")
         total += sum(float(i.get("quantity") or 0) for i in order.get("items") or [])
     if total > float(hub.get("availableCapacity", 0) or 0):
         raise HTTPException(status_code=400, detail="Hub does not have enough available capacity for the consolidated manifest")
