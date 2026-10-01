@@ -109,13 +109,15 @@ class _FarmerOrderMapScreenState extends State<FarmerOrderMapScreen> {
     return (null, null);
   }
 
-  Future<void> _acceptWithin() async {
+  Future<void> _assignNearbyToPartners() async {
     setState(() => _accepting = true);
     try {
-      await ApiService.put('/farmers/me/delivery-map/accept-within', body: {'radius': _radius});
+      final res = await ApiService.post('/farmers/me/delivery-map/assign-nearby', body: {'radius': _radius});
       if (!mounted) return;
+      final data = res['data'] is Map ? Map<String, dynamic>.from(res['data'] as Map) : <String, dynamic>{};
+      final opened = data['opened'] ?? 0;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Orders accepted for self-delivery within $_radius km'),
+        content: Text(res['message'] as String? ?? '$opened nearby orders opened for delivery partners'),
         backgroundColor: AppTheme.success,
       ));
       await _load();
@@ -242,11 +244,11 @@ class _FarmerOrderMapScreenState extends State<FarmerOrderMapScreen> {
                   children: [
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: within.isEmpty || _accepting ? null : _acceptWithin,
+                        onPressed: within.isEmpty || _accepting ? null : _assignNearbyToPartners,
                         icon: _accepting
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.check_circle_outline, size: 18),
-                        label: Text('Accept All Within $_radius km'),
+                        label: Text('Assign Nearby to Delivery Partners'),
                       ),
                     ),
                   ],
