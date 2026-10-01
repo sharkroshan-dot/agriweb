@@ -263,6 +263,41 @@ class OrderRepository(BaseRepository):
             logger.error(f"Error updating order status: {str(e)}")
             return False
     
+    async def append_tracking_event(
+        self,
+        order_id: str,
+        event_type: str,
+        title: str,
+        description: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        actor_role: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Append an operational tracking event without changing the order status."""
+        try:
+            obj_id = ObjectId(order_id)
+            order = await self.get_by_id(order_id)
+            if not order:
+                return False
+            event = {
+                "status": str(order.get("orderStatus") or OrderStatus.PENDING.value),
+                "eventType": event_type,
+                "title": title,
+                "description": description,
+                "changedBy": actor_id,
+                "actorRole": actor_role,
+                "timestamp": datetime.utcnow(),
+                "metadata": metadata or {},
+            }
+            result = await self.collection.update_one(
+                {"_id": obj_id},
+                {"$set": {"updatedAt": datetime.utcnow()}, "$push": {"statusHistory": event}},
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error("Error appending tracking event for %s: %s", order_id, e)
+            return False
+
     async def get_active_rating_order(self, customer_id: str) -> Optional[Dict[str, Any]]:
         """Get the most recent delivered order with an active SMS rating session."""
         orders = await self.find_many(
