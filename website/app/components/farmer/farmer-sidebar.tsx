@@ -37,6 +37,7 @@ import {
   BadgeCheck,
   Bot,
   ShoppingBasket,
+  Warehouse,
 } from "lucide-react";
 import { cn, formatPrice } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -58,6 +59,7 @@ const navGroups = [
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
       { name: "Quality Inspection", href: "/farmer/quality", icon: FlaskConical },
+      { name: "Local Fulfillment Hub", href: "/farmer/local-hub", icon: Warehouse },
     ],
   },
   {
