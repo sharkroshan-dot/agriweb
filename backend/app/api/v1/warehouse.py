@@ -357,6 +357,11 @@ async def assign_packing_team(task_id: str, data: PackingTeamAssignment, current
     task = await warehouse_packing_repository.get_by_id(task_id)
     if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
     await warehouse_packing_repository.update_task(task_id, {"packingTeamId": data.packingTeamId, "status": "assigned"})
+    from app.repositories.order_repository import order_repository
+    await order_repository.update(
+        {"_id": ObjectId(str(task["orderId"]))},
+        {"warehouseFulfillmentStage": "packing_team_assigned", "packingTeamId": data.packingTeamId, "updatedAt": datetime.utcnow()},
+    )
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.put("/me/packing-tasks/{task_id}/start")
@@ -367,6 +372,11 @@ async def start_packing_task(task_id: str, current_user: dict = Depends(get_curr
     if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
     if task.get("status") not in ("ready_for_packing","assigned"): raise HTTPException(status_code=400, detail="Task is not ready to start packing")
     await warehouse_packing_repository.update_task(task_id, {"status":"packing"})
+    from app.repositories.order_repository import order_repository
+    await order_repository.update(
+        {"_id": ObjectId(str(task["orderId"]))},
+        {"warehouseFulfillmentStage": "packing", "updatedAt": datetime.utcnow()},
+    )
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.put("/me/packing-tasks/{task_id}/complete")
@@ -378,7 +388,13 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
     required = float(task.get("quantityRequired",0))
     if data.packedQuantity > required: raise HTTPException(status_code=400, detail="Packed quantity cannot exceed required quantity")
     if task.get("status") not in ("ready_for_packing","assigned","packing","partially_packed"): raise HTTPException(status_code=400, detail="Task is not packable")
-    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":data.packedQuantity,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":"packed" if data.packedQuantity >= required else "partially_packed"})
+    packed_status = "packed" if data.packedQuantity >= required else "partially_packed"
+    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":data.packedQuantity,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
+    from app.repositories.order_repository import order_repository
+    await order_repository.update(
+        {"_id": ObjectId(str(task["orderId"]))},
+        {"warehouseFulfillmentStage": "packed" if packed_status == "packed" else "partially_packed", "updatedAt": datetime.utcnow()},
+    )
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.put("/me/packing-tasks/{task_id}/verify")
@@ -448,7 +464,7 @@ async def choose_warehouse_delivery_route(
         await order_repository.update(
             {"_id": ObjectId(str(order_id))},
             {
-                "warehouseFulfillmentStage": "ready_for_dispatch",
+                "warehouseFulfillmentStage": "delivery_decision",
                 "deliveryPartnerRoute": data.route,
                 "updatedAt": datetime.utcnow(),
             },
