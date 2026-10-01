@@ -502,6 +502,19 @@ async def admin_get_all_orders(
         }
     }
 
+@router.post("/farmer/bulk-advance")
+async def farmer_bulk_advance_orders(
+    data: BulkFarmerOrderRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can process orders")
+    result = await OrderService.bulk_advance_farmer_orders(
+        str(current_user["_id"]), data.action
+    )
+    return {"success": True, "data": result}
+
+
 @router.get("/farmer/order-availability")
 async def farmer_order_availability(
     current_user: dict = Depends(get_current_user)
