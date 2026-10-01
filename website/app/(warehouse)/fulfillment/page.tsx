@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";\nimport toast from "react-hot-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import toast from "react-hot-toast";
 import { RefreshCw, Warehouse, Route, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -9,12 +10,7 @@ import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
 
 export default function WarehouseFulfillmentPage() {
-  const [refreshKey, setRefreshKey] = useState(0);\n  const transferMutation = useMutation({
-    mutationFn: ({ orderId, hubId, quantity }: { orderId: string; hubId: string; quantity: number }) =>
-      api.post(`/fulfillment/orders/${orderId}/transfer-to-hub`, { hubId, quantity }),
-    onSuccess: () => { setRefreshKey((v) => v + 1); toast.success("Transfer to local hub started"); },
-    onError: (e: any) => toast.error(e?.message || "Transfer failed"),
-  });
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const hubsQuery = useQuery({
     queryKey: ["fulfillmentHubs", refreshKey],
@@ -26,12 +22,37 @@ export default function WarehouseFulfillmentPage() {
   });
 
   const hubs = hubsQuery.data?.data?.hubs ?? [];
-  const incoming = incomingQuery.data?.data?.incoming ?? [];\n  const ordersQuery = useQuery({
-    queryKey: ["warehouseTransferOrders", refreshKey],
-    queryFn: () => api.get("/orders", { params: { status: "transfer_pending", limit: 100 } }),
-  });
-  const transferOrders = ordersQuery.data?.data?.orders ?? [];
+  const incoming = incomingQuery.data?.data?.incoming ?? [];
 
+  const routingQuery = useQuery({
+    queryKey: ["warehouseRoutingDecisions", refreshKey, incoming.map((x: any) => x.orderId).join(",")],
+    enabled: incoming.length > 0,
+    queryFn: async () => {
+      const results = await Promise.all(
+        incoming.filter((x: any) => x.orderId).map(async (x: any) => {
+          try {
+            const res = await api.get(`/fulfillment/orders/${x.orderId}/decision`);
+            return { incoming: x, decision: res?.data };
+          } catch {
+            return null;
+          }
+        }),
+      );
+      return results.filter(Boolean);
+    },
+  });
+
+  const transferMutation = useMutation({
+    mutationFn: ({ orderId, hubId, quantity }: { orderId: string; hubId: string; quantity: number }) =>
+      api.post(`/fulfillment/orders/${orderId}/transfer-to-hub`, { hubId, quantity }),
+    onSuccess: () => {
+      setRefreshKey((v) => v + 1);
+      toast.success("Transfer to local hub started");
+    },
+    onError: (e: any) => toast.error(e?.message || "Transfer failed"),
+  });
+
+  const transferOrders = routingQuery.data ?? [];
 
   return (
     <div className="space-y-6">
@@ -52,24 +73,58 @@ export default function WarehouseFulfillmentPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Local Fulfillment Hubs</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Warehouse Inbound</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {hubs.length === 0 ? <p className="text-sm text-muted-foreground">No approved local hubs are available.</p> : hubs.map((hub: any) => (
-            <div key={hub.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
-              <div><p className="font-semibold">{hub.name}</p><p className="text-sm text-muted-foreground">{hub.address?.city || "Local hub"}</p></div>
-              <Badge>{Number(hub.availableCapacity ?? 0)} capacity available</Badge>
+          {incoming.length === 0 ? <p className="text-sm text-muted-foreground">No inbound jobs.</p> : incoming.map((item: any) => (
+            <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+              <div>
+                <p className="font-semibold">Order {item.orderId || "—"}</p>
+                <p className="text-sm text-muted-foreground">{item.quantity} units • {item.batchNumber || "Batch not recorded"}</p>
+              </div>
+              <Badge variant="outline">{item.status}</Badge>
             </div>
           ))}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Warehouse Inbound</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Warehouse → Local Hub</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          {incoming.length === 0 ? <p className="text-sm text-muted-foreground">No inbound transfers.</p> : incoming.map((item: any) => (
-            <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
-              <div><p className="font-semibold">Order {item.orderId || "—"}</p><p className="text-sm text-muted-foreground">{item.quantity} units • {item.batchNumber || "Batch not recorded"}</p></div>
-              <Badge variant="outline">{item.status}</Badge>
+          {transferOrders.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No orders currently requiring local-hub transfer.</p>
+          ) : transferOrders.map((row: any) => {
+            const decision = row?.decision || {};
+            if (decision.nearbyFulfillmentType !== "local_hub") return null;
+            const hub = hubs.find((h: any) => h.id === decision.nearbyFulfillmentLocationId || h._id === decision.nearbyFulfillmentLocationId);
+            const quantity = Number(row?.incoming?.quantity || 0);
+            const orderId = String(row?.incoming?.orderId || "");
+            return (
+              <div key={orderId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+                <div>
+                  <p className="font-semibold">Order {orderId}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {quantity} units • {decision.perishabilityRisk || "risk pending"} • {decision.estimatedDistanceKm ?? "—"} km • ETA {decision.estimatedDeliveryMinutes ?? "—"} min
+                  </p>
+                </div>
+                <Button
+                  disabled={!hub || transferMutation.isPending}
+                  onClick={() => hub && transferMutation.mutate({ orderId, hubId: hub.id, quantity })}
+                >
+                  Transfer to {hub?.name || "Recommended Local Hub"}
+                </Button>
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Approved Local Fulfillment Hubs</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {hubs.length === 0 ? <p className="text-sm text-muted-foreground">No approved local hubs are available.</p> : hubs.map((hub: any) => (
+            <div key={hub.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+              <div><p className="font-semibold">{hub.name}</p><p className="text-sm text-muted-foreground">{hub.address?.city || "Local hub"}</p></div>
+              <Badge>{Number(hub.availableCapacity ?? 0)} capacity available</Badge>
             </div>
           ))}
         </CardContent>
