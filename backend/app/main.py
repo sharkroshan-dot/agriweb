@@ -169,7 +169,7 @@ async def health_check():
 # Import and include routers
 from app.api.v1 import auth, users, products, orders, payments, farmers, warehouse, delivery, notifications, analytics, community_delivery, customers, marketplace, logistics, community_buying
 from app.api.v1 import admin, coupons, complaints, kyc, settings, delivery_ratings
-from app.api.v1 import quality
+from app.api.v1 import quality, fulfillment
 try:
     from app.api.v1 import ai
     _ai_router = ai.router
@@ -220,6 +220,7 @@ app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["
 from app.api.v1 import refunds
 app.include_router(refunds.router, prefix="/api/v1/refunds", tags=["Refunds"])
 app.include_router(quality.router, prefix="/api/v1/quality", tags=["Quality"])
+app.include_router(fulfillment.router, prefix="/api/v1/fulfillment", tags=["Fulfillment"])
 app.include_router(_ai_router, prefix="/api/v1/ai", tags=["AI"])
 
 if __name__ == "__main__":
