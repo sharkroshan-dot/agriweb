@@ -2108,6 +2108,24 @@ class OrderService:
                     {"refundStatus": "pending", "refundRequiredAmount": refund_amount},
                 )
 
+        try:
+            updated_order = await order_repository.get_by_id(order_id)
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    stage="ready_for_packing" if all_resolved else "shortage_pending",
+                    title=f"Order #{updated_order.get('orderNumber') or order_id}: customer decision received",
+                    message=(
+                        "The customer resolved the packing shortage. Warehouse packing can continue."
+                        if all_resolved
+                        else "The customer resolved one shortage, but other shortage decisions are still required."
+                    ),
+                    actor_role="customer",
+                    priority=NotificationPriority.HIGH if all_resolved else NotificationPriority.URGENT,
+                )
+        except Exception as e:
+            logger.warning("Failed to notify roles after customer shortage decision for %s: %s", order_id, e)
+
         await order_repository.append_tracking_event(
             order_id,
             "customer_shortage_resolved",
