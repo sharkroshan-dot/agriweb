@@ -1877,6 +1877,173 @@ class OrderService:
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
+    async def resolve_customer_shortage(
+        order_id: str,
+        user_id: str,
+        shortage_id: str,
+        resolution_type: str,
+        approved_quantity: Optional[float] = None,
+        substitute_product_id: Optional[str] = None,
+        substitute_variant_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Apply a customer's decision to a warehouse packing shortage."""
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("customerId")) != user_id:
+            return None
+        if str(order.get("fulfillmentMethod") or "") != FulfillmentMethod.WAREHOUSE.value:
+            return None
+
+        from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+        case = await warehouse_shortage_repository.get_by_id(shortage_id)
+        if not case or str(case.get("orderId")) != order_id:
+            return None
+        if case.get("status") in ("resolved", "cancelled"):
+            return None
+        if case.get("status") not in ("customer_approval_pending", "substitution_pending", "resolution_required"):
+            return None
+
+        required = float(case.get("requiredQuantity") or 0)
+        packed = float(case.get("availableQuantity") or 0)
+        shortage = max(0.0, required - packed)
+        if shortage <= 1e-9:
+            return None
+
+        items = [dict(x) for x in (order.get("items") or [])]
+        target = next(
+            (x for x in items
+             if str(x.get("productId")) == str(case.get("productId"))
+             and str(x.get("variantId") or "") == str(case.get("variantId") or "")),
+            None,
+        )
+        if not target:
+            return None
+
+        approved = float(approved_quantity if approved_quantity is not None else packed)
+        if approved < packed - 1e-9 or approved > required + 1e-9:
+            return None
+
+        original_total = float(order.get("totalAmount") or 0)
+        payment_method = str(order.get("paymentMethod") or "").lower()
+        is_cod = payment_method in ("cash", "cod", "cash_on_delivery")
+
+        if resolution_type == "customer_approval":
+            target["quantity"] = approved
+            target["totalPrice"] = approved * float(target.get("unitPrice") or 0)
+            items = [x for x in items if float(x.get("quantity") or 0) > 1e-9]
+
+        elif resolution_type == "substitution_approval":
+            if not substitute_product_id or not ObjectId.is_valid(substitute_product_id):
+                return None
+            product = await product_repository.get_by_id(substitute_product_id)
+            if not product:
+                return None
+
+            target["quantity"] = packed
+            target["totalPrice"] = packed * float(target.get("unitPrice") or 0)
+            substitute_qty = approved - packed
+            if substitute_qty <= 1e-9:
+                return None
+
+            substitute_variant = None
+            if substitute_variant_id and ObjectId.is_valid(substitute_variant_id):
+                variants = product.get("variants") or []
+                substitute_variant = next((v for v in variants if str(v.get("_id")) == substitute_variant_id), None)
+
+            substitute_price = float(
+                (substitute_variant or {}).get("price")
+                or product.get("price")
+                or product.get("sellingPrice")
+                or 0
+            )
+            items.append({
+                "productId": ObjectId(substitute_product_id),
+                "variantId": ObjectId(substitute_variant_id) if substitute_variant_id and ObjectId.is_valid(substitute_variant_id) else None,
+                "productName": product.get("name") or target.get("productName") or "Substitute product",
+                "productImage": product.get("image") or product.get("images", [None])[0],
+                "quantity": substitute_qty,
+                "unitPrice": substitute_price,
+                "totalPrice": substitute_qty * substitute_price,
+                "isSubstitution": True,
+                "substitutedForProductId": ObjectId(str(case.get("productId"))),
+                "shortageCaseId": ObjectId(shortage_id),
+            })
+        else:
+            return None
+
+        subtotal = sum(float(x.get("totalPrice") or 0) for x in items)
+        discount = min(float(order.get("discount") or 0), subtotal)
+        final_total = max(
+            0.0,
+            subtotal + float(order.get("deliveryCharge") or 0)
+            + float(order.get("platformFee") or 0) - discount,
+        )
+
+        await order_repository.update(
+            {"_id": order["_id"]},
+            {
+                "items": items,
+                "subtotal": subtotal,
+                "discount": discount,
+                "totalAmount": final_total,
+                "finalPayableAmount": final_total,
+                "shortageResolutionRequired": False,
+                "shortageResolved": True,
+                "warehouseFulfillmentStage": "ready_for_packing",
+                "customerShortageDecision": resolution_type,
+                "updatedAt": datetime.utcnow(),
+            },
+        )
+
+        await warehouse_shortage_repository.update_case(shortage_id, {
+            "status": "resolved",
+            "resolutionType": resolution_type,
+            "approvedQuantity": approved,
+            "remainingShortage": 0,
+            "resolvedAt": datetime.utcnow(),
+            "customerApprovedAt": datetime.utcnow(),
+            "customerApprovedBy": ObjectId(user_id),
+        })
+
+        # If a paid order becomes cheaper after the customer's decision,
+        # issue only the difference; COD simply uses the new final payable.
+        refund_amount = max(0.0, original_total - final_total)
+        refund_id = None
+        if refund_amount > 0.01 and not is_cod and str(order.get("paymentStatus") or "").lower() == PaymentStatus.PAID.value:
+            refund_id = await PaymentService.process_refund(order_id, refund_amount)
+            if refund_id:
+                await order_repository.update(
+                    {"_id": order["_id"]},
+                    {"refundStatus": "completed", "refundRequiredAmount": refund_amount, "shortageRefundId": refund_id},
+                )
+            else:
+                await order_repository.update(
+                    {"_id": order["_id"]},
+                    {"refundStatus": "pending", "refundRequiredAmount": refund_amount},
+                )
+
+        await order_repository.append_tracking_event(
+            order_id,
+            "customer_shortage_resolved",
+            "Customer approved shortage resolution",
+            "The customer decision was recorded and the order returned to warehouse packing.",
+            actor_id=user_id,
+            actor_role="customer",
+            metadata={
+                "shortageId": shortage_id,
+                "resolutionType": resolution_type,
+                "approvedQuantity": approved,
+                "refundAmount": refund_amount,
+                "refundId": refund_id,
+            },
+        )
+
+        from app.services.warehouse_service import WarehouseService
+        await WarehouseService.ensure_order_packing_task(
+            order_id, str(case.get("warehouseId"))
+        )
+        return await order_repository.get_by_id(order_id)
+
+    @staticmethod
     async def update_fulfillment_stage(order_id: str, user_id: str, role: str, stage: FulfillmentStage) -> Optional[Dict[str, Any]]:
         """Farmer-direct Pack -> Dispatch lifecycle with a complete-order gate."""
         order = await order_repository.get_by_id(order_id)
