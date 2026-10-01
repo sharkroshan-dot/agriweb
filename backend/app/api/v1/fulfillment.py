@@ -52,6 +52,41 @@ async def farmer_opt_in_hub(data: FulfillmentHubCreate, current_user: dict = Dep
     result = await MongoDB.get_collection("fulfillment_hubs").insert_one(doc)
     return {"success": True, "data": {"id": str(result.inserted_id), "approvalStatus": "pending"}, "message": "Farm submitted for local fulfillment hub approval"}
 
+@router.get("/hubs/mine")
+async def my_hubs(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can view their hub applications")
+    docs = await MongoDB.get_collection("fulfillment_hubs").find({"ownerFarmerId": ObjectId(current_user["_id"]), "deletedAt": None}).sort("createdAt", -1).to_list(length=50)
+    for d in docs: d["id"] = str(d.pop("_id"))
+    return {"success": True, "data": {"hubs": docs}}
+
+
+@router.put("/hubs/{hub_id}")
+async def update_hub(hub_id: str, data: FulfillmentHubCreate, current_user: dict = Depends(get_current_user)):
+    try: hid = ObjectId(hub_id)
+    except Exception: raise HTTPException(status_code=400, detail="Invalid hub id")
+    query = {"_id": hid, "isLocalFulfillmentHub": True, "deletedAt": None}
+    if current_user.get("role") == "farmer":
+        query["ownerFarmerId"] = ObjectId(current_user["_id"])
+    elif current_user.get("role") not in ("admin", "warehouse"):
+        raise HTTPException(status_code=403, detail="Access denied")
+    existing = await MongoDB.get_collection("fulfillment_hubs").find_one(query)
+    if not existing: raise HTTPException(status_code=404, detail="Hub not found")
+    doc = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    current_used = float(existing.get("storageCapacity", 0)) - float(existing.get("availableCapacity", 0))
+    if float(doc["storageCapacity"]) < current_used:
+        raise HTTPException(status_code=400, detail="Storage capacity cannot be below currently occupied capacity")
+    doc["availableCapacity"] = max(0.0, float(doc["storageCapacity"]) - current_used)
+    if current_user.get("role") == "farmer" and existing.get("approvalStatus") == "approved":
+        doc["approvalStatus"] = "pending"
+        doc["isActive"] = False
+    doc["updatedAt"] = datetime.utcnow()
+    await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": hid}, {"$set": doc})
+    updated = await MongoDB.get_collection("fulfillment_hubs").find_one({"_id": hid})
+    updated["id"] = str(updated.pop("_id"))
+    return {"success": True, "data": updated}
+
+
 @router.post("/hubs/{hub_id}/approve")
 async def approve_hub(hub_id: str, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "admin":
