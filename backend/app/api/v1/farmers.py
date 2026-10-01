@@ -1673,6 +1673,13 @@ class AssignOutsideRequest(BaseModel):
     partnerIds: Optional[dict] = None  # orderId -> partnerId (explicit manual picks)
 
 
+class SelfDeliveryPlanRequest(BaseModel):
+    method: str = Field(..., pattern="^(route|radius)$")
+    orderIds: list[str] = Field(default_factory=list, max_length=500)
+    radius: int = Field(10, ge=1, le=200)
+    destination: Optional[dict] = None
+
+
 class AssignmentUpdateRequest(BaseModel):
     mode: str  # "self" | "partner"
     partnerId: Optional[str] = None
@@ -2418,6 +2425,132 @@ def _ai_partner_plan(targets, available: list) -> list:
             running_slots[best["id"]][slot] += 1
             plan.append((order, best, f"AI match (score {round(best_score, 2)})"))
     return plan
+
+
+@router.post("/me/delivery-map/self-delivery-plan")
+async def create_self_delivery_plan(
+    body: SelfDeliveryPlanRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Finalize one farmer self-delivery route and automatically route every remaining order.
+
+    The farmer first chooses either a route-based or radius-based self-delivery
+    method and selects the orders they will personally deliver. Every other
+    dispatched Farmer Fulfillment order is automatically moved into the
+    delivery-partner routing flow. Nearby orders go through the local hub;
+    long-distance orders go through warehouse -> local hub before the partner.
+    """
+    _ensure_farmer(current_user)
+    farmer_id = str(current_user["_id"])
+    farm = await _get_farm_origin(farmer_id)
+    if farm.get("lat") is None or farm.get("lng") is None:
+        raise HTTPException(status_code=400, detail="Farm location is not set")
+
+    orders = await order_repository.find_many({
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
+        "fulfillmentMethod": "farmer",
+        "fulfillmentStage": "dispatched",
+        "deliveryType": {"$ne": DeliveryType.PICKUP.value},
+        "deletedAt": None,
+    }) or []
+
+    selected_ids = {str(x) for x in body.orderIds}
+    if not selected_ids:
+        raise HTTPException(status_code=400, detail="Select at least one order for self delivery")
+
+    selected = []
+    remaining = []
+    for order in orders:
+        oid = str(order["_id"])
+        if order.get("selfDelivery") or order.get("deliveryPartnerId"):
+            continue
+        if oid in selected_ids:
+            selected.append(order)
+        else:
+            remaining.append(order)
+
+    if not selected:
+        raise HTTPException(status_code=400, detail="None of the selected orders are available for self delivery")
+
+    selected_results = []
+    for order in selected:
+        oid = str(order["_id"])
+        active = await delivery_assignment_repository.get_by_order_id(oid)
+        if active and active.get("status") in ("accepted", "picked_up", "in_transit"):
+            continue
+        ok = await order_repository.reclaim_for_self_delivery(
+            oid, farmer_id, _ACTIVE_DELIVERY_STATUSES
+        )
+        if not ok:
+            continue
+        await delivery_assignment_repository.cancel_by_order_id(
+            oid, "Farmer selected this order for self delivery"
+        )
+        await delivery_job_repository.cancel_by_order(oid, "Farmer selected this order for self delivery")
+        await order_repository.update_order_field(oid, "partnerAssignmentOpen", False)
+        selected_results.append(oid)
+        try:
+            await NotificationService.send_custom_notification(
+                str(order.get("customerId")),
+                f"Your order {order.get('orderNumber', '')} will be delivered directly by the farmer.",
+            )
+        except Exception:
+            pass
+        _notify_delivery_map(
+            farmer_id, "order.updated", orderId=oid, mode="self",
+            orderNumber=order.get("orderNumber", ""),
+        )
+
+    partner_results = []
+    skipped = []
+    for order in remaining:
+        oid = str(order["_id"])
+        addr = order.get("deliveryAddress") or {}
+        lat, lng = await _stop_coords(addr, oid)
+        if lat is None:
+            skipped.append({"orderId": oid, "reason": "Customer location unavailable"})
+            continue
+        dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
+        route = "nearby" if dist <= body.radius else "long_distance"
+        try:
+            route_result = await apply_partner_route(order, route, body.radius)
+            refreshed = await order_repository.get_by_id(oid) or order
+            job = None
+            if route == "nearby":
+                job = await _open_job_for_order(refreshed, farm, farmer_id)
+            partner_results.append({
+                "orderId": oid,
+                "distanceKm": round(dist, 2),
+                "route": route,
+                "deliveryJob": job,
+            })
+        except Exception as exc:
+            logger.warning("Automatic partner routing failed for order %s: %s", oid, exc)
+            skipped.append({"orderId": oid, "reason": "Partner routing could not be created"})
+
+    _notify_delivery_map(
+        farmer_id, "delivery.plan.finalized",
+        method=body.method, selfDeliveryCount=len(selected_results),
+        partnerCount=len(partner_results),
+    )
+    return {
+        "success": True,
+        "data": {
+            "method": body.method,
+            "selfDeliveryOrderIds": selected_results,
+            "selfDeliveryCount": len(selected_results),
+            "partnerCount": len(partner_results),
+            "partnerResults": partner_results,
+            "skipped": skipped,
+            "radius": body.radius,
+            "destination": body.destination,
+        },
+        "message": (
+            f"Self delivery route created for {len(selected_results)} orders. "
+            f"{len(partner_results)} remaining orders were routed automatically."
+        ),
+    }
 
 
 @router.post("/me/delivery-map/partner-route")
