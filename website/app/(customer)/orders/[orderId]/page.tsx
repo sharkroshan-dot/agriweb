@@ -127,6 +127,14 @@ export default function OrderDetailPage() {
     retry: 1,
   });
 
+  const { data: shortageData, refetch: refetchShortages } = useQuery({
+    queryKey: ["orderShortages", orderId],
+    queryFn: () => api.get(`/orders/${orderId}/shortage-resolutions`),
+    enabled: !!orderId,
+    refetchInterval: 5000,
+    retry: 1,
+  });
+
   const { data: orderRefundsData, refetch: refetchOrderRefunds } = useQuery({
     queryKey: ["orderRefunds", orderId],
     queryFn: () => api.get(`/refunds/orders/${orderId}/refunds`),
@@ -389,6 +397,53 @@ export default function OrderDetailPage() {
   );
   const tracking = showAllTracking ? timeline : timeline.slice(0, 2);
 
+  const shortageCases = shortageData?.data?.shortages || [];
+  const hasCustomerShortageDecision = shortageCases.length > 0;
+
+  const handleShortageDecision = async (caseItem: any, resolutionType: "customer_approval" | "substitution_approval") => {
+    const required = Number(caseItem.requiredQuantity || 0);
+    const packed = Number(caseItem.availableQuantity || 0);
+    const defaultQty = packed;
+    const input = window.prompt(
+      resolutionType === "customer_approval"
+        ? `Approve quantity for ${caseItem.productName || "this product"} (packed ${packed}, ordered ${required}):`
+        : `Approve final quantity for ${caseItem.productName || "this product"} (packed ${packed}, ordered ${required}):`,
+      String(defaultQty),
+    );
+    if (input === null) return;
+    const approvedQuantity = Math.max(packed, Math.min(required, Number(input)));
+    if (!Number.isFinite(approvedQuantity)) {
+      toast.error("Enter a valid quantity.");
+      return;
+    }
+
+    let substituteProductId: string | undefined;
+    let substituteVariantId: string | undefined;
+    if (resolutionType === "substitution_approval") {
+      substituteProductId = window.prompt("Enter the substitute product ID approved for this shortage:") || undefined;
+      if (!substituteProductId) {
+        toast.error("Substitute product is required.");
+        return;
+      }
+      substituteVariantId = window.prompt("Enter the substitute variant ID if applicable:") || undefined;
+    }
+
+    try {
+      await api.put(`/orders/${order.id}/shortage-resolution`, {
+        shortageId: caseItem.id || caseItem._id,
+        resolutionType,
+        approvedQuantity,
+        substituteProductId,
+        substituteVariantId,
+      });
+      toast.success("Your decision was saved. The warehouse can continue packing.");
+      await refetchShortages();
+      await refetchOrder();
+    } catch (e: any) {
+      toast.error(e?.message || "Unable to save shortage decision.");
+    }
+  };
+
   const canReorder = order.status === "delivered";
   const canCancel = cancelEligibility?.eligible === true;
   const cancelRequiresReview = canCancel && cancelEligibility?.requiresReview === true;
@@ -576,6 +631,46 @@ export default function OrderDetailPage() {
           </Link>
         </div>
       </div>
+
+      {hasCustomerShortageDecision && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-800">
+              <AlertTriangle className="h-5 w-5" /> Action required for your order
+            </CardTitle>
+            <CardDescription>
+              The warehouse packed the available quantity. Please choose how to resolve the remaining shortage before dispatch.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {shortageCases.map((item: any) => {
+              const required = Number(item.requiredQuantity || 0);
+              const packed = Number(item.availableQuantity || 0);
+              const shortage = Math.max(0, required - packed);
+              return (
+                <div key={item.id || item._id} className="rounded-lg border border-amber-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-medium">{item.productName || "Product"}</p>
+                      <p className="text-sm text-muted-foreground">
+                        Ordered {required} · Packed {packed} · Short {shortage}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" onClick={() => handleShortageDecision(item, "customer_approval")}>
+                        Accept Packed Quantity
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => handleShortageDecision(item, "substitution_approval")}>
+                        Choose Substitute
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {showCancelDialog && (
         <Card className="border-red-200">
