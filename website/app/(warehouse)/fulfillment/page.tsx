@@ -9,13 +9,11 @@ import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
 
 export default function WarehouseFulfillmentPage() {
-  const [refreshKey, setRefreshKey] = useState(0);\n  const [actionId, setActionId] = useState<string | null>(null);
-  const transferMutation = useMutation({
+  const [refreshKey, setRefreshKey] = useState(0);\n  const transferMutation = useMutation({
     mutationFn: ({ orderId, hubId, quantity }: { orderId: string; hubId: string; quantity: number }) =>
       api.post(`/fulfillment/orders/${orderId}/transfer-to-hub`, { hubId, quantity }),
     onSuccess: () => { setRefreshKey((v) => v + 1); toast.success("Transfer to local hub started"); },
     onError: (e: any) => toast.error(e?.message || "Transfer failed"),
-    onSettled: () => setActionId(null),
   });
 
   const hubsQuery = useQuery({
