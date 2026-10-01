@@ -26,6 +26,7 @@ import {
   Landmark,
   Star,
   ShoppingBasket,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -78,6 +79,7 @@ export function AdminSidebar() {
         { name: "Delivery", href: "/admin/delivery", icon: Truck, badge: compact(stats.totalDelivery) },
         { name: "Warehouses", href: "/admin/warehouses", icon: Warehouse, badge: compact(stats.totalWarehouse) },
         { name: "Products", href: "/admin/products", icon: Package, badge: compact(stats.totalProducts) },
+        { name: "Quality Verification", href: "/admin/quality", icon: FlaskConical },
         { name: "Orders", href: "/admin/orders", icon: ShoppingCart, badge: compact(stats.totalOrders) },
         { name: "Complaints", href: "/admin/complaints", icon: MessageSquare, badge: complaints.length ? String(complaints.length) : undefined },
         { name: "Ratings", href: "/admin/ratings", icon: Star },
