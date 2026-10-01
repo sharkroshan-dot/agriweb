@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";\nimport toast from "react-hot-toast";
 import { RefreshCw, Warehouse, Route, ShieldCheck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -9,7 +9,15 @@ import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
 
 export default function WarehouseFulfillmentPage() {
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);\n  const [actionId, setActionId] = useState<string | null>(null);
+  const transferMutation = useMutation({
+    mutationFn: ({ orderId, hubId, quantity }: { orderId: string; hubId: string; quantity: number }) =>
+      api.post(`/fulfillment/orders/${orderId}/transfer-to-hub`, { hubId, quantity }),
+    onSuccess: () => { setRefreshKey((v) => v + 1); toast.success("Transfer to local hub started"); },
+    onError: (e: any) => toast.error(e?.message || "Transfer failed"),
+    onSettled: () => setActionId(null),
+  });
+
   const hubsQuery = useQuery({
     queryKey: ["fulfillmentHubs", refreshKey],
     queryFn: () => api.get("/fulfillment/hubs"),
@@ -20,7 +28,12 @@ export default function WarehouseFulfillmentPage() {
   });
 
   const hubs = hubsQuery.data?.data?.hubs ?? [];
-  const incoming = incomingQuery.data?.data?.incoming ?? [];
+  const incoming = incomingQuery.data?.data?.incoming ?? [];\n  const ordersQuery = useQuery({
+    queryKey: ["warehouseTransferOrders", refreshKey],
+    queryFn: () => api.get("/orders", { params: { status: "transfer_pending", limit: 100 } }),
+  });
+  const transferOrders = ordersQuery.data?.data?.orders ?? [];
+
 
   return (
     <div className="space-y-6">
