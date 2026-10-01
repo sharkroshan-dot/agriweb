@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, ArrowRight } from "lucide-react";
+import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -17,6 +17,11 @@ export default function WarehousePackingPage() {
     queryFn: () => api.get("/warehouse/me/packing-tasks", { params: { status: "all" } }),
   });
   const tasks = data?.data?.tasks || [];
+  const { data: shortageData, refetch: refetchShortages } = useQuery({
+    queryKey: ["warehouseShortages"],
+    queryFn: () => api.get("/warehouse/me/shortages", { params: { status: "open" } }),
+  });
+  const shortages = shortageData?.data?.shortages || [];
 
   const printLabel = (t: any) => {
     const address = t.deliveryAddress || {};
@@ -33,6 +38,7 @@ export default function WarehousePackingPage() {
       await api.put(url, body);
       toast.success("Packing workflow updated");
       refetch();
+      refetchShortages();
     } catch (e:any) { toast.error(e?.message || "Packing action failed"); }
   };
 
@@ -43,6 +49,28 @@ export default function WarehousePackingPage() {
         <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
         <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4"/></Button>
       </div>
+      {shortages.length > 0 && (
+        <Card className="border-red-200 bg-red-50/70">
+          <CardContent className="p-5">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600"/>
+              <div className="flex-1">
+                <p className="font-semibold text-red-900">Bulk stock shortage — packing is blocked</p>
+                <p className="mt-1 text-sm text-red-800">Do not reduce customer quantities silently. Resolve each shortage before the affected order can be packed or dispatched.</p>
+                <div className="mt-4 space-y-2">
+                  {shortages.map((x:any) => (
+                    <div key={x.id} className="rounded-md border border-red-200 bg-white p-3 text-sm">
+                      <div className="font-medium">Order #{x.orderId?.slice(-8)} · {x.shortageQuantity} kg shortage</div>
+                      <div className="mt-1 text-xs text-muted-foreground">Required: {x.requiredQuantity} · Usable: {x.availableQuantity} · Resolution: {x.status.replace(/_/g, " ")}</div>
+                      <div className="mt-1 text-xs text-red-700">Action required: farmer replenishment, approved customer reduction/substitution, or cancellation/refund according to your business policy.</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : tasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No packing tasks</h3><p className="mt-2 text-sm text-muted-foreground">Received warehouse-fulfillment products will appear here.</p></Card>
       ) : <div className="space-y-4">{tasks.map((t:any) => (
