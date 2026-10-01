@@ -18,6 +18,8 @@ class InventoryDocument(BaseModel):
     reserved_stock: int = Field(ge=0, default=0)
     sold_stock: int = Field(ge=0, default=0)
     unit: str = "kg"
+    location: Optional[dict] = None
+    location_type: Optional[str] = None
     version: int = Field(default=0)
 
     class Config:
