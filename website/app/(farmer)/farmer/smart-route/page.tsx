@@ -1,5 +1,6 @@
 "use client";
 import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
+import { useSearchParams } from "next/navigation";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -112,9 +113,11 @@ function SequenceBar({ stops }: { stops: Stop[] }) {
 }
 
 export default function SmartRoutePage() {
+  const searchParams = useSearchParams();
+  const workflowOrderIds = searchParams.get("orderIds") || "";
   const { data: routeData, isLoading, refetch } = useQuery({
     queryKey: ["smartRoute"],
-    queryFn: () => api.get("/farmers/me/smart-route"),
+    queryFn: () => api.get(`/farmers/me/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
   });
 
   const { data: aiInsightsData } = useQuery({
@@ -214,10 +217,10 @@ export default function SmartRoutePage() {
           </p>
           <div className="mt-4 flex gap-3">
             <Button asChild>
-              <Link href="/farmer/delivery-calendar">View Delivery Calendar</Link>
+              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`>View Delivery Calendar</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/farmer/route">Route Planning</Link>
+              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`>Route Planning</Link>
             </Button>
           </div>
         </div>
