@@ -65,6 +65,15 @@ export default function WarehouseOutgoingPage() {
       return;
     }
     try {
+      const outgoingRow = allOutgoing.find((x: any) => x.id === id);
+      const orderId = outgoingRow?.orderId;
+      if (!orderId) throw new Error("This shipment is not linked to a customer order.");
+      const auditResponse = await api.get(`/warehouse/me/orders/${orderId}/fulfillment-check`);
+      const audit = auditResponse?.data || auditResponse;
+      if (!audit?.readyForDispatch) {
+        const missing = audit?.missingItems?.length || audit?.missingOutgoing?.length || 0;
+        throw new Error(`Order is not complete for dispatch. ${missing} item(s) still need packing or dispatch records.`);
+      }
       await api.put(`/warehouse/me/outgoing/${id}/status`, undefined, { params: { status: "dispatched" } });
       // Re-submit the selected route after physical dispatch so the backend
       // opens the delivery-partner job using the correct warehouse/hub pickup.
@@ -111,7 +120,7 @@ export default function WarehouseOutgoingPage() {
   {(item.status === "pending" || item.status === "packed") && selectedRoutes[item.id] && (
     <Button size="sm" onClick={() => dispatchSelectedRoute(item.id)}>
       <Send className="mr-2 h-4 w-4"/>
-      Dispatch via {selectedRoutes[item.id] === "nearby" ? "Warehouse" : "Local Hub"}
+      Dispatch Complete Order via {selectedRoutes[item.id] === "nearby" ? "Warehouse" : "Local Hub"}
     </Button>
   )}
   {item.status === "dispatched" && (
