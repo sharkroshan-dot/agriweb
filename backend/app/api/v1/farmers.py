@@ -2473,7 +2473,13 @@ async def choose_delivery_partner_route(
         # route has been selected. Nearby and long-distance both use the
         # delivery marketplace; the difference is the upstream handoff path.
         refreshed = await order_repository.get_by_id(str(order["_id"])) or order
-        job = await _open_job_for_order(refreshed, farm, farmer_id)
+        # Nearby orders can immediately enter the partner marketplace because
+        # the hub is their pickup point. Long-distance farmer-fulfilled orders
+        # must first reach the warehouse and then the local hub; the partner
+        # job is opened only after warehouse dispatch.
+        job = None
+        if body.route == "nearby":
+            job = await _open_job_for_order(refreshed, farm, farmer_id)
         results.append({
             "orderId": str(order["_id"]),
             "distanceKm": round(dist, 2),
