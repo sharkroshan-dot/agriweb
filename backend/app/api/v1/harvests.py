@@ -490,6 +490,9 @@ async def mark_harvested(
         batch_id = await harvest_batch_repo.create(batch_doc)
         if not batch_id:
             raise HTTPException(status_code=400, detail="Failed to create harvest batch")
+        batch_doc["_id"] = ObjectId(batch_id)
+        from app.api.v1.quality import ensure_batch_inspection
+        await ensure_batch_inspection(batch_doc)
         await harvest_plan_repo.update({"_id": ObjectId(plan_id)}, {"batchId": ObjectId(batch_id)})
     else:
         batch_id = str(batch["_id"])
