@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field
 
 class FulfillmentDecisionResponse(BaseModel):
     orderId: str
+    orderStatus: Optional[str] = None
+    transferStatus: Optional[str] = None
     fulfillmentSource: str
     originLocation: Optional[Dict[str, Any]] = None
     customerLocation: Optional[Dict[str, Any]] = None
