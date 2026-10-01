@@ -144,6 +144,7 @@ async def apply_partner_route(
             existing = await incoming.find_one({
                 "orderId": order["_id"],
                 "warehouseId": warehouse["_id"],
+                "productId": ObjectId(str(item.get("productId"))),
                 "packingRequired": False,
                 "deletedAt": None,
             })
