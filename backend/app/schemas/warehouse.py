@@ -33,7 +33,6 @@ class IncomingStatus(str, Enum):
 
 class OutgoingStatus(str, Enum):
     PENDING = "pending"
-    PICKED = "picked"
     PACKED = "packed"
     DISPATCHED = "dispatched"
 
