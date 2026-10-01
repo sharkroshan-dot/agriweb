@@ -22,6 +22,8 @@ from app.services.delivery_job_service import build_job_document, eligible_partn
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
+from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+from app.services.warehouse_collection_service import serialize_collection
 import logging
 
 logger = logging.getLogger(__name__)
@@ -215,6 +217,73 @@ async def update_stock(
         )
     stock["id"] = str(stock["_id"])
     return stock
+
+class CollectionTeamAssignment(BaseModel):
+    teamId: str = Field(..., min_length=1, max_length=100)
+
+
+@router.get("/me/collections", response_model=dict)
+async def get_collection_queue(status: Optional[str] = None, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access collection jobs")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), status)
+    return {"success": True, "data": {"collections": [serialize_collection(x) for x in jobs]}}
+
+
+@router.put("/me/collections/{collection_id}/assign")
+async def assign_collection_team(collection_id: str, data: CollectionTeamAssignment, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign collection teams")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    job = await warehouse_collection_repository.get_by_id(collection_id)
+    if not warehouse or not job or str(job.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Collection job not found")
+    if job.get("status") not in ("ready_for_pickup", "team_assigned"):
+        raise HTTPException(status_code=400, detail="Collection job is not waiting for team assignment")
+    await warehouse_collection_repository.update_job(collection_id, {"collectionTeamId": data.teamId, "status": "team_assigned", "teamAssignedAt": datetime.utcnow()})
+    if job.get("orderId"):
+        await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "team_assigned", "warehouseCollectionTeamId": data.teamId, "warehouseFulfillmentStage": "collection_team_assigned", "updatedAt": datetime.utcnow()})
+    return {"success": True, "data": serialize_collection(await warehouse_collection_repository.get_by_id(collection_id))}
+
+
+@router.put("/me/collections/{collection_id}/status")
+async def update_collection_status(collection_id: str, collection_status: str = Query(..., alias="status", pattern="^(en_route|arrived_at_farm|collected|departed_farm|arrived_warehouse)$"), current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can update collection jobs")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    job = await warehouse_collection_repository.get_by_id(collection_id)
+    if not warehouse or not job or str(job.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Collection job not found")
+    allowed = {
+        "team_assigned": {"en_route"}, "en_route": {"arrived_at_farm"},
+        "arrived_at_farm": {"collected"}, "collected": {"departed_farm"},
+        "departed_farm": {"arrived_warehouse"},
+    }
+    current = str(job.get("status") or "")
+    if collection_status not in allowed.get(current, set()):
+        raise HTTPException(status_code=400, detail=f"Invalid collection transition: {current} -> {collection_status}")
+    update = {"status": collection_status}
+    if collection_status == "collected": update["collectedAt"] = datetime.utcnow()
+    if collection_status == "arrived_warehouse": update["arrivedWarehouseAt"] = datetime.utcnow()
+    await warehouse_collection_repository.update_job(collection_id, update)
+    incoming_id = job.get("incomingStockId")
+    if incoming_id and collection_status == "collected":
+        from app.repositories.incoming_stock_repository import incoming_stock_repository
+        await incoming_stock_repository.update({"_id": ObjectId(str(incoming_id))}, {"status": "in_transit", "collectedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+    if incoming_id and collection_status == "arrived_warehouse":
+        from app.repositories.incoming_stock_repository import incoming_stock_repository
+        await incoming_stock_repository.update({"_id": ObjectId(str(incoming_id))}, {"status": "received", "receivedAt": datetime.utcnow(), "quantityReceived": job.get("quantity", 0), "updatedAt": datetime.utcnow()})
+        if job.get("orderId"):
+            stage = "received" if job.get("collectionType") == "bulk_harvest" else "received_transfer"
+            await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "arrived_warehouse", "warehouseFulfillmentStage": stage, "updatedAt": datetime.utcnow()})
+    elif job.get("orderId"):
+        stage_map = {"en_route": "collection_en_route", "arrived_at_farm": "collection_arrived", "collected": "collected", "departed_farm": "collection_departed"}
+        await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": collection_status, "warehouseFulfillmentStage": stage_map[collection_status], "updatedAt": datetime.utcnow()})
+    return {"success": True, "data": serialize_collection(await warehouse_collection_repository.get_by_id(collection_id))}
+
 
 @router.get("/me/incoming", response_model=dict)
 async def get_my_incoming_stock(
