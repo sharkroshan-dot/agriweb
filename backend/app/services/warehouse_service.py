@@ -240,6 +240,16 @@ class WarehouseService:
                 if not stock_id:
                     return None
 
+        if incoming.get("orderId") and quality_check == "passed" and str(incoming.get("status")) == "received":
+            try:
+                from app.repositories.order_repository import order_repository
+                await order_repository.update(
+                    {"_id": ObjectId(str(incoming["orderId"]))},
+                    {"warehouseFulfillmentStage": "received", "updatedAt": datetime.utcnow()},
+                )
+            except Exception:
+                logger.exception("Failed to update farmer order warehouse stage after receipt")
+
         # Outgoing work is intentionally created after the explicit Store step.
         return await incoming_stock_repository.get_by_id(incoming_id)
 
@@ -257,6 +267,16 @@ class WarehouseService:
         )
         if not updated:
             return None
+
+        if incoming.get("orderId"):
+            try:
+                from app.repositories.order_repository import order_repository
+                await order_repository.update(
+                    {"_id": ObjectId(str(incoming["orderId"]))},
+                    {"warehouseFulfillmentStage": "stored", "updatedAt": datetime.utcnow()},
+                )
+            except Exception:
+                logger.exception("Failed to update farmer order warehouse stage after storage")
 
         # The outgoing work item is created only after storage. This gives the
         # warehouse a clean Receive -> Store -> Pack -> Dispatch lifecycle.
@@ -348,6 +368,19 @@ class WarehouseService:
         success = await outgoing_stock_repository.update_status(outgoing_id, status, data)
         if not success:
             return None
+        try:
+            stage_map = {"packed": "packed", "dispatched": "dispatched"}
+            if str(outgoing.get("orderId")) in ("", "None"):
+                pass
+            elif status in stage_map:
+                from app.repositories.order_repository import order_repository
+                await order_repository.update(
+                    {"_id": ObjectId(str(outgoing["orderId"]))},
+                    {"warehouseFulfillmentStage": stage_map[status], "updatedAt": datetime.utcnow()},
+                )
+        except Exception:
+            logger.exception("Failed to update farmer order warehouse stage for outgoing %s", outgoing_id)
+
         if status == "dispatched":
             await warehouse_stock_repository.release_stock(
                 str(outgoing["productId"]),
