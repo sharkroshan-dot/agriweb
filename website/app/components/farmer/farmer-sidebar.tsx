@@ -224,7 +224,7 @@ export function FarmerSidebar() {
               </Button>
             </Link>
           </div>
-        </div>        </div>
+        </div>
       </div>
     </aside>
   );
