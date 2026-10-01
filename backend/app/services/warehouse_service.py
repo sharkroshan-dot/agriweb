@@ -240,6 +240,13 @@ class WarehouseService:
                 if not stock_id:
                     return None
 
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
+            try:
+                from app.repositories.order_repository import order_repository
+                await order_repository.update({"_id": ObjectId(str(incoming["orderId"]))}, {"warehouseFulfillmentStage": "received_transfer", "warehouseCollectionStatus": "arrived_warehouse", "updatedAt": datetime.utcnow()})
+            except Exception:
+                logger.exception("Failed to update farmer transfer order after receipt")
+
         if incoming.get("orderId") and quality_check == "passed" and str(incoming.get("status")) == "received":
             try:
                 from app.repositories.order_repository import order_repository
