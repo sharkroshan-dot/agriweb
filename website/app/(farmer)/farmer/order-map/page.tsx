@@ -713,6 +713,16 @@ export default function FarmerOrderMapPage() {
     onError: (e: any) => toast.error(getApiError(e)),
   });
 
+  const partnerRouteMutation = useMutation({
+    mutationFn: ({ route }: { route: "nearby" | "long_distance" }) =>
+      api.post("/farmers/me/delivery-map/partner-route", { route, radius: radiusKm }),
+    onSuccess: (res: any) => {
+      toast.success(res?.message || "Delivery partner route selected");
+      refreshAll();
+    },
+    onError: (e: any) => toast.error(getApiError(e)),
+  });
+
   const assignOutsideMutation = useMutation({
     mutationFn: ({ mode, partnerIds }: { mode: "marketplace" | "manual" | "ai"; partnerIds?: Record<string, string> }) =>
       api.post("/farmers/me/delivery-map/assign-outside", { radius: radiusKm, mode, partnerIds }),
@@ -1056,28 +1066,35 @@ export default function FarmerOrderMapPage() {
             Self Delivery · fits your capacity ({capacityStats.maxOrders} orders / {capacityStats.maxWeightKg} kg)
           </span>
         </Button>
-        <div className="flex gap-2">
+        <div className="grid flex-1 gap-2 md:grid-cols-2">
+          <Button
+            size="lg"
+            variant="outline"
+            className="h-auto flex-col items-start gap-0.5 py-3 text-left"
+            onClick={() => partnerRouteMutation.mutate({ route: "nearby" })}
+            disabled={withinUnassigned.length === 0 || partnerRouteMutation.isPending}
+          >
+            <span className="flex items-center">
+              <Truck className="mr-2 h-5 w-5" />
+              Nearby → Local Hub
+            </span>
+            <span className="pl-7 text-[11px] font-normal opacity-80">
+              Delivery partner collects from the nearby local hub
+            </span>
+          </Button>
           <Button
             size="lg"
             variant="warning"
-            className="h-auto flex-1 flex-col items-start gap-0.5 py-3 text-left"
-            onClick={() => {
-              setAssignMode("marketplace");
-              setManualPartnerIds({});
-              setAssignDialogOpen(true);
-            }}
-            disabled={outsideUnassigned.length === 0 || assignOutsideMutation.isPending}
+            className="h-auto flex-col items-start gap-0.5 py-3 text-left"
+            onClick={() => partnerRouteMutation.mutate({ route: "long_distance" })}
+            disabled={outsideUnassigned.length === 0 || partnerRouteMutation.isPending}
           >
             <span className="flex items-center">
-              {assignOutsideMutation.isPending ? (
-                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-              ) : (
-                <Truck className="mr-2 h-5 w-5" />
-              )}
-              Open {outsideUnassigned.length} Outside Orders for Partners
+              <Truck className="mr-2 h-5 w-5" />
+              Long Distance → Warehouse
             </span>
             <span className="pl-7 text-[11px] font-normal opacity-80">
-              Delivery Marketplace · first partner to accept wins
+              Warehouse → Local Hub → Delivery Partner
             </span>
           </Button>
           <Button
