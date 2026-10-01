@@ -786,7 +786,6 @@ export default function FarmerOrdersPage() {
                                 </div></div>
                               ) : order.fulfillmentMethod === "farmer" ? (
                                 <div className="space-y-2">
-                                  {!order.deliveryResponsibility && <div className="space-y-2"><p className="text-xs font-medium text-slate-600">Choose delivery</p><div className="grid gap-2"><Button size="sm" variant="outline" className="justify-start bg-white" onClick={() => setDeliveryResponsibility(orderId, "farmer")}><UserCheck className="mr-2 h-4 w-4 text-purple-600" />Farmer Delivery</Button><Button size="sm" variant="outline" className="justify-start bg-white" onClick={() => setDeliveryResponsibility(orderId, "delivery_partner")}><Truck className="mr-2 h-4 w-4 text-indigo-600" />Delivery Partner</Button></div></div>}
                                   {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Packed</Button>}
                                   {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
                                 </div>
