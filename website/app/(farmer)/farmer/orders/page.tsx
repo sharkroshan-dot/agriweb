@@ -195,6 +195,16 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const markWarehouseReadyForPickup = async (orderId: string) => {
+    try {
+      await api.put(`/orders/${orderId}/warehouse-ready-for-pickup`);
+      toast.success("Warehouse collection request created");
+      await refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to create warehouse collection request");
+    }
+  };
+
   const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
 
   const orderList = orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
@@ -793,9 +803,17 @@ export default function FarmerOrdersPage() {
                                     <strong>Warehouse fulfillment</strong>
                                     <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
                                   </div>
+                                  {(!order.warehouseCollectionStatus || order.warehouseFulfillmentStage === "pickup_requested") && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}><Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup</Button>}
                                   <div className="grid gap-1.5 sm:grid-cols-2">
                                     {[
-                                      ["incoming", "Warehouse Incoming"],
+                                      ["incoming", "Warehouse Fulfillment Selected"],
+                                      ["pickup_requested", "Product Ready · Pickup Requested"],
+                                      ["collection_team_assigned", "Collection Team Assigned"],
+                                      ["collection_en_route", "Collection Team En Route"],
+                                      ["collection_arrived", "Collection Team Arrived at Farm"],
+                                      ["collected", "Collected from Farm"],
+                                      ["collection_departed", "Departed Farm"],
+                                      ["received", "Warehouse Received"],
                                       ["received", "Received & Quality Checked"],
                                       ["stored", "Stock Stored"],
                                       ["ready_for_packing", "Ready for Packing"],
@@ -807,7 +825,7 @@ export default function FarmerOrdersPage() {
                                       ["dispatched", "Warehouse Dispatched"],
                                     ].map(([key, label], index) => {
                                       const stage = String(order.warehouseFulfillmentStage || "incoming");
-                                      const stages = ["incoming", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
+                                      const stages = ["incoming", "pickup_requested", "collection_team_assigned", "collection_en_route", "collection_arrived", "collected", "collection_departed", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
                                       const currentIndex = stages.indexOf(stage);
                                       const isComplete = currentIndex >= index;
                                       return (
