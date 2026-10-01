@@ -146,7 +146,13 @@ async def approve_batch_from_inspection(
     await batch_repo.update({"_id": batch["_id"]}, {"status": "listed", "remainingKg": qty, "qualityGrade": grade, "verifiedGrade": grade, "verificationStatus": VERIFICATION_STATUS_VERIFIED, "verifiedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
     plan_id = batch.get("sourceHarvestPlanId")
     if plan_id:
-        await BaseRepository("harvest_plans").update({"_id": plan_id}, {"qualityVerificationStatus": "approved", "productId": ObjectId(product_id), "productCreated": True, "updatedAt": datetime.utcnow()})
+        harvest_plans = BaseRepository("harvest_plans")
+        await harvest_plans.update({"_id": plan_id}, {"qualityVerificationStatus": "approved", "productId": ObjectId(product_id), "productCreated": True, "stage": "batched", "updatedAt": datetime.utcnow()})
+        # Pre-orders are confirmed only after the harvested batch passes quality verification.
+        await BaseRepository("harvest_preorders").collection.update_many(
+            {"harvestPlanId": plan_id, "status": "pending", "deletedAt": None},
+            {"$set": {"status": "confirmed", "confirmedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
+        )
     return {"success": True, "data": {"batchId": str(batch["_id"]), "productId": str(product_id), "approvedQuantityKg": qty, "finalSellingRatePerKg": batch.get("finalSellingRatePerKg"), "verificationStatus": VERIFICATION_STATUS_VERIFIED}, "message": "Batch approved and activated in marketplace"}
 
 async def _propagate_verification(inspection: dict) -> None:
