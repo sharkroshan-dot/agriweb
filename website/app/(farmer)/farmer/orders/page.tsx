@@ -665,7 +665,7 @@ export default function FarmerOrdersPage() {
                   return (
                   <Card key={orderId}>
                     <CardContent className="p-5 sm:p-6">
-                      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_250px] lg:items-start">
+                      <div className="grid gap-5 lg:grid-cols-3 lg:items-start">
                         <div className="min-w-0 lg:col-span-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
@@ -711,12 +711,12 @@ export default function FarmerOrdersPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex flex-col gap-2.5 rounded-lg border bg-slate-50/70 p-3 lg:border-l lg:border-t-0 lg:rounded-l-none lg:bg-slate-50/50 lg:pl-4">
-                          <div className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap lg:grid-cols-1">
+                        <div className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-4 lg:col-span-1 lg:border-l lg:border-t-0 lg:rounded-l-none lg:bg-transparent lg:pl-5">
+                          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:grid-cols-1">
                             <Button size="sm" variant="outline" asChild className="w-full">
                               <Link href={`/farmer/orders/${order.id || order._id}`}><Eye className="mr-1.5 h-3.5 w-3.5"/>View</Link>
                             </Button>
-                            <p className="col-span-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500 lg:col-span-1">Manual processing</p>
+                            <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:col-span-1">Manual processing</p>
                             {getStatus(order) === "pending" && (
                               <>
                                 <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
