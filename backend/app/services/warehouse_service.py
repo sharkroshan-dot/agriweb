@@ -278,6 +278,33 @@ class WarehouseService:
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after storage")
 
+        # Transfer-only inbound from Farmer Fulfillment is already packed.
+        # It goes directly to dispatch after receipt/storage; warehouse packing
+        # is only used when packingRequired is true.
+        if incoming.get("orderId") and incoming.get("packingRequired") is False:
+            try:
+                from app.repositories.order_repository import order_repository
+                from app.repositories.outgoing_stock_repository import outgoing_stock_repository
+                existing = await outgoing_stock_repository.get_by_order_id(
+                    str(incoming["orderId"]), str(incoming["productId"]), str(incoming.get("variantId") or "")
+                )
+                if not existing:
+                    await WarehouseService.create_outgoing(OutgoingStockCreate(
+                        warehouseId=str(warehouse_id),
+                        productId=str(incoming["productId"]),
+                        variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
+                        orderId=str(incoming["orderId"]),
+                        quantity=int(incoming.get("quantity", 0)),
+                        batchNumber=incoming.get("batchNumber"),
+                    ))
+                await order_repository.update(
+                    {"_id": ObjectId(str(incoming["orderId"]))},
+                    {"warehouseFulfillmentStage": "ready_for_dispatch", "updatedAt": datetime.utcnow()},
+                )
+            except Exception:
+                logger.exception("Failed to create transfer-only dispatch for %s", incoming.get("orderId"))
+            return await incoming_stock_repository.get_by_id(incoming_id)
+
         # Warehouse fulfillment creates an order-level packing task after storage.
         # It must NOT become dispatchable until the packing team completes and verifies it.
         if incoming.get("orderId"):
