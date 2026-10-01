@@ -47,3 +47,18 @@ class HubReceiveRequest(BaseModel):
 
 class HubDispatchRequest(BaseModel):
     deliveryPartnerId: Optional[str] = None
+
+class FulfillmentRatingCreate(BaseModel):
+    orderId: str
+    productQuality: Optional[int] = Field(None, ge=1, le=5)
+    freshness: Optional[int] = Field(None, ge=1, le=5)
+    quantityAccuracy: Optional[int] = Field(None, ge=1, le=5)
+    farmerPerformance: Optional[int] = Field(None, ge=1, le=5)
+    warehouseHandling: Optional[int] = Field(None, ge=1, le=5)
+    packaging: Optional[int] = Field(None, ge=1, le=5)
+    storageHandling: Optional[int] = Field(None, ge=1, le=5)
+    fulfillmentAccuracy: Optional[int] = Field(None, ge=1, le=5)
+    deliveryOnTime: Optional[int] = Field(None, ge=1, le=5)
+    deliveryHandling: Optional[int] = Field(None, ge=1, le=5)
+    deliveryCommunication: Optional[int] = Field(None, ge=1, le=5)
+    comment: Optional[str] = None
