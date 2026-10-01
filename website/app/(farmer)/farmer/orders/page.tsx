@@ -743,62 +743,84 @@ export default function FarmerOrdersPage() {
                                     </div>
                                   </>
                                 ) : order.fulfillmentMethod === "farmer" ? (
-                                <div className="space-y-2">
-                                  {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <div className="space-y-2"><Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => finalizeFarmerPacking(order)}><Package className="mr-2 h-4 w-4" />Finish Packing & Check Shortage</Button><p className="text-[11px] text-muted-foreground">After packing all products, enter the actual packed quantity. Any unavailable quantity is cancelled and the final amount is recalculated.</p></div>}
-                                  {order.fulfillmentStage === "packed" && <div className="space-y-2"><Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button><p className="text-[11px] text-muted-foreground">After dispatch, choose the delivery route on the Order Map.</p></div>}
-                                  {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
-                                    <strong>Warehouse transfer for long-distance delivery</strong>
-                                    <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                                      {[["ready_for_pickup","Warehouse collection requested"],["team_assigned","Collection team assigned"],["en_route","Team en route"],["arrived_at_farm","Team arrived at farm"],["collected","Packed orders collected"],["departed_farm","Departed farm"],["arrived_warehouse","Arrived at warehouse"]].map(([key,label]) => {
-                                        const stages=["ready_for_pickup","team_assigned","en_route","arrived_at_farm","collected","departed_farm","arrived_warehouse"]; const idx=stages.indexOf(String(order.warehouseCollectionStatus)); const complete=idx>=stages.indexOf(key); return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
+                                  <div className="space-y-2">
+                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && (
+                                      <div className="space-y-2">
+                                        <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => finalizeFarmerPacking(order)}>
+                                          <Package className="mr-2 h-4 w-4" />Finish Packing & Check Shortage
+                                        </Button>
+                                        <p className="text-[11px] text-muted-foreground">After packing all products, enter the actual packed quantity. Any unavailable quantity is cancelled and the final amount is recalculated.</p>
+                                      </div>
+                                    )}
+                                    {order.fulfillmentStage === "packed" && (
+                                      <div className="space-y-2">
+                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}>
+                                          <Navigation className="mr-2 h-4 w-4" />Dispatch Order
+                                        </Button>
+                                        <p className="text-[11px] text-muted-foreground">After dispatch, choose the delivery route on the Order Map.</p>
+                                      </div>
+                                    )}
+                                    {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && (
+                                      <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
+                                        <strong>Warehouse transfer for long-distance delivery</strong>
+                                        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                                          {[["ready_for_pickup","Warehouse collection requested"],["team_assigned","Collection team assigned"],["en_route","Team en route"],["arrived_at_farm","Team arrived at farm"],["collected","Packed orders collected"],["departed_farm","Departed farm"],["arrived_warehouse","Arrived at warehouse"]].map(([key,label]) => {
+                                            const stages=["ready_for_pickup","team_assigned","en_route","arrived_at_farm","collected","departed_farm","arrived_warehouse"];
+                                            const idx=stages.indexOf(String(order.warehouseCollectionStatus));
+                                            const complete=idx>=stages.indexOf(key);
+                                            return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
+                                          })}
+                                        </div>
+                                        <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+                                    <div>
+                                      <strong>Warehouse fulfillment</strong>
+                                      <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
+                                    </div>
+                                    {!order.warehouseCollectionStatus && (
+                                      <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}>
+                                        <Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup
+                                      </Button>
+                                    )}
+                                    <div className="grid gap-1.5 sm:grid-cols-2">
+                                      {[
+                                        ["incoming", "Warehouse Fulfillment Selected"],
+                                        ["pickup_requested", "Product Ready · Pickup Requested"],
+                                        ["collection_team_assigned", "Collection Team Assigned"],
+                                        ["collection_en_route", "Collection Team En Route"],
+                                        ["collection_arrived", "Collection Team Arrived at Farm"],
+                                        ["collected", "Collected from Farm"],
+                                        ["collection_departed", "Departed Farm"],
+                                        ["received", "Warehouse Received"],
+                                        ["received", "Received & Quality Checked"],
+                                        ["stored", "Stock Stored"],
+                                        ["ready_for_packing", "Ready for Packing"],
+                                        ["packing_team_assigned", "Packing Team Assigned"],
+                                        ["packing", "Order Packing"],
+                                        ["packed", "Packing Complete"],
+                                        ["ready_for_dispatch", "Ready for Dispatch"],
+                                        ["delivery_decision", "Delivery Decision"],
+                                        ["dispatched", "Warehouse Dispatched"],
+                                      ].map(([key, label], index) => {
+                                        const stage = String(order.warehouseFulfillmentStage || "incoming");
+                                        const stages = ["incoming", "pickup_requested", "collection_team_assigned", "collection_en_route", "collection_arrived", "collected", "collection_departed", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
+                                        const currentIndex = stages.indexOf(stage);
+                                        const isComplete = currentIndex >= index;
+                                        return (
+                                          <div key={key + index} className={"flex items-center gap-2 rounded-md px-2 py-1.5 " + (isComplete ? "bg-white font-medium text-blue-900" : "text-blue-500")}>
+                                            <span className={"h-2 w-2 rounded-full " + (isComplete ? "bg-blue-600" : "bg-blue-200")} />
+                                            <span>{label}</span>
+                                          </div>
+                                        );
                                       })}
                                     </div>
-                                    <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
-                                  </div>}
-                                </div>
-                              ) : (
-                                <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
-                                  <div>
-                                    <strong>Warehouse fulfillment</strong>
-                                    <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
+                                    <p className="border-t border-blue-200 pt-2">Farmer visibility only — warehouse staff performs these steps.</p>
                                   </div>
-                                  {!order.warehouseCollectionStatus && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}><Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup</Button>}
-                                  <div className="grid gap-1.5 sm:grid-cols-2">
-                                    {[
-                                      ["incoming", "Warehouse Fulfillment Selected"],
-                                      ["pickup_requested", "Product Ready · Pickup Requested"],
-                                      ["collection_team_assigned", "Collection Team Assigned"],
-                                      ["collection_en_route", "Collection Team En Route"],
-                                      ["collection_arrived", "Collection Team Arrived at Farm"],
-                                      ["collected", "Collected from Farm"],
-                                      ["collection_departed", "Departed Farm"],
-                                      ["received", "Warehouse Received"],
-                                      ["received", "Received & Quality Checked"],
-                                      ["stored", "Stock Stored"],
-                                      ["ready_for_packing", "Ready for Packing"],
-                                      ["packing_team_assigned", "Packing Team Assigned"],
-                                      ["packing", "Order Packing"],
-                                      ["packed", "Packing Complete"],
-                                      ["ready_for_dispatch", "Ready for Dispatch"],
-                                      ["delivery_decision", "Delivery Decision"],
-                                      ["dispatched", "Warehouse Dispatched"],
-                                    ].map(([key, label], index) => {
-                                      const stage = String(order.warehouseFulfillmentStage || "incoming");
-                                      const stages = ["incoming", "pickup_requested", "collection_team_assigned", "collection_en_route", "collection_arrived", "collected", "collection_departed", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
-                                      const currentIndex = stages.indexOf(stage);
-                                      const isComplete = currentIndex >= index;
-                                      return (
-                                        <div key={key} className={"flex items-center gap-2 rounded-md px-2 py-1.5 " + (isComplete ? "bg-white font-medium text-blue-900" : "text-blue-500")}>
-                                          <span className={"h-2 w-2 rounded-full " + (isComplete ? "bg-blue-600" : "bg-blue-200")} />
-                                          <span>{label}</span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                  <p className="border-t border-blue-200 pt-2">
-                                    Farmer visibility only — warehouse staff performs these steps.
-                                  </p>
-                                </div>
+                                )}
                               </div>
                             )}
                             {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
