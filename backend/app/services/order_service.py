@@ -942,6 +942,20 @@ class OrderService:
             data.location
         )
         
+        if success:
+            try:
+                status_title = str(new_status.value if hasattr(new_status, "value") else new_status).replace("_", " ").title()
+                await order_repository.append_tracking_event(
+                    order_id,
+                    f"order_status_{str(new_status.value if hasattr(new_status, 'value') else new_status).lower()}",
+                    status_title,
+                    data.note or f"Order status updated to {status_title}.",
+                    actor_id=user_id,
+                    actor_role=role,
+                )
+            except Exception:
+                logger.exception("Failed to append status tracking event for order %s", order_id)
+
         if not success:
             if committed_inventory:
                 for product_id, quantity, inventory_id in committed_inventory:
