@@ -45,6 +45,14 @@ export default function FarmerOrderDetailPage() {
     refetchInterval: 10000,
   });
 
+  const { data: fulfillmentCheckData } = useQuery({
+    queryKey: ["farmerFulfillmentCheck", orderId],
+    queryFn: () => api.get(`/farmers/me/orders/${orderId}/fulfillment-check`),
+    enabled: !!orderId,
+    refetchInterval: 10000,
+  });
+  const fulfillmentCheck = fulfillmentCheckData?.data || fulfillmentCheckData || null;
+
   const queryClient = useQueryClient();
   const [pickupCode, setPickupCode] = useState("");
   const [scanOpen, setScanOpen] = useState(false);
@@ -316,6 +324,17 @@ export default function FarmerOrderDetailPage() {
               )}
             </CardContent>
           </Card>
+
+          {fulfillmentCheck && (
+            <Card className={fulfillmentCheck.readyForDispatch ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"}>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Packing & Dispatch Check</CardTitle><CardDescription>Every customer-order item must be packed before this order can leave the farm.</CardDescription></CardHeader>
+              <CardContent className="space-y-2 text-sm">
+                <div className="flex items-center justify-between"><span>Order items</span><b>{fulfillmentCheck.packedItemCount || 0} / {fulfillmentCheck.itemCount || 0} packed</b></div>
+                <div className="flex items-center justify-between"><span>Dispatch gate</span><Badge variant={fulfillmentCheck.readyForDispatch ? "success" : "warning"}>{fulfillmentCheck.readyForDispatch ? "Ready" : "Blocked"}</Badge></div>
+                {!fulfillmentCheck.readyForDispatch && <p className="text-xs text-amber-800">Complete packing for every item before dispatch.</p>}
+              </CardContent>
+            </Card>
+          )}
 
           {order.tracking && order.tracking.length > 0 && (
             <Card>
