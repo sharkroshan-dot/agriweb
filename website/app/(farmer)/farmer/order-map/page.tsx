@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
 
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
@@ -802,6 +803,7 @@ export default function FarmerOrderMapPage() {
 
   return (
     <div className="space-y-6">
+      <DeliveryWorkflowNav current="order-map" />
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Self-delivery workbench</p>
