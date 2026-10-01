@@ -62,7 +62,12 @@ export default function WarehousePackingPage() {
                     <div key={x.id} className="rounded-md border border-red-200 bg-white p-3 text-sm">
                       <div className="font-medium">Order #{x.orderId?.slice(-8)} · {x.shortageQuantity} kg shortage</div>
                       <div className="mt-1 text-xs text-muted-foreground">Required: {x.requiredQuantity} · Usable: {x.availableQuantity} · Resolution: {x.status.replace(/_/g, " ")}</div>
-                      <div className="mt-1 text-xs text-red-700">Action required: farmer replenishment, approved customer reduction/substitution, or cancellation/refund according to your business policy.</div>
+                      <div className="mt-1 text-xs text-red-700">Choose an explicit resolution. The order stays blocked until the shortage is actually resolved.</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"farmer_replenishment"});toast.success("Farmer replenishment requested");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Request Farmer Replenishment</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"customer_approval_pending"});toast.success("Customer approval required");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Request Customer Approval</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"substitution_pending"});toast.success("Substitution review opened");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Substitution</Button>
+                      </div>
                     </div>
                   ))}
                 </div>
