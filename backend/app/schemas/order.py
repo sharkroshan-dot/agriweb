@@ -19,6 +19,11 @@ class OrderStatus(str, Enum):
     PICKED_UP = "picked_up"
     CANCELLED = "cancelled"
     REFUNDED = "refunded"
+    NEARBY_FULFILLMENT_REQUIRED = "nearby_fulfillment_required"
+    TRANSFER_PENDING = "transfer_pending"
+    TRANSFERRED = "transferred"
+    HUB_RECEIVED = "hub_received"
+    LOCAL_DISPATCH = "local_dispatch"
 
 class PaymentStatus(str, Enum):
     PENDING = "pending"
