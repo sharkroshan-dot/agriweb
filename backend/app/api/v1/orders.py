@@ -295,6 +295,37 @@ async def get_order_summary(
     
     return summary
 
+@router.post("/{order_id}/dispatch-to-warehouse")
+async def dispatch_order_to_warehouse(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Farmer dispatches a confirmed/processed order to the assigned warehouse when the fulfillment engine selected warehouse routing."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can dispatch to warehouse")
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid order id")
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.get("fulfillmentSource") != "warehouse":
+        raise HTTPException(status_code=400, detail="This order is not routed to a warehouse")
+    if order.get("orderStatus") not in ("confirmed", "processing"):
+        raise HTTPException(status_code=400, detail="Order must be confirmed or processed before warehouse dispatch")
+    await order_repository.collection.update_one(
+        {"_id": oid},
+        {"$set": {
+            "orderStatus": "transfer_pending",
+            "logisticsMode": "farmer_to_warehouse",
+            "transferStatus": "pending",
+            "farmerDispatchedAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        }},
+    )
+    return {"success": True, "message": "Order dispatched from farm to warehouse", "data": {"orderId": order_id, "status": "transfer_pending"}}
+
 @router.put("/{order_id}/self-delivery")
 async def mark_self_delivery(
     order_id: str,
