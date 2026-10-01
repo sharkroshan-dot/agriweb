@@ -2427,6 +2427,26 @@ def _ai_partner_plan(targets, available: list) -> list:
     return plan
 
 
+@router.get("/me/orders/{order_id}/fulfillment-check")
+async def farmer_fulfillment_check(order_id: str, current_user: dict = Depends(get_current_user)):
+    """Hard checkpoint: a Farmer Fulfillment order cannot be dispatched or routed while any item is missing."""
+    _ensure_farmer(current_user)
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="Farmer order not found")
+    if str(order.get("fulfillmentMethod") or "") != "farmer":
+        raise HTTPException(status_code=400, detail="This order is not Farmer Fulfillment")
+    items = order.get("items") or []
+    checklist = order.get("packingChecklist") or []
+    missing=[]
+    by_key={(str(x.get("productId")),str(x.get("variantId") or "")):x for x in checklist}
+    for item in items:
+        key=(str(item.get("productId")),str(item.get("variantId") or "")); x=by_key.get(key); required=float(item.get("quantity") or 0)
+        if not x or float(x.get("packedQuantity") or 0) < required or x.get("verified") is not True:
+            missing.append({"productId":key[0],"variantId":key[1] or None,"productName":item.get("productName") or "Product","required":required,"packed":float((x or {}).get("packedQuantity") or 0)})
+    ready=bool(items) and not missing and bool(order.get("packingComplete")) and str(order.get("fulfillmentStage")) == "packed"
+    return {"success":True,"data":{"orderId":order_id,"orderNumber":order.get("orderNumber"),"readyForDispatch":ready,"packingComplete":not missing,"itemCount":len(items),"packedItemCount":len(items)-len(missing),"missingItems":missing,"nextAction":"Dispatch this complete order" if ready else "Complete packing for every order item"}}
+
 @router.post("/me/delivery-map/self-delivery-plan")
 async def create_self_delivery_plan(
     body: SelfDeliveryPlanRequest,
