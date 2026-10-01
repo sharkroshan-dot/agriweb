@@ -791,7 +791,11 @@ export default function FarmerOrdersPage() {
                                 </div>
                               ) : <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800"><strong>Warehouse fulfillment</strong><br />Receive → Check → Store → Pick → Pack → Dispatch → Delivery</div>
                             )}
-                            {status === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (order.fulfillmentMethod === "warehouse" || order.deliveryResponsibility === "delivery_partner" ? <Button size="sm" className="w-full bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(orderId)}><Truck className="mr-2 h-4 w-4" />Assign Delivery Partner</Button> : order.deliveryResponsibility === "farmer" ? <Button size="sm" className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(orderId)}><UserCheck className="mr-2 h-4 w-4" />Deliver Myself</Button> : null)}
+                            {status === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
+                              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}>
+                                <Navigation className="mr-2 h-4 w-4" />Open Order Map
+                              </Button>
+                            )}
                             {status === "ready_for_delivery" && order.selfDelivery && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-2 h-4 w-4" />Mark Delivered</Button>}
                             {status === "dispatched" && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(orderId, "in_transit")}><Truck className="mr-2 h-4 w-4" />Mark In Transit</Button>}
                             {status === "in_transit" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-2 h-4 w-4" />Mark Delivered</Button>}
