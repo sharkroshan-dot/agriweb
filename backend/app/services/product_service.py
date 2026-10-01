@@ -174,9 +174,10 @@ class ProductService:
         # Every marketplace product must have a traceable harvest batch before activation.
         # Direct-product creation therefore creates a draft batch automatically; it
         # remains unavailable to customers until quality verification approves it.
-        try:
-            batch_repo = BaseRepository("batches")
-            existing_batch = await batch_repo.find_one({"productId": ObjectId(product_id), "deletedAt": None})
+        if not data.sourceHarvestPlanId:
+            try:
+                batch_repo = BaseRepository("batches")
+                existing_batch = await batch_repo.find_one({"productId": ObjectId(product_id), "deletedAt": None})
             if not existing_batch:
                 from app.api.v1.batches import DEFAULT_SHELF_LIFE_DAYS, STORAGE_TYPES, _next_lot_number
                 storage = data.storageType if data.storageType in STORAGE_TYPES else "normal"
