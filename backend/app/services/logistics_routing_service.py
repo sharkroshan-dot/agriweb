@@ -200,6 +200,39 @@ async def apply_partner_route(
 
     await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
 
+    # Farmer Fulfillment + long distance: the farmer has already packed
+    # individual customer orders. Create a collection job for those packages
+    # so the warehouse collection team knows they are waiting at the farm.
+    if mode == "long_distance" and str(order.get("fulfillmentMethod") or "") == "farmer" and warehouse:
+        incoming = MongoDB.get_collection("incoming_stock")
+        from app.services.warehouse_collection_service import ensure_collection_job
+        for item in items:
+            existing = await incoming.find_one({
+                "orderId": order["_id"], "warehouseId": warehouse["_id"],
+                "productId": ObjectId(str(item.get("productId"))),
+                "packingRequired": False, "deletedAt": None,
+            })
+            if not existing:
+                result = await incoming.insert_one({
+                    "warehouseId": warehouse["_id"],
+                    "productId": ObjectId(str(item.get("productId"))),
+                    "variantId": ObjectId(str(item.get("variantId"))) if item.get("variantId") else None,
+                    "farmerId": ObjectId(str(order.get("farmerId"))), "orderId": order["_id"],
+                    "quantity": int(item.get("quantity", 0) or 0), "quantityReceived": 0,
+                    "expectedDate": datetime.utcnow(), "status": "ready_for_pickup",
+                    "packingRequired": False, "sourceMode": "farmer_fulfillment_transfer",
+                    "batchNumber": item.get("batchNumber"), "packageCount": int(item.get("packageCount", 1) or 1),
+                    "pickupLocation": order.get("farmLocation") or order.get("pickupLocation") or {},
+                    "createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow(), "deletedAt": None,
+                })
+                existing = await incoming.find_one({"_id": result.inserted_id})
+            if existing:
+                await ensure_collection_job(existing, "packed_orders_transfer", "farmer_fulfillment_long_distance")
+        await MongoDB.get_collection("orders").update_one(
+            {"_id": order["_id"]},
+            {"$set": {"warehouseCollectionStatus": "ready_for_pickup", "warehouseCollectionRequestedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}}
+        )
+
     # Farmer Fulfillment + long distance uses the warehouse only as a
     # transfer point. The farmer has already packed the individual order, so
     # the warehouse must never create another packing task for this route.
