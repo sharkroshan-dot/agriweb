@@ -534,7 +534,6 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
         line["verified"] = False
         packed_total += line["packedQuantity"]
 
-    requested_pack = min(float(data.packedQuantity), packed_total)
     packed_status = "packed" if all(float(x.get("packedQuantity") or 0) + 1e-9 >= float(x.get("quantityRequired") or 0) for x in packing_items) else "partially_packed"
     await warehouse_packing_repository.update_task(task_id, {"packedQuantity":sum(float(x.get("packedQuantity") or 0) for x in packing_items),"packingItems":packing_items,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
     from app.repositories.order_repository import order_repository
