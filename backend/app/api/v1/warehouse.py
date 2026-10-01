@@ -1039,6 +1039,37 @@ async def update_shortage_resolution(
             order_update["refundRequiredAmount"] = float(data.resolvedQuantity) * float(case.get("unitPrice") or 0)
         await order_repository.update({"_id": order["_id"]}, order_update)
 
+        # Align the packing checklist with the final customer quantities after
+        # cancellation/refund, so verification checks the final order, not the
+        # original unavailable quantity.
+        packing_task = await warehouse_packing_repository.get_by_order(str(case["orderId"]))
+        if packing_task:
+            final_lines = []
+            for line in (packing_task.get("packingItems") or []):
+                key_product = str(line.get("productId"))
+                key_variant = str(line.get("variantId") or "")
+                matched = next(
+                    (x for x in items if str(x.get("productId")) == key_product and str(x.get("variantId") or "") == key_variant),
+                    None,
+                )
+                final_required = float(matched.get("quantity") or 0) if matched else 0.0
+                final_lines.append({
+                    **line,
+                    "quantityRequired": final_required,
+                    "quantityShort": 0.0,
+                    "packedQuantity": min(float(line.get("packedQuantity") or 0), final_required),
+                    "verified": False,
+                })
+            await warehouse_packing_repository.update_task(
+                str(packing_task["_id"]),
+                {
+                    "quantityRequired": sum(float(x.get("quantityRequired") or 0) for x in final_lines),
+                    "packedQuantity": sum(float(x.get("packedQuantity") or 0) for x in final_lines),
+                    "packingItems": final_lines,
+                    "status": "packed",
+                },
+            )
+
         await order_repository.append_tracking_event(
             str(case["orderId"]),
             "shortage_refund_requested",
