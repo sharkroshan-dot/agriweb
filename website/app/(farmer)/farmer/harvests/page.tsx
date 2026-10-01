@@ -83,8 +83,8 @@ export default function FarmerHarvestsPage() {
       const plan = plans.find((p) => p.id === vars.planId);
       const params = new URLSearchParams({
         name: plan?.cropName || "",
-        price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-        quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
+        price: vars.finalSellingRatePerKg ? String(vars.finalSellingRatePerKg) : "",
+        quantity: vars.actualQuantityKg != null ? String(vars.actualQuantityKg) : "",
         unit: "kg",
         harvestDate: plan?.expectedHarvestDate || "",
         fromHarvest: vars.planId,
