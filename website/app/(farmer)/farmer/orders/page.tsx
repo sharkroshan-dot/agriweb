@@ -798,6 +798,20 @@ export default function FarmerOrdersPage() {
                                   {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
                                 </div>
                               ) : (
+                                <div className="space-y-2">
+                                  <div className="space-y-2">
+                                    {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
+                                      <strong>Warehouse transfer for long-distance delivery</strong>
+                                      <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                                        {[["ready_for_pickup","Warehouse collection requested"],["team_assigned","Collection team assigned"],["en_route","Team en route"],["arrived_at_farm","Team arrived at farm"],["collected","Packed orders collected"],["departed_farm","Departed farm"],["arrived_warehouse","Arrived at warehouse"]].map(([key,label]) => {
+                                          const stages=["ready_for_pickup","team_assigned","en_route","arrived_at_farm","collected","departed_farm","arrived_warehouse"]; const idx=stages.indexOf(String(order.warehouseCollectionStatus)); const complete=idx>=stages.indexOf(key); return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
+                                        })}
+                                      </div>
+                                      <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
+                                    </div>}
+                                  </div>
+                                </div>
+                              ) : (
                                 <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
                                   <div>
                                     <strong>Warehouse fulfillment</strong>
