@@ -209,13 +209,13 @@ class WarehouseService:
         if not success:
             return None
 
-        if quality_check == "passed" and quantity > 0:
+        if quality_check == "passed" and usable_quantity > 0:
             warehouse = await warehouse_repository.get_by_id(str(incoming["warehouseId"]))
             if not warehouse:
                 return None
             current_used = float(warehouse.get("usedCapacity", 0) or 0)
             total_capacity = float(warehouse.get("totalCapacity", 0) or 0)
-            if total_capacity > 0 and current_used + quantity > total_capacity:
+            if total_capacity > 0 and current_used + usable_quantity > total_capacity:
                 return None
 
             stock_filter = {
@@ -228,7 +228,7 @@ class WarehouseService:
             if existing_stock:
                 updated = await warehouse_stock_repository.update_stock(
                     str(existing_stock["_id"]),
-                    {"quantity": int(existing_stock.get("quantity", 0)) + quantity}
+                    {"quantity": int(existing_stock.get("quantity", 0)) + int(usable_quantity)}
                 )
                 if not updated:
                     return None
@@ -237,7 +237,7 @@ class WarehouseService:
                     "warehouseId": incoming["warehouseId"],
                     "productId": incoming["productId"],
                     "variantId": incoming.get("variantId"),
-                    "quantity": quantity,
+                    "quantity": int(usable_quantity),
                     "batchNumber": incoming.get("batchNumber"),
                     "storageType": incoming.get("storageType", "ambient"),
                 }
