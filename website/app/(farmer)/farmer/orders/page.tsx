@@ -537,7 +537,7 @@ export default function FarmerOrdersPage() {
         </Card>
       )}
 
-      {showMapView && (() => {
+      {(() => {
         const groups: Record<string, any[]> = {};
         orderList.forEach((o: any) => {
           const city = (o.deliveryAddress?.city || "Unknown").toLowerCase();
