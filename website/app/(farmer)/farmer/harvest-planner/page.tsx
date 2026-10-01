@@ -171,8 +171,8 @@ export default function FarmerHarvestPlannerPage() {
       const plan = plans.find((p) => p.id === vars.planId);
       const params = new URLSearchParams({
         name: plan?.cropName || "",
-        price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
-        quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
+        price: vars.finalSellingRatePerKg ? String(vars.finalSellingRatePerKg) : "",
+        quantity: vars.actualQuantityKg != null ? String(vars.actualQuantityKg) : "",
         unit: "kg",
         harvestDate: plan?.expectedHarvestDate || "",
         fromHarvest: vars.planId,
@@ -536,6 +536,44 @@ export default function FarmerHarvestPlannerPage() {
                 </>
               );
             })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {harvestConfirm && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader>
+            <CardTitle className="text-base">Harvest Confirmation</CardTitle>
+            <CardDescription>
+              Enter the actual harvested quantity and final selling rate. A batch will be created and must pass quality verification before marketplace activation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-medium text-gray-600">Actual harvested quantity (kg) *</label>
+              <Input type="number" min="0.1" step="0.1" value={harvestConfirm.quantity} onChange={(e) => setHarvestConfirm({ ...harvestConfirm, quantity: e.target.value })} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600">Final selling rate (₹/kg) *</label>
+              <Input type="number" min="0.01" step="0.01" value={harvestConfirm.rate} onChange={(e) => setHarvestConfirm({ ...harvestConfirm, rate: e.target.value })} />
+            </div>
+            <div className="sm:col-span-2 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setHarvestConfirm(null)}>Cancel</Button>
+              <Button
+                disabled={harvestMutation.isPending || Number(harvestConfirm.quantity) <= 0 || Number(harvestConfirm.rate) <= 0}
+                onClick={() => {
+                  harvestMutation.mutate({
+                    planId: harvestConfirm.planId,
+                    actualQuantityKg: Number(harvestConfirm.quantity),
+                    finalSellingRatePerKg: Number(harvestConfirm.rate),
+                  });
+                  setHarvestConfirm(null);
+                }}
+              >
+                {harvestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                Confirm Harvest
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
