@@ -108,6 +108,12 @@ class ProductBase(BaseModel):
     isOrganic: bool = False
     isFresh: bool = True
     harvestDate: Optional[datetime] = None
+    harvestedAt: Optional[datetime] = None
+    expectedShelfLifeHours: Optional[float] = Field(None, gt=0)
+    remainingShelfLifeHours: Optional[float] = Field(None, ge=0)
+    storageTemperature: Optional[float] = None
+    perishabilityLevel: Optional[str] = None
+    batchId: Optional[str] = None
     expiryDate: Optional[datetime] = None
     storageInstructions: Optional[str] = None
     attributes: Dict[str, Any] = {}
