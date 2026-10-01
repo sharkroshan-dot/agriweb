@@ -1572,6 +1572,18 @@ class OrderService:
             update["warehouseId"] = ObjectId(warehouse_id)
 
         await order_repository.update({"_id": order["_id"]}, update)
+        try:
+            await order_repository.append_tracking_event(
+                order_id,
+                "fulfillment_selected",
+                "Fulfillment method selected",
+                "Warehouse fulfillment selected." if fm == FulfillmentMethod.WAREHOUSE.value else "Farmer fulfillment selected.",
+                actor_id=user_id,
+                actor_role=role,
+                metadata={"fulfillmentMethod": fm},
+            )
+        except Exception:
+            logger.exception("Failed to append fulfillment tracking event for %s", order_id)
 
         if fm == FulfillmentMethod.WAREHOUSE.value:
             try:
