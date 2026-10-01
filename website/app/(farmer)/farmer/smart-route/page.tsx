@@ -217,10 +217,10 @@ export default function SmartRoutePage() {
           </p>
           <div className="mt-4 flex gap-3">
             <Button asChild>
-              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`>View Delivery Calendar</Link>
+              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>View Delivery Calendar</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`>Route Planning</Link>
+              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>Route Planning</Link>
             </Button>
           </div>
         </div>
