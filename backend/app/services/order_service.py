@@ -1489,6 +1489,48 @@ class OrderService:
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
+    async def mark_warehouse_ready_for_pickup(order_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Farmer confirms warehouse-fulfillment harvest/bulk stock is ready at the farm."""
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("farmerId")) != farmer_id:
+            return None
+        if str(order.get("fulfillmentMethod") or "") != FulfillmentMethod.WAREHOUSE.value:
+            return None
+        if str(order.get("orderStatus") or "") != OrderStatus.PROCESSING.value:
+            return None
+
+        from app.repositories.incoming_stock_repository import incoming_stock_repository
+        from app.services.warehouse_collection_service import ensure_collection_job
+        incoming_items = await incoming_stock_repository.get_by_warehouse_id(
+            str(order.get("warehouseId")), status=None, skip=0, limit=1000
+        )
+        matching = [x for x in incoming_items if str(x.get("orderId")) == str(order["_id"])]
+        if not matching:
+            return None
+
+        for incoming in matching:
+            if str(incoming.get("status")) not in ("scheduled", "ready_for_pickup"):
+                continue
+            await incoming_stock_repository.update(
+                {"_id": incoming["_id"]},
+                {"status": "ready_for_pickup", "readyForPickupAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            )
+            refreshed = await incoming_stock_repository.get_by_id(str(incoming["_id"]))
+            if refreshed:
+                await ensure_collection_job(refreshed, "bulk_harvest", "warehouse_fulfillment")
+
+        await order_repository.update(
+            {"_id": order["_id"]},
+            {
+                "warehouseFulfillmentStage": "pickup_requested",
+                "warehouseCollectionStatus": "ready_for_pickup",
+                "warehouseCollectionRequestedAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            },
+        )
+        return await order_repository.get_by_id(order_id)
+
+    @staticmethod
     async def set_delivery_responsibility(
         order_id: str,
         user_id: str,
