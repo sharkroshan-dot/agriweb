@@ -3,7 +3,7 @@ from bson import ObjectId
 from datetime import datetime
 from app.api.v1.auth import get_current_user
 from app.database.mongodb import MongoDB
-from app.schemas.fulfillment import FulfillmentHubCreate, FulfillmentDecisionResponse, HubTransferCreate, HubReceiveRequest, HubDispatchRequest
+from app.schemas.fulfillment import FulfillmentHubCreate, FulfillmentDecisionResponse, HubTransferCreate, HubReceiveRequest, HubDispatchRequest, FulfillmentRatingCreate
 from app.services.fulfillment_engine import evaluate_order, distance_km
 from app.repositories.delivery_assignment_repository import delivery_assignment_repository
 
