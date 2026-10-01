@@ -283,6 +283,22 @@ async def update_delivery_responsibility(
     }
 
 
+@router.post("/{order_id}/farmer-packing-finalize")
+async def finalize_farmer_packing(order_id: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    """Finalize actual Farmer Fulfillment packing and resolve final packing shortages."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can finalize Farmer Fulfillment packing")
+    packed_items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(packed_items, list):
+        raise HTTPException(status_code=400, detail="Packing items are required")
+    result = await OrderService.finalize_farmer_packing(
+        order_id, str(current_user["_id"]), "farmer", packed_items
+    )
+    if not result:
+        raise HTTPException(status_code=400, detail="Order is not eligible for final packing")
+    result["id"] = str(result["_id"])
+    return {"success": True, "data": result, "message": "Packing finalized. Any unavailable quantity was cancelled and the final payable amount was recalculated."}
+
 @router.put("/{order_id}/fulfillment-stage")
 async def update_fulfillment_stage(order_id: str, stage: FulfillmentStage, current_user: dict = Depends(get_current_user)):
     result = await OrderService.update_fulfillment_stage(
