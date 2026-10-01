@@ -526,6 +526,16 @@ async def farmer_bulk_advance_orders(
     return {"success": True, "data": result}
 
 
+@router.post("/farmer/bulk-run")
+async def farmer_bulk_run_orders(
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can process orders")
+    result = await OrderService.bulk_run_farmer_workflow(str(current_user["_id"]))
+    return {"success": True, "data": result}
+
+
 @router.get("/farmer/order-availability")
 async def farmer_order_availability(
     current_user: dict = Depends(get_current_user)
