@@ -2469,7 +2469,17 @@ async def choose_delivery_partner_route(
     results = []
     for order, dist in targets:
         route = await apply_partner_route(order, body.route, body.radius)
-        results.append({"orderId": str(order["_id"]), "distanceKm": round(dist, 2), **route})
+        # The delivery partner receives the order only after the physical
+        # route has been selected. Nearby and long-distance both use the
+        # delivery marketplace; the difference is the upstream handoff path.
+        refreshed = await order_repository.get_by_id(str(order["_id"])) or order
+        job = await _open_job_for_order(refreshed, farm, farmer_id)
+        results.append({
+            "orderId": str(order["_id"]),
+            "distanceKm": round(dist, 2),
+            "deliveryJob": job,
+            **route,
+        })
 
     return {
         "success": True,
