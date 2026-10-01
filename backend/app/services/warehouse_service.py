@@ -450,7 +450,7 @@ class WarehouseService:
             "packingReadiness": {
                 "complete": not has_shortage,
                 "partial": has_shortage and has_packable_stock,
-                "missingItems": shortages,
+                "missingItems": [],
                 "shortagePending": has_shortage,
                 "totalRequired": total_required,
                 "totalAvailable": total_available,
