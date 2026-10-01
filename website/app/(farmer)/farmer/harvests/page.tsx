@@ -42,6 +42,7 @@ export default function FarmerHarvestsPage() {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [location, setLocation] = useState<LocationValue | null>(null);
+  const [harvestConfirm, setHarvestConfirm] = useState<{ planId: string; quantity: string; rate: string } | null>(null);
   const [form, setForm] = useState({
     cropName: "",
     expectedHarvestDate: "",
@@ -76,17 +77,17 @@ export default function FarmerHarvestsPage() {
   });
 
   const harvestMutation = useMutation({
-    mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/harvest`),
-    onSuccess: (_data, planId) => {
+    mutationFn: ({ planId, actualQuantityKg, finalSellingRatePerKg }: { planId: string; actualQuantityKg: number; finalSellingRatePerKg: number }) => api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg, finalSellingRatePerKg }),
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvests"] });
-      const plan = plans.find((p) => p.id === planId);
+      const plan = plans.find((p) => p.id === vars.planId);
       const params = new URLSearchParams({
         name: plan?.cropName || "",
         price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
         quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
         unit: "kg",
         harvestDate: plan?.expectedHarvestDate || "",
-        fromHarvest: planId,
+        fromHarvest: vars.planId,
       });
       router.push(`/farmer/products/new?${params.toString()}`);
       toast.success("Harvest marked! Now finish creating your product.");
@@ -123,6 +124,17 @@ export default function FarmerHarvestsPage() {
           {showForm ? "Cancel" : "New Harvest Plan"}
         </Button>
       </div>
+
+      {harvestConfirm && (
+        <Card className="border-amber-200 bg-amber-50/50">
+          <CardHeader><CardTitle className="text-base">Harvest Confirmation</CardTitle><CardDescription>Enter actual quantity and final selling rate. The batch must pass quality verification before marketplace activation.</CardDescription></CardHeader>
+          <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div><label className="text-xs font-medium text-gray-600">Actual harvested quantity (kg) *</label><Input type="number" min="0.1" step="0.1" value={harvestConfirm.quantity} onChange={(e) => setHarvestConfirm({ ...harvestConfirm, quantity: e.target.value })} /></div>
+            <div><label className="text-xs font-medium text-gray-600">Final selling rate (₹/kg) *</label><Input type="number" min="0.01" step="0.01" value={harvestConfirm.rate} onChange={(e) => setHarvestConfirm({ ...harvestConfirm, rate: e.target.value })} /></div>
+            <div className="sm:col-span-2 flex justify-end gap-2"><Button variant="outline" onClick={() => setHarvestConfirm(null)}>Cancel</Button><Button disabled={harvestMutation.isPending || Number(harvestConfirm.quantity) <= 0 || Number(harvestConfirm.rate) <= 0} onClick={() => { harvestMutation.mutate({ planId: harvestConfirm.planId, actualQuantityKg: Number(harvestConfirm.quantity), finalSellingRatePerKg: Number(harvestConfirm.rate) }); setHarvestConfirm(null); }}>Confirm Harvest</Button></div>
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && (
         <Card>
@@ -277,7 +289,7 @@ export default function FarmerHarvestsPage() {
                       className="flex-1"
                       size="sm"
                       disabled={harvestMutation.isPending}
-                      onClick={() => harvestMutation.mutate(plan.id)}
+                      onClick={() => setHarvestConfirm({ planId: plan.id, quantity: String(plan.expectedQuantityKg || ""), rate: String(plan.preOrderPricePerKg || "") })}
                     >
                       {harvestMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
