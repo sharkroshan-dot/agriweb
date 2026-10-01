@@ -432,6 +432,15 @@ async def choose_warehouse_delivery_route(
         data.radius,
         warehouse_id=str(warehouse["_id"]),
     )
+    await outgoing_stock_repository.update(
+        {"_id": outgoing["_id"]},
+        {
+            "deliveryPartnerRoute": data.route,
+            "deliveryRouteRadiusKm": data.radius,
+            "deliveryRouteSelectedAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        },
+    )
     # Ready for Dispatch -> Delivery Decision happens before the physical
     # warehouse dispatch. The delivery job is opened only after the outgoing
     # shipment is actually dispatched.
