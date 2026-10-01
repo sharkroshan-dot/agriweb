@@ -662,8 +662,11 @@ export default function FarmerOrdersPage() {
             )}
             {(activeCity === null ? groupEntries : groupEntries.filter(([city]) => city === activeCity)).map(([city, orders]) => (
               <div key={city} className="space-y-4">
-                {orders.map((order: any) => (
-                  <Card key={order.id || order._id}>
+                {orders.map((order: any) => {
+                  const orderId = String(order.id || order._id || "");
+                  const status = getStatus(order);
+                  return (
+                  <Card key={orderId}>
                     <CardContent className="p-6">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0 flex-1">
@@ -842,7 +845,8 @@ export default function FarmerOrdersPage() {
                       </div>
                     </CardContent>
                   </Card>
-                ))}
+                  );
+                })}
               </div>
             ))}
           </div>
