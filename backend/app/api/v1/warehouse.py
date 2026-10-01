@@ -274,11 +274,12 @@ async def update_collection_status(collection_id: str, collection_status: str = 
         from app.repositories.incoming_stock_repository import incoming_stock_repository
         await incoming_stock_repository.update({"_id": ObjectId(str(incoming_id))}, {"status": "in_transit", "collectedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
     if incoming_id and collection_status == "arrived_warehouse":
+        # Arrival at the warehouse is not the same as warehouse receipt.
+        # Keep the incoming shipment in transit until staff performs Receive + QC.
         from app.repositories.incoming_stock_repository import incoming_stock_repository
-        await incoming_stock_repository.update({"_id": ObjectId(str(incoming_id))}, {"status": "received", "receivedAt": datetime.utcnow(), "quantityReceived": job.get("quantity", 0), "updatedAt": datetime.utcnow()})
+        await incoming_stock_repository.update({"_id": ObjectId(str(incoming_id))}, {"status": "in_transit", "arrivedWarehouseAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
         if job.get("orderId"):
-            stage = "received" if job.get("collectionType") == "bulk_harvest" else "received_transfer"
-            await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "arrived_warehouse", "warehouseFulfillmentStage": stage, "updatedAt": datetime.utcnow()})
+            await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "arrived_warehouse", "warehouseFulfillmentStage": "warehouse_arrived", "updatedAt": datetime.utcnow()})
     elif job.get("orderId"):
         stage_map = {"en_route": "collection_en_route", "arrived_at_farm": "collection_arrived", "collected": "collected", "departed_farm": "collection_departed"}
         await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": collection_status, "warehouseFulfillmentStage": stage_map[collection_status], "updatedAt": datetime.utcnow()})
