@@ -1659,6 +1659,19 @@ class OrderService:
         if str(order.get("orderStatus") or "") != OrderStatus.PROCESSING.value:
             return None
 
+        try:
+            updated_order = await order_repository.get_by_id(order_id)
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    stage="ready_for_pickup",
+                    title=f"Order #{order.get('orderNumber') or order_id}: product ready for warehouse collection",
+                    message="The farmer has prepared the product. The warehouse collection team can now schedule pickup.",
+                    actor_role="farmer",
+                )
+        except Exception as e:
+            logger.warning("Failed to notify warehouse about collection readiness for %s: %s", order_id, e)
+
         from app.repositories.incoming_stock_repository import incoming_stock_repository
         from app.services.warehouse_collection_service import ensure_collection_job
         incoming_items = await incoming_stock_repository.get_by_warehouse_id(
