@@ -175,6 +175,20 @@ async def apply_partner_route(
     else:
         update["fulfillmentSource"] = order.get("fulfillmentSource") or "farmer"
 
+    # Warehouse Fulfillment: nearby means the partner collects directly from
+    # the warehouse; long-distance means warehouse -> local hub -> partner.
+    if warehouse_route and mode == "nearby":
+        update["nearbyFulfillmentRequired"] = False
+        update["nearbyFulfillmentLocationId"] = None
+        update["nearbyFulfillmentLocation"] = None
+        update["transferStatus"] = "warehouse_handoff_pending"
+        update["logisticsMode"] = "warehouse_to_delivery_partner"
+    elif warehouse_route and mode == "long_distance":
+        update["nearbyFulfillmentRequired"] = True
+        update["nearbyFulfillmentType"] = "local_hub"
+        update["transferStatus"] = "hub_handoff_pending"
+        update["logisticsMode"] = "warehouse_to_local_hub_to_delivery_partner"
+
     await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
 
     # Farmer Fulfillment + long distance uses the warehouse only as a
