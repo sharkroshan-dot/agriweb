@@ -807,12 +807,29 @@ export default function FarmerOrderMapPage() {
   };
 
   const isLoading = mapQuery.isLoading;
+  const mapLoadError = mapQuery.isError ? getApiError(mapQuery.error) : "";
   const pendingCount = allOrders.length;
   const assignableOutside = outsideUnassigned;
 
   return (
     <div className="space-y-6">
       <DeliveryWorkflowNav current="order-map" />
+      {mapLoadError && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-medium text-red-800">Unable to load delivery orders</p>
+              <p className="mt-1 text-sm text-red-700">{mapLoadError}</p>
+              <p className="mt-1 text-xs text-red-600">Make sure the AgriConnect backend is running and your farmer session is valid.</p>
+            </div>
+            <Button variant="outline" onClick={() => mapQuery.refetch()} disabled={mapQuery.isFetching}>
+              {mapQuery.isFetching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+              Try again
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Self-delivery workbench</p>
