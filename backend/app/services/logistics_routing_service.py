@@ -110,8 +110,12 @@ async def apply_partner_route(
         "deliveryRadiusKm": radius_km,
         "logisticsMode": (
             "farmer_to_local_hub_to_delivery_partner"
-            if mode == "nearby"
+            if mode == "nearby" and str(order.get("fulfillmentSource") or "") != "warehouse"
+            else "warehouse_to_local_hub_to_delivery_partner"
+            if mode == "nearby" and str(order.get("fulfillmentSource") or "") == "warehouse"
             else "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+            if str(order.get("fulfillmentSource") or "") != "warehouse"
+            else "warehouse_to_local_hub_to_delivery_partner"
         ),
         "transferStatus": "pending" if mode == "long_distance" else "hub_handoff_pending",
         "updatedAt": datetime.utcnow(),
