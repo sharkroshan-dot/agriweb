@@ -643,8 +643,8 @@ export default function FarmerOrdersPage() {
                                   </>
                                 ) : order.fulfillmentMethod === "farmer" ? (
                                 <div className="space-y-2">
-                                  {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Packed</Button>}
-                                  {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
+                                  {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <div className="space-y-2"><Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Order Packed</Button><p className="text-[11px] text-muted-foreground">You pack the individual customer order before dispatch.</p></div>}
+                                  {order.fulfillmentStage === "packed" && <div className="space-y-2"><Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button><p className="text-[11px] text-muted-foreground">After dispatch, choose the delivery route on the Order Map.</p></div>}
                                   {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
                                     <strong>Warehouse transfer for long-distance delivery</strong>
                                     <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
