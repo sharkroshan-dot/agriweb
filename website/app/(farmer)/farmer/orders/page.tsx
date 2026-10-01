@@ -208,10 +208,10 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const updateFulfillmentStage = async (orderId: string, stage: "picked" | "packed" | "dispatched") => {
+  const updateFulfillmentStage = async (orderId: string, stage: "packed" | "dispatched") => {
     try {
       await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, { params: { stage } });
-      toast.success(stage === "picked" ? "Order picked" : stage === "packed" ? "Order packed" : "Order dispatched");
+      toast.success(stage === "packed" ? "Order packed" : "Order dispatched");
       await refetch();
       if (stage === "dispatched") {
         router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`);
