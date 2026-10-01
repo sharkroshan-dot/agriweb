@@ -8,6 +8,7 @@ import {
   PackageCheck,
   ArrowDown,
   ArrowUp,
+  Truck,
   Warehouse,
   Snowflake,
   ArrowLeftRight,
@@ -30,6 +31,7 @@ const navItems = [
   { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
   { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
   { name: "Stock Management", href: "/stock", icon: Package },
+  { name: "Farm Collection", href: "/collections", icon: Truck },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
   { name: "Order Packing", href: "/packing", icon: PackageCheck },
@@ -122,11 +124,11 @@ export function WarehouseSidebar() {
           <div className="flex flex-col items-center text-center">
             <Package className="h-8 w-8 text-muted-foreground" />
             <p className="mt-2 text-sm font-medium">Add Stock</p>
-            <p className="text-xs text-muted-foreground">Receive new inventory</p>
+            <p className="text-xs text-muted-foreground">Manage farm pickups</p>
             <Button asChild size="sm" className="mt-3 w-full">
-              <Link href="/incoming">
-                <Plus className="mr-2 h-4 w-4" />
-                Receive Stock
+              <Link href="/collections">
+                <Truck className="mr-2 h-4 w-4" />
+                Farm Collection
               </Link>
             </Button>
           </div>
