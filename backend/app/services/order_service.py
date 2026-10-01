@@ -1320,7 +1320,7 @@ class OrderService:
         fulfillment_method: FulfillmentMethod,
         delivery_responsibility: Optional[DeliveryResponsibility] = None,
     ) -> Dict[str, Any]:
-        """Confirm and start processing every currently fulfillable pending order."""
+        """Confirm eligible orders only; later workflow stages are explicit UI actions."""
         availability = await OrderService.get_farmer_order_availability(farmer_id)
         processed = []
         blocked = list(availability["orders"])
@@ -1350,56 +1350,17 @@ class OrderService:
                     order_id, farmer_id, "farmer",
                     OrderStatusUpdate(status=OrderStatus.CONFIRMED),
                 )
-                if not confirmed:
+                if confirmed:
+                    processed.append(result)
+                else:
                     blocked.append({**result, "reason": "Could not confirm order"})
-                    continue
-
-                processing = await OrderService.update_order_status(
-                    order_id, farmer_id, "farmer",
-                    OrderStatusUpdate(status=OrderStatus.PROCESSING),
-                )
-                if not processing:
-                    blocked.append({**result, "reason": "Could not start processing"})
-                    continue
-
-                routed = await OrderService.set_fulfillment_route(
-                    order_id, farmer_id, "farmer", fulfillment_method
-                )
-                if not routed:
-                    blocked.append({**result, "reason": "Could not select fulfillment route"})
-                    continue
-
-                if fulfillment_method == FulfillmentMethod.FARM_DIRECT:
-                    # Delivery responsibility is optional here. When omitted,
-                    # the order remains unassigned for transport and becomes
-                    # available to the farmer's Order Map after Dispatch.
-                    if delivery_responsibility is not None:
-                        responsible = await OrderService.set_delivery_responsibility(
-                            order_id, farmer_id, "farmer", delivery_responsibility
-                        )
-                        if not responsible:
-                            blocked.append({**result, "reason": "Could not set delivery responsibility"})
-                            continue
-
-                    # Farmer fulfillment always follows Pick -> Pack -> Dispatch.
-                    for stage in (
-                        FulfillmentStage.PICKED,
-                        FulfillmentStage.PACKED,
-                        FulfillmentStage.DISPATCHED,
-                    ):
-                        advanced = await OrderService.update_fulfillment_stage(
-                            order_id, farmer_id, "farmer", stage
-                        )
-                        if not advanced:
-                            raise RuntimeError(f"Could not advance fulfillment to {stage.value}")
-
-                processed.append(result)
             except Exception as exc:
-                logger.warning("Bulk order processing failed for %s: %s", order_id, exc)
+                logger.warning("Bulk confirmation failed for %s: %s", order_id, exc)
                 blocked.append({**result, "reason": str(exc)})
 
         return {
             "receivedOrders": availability["receivedOrders"],
+            "confirmedOrders": len(processed),
             "processedOrders": len(processed),
             "blockedOrders": len(blocked),
             "processed": processed,
@@ -1408,6 +1369,49 @@ class OrderService:
             "fulfillmentMethod": fulfillment_method.value,
             "deliveryResponsibility": delivery_responsibility.value if delivery_responsibility else None,
         }
+
+    @staticmethod
+    async def bulk_advance_farmer_orders(farmer_id: str, action: str) -> Dict[str, Any]:
+        """Apply exactly one farmer workflow step to all eligible orders."""
+        action = str(action).strip().lower()
+        orders = await order_repository.get_by_farmer(farmer_id, 0, 500, None)
+        processed, skipped = [], []
+
+        for order in orders:
+            oid = str(order["_id"])
+            status = str(order.get("orderStatus") or "pending")
+            route = str(order.get("fulfillmentMethod") or "")
+            stage = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
+            if stage == "picked":
+                stage = FulfillmentStage.PENDING.value
+            try:
+                updated = None
+                if action == "confirm" and status == OrderStatus.PENDING.value:
+                    updated = await OrderService.update_order_status(
+                        oid, farmer_id, "farmer",
+                        OrderStatusUpdate(status=OrderStatus.CONFIRMED)
+                    )
+                elif action == "process" and status == OrderStatus.CONFIRMED.value:
+                    updated = await OrderService.update_order_status(
+                        oid, farmer_id, "farmer",
+                        OrderStatusUpdate(status=OrderStatus.PROCESSING)
+                    )
+                elif action in ("farmer_fulfillment", "warehouse_fulfillment") and status == OrderStatus.PROCESSING.value:
+                    method = FulfillmentMethod.FARM_DIRECT if action == "farmer_fulfillment" else FulfillmentMethod.WAREHOUSE
+                    updated = await OrderService.set_fulfillment_route(oid, farmer_id, "farmer", method)
+                elif action == "pack" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PENDING.value:
+                    updated = await OrderService.update_fulfillment_stage(oid, farmer_id, "farmer", FulfillmentStage.PACKED)
+                elif action == "dispatch" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PACKED.value:
+                    updated = await OrderService.update_fulfillment_stage(oid, farmer_id, "farmer", FulfillmentStage.DISPATCHED)
+                if updated:
+                    processed.append({"orderId": oid, "orderNumber": order.get("orderNumber")})
+                else:
+                    skipped.append({"orderId": oid, "orderNumber": order.get("orderNumber"), "reason": "Not eligible for this step"})
+            except Exception as exc:
+                logger.warning("Bulk farmer action failed for %s: %s", oid, exc)
+                skipped.append({"orderId": oid, "orderNumber": order.get("orderNumber"), "reason": str(exc)})
+
+        return {"action": action, "processedOrders": len(processed), "skippedOrders": len(skipped), "processed": processed, "skipped": skipped}
 
     @staticmethod
     async def set_fulfillment_route(
