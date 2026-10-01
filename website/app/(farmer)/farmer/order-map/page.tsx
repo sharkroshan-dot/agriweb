@@ -901,6 +901,12 @@ export default function FarmerOrderMapPage() {
           <Button size="sm" variant={selfDeliveryMethod === "radius" ? "default" : "outline"} onClick={() => selectSelfDeliveryMethod("radius")}>
             <Crosshair className="mr-1.5 h-4 w-4" /> Radius
           </Button>
+          {selfDeliveryMethod === "radius" && (
+            <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !withinUnassigned.length}>
+              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Truck className="mr-1.5 h-4 w-4" />}
+              Create Self-Delivery Route
+            </Button>
+          )}
           <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>
             {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Crosshair className="mr-1.5 h-4 w-4" />}
             {liveLocation ? "Use My Location" : "Locate Me"}
