@@ -203,7 +203,9 @@ class ProductService:
                 }
                 from app.core.quality import base_verification_fields
                 batch_doc.update(base_verification_fields(data.qualityGrade))
-                await batch_repo.create(batch_doc)
+                batch_id = await batch_repo.create(batch_doc)
+                if batch_id:
+                    await product_repository.update_product(product_id, {"batchId": ObjectId(batch_id)})
         except Exception as e:
             logger.warning("Direct product batch creation failed for %s: %s", product_id, e)
 
