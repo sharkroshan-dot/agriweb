@@ -585,8 +585,8 @@ export default function FarmerOrderMapPage() {
         destination: routeDestination ? { lat: routeDestination.lat, lng: routeDestination.lng, label: routeDestination.label } : null,
       });
     },
-    onSuccess: () => {
-      const selfCount = Number((res as any)?.data?.selfDeliveryCount ?? selectedRouteIds.length);
+    onSuccess: (res: any) => {
+      const selfCount = Number(res?.data?.selfDeliveryCount ?? selectedRouteIds.length);
       const partnerCount = Number((res as any)?.data?.partnerCount ?? 0);
       toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed to delivery partners`);
       setSelectedRouteIds([]);
@@ -895,6 +895,12 @@ export default function FarmerOrderMapPage() {
               {w.label}
             </Button>
           ))}
+          <Button size="sm" variant={selfDeliveryMethod === "route" ? "default" : "outline"} onClick={() => selectSelfDeliveryMethod("route")}>
+            <Navigation className="mr-1.5 h-4 w-4" /> Route
+          </Button>
+          <Button size="sm" variant={selfDeliveryMethod === "radius" ? "default" : "outline"} onClick={() => selectSelfDeliveryMethod("radius")}>
+            <Crosshair className="mr-1.5 h-4 w-4" /> Radius
+          </Button>
           <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>
             {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Crosshair className="mr-1.5 h-4 w-4" />}
             {liveLocation ? "Use My Location" : "Locate Me"}
@@ -1256,7 +1262,11 @@ export default function FarmerOrderMapPage() {
             </Button>
             <Button size="sm" onClick={openPlannedRoute} disabled={!selectedRouteOrders.length}>
               <Navigation className="mr-1.5 h-4 w-4" />
-              Create Route
+              Preview Route
+            </Button>
+            <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
+              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Truck className="mr-1.5 h-4 w-4" />}
+              Create Self-Delivery Route
             </Button>
           </div>
         </CardHeader>
