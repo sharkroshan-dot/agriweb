@@ -510,8 +510,25 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
     required = float(task.get("quantityRequired",0))
     if data.packedQuantity > required: raise HTTPException(status_code=400, detail="Packed quantity cannot exceed required quantity")
     if task.get("status") not in ("ready_for_packing","assigned","packing","partially_packed"): raise HTTPException(status_code=400, detail="Task is not packable")
+    packing_items = [dict(x) for x in (task.get("packingItems") or [])]
+    if not packing_items:
+        raise HTTPException(status_code=400, detail="Packing checklist is missing for this order. Re-sync the warehouse packing task before packing.")
+    # A complete package means every order line is packed. The UI sends the
+    # aggregate order quantity; the backend expands it into line-level proof.
+    if data.packedQuantity >= required:
+        for line in packing_items:
+            line["packedQuantity"] = float(line.get("quantityRequired") or 0)
+            line["verified"] = False
+    else:
+        # Partial quantities are never guessed across products; keep them at
+        # the aggregate level and leave the order non-dispatchable.
+        line_total = sum(float(x.get("quantityRequired") or 0) for x in packing_items)
+        ratio = (data.packedQuantity / line_total) if line_total else 0
+        for line in packing_items:
+            line["packedQuantity"] = min(float(line.get("quantityRequired") or 0), float(line.get("quantityRequired") or 0) * ratio)
+            line["verified"] = False
     packed_status = "packed" if data.packedQuantity >= required else "partially_packed"
-    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":data.packedQuantity,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
+    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":data.packedQuantity,"packingItems":packing_items,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
     from app.repositories.order_repository import order_repository
     await order_repository.update(
         {"_id": ObjectId(str(task["orderId"]))},
@@ -559,11 +576,20 @@ async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_
     if data.verified:
         from app.repositories.order_repository import order_repository
         order_id=str(task["orderId"])
-        await order_repository.update({"_id":ObjectId(order_id)}, {"warehouseFulfillmentStage":"ready_for_dispatch","updatedAt":datetime.utcnow()})
-        await order_repository.append_tracking_event(order_id, "packing_verified", "Packing verified", "Your package quantity and contents were verified and the package is ready for dispatch.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packageId": task.get("packageId"), "quantity": task.get("packedQuantity", 0)})
-        existing=await outgoing_stock_repository.get_by_order_id(order_id,str(task["productId"]),str(task.get("variantId") or ""))
-        if not existing:
-            await WarehouseService.create_outgoing(OutgoingStockCreate(warehouseId=str(warehouse["_id"]),productId=str(task["productId"]),variantId=str(task["variantId"]) if task.get("variantId") else None,orderId=order_id,quantity=int(task.get("packedQuantity",0)),batchNumber=task.get("batchNumber")))
+        packing_items = task.get("packingItems") or []
+        if not packing_items or any(float(x.get("packedQuantity") or 0) + 1e-9 < float(x.get("quantityRequired") or 0) for x in packing_items):
+            raise HTTPException(status_code=400, detail="Every customer order item must be completely packed before verification")
+        await warehouse_packing_repository.update_task(task_id, {"packingItems": [{**x, "verified": True} for x in packing_items]})
+        await order_repository.update({"_id":ObjectId(order_id)}, {"warehouseFulfillmentStage":"ready_for_dispatch","packingComplete":True,"packingVerified":True,"packingTaskId":task["_id"],"updatedAt":datetime.utcnow()})
+        await order_repository.append_tracking_event(order_id, "packing_verified", "Packing verified", "Every product in the customer order was packed and verified. The complete package is ready for dispatch.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packageId": task.get("packageId"), "quantity": task.get("packedQuantity", 0), "itemCount": len(packing_items)})
+        # One outgoing shipment record is created for every customer-order line.
+        # No line is allowed to disappear behind a single-product outgoing row.
+        for line in packing_items:
+            existing=await outgoing_stock_repository.get_by_order_id(order_id,str(line["productId"]),str(line.get("variantId") or ""))
+            if not existing:
+                created = await WarehouseService.create_outgoing(OutgoingStockCreate(warehouseId=str(warehouse["_id"]),productId=str(line["productId"]),variantId=str(line.get("variantId")) if line.get("variantId") else None,orderId=order_id,quantity=int(line.get("packedQuantity") or 0),batchNumber=line.get("batchNumber")))
+                if not created:
+                    raise HTTPException(status_code=400, detail=f"Could not create dispatch record for {line.get('productName') or line.get('productId')}")
     return {"success":True,"data":await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.post("/me/outgoing/{outgoing_id}/delivery-route")
