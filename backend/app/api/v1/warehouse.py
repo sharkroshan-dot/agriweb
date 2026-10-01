@@ -522,22 +522,25 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
     packing_items = [dict(x) for x in (task.get("packingItems") or [])]
     if not packing_items:
         raise HTTPException(status_code=400, detail="Packing checklist is missing for this order. Re-sync the warehouse packing task before packing.")
-    # A complete package means every order line is packed. The UI sends the
-    # aggregate order quantity; the backend expands it into line-level proof.
-    if data.packedQuantity >= required:
-        for line in packing_items:
-            line["packedQuantity"] = float(line.get("quantityRequired") or 0)
-            line["verified"] = False
-    else:
-        # Partial quantities are never guessed across products; keep them at
-        # the aggregate level and leave the order non-dispatchable.
-        line_total = sum(float(x.get("quantityRequired") or 0) for x in packing_items)
-        ratio = (data.packedQuantity / line_total) if line_total else 0
-        for line in packing_items:
-            line["packedQuantity"] = min(float(line.get("quantityRequired") or 0), float(line.get("quantityRequired") or 0) * ratio)
-            line["verified"] = False
-    packed_status = "packed" if data.packedQuantity >= required else "partially_packed"
-    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":data.packedQuantity,"packingItems":packing_items,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
+    # Pack every currently available quantity for each customer-order line.
+    # Never spread a shortage proportionally across unrelated products.
+    packed_total = 0.0
+    for line in packing_items:
+        required_line = float(line.get("quantityRequired") or 0)
+        available_line = float(line.get("quantityAvailable") if line.get("quantityAvailable") is not None else required_line)
+        already_packed = float(line.get("packedQuantity") or 0)
+        packable_remaining = max(0.0, min(required_line, available_line) - already_packed)
+        line["packedQuantity"] = min(required_line, already_packed + packable_remaining)
+        line["verified"] = False
+        packed_total += line["packedQuantity"]
+
+    if data.packedQuantity > packed_total + 1e-9:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested packed quantity exceeds currently available usable stock ({packed_total:g}).",
+        )
+    packed_status = "packed" if all(float(x.get("packedQuantity") or 0) + 1e-9 >= float(x.get("quantityRequired") or 0) for x in packing_items) else "partially_packed"
+    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":sum(float(x.get("packedQuantity") or 0) for x in packing_items),"packingItems":packing_items,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
     from app.repositories.order_repository import order_repository
     await order_repository.update(
         {"_id": ObjectId(str(task["orderId"]))},
