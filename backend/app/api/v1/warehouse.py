@@ -25,6 +25,7 @@ from app.repositories.warehouse_packing_repository import warehouse_packing_repo
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 from app.services.warehouse_collection_service import serialize_collection
+from app.services.notification_service import NotificationService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -290,10 +291,26 @@ async def update_collection_status(collection_id: str, collection_status: str = 
         if job.get("orderId"):
             await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "arrived_warehouse", "warehouseFulfillmentStage": "warehouse_arrived", "updatedAt": datetime.utcnow()})
             await order_repository.append_tracking_event(str(job["orderId"]), "arrived_warehouse", "Shipment arrived at warehouse", "The collection team has arrived at the warehouse. Warehouse receiving and quality check are still required.", actor_id=str(current_user["_id"]), actor_role="warehouse")
+            updated_order = await order_repository.get_by_id(str(job["orderId"]))
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order, stage="warehouse_arrived",
+                    title=f"Order #{updated_order.get('orderNumber') or job['orderId']}: shipment arrived at warehouse",
+                    message="The shipment has arrived at the warehouse. Receiving and quality check are now required.",
+                    actor_role="warehouse",
+                )
     elif job.get("orderId"):
         stage_map = {"en_route": "collection_en_route", "arrived_at_farm": "collection_arrived", "collected": "collected", "departed_farm": "collection_departed"}
         await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": collection_status, "warehouseFulfillmentStage": stage_map[collection_status], "updatedAt": datetime.utcnow()})
         await order_repository.append_tracking_event(str(job["orderId"]), f"collection_{collection_status}", {"en_route":"Collection team en route","arrived_at_farm":"Collection team arrived at farm","collected":"Product collected from farm","departed_farm":"Collection team departed farm"}[collection_status], "Warehouse collection progress updated.", actor_id=str(current_user["_id"]), actor_role="warehouse")
+        updated_order = await order_repository.get_by_id(str(job["orderId"]))
+        if updated_order:
+            await NotificationService.send_order_workflow_update(
+                updated_order, stage=stage_map[collection_status],
+                title=f"Order #{updated_order.get('orderNumber') or job['orderId']}: collection updated",
+                message={"en_route":"Collection team is on the way to the farm.","arrived_at_farm":"Collection team has arrived at the farm.","collected":"The product has been collected from the farm.","departed_farm":"The collection team has departed the farm."}[collection_status],
+                actor_role="warehouse",
+            )
     return {"success": True, "data": serialize_collection(await warehouse_collection_repository.get_by_id(collection_id))}
 
 
