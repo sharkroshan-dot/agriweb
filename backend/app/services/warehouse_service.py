@@ -254,6 +254,7 @@ class WarehouseService:
                     {"_id": ObjectId(str(incoming["orderId"]))},
                     {"warehouseFulfillmentStage": "received", "updatedAt": datetime.utcnow()},
                 )
+                await order_repository.append_tracking_event(str(incoming["orderId"]), "warehouse_received", "Warehouse received the shipment", "Warehouse staff received the shipment after collection.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"])})
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after receipt")
 
@@ -282,6 +283,7 @@ class WarehouseService:
                     {"_id": ObjectId(str(incoming["orderId"]))},
                     {"warehouseFulfillmentStage": "stored", "updatedAt": datetime.utcnow()},
                 )
+                await order_repository.append_tracking_event(str(incoming["orderId"]), "stock_stored", "Stock stored at warehouse", "Quality-approved stock has been stored and is ready for order allocation.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"])})
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after storage")
 
