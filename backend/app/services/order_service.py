@@ -1835,6 +1835,23 @@ class OrderService:
             update["shortageResolution"] = "none"
             update["shortagePaymentHandling"] = "none"
 
+        # Farmer confirmation previously moved the full ordered quantity into
+        # sold stock. If final packing finds a shortage, release only the
+        # unavailable quantity back into inventory so stock and the final order
+        # agree. This is also correct for COD because payment has not occurred.
+        for cancelled in cancelled_items:
+            try:
+                product_id = str(cancelled["productId"])
+                inventory_id = str(cancelled.get("variantId")) if cancelled.get("variantId") else None
+                qty = float(cancelled.get("cancelledQuantity") or 0)
+                if qty > 0:
+                    await inventory_repository.atomic_refund(product_id, qty, inventory_id=inventory_id)
+                    stock = await InventoryService.get_stock(product_id)
+                    if stock:
+                        await broadcast_stock_update(product_id, stock)
+            except Exception:
+                logger.exception("Failed to release shortage inventory for order %s", order_id)
+
         if not updated_items:
             update["fulfillmentStage"] = FulfillmentStage.PENDING.value
             update["packingComplete"] = False
