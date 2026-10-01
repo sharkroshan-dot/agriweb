@@ -2429,23 +2429,62 @@ def _ai_partner_plan(targets, available: list) -> list:
 
 @router.get("/me/orders/{order_id}/fulfillment-check")
 async def farmer_fulfillment_check(order_id: str, current_user: dict = Depends(get_current_user)):
-    """Hard checkpoint: a Farmer Fulfillment order cannot be dispatched or routed while any item is missing."""
+    """Final dispatch checkpoint for Farmer Fulfillment after actual packing."""
     _ensure_farmer(current_user)
     order = await order_repository.get_by_id(order_id)
     if not order or str(order.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="Farmer order not found")
     if str(order.get("fulfillmentMethod") or "") != "farmer":
         raise HTTPException(status_code=400, detail="This order is not Farmer Fulfillment")
+
     items = order.get("items") or []
     checklist = order.get("packingChecklist") or []
-    missing=[]
-    by_key={(str(x.get("productId")),str(x.get("variantId") or "")):x for x in checklist}
+    by_key = {(str(x.get("productId")), str(x.get("variantId") or "")): x for x in checklist}
+    missing = []
     for item in items:
-        key=(str(item.get("productId")),str(item.get("variantId") or "")); x=by_key.get(key); required=float(item.get("quantity") or 0)
-        if not x or float(x.get("packedQuantity") or 0) < required or x.get("verified") is not True:
-            missing.append({"productId":key[0],"variantId":key[1] or None,"productName":item.get("productName") or "Product","required":required,"packed":float((x or {}).get("packedQuantity") or 0)})
-    ready=bool(items) and not missing and bool(order.get("packingComplete")) and str(order.get("fulfillmentStage")) == "packed"
-    return {"success":True,"data":{"orderId":order_id,"orderNumber":order.get("orderNumber"),"readyForDispatch":ready,"packingComplete":not missing,"itemCount":len(items),"packedItemCount":len(items)-len(missing),"missingItems":missing,"nextAction":"Dispatch this complete order" if ready else "Complete packing for every order item"}}
+        key = (str(item.get("productId")), str(item.get("variantId") or ""))
+        x = by_key.get(key)
+        final_qty = float((x or {}).get("finalQuantity", (x or {}).get("quantityRequired", item.get("quantity") or 0)) or 0)
+        packed = float((x or {}).get("packedQuantity") or 0)
+        if not x or packed + 1e-9 < final_qty or x.get("verified") is not True:
+            missing.append({
+                "productId": key[0],
+                "variantId": key[1] or None,
+                "productName": item.get("productName") or "Product",
+                "required": float(item.get("quantity") or 0),
+                "finalQuantity": final_qty,
+                "packed": packed,
+            })
+
+    cancelled = order.get("shortageCancelledItems") or []
+    shortage_detected = bool(order.get("shortageDetected"))
+    shortage_resolved = bool(order.get("shortageResolved")) if shortage_detected else True
+    ready = (
+        bool(items)
+        and not missing
+        and bool(order.get("packingComplete"))
+        and str(order.get("fulfillmentStage")) == "packed"
+        and (not shortage_detected or shortage_resolved)
+    )
+    return {
+        "success": True,
+        "data": {
+            "orderId": order_id,
+            "orderNumber": order.get("orderNumber"),
+            "readyForDispatch": ready,
+            "packingComplete": not missing and bool(order.get("packingComplete")),
+            "itemCount": len(items),
+            "packedItemCount": len(items) - len(missing),
+            "missingItems": missing,
+            "shortageDetected": shortage_detected,
+            "shortageResolved": shortage_resolved,
+            "cancelledShortageItems": cancelled,
+            "finalPayableAmount": float(order.get("finalPayableAmount", order.get("totalAmount", 0)) or 0),
+            "paymentMethod": order.get("paymentMethod"),
+            "paymentHandling": order.get("shortagePaymentHandling"),
+            "nextAction": "Dispatch this order" if ready else "Finalize packing and resolve any shortage before dispatch",
+        },
+    }
 
 @router.post("/me/delivery-map/self-delivery-plan")
 async def create_self_delivery_plan(
