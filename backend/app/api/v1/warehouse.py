@@ -520,6 +520,34 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
     await order_repository.append_tracking_event(str(task["orderId"]), "packing_completed" if packed_status == "packed" else "packing_partial", "Order packed" if packed_status == "packed" else "Order partially packed", f"Packed quantity: {data.packedQuantity:g} of {required:g}.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packedQuantity": data.packedQuantity, "quantityRequired": required, "packageId": data.packageId or f"PKG-{str(task['_id'])[-8:]}"})
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
+@router.get("/me/orders/{order_id}/fulfillment-check")
+async def warehouse_fulfillment_check(order_id: str, current_user: dict = Depends(get_current_user)):
+    """Return a hard completion checklist before a warehouse order can dispatch."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can audit fulfillment")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order or str(order.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Warehouse order not found")
+    tasks = await warehouse_packing_repository.get_by_order_all(order_id)
+    outgoing = await outgoing_stock_repository.find_many({"orderId": ObjectId(order_id), "warehouseId": ObjectId(str(warehouse["_id"])), "deletedAt": None}, skip=0, limit=1000)
+    required = [{"productId": str(i.get("productId")), "variantId": str(i.get("variantId") or ""), "quantity": float(i.get("quantity") or 0), "productName": i.get("productName") or "Product"} for i in (order.get("items") or [])]
+    packed = {str(t.get("itemKey")): float(t.get("packedQuantity") or 0) for t in tasks for _ in [0] if t.get("itemKey")}
+    missing=[]
+    for i in required:
+        key=f"{i['productId']}:{i['variantId']}"
+        qty=packed.get(key, 0.0)
+        if qty + 1e-9 < i["quantity"]:
+            missing.append({**i, "packedQuantity": qty})
+    all_verified=bool(tasks) and all(t.get("verified") is True for t in tasks) and not missing
+    outgoing_keys={(str(x.get("productId")), str(x.get("variantId") or "")): float(x.get("quantity") or 0) for x in outgoing}
+    missing_outgoing=[]
+    for i in required:
+        qty=outgoing_keys.get((i["productId"],i["variantId"]),0)
+        if qty + 1e-9 < i["quantity"]: missing_outgoing.append({**i,"outgoingQuantity":qty})
+    ready=all_verified and not missing_outgoing and str(order.get("warehouseFulfillmentStage")) in ("ready_for_dispatch","delivery_decision")
+    return {"success":True,"data":{"orderId":order_id,"orderNumber":order.get("orderNumber"),"readyForDispatch":ready,"packingComplete":not missing,"allPackingVerified":all_verified,"outgoingComplete":not missing_outgoing,"missingItems":missing,"missingOutgoing":missing_outgoing,"taskCount":len(tasks),"outgoingCount":len(outgoing)}}
+
 @router.put("/me/packing-tasks/{task_id}/verify")
 async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "warehouse": raise HTTPException(status_code=403, detail="Only warehouse managers can verify packing")
