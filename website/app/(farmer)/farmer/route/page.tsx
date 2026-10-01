@@ -1,5 +1,6 @@
 "use client";
 import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
+import { useSearchParams } from "next/navigation";
 
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -293,6 +294,9 @@ function WeatherCard({ farm }: { farm: Farm }) {
 }
 
 export default function FarmerRoutePage() {
+  const searchParams = useSearchParams();
+  const workflowOrderIds = searchParams.get("orderIds") || "";
+
   const [started, setStarted] = useState(false);
   const [tracking, setTracking] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -310,7 +314,7 @@ export default function FarmerRoutePage() {
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["farmerRoute"],
-    queryFn: () => api.get("/farmers/me/route"),
+    queryFn: () => api.get(`/farmers/me/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
     enabled: Boolean(accessToken),
   });
 
