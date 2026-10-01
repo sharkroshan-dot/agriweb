@@ -26,12 +26,18 @@ FARMER ORDER FULFILLMENT
   14. Confirmed -> Processing
   15. After Processing, choose exactly one fulfillment route:
       A. Farmer Fulfillment:
-         Pack -> Dispatch -> Delivery Decision
-         Self Delivery:
-           Radius -> Start Location -> Destination -> Select Orders -> Deliver
-         Delivery Partner:
-           Nearby -> Local Hub -> Delivery Partner -> Customer
-           Long Distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
+         Pack -> Dispatch -> Automatically open Farmer Order Map
+         Self Delivery method: choose exactly ONE
+           Route:
+             Start Location -> Destination / Route -> Select Orders Along Route
+           OR
+           Radius:
+             Select 2 / 5 / 10 / 20 / 50 KM -> Select Orders Within Radius
+         Create ONE Self-Delivery Route
+           Selected Orders -> Farmer Self Delivery -> Customer
+           Remaining Dispatched Orders -> Automatically enter Delivery Partner Routing
+             Nearby -> Local Hub -> Delivery Partner -> Customer
+             Long Distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
 
       B. Warehouse Fulfillment:
          Farmer confirms bulk harvested product is ready at the farm
