@@ -79,10 +79,14 @@ class NotificationService:
         title: str,
         message: str,
         data: Optional[Dict[str, Any]] = None,
-        priority: NotificationPriority = NotificationPriority.MEDIUM
+        priority: NotificationPriority = NotificationPriority.MEDIUM,
+        mandatory: bool = False,
     ) -> Optional[Dict[str, Any]]:
         enabled = await notification_preferences_repository.get_enabled_types(user_id)
-        if type.value not in enabled:
+        # Operational workflow changes must never be silently suppressed.
+        # Users may control marketing/general alerts, but the next role must
+        # always learn about work that requires action.
+        if not mandatory and type.value not in enabled:
             return None
 
         notification_data = {
@@ -663,7 +667,8 @@ class NotificationService:
             }
             try:
                 created = await NotificationService.create_in_app_notification(
-                    recipient_id, notification_type, heading, text, data, priority
+                    recipient_id, notification_type, heading, text, data, priority,
+                    mandatory=True,
                 )
                 push_sent = await NotificationService.send_push_notification(
                     recipient_id, heading, text, data
