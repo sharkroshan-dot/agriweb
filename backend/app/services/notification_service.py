@@ -591,6 +591,92 @@ class NotificationService:
         return await NotificationService.send_sms(phone, message)
 
     @staticmethod
+    async def send_order_workflow_update(
+        order: Dict[str, Any],
+        status: Optional[str] = None,
+        stage: Optional[str] = None,
+        title: Optional[str] = None,
+        message: Optional[str] = None,
+        actor_role: Optional[str] = None,
+        priority: NotificationPriority = NotificationPriority.HIGH,
+    ) -> bool:
+        """Notify every role that must know about an order workflow change.
+
+        This is intentionally server-side and idempotent at the event level:
+        UIs do not need to be open for the next role to learn that work moved.
+        """
+        order_id = str(order.get("_id") or order.get("id") or "")
+        order_number = order.get("orderNumber") or order_id
+        status_text = str(status or order.get("orderStatus") or "").replace("_", " ").title()
+        stage_text = str(stage or order.get("fulfillmentStage") or order.get("warehouseFulfillmentStage") or "").replace("_", " ").title()
+        text = message or (
+            f"Order #{order_number} is now {status_text}"
+            + (f" ({stage_text})." if stage_text else ".")
+        )
+        heading = title or f"Order #{order_number} Updated"
+
+        recipients: Dict[str, str] = {}
+        customer_id = order.get("customerId")
+        farmer_id = order.get("farmerId")
+        if customer_id:
+            recipients[str(customer_id)] = "customer"
+        if farmer_id:
+            recipients[str(farmer_id)] = "farmer"
+
+        try:
+            if order.get("warehouseId"):
+                from app.repositories.warehouse_repository import warehouse_repository
+                warehouse = await warehouse_repository.get_by_id(str(order["warehouseId"]))
+                if warehouse and warehouse.get("managerId"):
+                    recipients[str(warehouse["managerId"])] = "warehouse"
+        except Exception:
+            logger.exception("Failed to resolve warehouse manager for workflow notification")
+
+        try:
+            if order.get("deliveryPartnerId"):
+                from app.repositories.delivery_repository import delivery_repository
+                partner = await delivery_repository.get_by_id(str(order["deliveryPartnerId"]))
+                if partner and partner.get("userId"):
+                    recipients[str(partner["userId"])] = "delivery"
+        except Exception:
+            logger.exception("Failed to resolve delivery partner for workflow notification")
+
+        sent = False
+        for recipient_id, recipient_role in recipients.items():
+            if recipient_role == actor_role:
+                continue
+            notification_type = {
+                "customer": NotificationType.ORDER,
+                "farmer": NotificationType.FARMER,
+                "warehouse": NotificationType.WAREHOUSE,
+                "delivery": NotificationType.DELIVERY,
+            }.get(recipient_role, NotificationType.SYSTEM)
+            data = {
+                "type": "order_workflow_update",
+                "orderId": order_id,
+                "orderNumber": order_number,
+                "status": status,
+                "stage": stage,
+                "recipientRole": recipient_role,
+                "actorRole": actor_role,
+                "url": f"/orders/{order_id}",
+            }
+            try:
+                created = await NotificationService.create_in_app_notification(
+                    recipient_id, notification_type, heading, text, data, priority
+                )
+                push_sent = await NotificationService.send_push_notification(
+                    recipient_id, heading, text, data
+                )
+                sent = sent or bool(created) or push_sent
+            except Exception:
+                logger.exception(
+                    "Failed workflow notification for order %s to %s",
+                    order_id, recipient_role
+                )
+        return sent
+
+    @staticmethod
     async def send_order_confirmation(user_id: str, order_id: str) -> bool:
         from app.services.order_service import OrderService
         from app.services.user_service import UserService
