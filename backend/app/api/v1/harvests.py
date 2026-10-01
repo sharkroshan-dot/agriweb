@@ -487,12 +487,12 @@ async def _apply_harvest(plan: dict) -> int:
 @router.post("/plans/{plan_id}/harvest")
 async def mark_harvested(
     plan_id: str,
+    data: HarvestConfirmation,
     current_user: dict = Depends(get_current_user),
 ):
-    """Mark a harvest plan as harvested; notify subscribers + confirm pre-orders."""
+    """Record actual harvest quantity/rate and create a quality-gated batch."""
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can mark a harvest")
-
     plan = await harvest_plan_repo.find_one({"_id": ObjectId(plan_id), "deletedAt": None})
     if not plan:
         raise HTTPException(status_code=404, detail="Harvest plan not found")
@@ -500,24 +500,34 @@ async def mark_harvested(
         raise HTTPException(status_code=403, detail="Not your harvest plan")
     if plan.get("status") == PLAN_HARVESTED:
         raise HTTPException(status_code=400, detail="Plan is already marked harvested")
-    if plan.get("productCreated"):
-        raise HTTPException(
-            status_code=400,
-            detail="A product was already created from this harvest plan, so it cannot be harvested again.",
-        )
 
-    await harvest_plan_repo.update(
-        {"_id": ObjectId(plan_id)},
-        {"status": PLAN_HARVESTED, "harvestedAt": datetime.utcnow()},
-    )
+    now = datetime.utcnow()
+    await harvest_plan_repo.update({"_id": ObjectId(plan_id)}, {"status": PLAN_HARVESTED, "stage": "harvested", "harvestedAt": now, "actualQuantityKg": float(data.actualQuantityKg), "finalSellingRatePerKg": float(data.finalSellingRatePerKg), "qualityVerificationStatus": "pending", "updatedAt": now})
+
+    batch = await harvest_batch_repo.find_one({"sourceHarvestPlanId": ObjectId(plan_id), "deletedAt": None})
+    if not batch:
+        from app.api.v1.batches import DEFAULT_SHELF_LIFE_DAYS, STORAGE_TYPES, _next_lot_number
+        storage = plan.get("storageType") if plan.get("storageType") in STORAGE_TYPES else "normal"
+        shelf = DEFAULT_SHELF_LIFE_DAYS.get(storage, 3)
+        batch_doc = {
+            "farmerId": ObjectId(current_user["_id"]), "lotNumber": await _next_lot_number(),
+            "cropName": plan.get("cropName"), "quantityKg": float(data.actualQuantityKg), "remainingKg": float(data.actualQuantityKg),
+            "harvestDate": now, "qualityGrade": None, "storageType": storage, "shelfLifeDays": shelf, "expiresAt": now + timedelta(days=shelf),
+            "productId": ObjectId(plan["productId"]) if plan.get("productId") else None, "sourceHarvestPlanId": ObjectId(plan_id),
+            "actualQuantityKg": float(data.actualQuantityKg), "finalSellingRatePerKg": float(data.finalSellingRatePerKg),
+            "status": "created", "createdAt": now, "updatedAt": now, "deletedAt": None,
+        }
+        from app.core.quality import base_verification_fields
+        batch_doc.update(base_verification_fields(None))
+        batch_id = await harvest_batch_repo.create(batch_doc)
+        if not batch_id:
+            raise HTTPException(status_code=400, detail="Failed to create harvest batch")
+        await harvest_plan_repo.update({"_id": ObjectId(plan_id)}, {"batchId": ObjectId(batch_id)})
+    else:
+        batch_id = str(batch["_id"])
 
     notified = await _apply_harvest(plan)
-
-    return {
-        "success": True,
-        "data": {"planId": plan_id, "notifiedCount": notified},
-        "message": f"Harvest marked. {notified} subscribers notified.",
-    }
+    return {"success": True, "data": {"planId": plan_id, "batchId": str(batch_id), "actualQuantityKg": data.actualQuantityKg, "finalSellingRatePerKg": data.finalSellingRatePerKg, "qualityVerificationStatus": "pending", "notifiedCount": notified}, "message": "Harvest recorded and batch created. Quality verification is required before marketplace activation."}
 
 
 class StageTransition(BaseModel):
