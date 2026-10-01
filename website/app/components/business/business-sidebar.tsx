@@ -25,7 +25,7 @@ import { api } from "../../lib/api/client";
 const navGroups = [
   {
     label: "Overview",
-    items: [{ name: "Dashboard", href: "/business/dashboard", icon: LayoutDashboard }],
+    items: [{ name: "My Workflow", href: "/workflow", icon: LayoutDashboard }, { name: "Dashboard", href: "/business/dashboard", icon: LayoutDashboard }],
   },
   {
     label: "Procurement",
