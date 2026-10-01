@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.repositories.product_repository import product_repository
 from app.repositories.category_repository import category_repository
 from app.repositories.inventory_repository import inventory_repository
