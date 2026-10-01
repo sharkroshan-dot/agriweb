@@ -574,8 +574,9 @@ async def warehouse_fulfillment_check(order_id: str, current_user: dict = Depend
     for i in required:
         qty=outgoing_keys.get((i["productId"],i["variantId"]),0)
         if qty + 1e-9 < i["quantity"]: missing_outgoing.append({**i,"outgoingQuantity":qty})
-    ready=all_verified and not missing_outgoing and str(order.get("warehouseFulfillmentStage")) in ("ready_for_dispatch","delivery_decision")
-    return {"success":True,"data":{"orderId":order_id,"orderNumber":order.get("orderNumber"),"readyForDispatch":ready,"packingComplete":not missing,"allPackingVerified":all_verified,"outgoingComplete":not missing_outgoing,"missingItems":missing,"missingOutgoing":missing_outgoing,"taskCount":len(tasks),"outgoingCount":len(outgoing)}}
+    shortage_pending = bool(order.get("shortageResolutionRequired")) or str(order.get("warehouseFulfillmentStage") or "") == "shortage_pending"
+    ready=all_verified and not missing_outgoing and not shortage_pending and str(order.get("warehouseFulfillmentStage")) in ("ready_for_dispatch","delivery_decision")
+    return {"success":True,"data":{"orderId":order_id,"orderNumber":order.get("orderNumber"),"readyForDispatch":ready,"packingComplete":not missing,"allPackingVerified":all_verified,"outgoingComplete":not missing_outgoing,"shortagePending":shortage_pending,"missingItems":missing,"missingOutgoing":missing_outgoing,"taskCount":len(tasks),"outgoingCount":len(outgoing)}}
 
 @router.put("/me/packing-tasks/{task_id}/verify")
 async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_user: dict = Depends(get_current_user)):
