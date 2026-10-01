@@ -1713,15 +1713,13 @@ class OrderService:
 
     @staticmethod
     async def update_fulfillment_stage(order_id: str, user_id: str, role: str, stage: FulfillmentStage) -> Optional[Dict[str, Any]]:
-        """Farmer-direct Pack -> Dispatch lifecycle. Pick is intentionally removed."""
+        """Farmer-direct Pack -> Dispatch lifecycle with a complete-order gate."""
         order = await order_repository.get_by_id(order_id)
         if not order or str(order.get("fulfillmentMethod") or FulfillmentMethod.FARM_DIRECT.value) != FulfillmentMethod.FARM_DIRECT.value:
             return None
         if role == "farmer" and str(order.get("farmerId")) != user_id:
             return None
-        if role not in ("farmer", "admin"):
-            return None
-        if order.get("fulfillmentRouteSelected") is not True:
+        if role not in ("farmer", "admin") or order.get("fulfillmentRouteSelected") is not True:
             return None
         current = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
         target = stage.value
@@ -1732,11 +1730,40 @@ class OrderService:
         }
         if target not in allowed.get(current, set()) or str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
             return None
-        update = {"fulfillmentStage": target, "updatedAt": datetime.utcnow()}
-        if target == FulfillmentStage.DISPATCHED.value:
-            update["orderStatus"] = OrderStatus.READY_FOR_DELIVERY.value
-            update["dispatchedAt"] = datetime.utcnow()
+        items = order.get("items") or []
+        if not items:
+            return None
+        if target == FulfillmentStage.PACKED.value:
+            checklist = [{
+                "productId": str(i.get("productId")),
+                "variantId": str(i.get("variantId") or ""),
+                "productName": i.get("productName") or "Product",
+                "quantityRequired": float(i.get("quantity") or 0),
+                "packedQuantity": float(i.get("quantity") or 0),
+                "verified": True,
+            } for i in items]
+            update = {
+                "fulfillmentStage": target,
+                "packingChecklist": checklist,
+                "packingComplete": True,
+                "packedAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            }
+        else:
+            checklist = order.get("packingChecklist") or []
+            complete = bool(order.get("packingComplete")) and len(checklist) == len(items) and all(
+                float(x.get("packedQuantity") or 0) >= float(x.get("quantityRequired") or 0) and x.get("verified") is True
+                for x in checklist
+            )
+            if not complete:
+                return None
+            update = {"fulfillmentStage": target, "updatedAt": datetime.utcnow()}
+            if target == FulfillmentStage.DISPATCHED.value:
+                update["orderStatus"] = OrderStatus.READY_FOR_DELIVERY.value
+                update["dispatchedAt"] = datetime.utcnow()
+                update["dispatchReadyChecklistComplete"] = True
         await order_repository.update({"_id": order["_id"]}, update)
+        await order_repository.append_tracking_event(order_id, "fulfillment_packed" if target == FulfillmentStage.PACKED.value else "fulfillment_dispatched", "Customer order packed" if target == FulfillmentStage.PACKED.value else "Customer order dispatched", "Every customer order item is recorded as packed and verified." if target == FulfillmentStage.PACKED.value else "The complete packed customer order passed the dispatch gate.", actor_id=user_id, actor_role=role, metadata={"itemCount": len(items)})
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
