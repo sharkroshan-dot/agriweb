@@ -154,7 +154,8 @@ class ProductService:
         # Prepare product data
         product_data = data.dict(exclude={"variants"})
         product_data["farmerId"] = ObjectId(farmer_id)
-        product_data["status"] = "active"
+        product_data["status"] = "draft"
+        product_data["isActive"] = False
         if not product_data.get("country"):
             product_data["country"] = "India"
 
@@ -195,16 +196,7 @@ class ProductService:
         if data.sourceHarvestPlanId:
             try:
                 plan_oid = ObjectId(data.sourceHarvestPlanId)
-                # Mark harvested only if not already harvested (keeps original harvestedAt).
-                await harvest_plan_repo.collection.update_one(
-                    {"_id": plan_oid, "deletedAt": None, "status": {"$ne": "harvested"}},
-                    {"$set": {
-                        "status": "harvested",
-                        "stage": "harvested",
-                        "harvestedAt": datetime.utcnow(),
-                        "updatedAt": datetime.utcnow(),
-                    }},
-                )
+                plan = await harvest_plan_repo.find_one({"_id": plan_oid, "deletedAt": None})
                 await harvest_plan_repo.update(
                     {"_id": plan_oid, "deletedAt": None},
                     {
@@ -213,6 +205,13 @@ class ProductService:
                         "updatedAt": datetime.utcnow(),
                     },
                 )
+                # Link the quality-gated harvest batch to this product.
+                batch = await BaseRepository("batches").find_one({"sourceHarvestPlanId": plan_oid, "deletedAt": None})
+                if batch:
+                    await BaseRepository("batches").update({"_id": batch["_id"]}, {"productId": ObjectId(product_id), "updatedAt": datetime.utcnow()})
+                # Never activate a harvest product before quality approval.
+                if plan and plan.get("qualityVerificationStatus") != "approved":
+                    await product_repository.update_product(product_id, {"isActive": False, "status": "draft"})
             except Exception as e:
                 logger.warning(f"Failed to link harvest plan {data.sourceHarvestPlanId} to product {product_id}: {e}")
 
