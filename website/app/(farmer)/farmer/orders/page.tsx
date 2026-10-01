@@ -657,9 +657,6 @@ export default function FarmerOrdersPage() {
                             {order.deliveryPartnerId && order.deliveryPartnerName && (
                               <><span>•</span><span>Partner: <span className="font-medium text-indigo-600">{order.deliveryPartnerName}</span></span></>
                             )}
-                            {order.pickedBy && (
-                              <><span>•</span><span>Picked by: <span className="font-medium text-emerald-600">{order.pickedBy}</span></span></>
-                            )}
                           </div>
                           <div className="mt-3 flex flex-wrap gap-1.5">
                             {(order.items || []).slice(0,3).map((item:any, idx:number)=> (<Badge key={idx} variant="outline" className="text-xs">{item.quantity}x {item.productName}</Badge>))}
@@ -715,11 +712,11 @@ export default function FarmerOrdersPage() {
                                   </>
                                 ) : order.fulfillmentMethod === "farmer" ? (
                                   <>
-                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending" || order.fulfillmentStage === "picked") && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
+                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
                                     {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
                                   </>
                                 ) : (
-                                  <span className="text-xs text-muted-foreground">Warehouse will Receive → Check → Store → Pick → Pack → Dispatch.</span>
+                                  <span className="text-xs text-muted-foreground">Warehouse will Incoming → Receive → Store → Pack → Dispatch.</span>
                                 )}
                                 <span className="text-xs text-muted-foreground">
                                   Distance: {Number(order.deliveryDetails?.distanceKm || 0).toFixed(1)} km
