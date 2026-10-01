@@ -496,7 +496,7 @@ class WarehouseService:
             if route not in ("nearby", "long_distance"):
                 return None
             if str(order.get("warehouseFulfillmentStage") or "") not in (
-                "ready_for_dispatch", "delivery_decision"
+                "ready_for_dispatch", "delivery_decision", "dispatched"
             ):
                 return None
 
