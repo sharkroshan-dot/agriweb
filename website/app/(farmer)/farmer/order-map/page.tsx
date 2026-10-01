@@ -1854,7 +1854,7 @@ export default function FarmerOrderMapPage() {
       <Dialog open={assignDialogOpen} onOpenChange={(v) => !v && setAssignDialogOpen(false)} wide>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Assign outside orders to delivery partners</DialogTitle>
+            <DialogTitle>Assign long-distance orders to delivery partners</DialogTitle>
             <DialogDescription>
               {outsideActionStats.count} unassigned order{outsideActionStats.count === 1 ? "" : "s"} are outside {radiusKm} km.
               Choose how they should be handled. Nothing is assigned until you confirm.
