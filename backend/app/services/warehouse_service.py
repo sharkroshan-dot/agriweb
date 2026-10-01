@@ -408,7 +408,10 @@ class WarehouseService:
             return None
         from app.repositories.order_repository import order_repository
         order = await order_repository.get_by_id(str(outgoing.get("orderId"))) if outgoing.get("orderId") else None
-        if not order or str(order.get("fulfillmentMethod") or "farmer") != "warehouse":
+        if not order:
+            return None
+        transfer_only = str(order.get("logisticsMode") or "") == "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+        if str(order.get("fulfillmentMethod") or "farmer") != "warehouse" and not transfer_only:
             return None
         success = await outgoing_stock_repository.update_status(outgoing_id, status, data)
         if not success:
