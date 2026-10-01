@@ -299,6 +299,37 @@ async def finalize_farmer_packing(order_id: str, payload: dict = Body(...), curr
     result["id"] = str(result["_id"])
     return {"success": True, "data": result, "message": "Packing finalized. Any unavailable quantity was cancelled and the final payable amount was recalculated."}
 
+class CustomerShortageResolutionRequest(BaseModel):
+    shortageId: str
+    resolutionType: str = Field(..., pattern="^(customer_approval|substitution_approval)$")
+    approvedQuantity: Optional[float] = Field(None, ge=0)
+    substituteProductId: Optional[str] = None
+    substituteVariantId: Optional[str] = None
+
+
+@router.put("/{order_id}/shortage-resolution")
+async def resolve_customer_shortage(
+    order_id: str,
+    data: CustomerShortageResolutionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "customer":
+        raise HTTPException(status_code=403, detail="Only customers can resolve their order shortage")
+    result = await OrderService.resolve_customer_shortage(
+        order_id,
+        str(current_user["_id"]),
+        data.shortageId,
+        data.resolutionType,
+        data.approvedQuantity,
+        data.substituteProductId,
+        data.substituteVariantId,
+    )
+    if not result:
+        raise HTTPException(status_code=400, detail="Shortage decision cannot be applied to this order")
+    result["id"] = str(result["_id"])
+    return {"success": True, "data": result, "message": "Shortage decision saved. The order is back in warehouse packing."}
+
+
 @router.put("/{order_id}/fulfillment-stage")
 async def update_fulfillment_stage(order_id: str, stage: FulfillmentStage, current_user: dict = Depends(get_current_user)):
     result = await OrderService.update_fulfillment_stage(
