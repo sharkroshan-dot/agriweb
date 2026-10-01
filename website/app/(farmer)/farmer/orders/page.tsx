@@ -653,22 +653,22 @@ export default function FarmerOrdersPage() {
                               </div>
                             )}
 
-                            {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
+                            {getStatus(order) === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
                               <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(order.id || order._id)}`)}>
                                 <Navigation className="mr-1.5 h-3.5 w-3.5"/>Open Order Map
                               </Button>
                             )}
-                            {getStatus(order) === "ready_for_delivery" && order.deliveryType !== "pickup" && (order.selfDelivery || order.deliveryPartnerId || order.partnerRequested) && (
+                            {getStatus(order) === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && order.deliveryType !== "pickup" && (order.selfDelivery || order.deliveryPartnerId || order.partnerRequested) && (
                               <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(order.id || order._id, 'dispatched')}>
                                 <Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch
                               </Button>
                             )}
-                            {getStatus(order) === "dispatched" && !order.selfDelivery && !order.deliveryPartnerId && (
+                            {getStatus(order) === "dispatched" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && (
                               <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => handleUpdateStatus(order.id || order._id, 'in_transit')}>
                                 <Truck className="mr-1.5 h-3.5 w-3.5"/>In Transit
                               </Button>
                             )}
-                            {getStatus(order) === "dispatched" && (order.selfDelivery || order.deliveryPartnerId) && (
+                            {getStatus(order) === "dispatched" && order.fulfillmentMethod === "farmer" && (order.selfDelivery || order.deliveryPartnerId) && (
                               <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(order.id || order._id, 'in_transit')}>
                                 <Truck className="mr-1.5 h-3.5 w-3.5"/>In Transit
                               </Button>
