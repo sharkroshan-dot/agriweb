@@ -129,6 +129,31 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const [bulkRunning, setBulkRunning] = useState(false);
+
+  const handleRunAllEligible = async () => {
+    try {
+      setBulkRunning(true);
+      const response = await api.post("/orders/farmer/bulk-run");
+      const result = response?.data || response;
+      const processed = Number(result?.processedOrders || 0);
+      const blocked = Number(result?.blockedOrders || 0);
+      toast.success(
+        processed
+          ? `${processed} order${processed === 1 ? "" : "s"} processed through all currently eligible farmer steps${blocked ? ` · ${blocked} waiting for a manual/warehouse step` : ""}`
+          : "No orders can advance automatically. Check the waiting reasons on individual orders.",
+      );
+      await refetch();
+      await availabilityQuery.refetch();
+    } catch (error: any) {
+      let msg = "Failed to run all eligible orders";
+      try { const j = JSON.parse(error.message); msg = j.detail || j.error?.message || j.message || msg; } catch {}
+      toast.error(msg);
+    } finally {
+      setBulkRunning(false);
+    }
+  };
+
   const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "pack" | "dispatch") => {
     try {
       const response = await api.post("/orders/farmer/bulk-advance", { action });
@@ -253,13 +278,22 @@ export default function FarmerOrdersPage() {
                 Complete one stage first; the next action appears automatically. Bulk actions advance only eligible orders by one stage.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => handleBulkWorkflowAction("confirm")}>Confirm All</Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>Process All</Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Farmer Fulfillment All</Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Warehouse Fulfillment All</Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("pack")}>Pack All</Button>
-              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch All</Button>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={bulkRunning} onClick={handleRunAllEligible}>
+                  {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  {bulkRunning ? "Processing Orders..." : "Run All Eligible"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("confirm")}>Confirm All</Button>
+                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>Process All</Button>
+                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Farmer Fulfillment All</Button>
+                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Warehouse Fulfillment All</Button>
+                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("pack")}>Pack All</Button>
+                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch All</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-emerald-700">Run All Eligible</span> automatically advances each order through the farmer-owned stages it can safely complete. It stops at fulfillment selection, warehouse collection, or delivery decisions that require your input.
+              </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
