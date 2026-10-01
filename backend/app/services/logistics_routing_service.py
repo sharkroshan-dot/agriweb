@@ -106,7 +106,12 @@ async def apply_partner_route(
         "nearbyFulfillmentRequired": True,
         "nearbyFulfillmentType": "local_hub",
         "nearbyFulfillmentLocationId": hub.get("_id") if hub else None,
-        "nearbyFulfillmentLocation": hub.get("name") if hub else None,
+        "nearbyFulfillmentLocation": ({
+            "id": str(hub.get("_id")),
+            "name": hub.get("name") or hub.get("hubName") or "Local Fulfillment Hub",
+            "address": hub.get("address") or "",
+            "coordinates": (hub.get("location") or {}).get("coordinates") or (hub.get("coordinates") or {}).get("coordinates") or [],
+        } if hub else None),
         "deliveryRadiusKm": radius_km,
         "logisticsMode": (
             "farmer_to_local_hub_to_delivery_partner"
