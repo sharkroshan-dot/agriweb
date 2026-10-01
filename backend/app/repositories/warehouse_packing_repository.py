@@ -28,6 +28,12 @@ class WarehousePackingRepository(BaseRepository):
         except Exception:
             return None
 
+    async def get_by_order_all(self, order_id: str) -> List[Dict[str, Any]]:
+        try:
+            return await self.find_many({"orderId": ObjectId(order_id), "deletedAt": None}, skip=0, limit=1000)
+        except Exception:
+            return []
+
     async def create_task(self, data: Dict[str, Any]) -> Optional[str]:
         now = datetime.utcnow()
         data = dict(data)
