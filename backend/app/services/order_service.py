@@ -1411,7 +1411,8 @@ class OrderService:
                     method = FulfillmentMethod.FARM_DIRECT if action == "farmer_fulfillment" else FulfillmentMethod.WAREHOUSE
                     updated = await OrderService.set_fulfillment_route(oid, farmer_id, "farmer", method)
                 elif action == "pack" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PENDING.value:
-                    updated = await OrderService.update_fulfillment_stage(oid, farmer_id, "farmer", FulfillmentStage.PACKED)
+                    # Actual packing quantities must be entered through the final
+                    # packing endpoint; never auto-claim the ordered quantity.
                 elif action == "dispatch" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PACKED.value:
                     updated = await OrderService.update_fulfillment_stage(oid, farmer_id, "farmer", FulfillmentStage.DISPATCHED)
                 if updated:
@@ -1471,15 +1472,7 @@ class OrderService:
                     reason = "Fulfillment method required"
                 elif reason is None and route == FulfillmentMethod.FARM_DIRECT.value:
                     if stage == FulfillmentStage.PENDING.value:
-                        updated = await OrderService.update_fulfillment_stage(
-                            oid, farmer_id, "farmer", FulfillmentStage.PACKED
-                        )
-                        if updated:
-                            changed.append("packed")
-                            order = await order_repository.get_by_id(oid)
-                            stage = str(order.get("fulfillmentStage") or "")
-                        else:
-                            reason = "Could not pack order"
+                        reason = "Actual packing quantities required"
                     if reason is None and stage == FulfillmentStage.PACKED.value:
                         updated = await OrderService.update_fulfillment_stage(
                             oid, farmer_id, "farmer", FulfillmentStage.DISPATCHED
