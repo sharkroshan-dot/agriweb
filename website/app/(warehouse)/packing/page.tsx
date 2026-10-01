@@ -88,6 +88,22 @@ export default function WarehousePackingPage() {
               <p className="mt-2 text-sm text-muted-foreground">Required: <b>{t.quantityRequired}</b> · Packed: <b>{t.packedQuantity || 0}</b> · Batch: {t.batchId || "—"}</p>
               <p className="mt-1 text-sm font-medium text-slate-900">Customer: {t.customer?.name || "Loading customer"}</p>
               <p className="mt-1 text-xs text-muted-foreground">Products: {(t.items || []).map((i:any) => `${i.productName} — ${i.quantity}`).join(" · ") || t.productId}</p>
+              {(t.packingItems || []).length > 0 && (
+                <div className="mt-3 rounded-md border bg-slate-50 p-3 text-xs">
+                  <div className="font-semibold text-slate-800">Order-line allocation</div>
+                  <div className="mt-2 space-y-1">
+                    {(t.packingItems || []).map((i:any) => (
+                      <div key={i.itemKey} className="flex flex-wrap justify-between gap-2">
+                        <span>{i.productName}</span>
+                        <span>
+                          {Number(i.packedQuantity || 0)} / {Number(i.quantityRequired || 0)} {i.unit || "kg"}
+                          {Number(i.quantityShort || 0) > 0 && <span className="ml-2 font-semibold text-red-700">short {Number(i.quantityShort).toFixed(2)} {i.unit || "kg"}</span>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <p className="mt-1 text-xs text-muted-foreground">Delivery: {t.deliveryAddress ? [t.deliveryAddress.addressLine1, t.deliveryAddress.city, t.deliveryAddress.state, t.deliveryAddress.zipCode].filter(Boolean).join(", ") : "Address not available"}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
