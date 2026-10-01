@@ -20,6 +20,11 @@ const typeLabels: Record<string, string> = {
   promotion: "Offer",
   system: "System",
   customer: "Update",
+  warehouse: "Warehouse",
+  farmer: "Farmer",
+  admin: "Admin",
+  security: "Security",
+  chat: "Message",
 };
 
 const typeIcons: Record<string, any> = {
@@ -29,6 +34,11 @@ const typeIcons: Record<string, any> = {
   promotion: "Offer",
   system: "System",
   customer: "Update",
+  warehouse: "Warehouse",
+  farmer: "Farmer",
+  admin: "Admin",
+  security: "Security",
+  chat: "Message",
 };
 
 const typeColors: Record<string, string> = {
@@ -110,7 +120,14 @@ export default function NotificationsPage() {
   };
 
   const openDetail = (notification: NotificationDetail) => {
-    setSelectedNotification(notification);
+    const normalized = {
+      ...notification,
+      actionUrl: notification.actionUrl || notification.data?.url,
+      actionLabel: notification.actionLabel || (
+        notification.data?.type === "order_workflow_update" ? "Open Workflow" : "View Details"
+      ),
+    };
+    setSelectedNotification(normalized);
     setIsDetailOpen(true);
     if (!notification.isRead) {
       markRead(notification.id);
