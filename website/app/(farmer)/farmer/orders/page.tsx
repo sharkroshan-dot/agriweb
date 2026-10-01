@@ -698,17 +698,20 @@ export default function FarmerOrdersPage() {
                             {(order.items || []).slice(0,3).map((item:any, idx:number)=> (<Badge key={idx} variant="outline" className="text-xs">{item.quantity}x {item.productName}</Badge>))}
                             {(order.items || []).length > 3 && (<Badge variant="outline" className="text-xs">+{(order.items || []).length - 3} more</Badge>)}
                           </div>
+
+                          <div className="mt-4 flex items-center justify-between rounded-lg border bg-emerald-50/60 px-3 py-2.5">
+                            <span className="text-xs font-medium text-slate-500">Order total</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</span>
+                              {paymentBadge(order.paymentMethod).label && (
+                                <span className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-semibold border", paymentBadge(order.paymentMethod).cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20")}>
+                                  {paymentBadge(order.paymentMethod).label}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                         <div className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-4 lg:col-span-1 lg:border-l lg:border-t-0 lg:rounded-l-none lg:bg-transparent lg:pl-5">
-                          <div className="flex items-center justify-between gap-3 border-b pb-3 lg:block">
-  <div><p className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</p>
-  {paymentBadge(order.paymentMethod).label && (
-    <span className={cn("mt-1 inline-block rounded-md px-1.5 py-0.5 text-[11px] font-semibold border", paymentBadge(order.paymentMethod).cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20")}>
-      {paymentBadge(order.paymentMethod).label}
-    </span>
-  )}
-                          </div>
-</div>
                           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:grid-cols-1">
                             <Button size="sm" variant="outline" asChild className="w-full">
                               <Link href={`/farmer/orders/${order.id || order._id}`}><Eye className="mr-1.5 h-3.5 w-3.5"/>View</Link>
