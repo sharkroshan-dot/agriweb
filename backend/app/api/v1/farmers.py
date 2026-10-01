@@ -2461,14 +2461,33 @@ async def create_self_delivery_plan(
 
     selected = []
     remaining = []
+    invalid_selected = []
     for order in orders:
         oid = str(order["_id"])
         if order.get("selfDelivery") or order.get("deliveryPartnerId"):
             continue
         if oid in selected_ids:
+            addr = order.get("deliveryAddress") or {}
+            lat, lng = await _stop_coords(addr, oid)
+            if lat is None:
+                invalid_selected.append({"orderId": oid, "reason": "Customer location unavailable"})
+                continue
+            distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
+            if body.method == "radius" and distance_km > body.radius:
+                invalid_selected.append({"orderId": oid, "reason": f"Order is {round(distance_km, 2)} km from the farm and outside the selected {body.radius} km radius"})
+                continue
             selected.append(order)
         else:
             remaining.append(order)
+
+    if invalid_selected:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "One or more selected orders do not match the selected self-delivery radius.",
+                "invalidOrders": invalid_selected,
+            },
+        )
 
     if not selected:
         raise HTTPException(status_code=400, detail="None of the selected orders are available for self delivery")
