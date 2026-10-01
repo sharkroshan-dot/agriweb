@@ -179,7 +179,9 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
     perishability = product.get("perishabilityLevel") or (
         "high" if expected <= 48 else "medium" if expected <= 120 else "low"
     )
-    risk = _risk(remaining, minutes, perishability, bool(product.get("storageTemperature") is not None or not perishability == "high"))
+    storage_condition = str(product.get("storageCondition") or "good").lower()
+    storage_ok = storage_condition not in ("bad", "failed", "unsafe")
+    risk = _risk(remaining, minutes, perishability, storage_ok)
 
     source = "farmer"
     if order.get("warehouseId") and order.get("fulfillmentSource") == "warehouse":
