@@ -13,7 +13,7 @@ Collections:
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
 import math
@@ -279,6 +279,10 @@ async def _build_preorder_route(
 
 
 # ================== FARMER ENDPOINTS ==================
+
+class HarvestConfirmation(BaseModel):
+    actualQuantityKg: float = Field(gt=0)
+    finalSellingRatePerKg: float = Field(gt=0)
 
 class HarvestPlanCreate(BaseModel):
     cropName: str
