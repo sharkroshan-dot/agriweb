@@ -516,32 +516,125 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     task = await warehouse_packing_repository.get_by_id(task_id)
     if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
-    required = float(task.get("quantityRequired",0))
-    if data.packedQuantity > required: raise HTTPException(status_code=400, detail="Packed quantity cannot exceed required quantity")
-    if task.get("status") not in ("ready_for_packing","assigned","packing","partially_packed"): raise HTTPException(status_code=400, detail="Task is not packable")
+    required = float(task.get("quantityRequired") or 0)
+    if task.get("status") not in ("ready_for_packing","assigned","packing","partially_packed"):
+        raise HTTPException(status_code=400, detail="Task is not packable")
     packing_items = [dict(x) for x in (task.get("packingItems") or [])]
     if not packing_items:
         raise HTTPException(status_code=400, detail="Packing checklist is missing for this order. Re-sync the warehouse packing task before packing.")
-    # Pack every currently available quantity for each customer-order line.
-    # Never spread a shortage proportionally across unrelated products.
-    packed_total = 0.0
-    for line in packing_items:
-        required_line = float(line.get("quantityRequired") or 0)
-        available_line = float(line.get("quantityAvailable") if line.get("quantityAvailable") is not None else required_line)
-        already_packed = float(line.get("packedQuantity") or 0)
-        packable_remaining = max(0.0, min(required_line, available_line) - already_packed)
-        line["packedQuantity"] = min(required_line, already_packed + packable_remaining)
-        line["verified"] = False
-        packed_total += line["packedQuantity"]
 
-    packed_status = "packed" if all(float(x.get("packedQuantity") or 0) + 1e-9 >= float(x.get("quantityRequired") or 0) for x in packing_items) else "partially_packed"
-    await warehouse_packing_repository.update_task(task_id, {"packedQuantity":sum(float(x.get("packedQuantity") or 0) for x in packing_items),"packingItems":packing_items,"packageId":data.packageId or f"PKG-{str(task['_id'])[-8:]}","packingNotes":data.notes,"status":packed_status})
-    from app.repositories.order_repository import order_repository
-    await order_repository.update(
-        {"_id": ObjectId(str(task["orderId"]))},
-        {"warehouseFulfillmentStage": "packed" if packed_status == "packed" else "partially_packed", "updatedAt": datetime.utcnow()},
+    # The actual packed quantity is the authoritative shortage check.
+    # Do not decide the final shortage from inventory availability alone.
+    requested = {}
+    for item in (data.items or []):
+        key = (str(item.productId), str(item.variantId or ""))
+        requested[key] = max(0.0, float(item.packedQuantity))
+
+    if not requested:
+        # Backward-compatible clients pack the currently available quantity.
+        for line in packing_items:
+            key = (str(line.get("productId")), str(line.get("variantId") or ""))
+            available = float(line.get("quantityAvailable") or 0)
+            requested[key] = available
+
+    any_shortage = False
+    for line in packing_items:
+        key = (str(line.get("productId")), str(line.get("variantId") or ""))
+        required_line = float(line.get("quantityRequired") or 0)
+        already_packed = float(line.get("packedQuantity") or 0)
+        actual = max(already_packed, requested.get(key, 0.0))
+        if actual > required_line + 1e-9:
+            raise HTTPException(status_code=400, detail=f"Packed quantity cannot exceed required quantity for {line.get('productName') or line.get('productId')}")
+        line["packedQuantity"] = min(required_line, actual)
+        line["verified"] = False
+        line["quantityShort"] = max(0.0, required_line - line["packedQuantity"])
+        # This is informational until packing is complete; it becomes the
+        # authoritative shortage only after the final pack action.
+        any_shortage = any_shortage or line["quantityShort"] > 1e-9
+
+    packed_total = sum(float(x.get("packedQuantity") or 0) for x in packing_items)
+    all_packed = all(float(x.get("packedQuantity") or 0) + 1e-9 >= float(x.get("quantityRequired") or 0) for x in packing_items)
+    packed_status = "packed" if all_packed else "partially_packed"
+
+    await warehouse_packing_repository.update_task(
+        task_id,
+        {
+            "packedQuantity": packed_total,
+            "packingItems": packing_items,
+            "packageId": data.packageId or f"PKG-{str(task['_id'])[-8:]}",
+            "packingNotes": data.notes,
+            "status": packed_status,
+            "packingAttemptComplete": True,
+            "shortageDetectedAfterPacking": any_shortage,
+        },
     )
-    await order_repository.append_tracking_event(str(task["orderId"]), "packing_completed" if packed_status == "packed" else "packing_partial", "Order packed" if packed_status == "packed" else "Order partially packed", f"Packed quantity: {data.packedQuantity:g} of {required:g}.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packedQuantity": data.packedQuantity, "quantityRequired": required, "packageId": data.packageId or f"PKG-{str(task['_id'])[-8:]}"})
+
+    from app.repositories.order_repository import order_repository
+    order = await order_repository.get_by_id(str(task["orderId"]))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if all_packed:
+        await order_repository.update(
+            {"_id": ObjectId(str(task["orderId"]))},
+            {"warehouseFulfillmentStage": "packed", "packingComplete": True, "updatedAt": datetime.utcnow()},
+        )
+        event = ("packing_completed", "Order packing completed",
+                 "All customer-order quantities were physically packed. Final shortage check found no shortage.")
+    else:
+        # Final shortage is now known from the physical pack result.
+        # Create/update shortage cases only now; do not use an inventory
+        # availability shortage as the final business decision.
+        from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+        existing_cases = await warehouse_shortage_repository.get_by_warehouse(str(warehouse["_id"]), status=None, limit=1000)
+        existing_by_key = {
+            (str(x.get("orderId")), str(x.get("productId")), str(x.get("variantId") or "")): x
+            for x in existing_cases
+            if str(x.get("orderId")) == str(task["orderId"]) and x.get("status") not in ("resolved", "cancelled")
+        }
+        for line in packing_items:
+            short = float(line.get("quantityShort") or 0)
+            if short <= 1e-9:
+                continue
+            key = (str(task["orderId"]), str(line.get("productId")), str(line.get("variantId") or ""))
+            case = existing_by_key.get(key)
+            payload = {
+                "orderId": ObjectId(str(task["orderId"])),
+                "warehouseId": ObjectId(str(warehouse["_id"])),
+                "productId": ObjectId(str(line["productId"])),
+                "variantId": ObjectId(str(line["variantId"])) if line.get("variantId") else None,
+                "requiredQuantity": float(line.get("quantityRequired") or 0),
+                "availableQuantity": float(line.get("packedQuantity") or 0),
+                "shortageQuantity": short,
+                "shortageType": "packing_shortage",
+                "status": (case or {}).get("status") or "resolution_required",
+                "resolutionType": (case or {}).get("resolutionType"),
+                "notes": "Final shortage determined from actual physical packing.",
+            }
+            if case:
+                await warehouse_shortage_repository.update_case(str(case["_id"]), payload)
+            else:
+                await warehouse_shortage_repository.create_case(payload)
+
+        await order_repository.update(
+            {"_id": ObjectId(str(task["orderId"]))},
+            {
+                "warehouseFulfillmentStage": "shortage_pending",
+                "packingComplete": True,
+                "shortageDetected": True,
+                "shortageResolutionRequired": True,
+                "updatedAt": datetime.utcnow(),
+            },
+        )
+        event = ("packing_completed_with_shortage", "Packing completed with shortage",
+                 "Physical packing finished and the unresolved quantity requires a shortage resolution before dispatch.")
+
+    await order_repository.append_tracking_event(
+        str(task["orderId"]), event[0], event[1], event[2],
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"packedQuantity": packed_total, "quantityRequired": required,
+                  "packageId": data.packageId or f"PKG-{str(task['_id'])[-8:]}"}
+    )
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.get("/me/orders/{order_id}/fulfillment-check")
