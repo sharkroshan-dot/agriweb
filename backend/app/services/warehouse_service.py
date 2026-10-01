@@ -329,94 +329,146 @@ class WarehouseService:
 
     @staticmethod
     async def ensure_order_packing_task(order_id: str, warehouse_id: str) -> Optional[Dict[str, Any]]:
-        """Create/update one packing checklist for the complete customer order.
+        """Synchronize one complete customer-order packing task with usable stock.
 
-        A warehouse order is not packable until every ordered product has a
-        matching, quality-approved, stored inbound quantity. One task owns the
-        complete customer package, so no item can silently fall outside the
-        packing/verification workflow.
+        Partial usable stock is packable immediately. Only the unresolved
+        quantity remains a shortage. The task is never created line-by-line,
+        so the final dispatch audit can still prove every customer-order line.
         """
         from app.repositories.order_repository import order_repository
         from app.repositories.warehouse_packing_repository import warehouse_packing_repository
+        from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+
         order = await order_repository.get_by_id(order_id)
         if not order or str(order.get("fulfillmentMethod") or "") != "warehouse":
             return None
+
         incoming = await incoming_stock_repository.find_many({
             "orderId": ObjectId(order_id),
             "warehouseId": ObjectId(warehouse_id),
             "packingRequired": True,
             "deletedAt": None,
         }, skip=0, limit=1000)
-        inbound_by_key = {}
+
+        usable_by_key: Dict[tuple, float] = {}
         for row in incoming:
+            if str(row.get("qualityCheck") or "") != "passed":
+                continue
             key = (str(row.get("productId")), str(row.get("variantId") or ""))
-            row_usable = float(row.get("usableQuantity") if row.get("usableQuantity") is not None else row.get("quantityReceived") or 0)
-            if str(row.get("qualityCheck") or "") == "passed":
-                inbound_by_key[key] = inbound_by_key.get(key, 0.0) + row_usable
+            usable = float(
+                row.get("usableQuantity")
+                if row.get("usableQuantity") is not None
+                else row.get("quantityReceived") or 0
+            )
+            usable_by_key[key] = usable_by_key.get(key, 0.0) + max(0.0, usable)
+
+        existing = await warehouse_packing_repository.get_by_order(order_id)
+        existing_items = (existing or {}).get("packingItems") or []
+        existing_by_key = {str(x.get("itemKey")): x for x in existing_items}
+
         packing_items = []
-        missing = []
+        shortages = []
         for item in order.get("items") or []:
             key = (str(item.get("productId")), str(item.get("variantId") or ""))
+            item_key = f"{key[0]}:{key[1]}"
             required = float(item.get("quantity") or 0)
-            stored_qty = inbound_by_key.get(key, 0.0)
-            if stored_qty + 1e-9 < required:
-                shortage = required - stored_qty
-                missing.append({"productId": key[0], "variantId": key[1] or None, "required": required, "stored": stored_qty, "shortage": shortage})
+            available = min(required, max(0.0, usable_by_key.get(key, 0.0)))
+            short = max(0.0, required - available)
+            old = existing_by_key.get(item_key) or {}
+            packed = min(
+                required,
+                max(0.0, float(old.get("packedQuantity") or 0)),
+            )
             packing_items.append({
-                "itemKey": f"{key[0]}:{key[1]}",
+                "itemKey": item_key,
                 "productId": key[0],
                 "variantId": key[1] or None,
                 "productName": item.get("productName") or "Product",
                 "quantityRequired": required,
-                "packedQuantity": 0.0,
+                "quantityAvailable": available,
+                "quantityShort": short,
+                "packedQuantity": packed,
                 "unit": item.get("unit") or "kg",
+                "verified": bool(old.get("verified")) if short <= 1e-9 else False,
             })
-        if missing:
-            from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
-            for line in missing:
-                existing_shortage = await warehouse_shortage_repository.find_one({
-                    "orderId": ObjectId(order_id),
-                    "warehouseId": ObjectId(warehouse_id),
-                    "productId": ObjectId(line["productId"]),
-                    "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
-                    "status": {"$nin": ["resolved", "cancelled"]},
-                    "deletedAt": None,
+            if short > 1e-9:
+                shortages.append({
+                    "productId": key[0],
+                    "variantId": key[1] or None,
+                    "required": required,
+                    "available": available,
+                    "shortage": short,
                 })
-                payload = {
-                    "orderId": ObjectId(order_id),
-                    "warehouseId": ObjectId(warehouse_id),
-                    "productId": ObjectId(line["productId"]),
-                    "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
-                    "requiredQuantity": line["required"],
-                    "availableQuantity": line["stored"],
-                    "shortageQuantity": line["shortage"],
-                    "shortageType": "farmer_supply",
-                    "status": "open",
-                    "resolutionType": None,
-                    "notes": "Usable warehouse quantity is below the customer order requirement.",
-                }
-                if existing_shortage:
-                    await warehouse_shortage_repository.update({"_id": existing_shortage["_id"]}, {**payload, "updatedAt": datetime.utcnow()})
-                else:
-                    await warehouse_shortage_repository.create_case(payload)
-            await order_repository.update({"_id": ObjectId(order_id)}, {
-                "warehouseFulfillmentStage": "shortage_pending",
-                "packingReadiness": {"complete": False, "missingItems": missing, "shortagePending": True},
-                "shortageResolutionRequired": True,
-                "updatedAt": datetime.utcnow(),
-            })
-            return None
-        existing = await warehouse_packing_repository.get_by_order(order_id)
+
+        # Keep exactly one shortage case per affected order line.
+        for line in shortages:
+            query = {
+                "orderId": ObjectId(order_id),
+                "warehouseId": ObjectId(warehouse_id),
+                "productId": ObjectId(line["productId"]),
+                "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
+                "status": {"$nin": ["resolved", "cancelled"]},
+                "deletedAt": None,
+            }
+            existing_shortage = await warehouse_shortage_repository.find_one(query)
+            payload = {
+                "orderId": ObjectId(order_id),
+                "warehouseId": ObjectId(warehouse_id),
+                "productId": ObjectId(line["productId"]),
+                "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
+                "requiredQuantity": line["required"],
+                "availableQuantity": line["available"],
+                "shortageQuantity": line["shortage"],
+                "shortageType": "farmer_supply",
+                "resolutionType": (existing_shortage or {}).get("resolutionType"),
+                "notes": "Only the unavailable quantity is blocked. Available quantity may be packed immediately.",
+            }
+            if existing_shortage:
+                await warehouse_shortage_repository.update_case(
+                    str(existing_shortage["_id"]), payload
+                )
+            else:
+                await warehouse_shortage_repository.create_case(payload)
+
+        # Automatically close stale shortage cases once replenishment/other
+        # stock makes the complete line available again.
+        current_keys = {
+            (s["productId"], str(s.get("variantId") or "")) for s in shortages
+        }
+        open_cases = await warehouse_shortage_repository.get_by_warehouse(
+            warehouse_id, status=None, limit=1000
+        )
+        for case in open_cases:
+            if str(case.get("orderId")) != str(order_id):
+                continue
+            key = (str(case.get("productId")), str(case.get("variantId") or ""))
+            if key not in current_keys and case.get("status") not in ("resolved", "cancelled"):
+                await warehouse_shortage_repository.update_case(str(case["_id"]), {
+                    "status": "resolved",
+                    "resolutionType": case.get("resolutionType") or "stock_replenished",
+                    "resolvedAt": datetime.utcnow(),
+                    "resolvedQuantity": float(case.get("shortageQuantity") or 0),
+                    "notes": "Stock is now sufficient for the complete order line.",
+                })
+
+        total_required = sum(x["quantityRequired"] for x in packing_items)
+        total_available = sum(x["quantityAvailable"] for x in packing_items)
+        total_packed = sum(x["packedQuantity"] for x in packing_items)
+        has_shortage = bool(shortages)
+        has_packable_stock = total_available > 1e-9
+
         if existing:
-            existing_items = existing.get("packingItems") or []
-            for item in packing_items:
-                old_item = next((x for x in existing_items if x.get("itemKey") == item["itemKey"]), None)
-                if old_item:
-                    item["packedQuantity"] = float(old_item.get("packedQuantity") or 0)
-            await warehouse_packing_repository.update_task(str(existing["_id"]), {
+            task_updates = {
                 "packingItems": packing_items,
-                "quantityRequired": sum(x["quantityRequired"] for x in packing_items),
-            })
+                "quantityRequired": total_required,
+                "packedQuantity": total_packed,
+                "status": (
+                    "ready_for_packing"
+                    if has_packable_stock and total_packed + 1e-9 < total_required
+                    else ("packed" if total_packed + 1e-9 >= total_required else "ready_for_packing")
+                ),
+            }
+            await warehouse_packing_repository.update_task(str(existing["_id"]), task_updates)
             task = await warehouse_packing_repository.get_by_id(str(existing["_id"]))
         else:
             first = packing_items[0] if packing_items else {}
@@ -426,22 +478,36 @@ class WarehouseService:
                 "farmerId": ObjectId(str(order.get("farmerId"))),
                 "productId": ObjectId(first["productId"]) if first.get("productId") else None,
                 "variantId": ObjectId(first["variantId"]) if first.get("variantId") else None,
-                "quantityRequired": sum(x["quantityRequired"] for x in packing_items),
-                "packedQuantity": 0.0,
+                "quantityRequired": total_required,
+                "packedQuantity": total_packed,
                 "packingItems": packing_items,
                 "orderPacking": True,
-                "status": "ready_for_packing",
+                "status": "ready_for_packing" if has_packable_stock else "shortage_pending",
                 "packingResponsibility": "warehouse",
             })
             task = await warehouse_packing_repository.get_by_id(str(task_id)) if task_id else None
+
+        stage = (
+            "shortage_pending"
+            if has_shortage and not has_packable_stock
+            else ("partially_allocated" if has_shortage else "ready_for_packing")
+        )
         await order_repository.update({"_id": ObjectId(order_id)}, {
-            "warehouseFulfillmentStage": "ready_for_packing",
-            "packingReadiness": {"complete": True, "missingItems": []},
+            "warehouseFulfillmentStage": stage,
+            "packingReadiness": {
+                "complete": not has_shortage,
+                "partial": has_shortage and has_packable_stock,
+                "missingItems": shortages,
+                "shortagePending": has_shortage,
+                "totalRequired": total_required,
+                "totalAvailable": total_available,
+                "totalPacked": total_packed,
+            },
             "packingTaskId": task.get("_id") if task else None,
+            "shortageResolutionRequired": has_shortage,
             "updatedAt": datetime.utcnow(),
         })
         return task
-
     @staticmethod
     async def get_incoming_stock(
         warehouse_id: str,
