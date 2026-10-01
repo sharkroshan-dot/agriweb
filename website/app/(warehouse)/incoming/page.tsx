@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Search, CheckCircle, XCircle, Clock, ArrowDown, RefreshCw, Plus, MoreVertical, Package } from "lucide-react";
+import { Calendar, Search, CheckCircle, XCircle, Clock, ArrowDown, RefreshCw, Plus, MoreVertical, Package, Info } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -224,6 +224,7 @@ export default function WarehouseIncomingPage() {
 
   return (
     <div className="space-y-6">
+      <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Incoming is the warehouse receiving stage.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Farm Collection brings the shipment to the warehouse. Staff then Receive → Quality Check → Store. Do not mark a collection as received until the physical shipment has arrived.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
         <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button></div>
