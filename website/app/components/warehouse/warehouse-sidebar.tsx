@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   LayoutDashboard,
   Package,
+  PackageCheck,
   ArrowDown,
   ArrowUp,
   Warehouse,
@@ -31,6 +32,7 @@ const navItems = [
   { name: "Stock Management", href: "/stock", icon: Package },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
+  { name: "Order Packing", href: "/packing", icon: PackageCheck },
   { name: "Outgoing Stock", href: "/outgoing", icon: ArrowUp },
   { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
