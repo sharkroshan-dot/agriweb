@@ -33,7 +33,7 @@ import { api } from "../../lib/api/client";
 const navGroups = [
   {
     label: "Home",
-    items: [{ name: "Home", href: "/customer/dashboard", icon: LayoutDashboard }],
+    items: [{ name: "My Workflow", href: "/workflow", icon: Sparkles }, { name: "Home", href: "/customer/dashboard", icon: LayoutDashboard }],
   },
   {
     label: "Marketplace",
