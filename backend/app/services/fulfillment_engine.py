@@ -207,6 +207,29 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
                 "decision": "FARMER_TOO_FAR_TO_WAREHOUSE",
                 "nextStep": "WAREHOUSE_RECEIVE",
             })
+            warehouse_id = order.get("warehouseId")
+            if warehouse_id:
+                incoming = MongoDB.get_collection("incoming_stock")
+                for item in order.get("items") or []:
+                    product_id = item.get("productId")
+                    if not product_id:
+                        continue
+                    exists = await incoming.find_one({"orderId": order["_id"], "productId": ObjectId(str(product_id)), "deletedAt": None})
+                    if not exists:
+                        now = datetime.utcnow()
+                        await incoming.insert_one({
+                            "warehouseId": ObjectId(str(warehouse_id)),
+                            "productId": ObjectId(str(product_id)),
+                            "farmerId": order.get("farmerId"),
+                            "orderId": order["_id"],
+                            "quantity": int(item.get("quantity") or 0),
+                            "expectedDate": now,
+                            "batchNumber": item.get("batchId"),
+                            "status": "scheduled",
+                            "createdAt": now,
+                            "updatedAt": now,
+                            "deletedAt": None,
+                        })
         elif _farmer_needs_partner(distance, minutes, risk):
             result.update({
                 "nearbyFulfillmentRequired": True,
