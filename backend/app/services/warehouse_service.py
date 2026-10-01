@@ -278,21 +278,35 @@ class WarehouseService:
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after storage")
 
-        # The outgoing work item is created only after storage. This gives the
-        # warehouse a clean Receive -> Store -> Pack -> Dispatch lifecycle.
+        # Warehouse fulfillment creates an order-level packing task after storage.
+        # It must NOT become dispatchable until the packing team completes and verifies it.
         if incoming.get("orderId"):
-            existing = await outgoing_stock_repository.get_by_order_id(
-                str(incoming["orderId"]), str(incoming["productId"]), str(incoming.get("variantId") or "")
-            )
-            if not existing:
-                await WarehouseService.create_outgoing(OutgoingStockCreate(
-                    warehouseId=str(warehouse_id),
-                    productId=str(incoming["productId"]),
-                    variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
-                    orderId=str(incoming["orderId"]),
-                    quantity=int(incoming.get("quantity", 0)),
-                    batchNumber=incoming.get("batchNumber"),
-                ))
+            try:
+                from app.repositories.order_repository import order_repository
+                from app.repositories.warehouse_packing_repository import warehouse_packing_repository
+                order = await order_repository.get_by_id(str(incoming["orderId"]))
+                if order:
+                    existing_task = await warehouse_packing_repository.get_by_order(str(incoming["orderId"]))
+                    if not existing_task:
+                        first_item = next((i for i in (order.get("items") or [])
+                                            if str(i.get("productId")) == str(incoming.get("productId"))), {})
+                        await warehouse_packing_repository.create_task({
+                            "warehouseId": ObjectId(str(warehouse_id)),
+                            "orderId": ObjectId(str(incoming["orderId"])),
+                            "farmerId": ObjectId(str(incoming.get("farmerId"))),
+                            "productId": ObjectId(str(incoming["productId"])),
+                            "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
+                            "batchId": ObjectId(str(first_item.get("batchId"))) if first_item.get("batchId") else None,
+                            "quantityRequired": float(incoming.get("quantity", 0)),
+                            "status": "ready_for_packing",
+                            "packingResponsibility": "warehouse",
+                        })
+                    await order_repository.update(
+                        {"_id": ObjectId(str(incoming["orderId"]))},
+                        {"warehouseFulfillmentStage": "ready_for_packing", "updatedAt": datetime.utcnow()},
+                    )
+            except Exception:
+                logger.exception("Failed to create warehouse packing task for %s", incoming.get("orderId"))
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
