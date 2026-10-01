@@ -880,9 +880,7 @@ export default function FarmerOrderMapPage() {
             >
               {distance} km
             </Button>
-          ))}
-          )}
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          )))}\n          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           {DELIVERED_WINDOWS.map((w) => (
             <Button
               key={w.value}
