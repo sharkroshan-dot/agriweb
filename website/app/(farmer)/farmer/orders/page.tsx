@@ -654,6 +654,7 @@ export default function FarmerOrdersPage() {
                                     </div>
                                     <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
                                   </div>}
+                                </div>
                               ) : (
                                 <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
                                   <div>
