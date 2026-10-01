@@ -1576,6 +1576,23 @@ class OrderService:
             "updatedAt": datetime.utcnow(),
         }
 
+        try:
+            updated_order = await order_repository.get_by_id(order_id)
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    stage=update.get("warehouseFulfillmentStage") or update.get("fulfillmentStage"),
+                    title=f"Order #{order.get('orderNumber') or order_id}: fulfillment selected",
+                    message=(
+                        "Warehouse fulfillment selected. The warehouse will receive a collection and packing task."
+                        if fm == FulfillmentMethod.WAREHOUSE.value
+                        else "Farmer fulfillment selected. The farmer will prepare and pack your order."
+                    ),
+                    actor_role=role,
+                )
+        except Exception as e:
+            logger.warning("Failed to notify fulfillment selection for %s: %s", order_id, e)
+
         if fm == FulfillmentMethod.WAREHOUSE.value:
             update["warehouseFulfillmentStage"] = "incoming"
             warehouse_id = await OrderService.get_farmer_warehouse(user_id)
