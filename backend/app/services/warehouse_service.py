@@ -164,6 +164,30 @@ class WarehouseService:
                     "storageType": incoming.get("storageType", "ambient"),
                 }
                 await WarehouseService.add_stock(WarehouseStockCreate(**stock_data))
+                if incoming.get("orderId"):
+                    from app.database.mongodb import MongoDB
+                    warehouse_doc = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(str(incoming["warehouseId"]))})
+                    order_id = str(incoming["orderId"])
+                    await MongoDB.get_collection("orders").update_one(
+                        {"_id": ObjectId(order_id)},
+                        {"$set": {
+                            "currentFulfillmentLocation": (warehouse_doc or {}).get("location"),
+                            "orderStatus": "processing",
+                            "warehouseReceivedAt": datetime.utcnow(),
+                            "transferStatus": "received",
+                            "updatedAt": datetime.utcnow(),
+                        }},
+                    )
+                    existing_outgoing = await outgoing_stock_repository.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
+                    if not existing_outgoing:
+                        await WarehouseService.create_outgoing(OutgoingStockCreate(
+                            warehouseId=str(incoming["warehouseId"]),
+                            productId=str(incoming["productId"]),
+                            variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
+                            orderId=order_id,
+                            quantity=int(quantity),
+                            batchNumber=incoming.get("batchNumber"),
+                        ))
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
