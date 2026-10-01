@@ -247,6 +247,17 @@ async def update_fulfillment_route(
     return {"success": True, "data": result, "message": "Fulfillment route selected successfully"}
 
 
+@router.put("/{order_id}/warehouse-ready-for-pickup")
+async def warehouse_ready_for_pickup(order_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can confirm warehouse pickup readiness")
+    result = await OrderService.mark_warehouse_ready_for_pickup(order_id, str(current_user["_id"]))
+    if not result:
+        raise HTTPException(status_code=400, detail="Order is not eligible for warehouse pickup readiness")
+    result["id"] = str(result["_id"])
+    return {"success": True, "data": result, "message": "Warehouse collection request created"}
+
+
 @router.put("/{order_id}/delivery-responsibility")
 async def update_delivery_responsibility(
     order_id: str,
