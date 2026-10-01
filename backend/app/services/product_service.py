@@ -502,6 +502,11 @@ class ProductService:
         review_data["productId"] = ObjectId(product_id)
         review_data["isVerifiedPurchase"] = True
         review_data["helpful"] = 0
+        # Preserve the exact harvest batch that fulfilled this purchase.
+        if order:
+            matched_item = next((item for item in order.get("items", []) if str(item.get("productId")) == product_id), None)
+            if matched_item and matched_item.get("batchId"):
+                review_data["batchId"] = str(matched_item.get("batchId"))
         
         review_id = await product_review_repository.create_review(review_data)
         if not review_id:
