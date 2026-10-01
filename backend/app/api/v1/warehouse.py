@@ -306,6 +306,24 @@ async def receive_incoming_stock(
         "message": "Stock received successfully" if quality_check == "passed" else "Stock rejected"
     }
 
+@router.put("/me/incoming/{incoming_id}/store")
+async def store_incoming_stock(
+    incoming_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can store incoming stock")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    incoming = await WarehouseService.store_incoming(
+        incoming_id, str(warehouse["_id"])
+    )
+    if not incoming:
+        raise HTTPException(status_code=400, detail="Incoming stock must be received and quality approved before storage")
+    return {"success": True, "data": incoming, "message": "Stock stored successfully"}
+
+
 @router.get("/me/outgoing", response_model=dict)
 async def get_my_outgoing_stock(
     status: Optional[str] = None,
@@ -349,7 +367,7 @@ async def get_my_outgoing_stock(
 @router.put("/me/outgoing/{outgoing_id}/status")
 async def update_outgoing_status(
     outgoing_id: str,
-    status: str = Query(..., pattern="^(pending|picked|packed|dispatched)$"),
+    status: str = Query(..., pattern="^(pending|packed|dispatched)$"),
     notes: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
