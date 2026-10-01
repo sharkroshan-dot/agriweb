@@ -113,6 +113,24 @@ async def _first_item(order: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
+async def _choose_warehouse(origin: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Select the nearest active warehouse when an order has no preassigned warehouse."""
+    docs = await MongoDB.get_collection("warehouses").find({
+        "deletedAt": None,
+        "status": {"$in": ["active", "approved", "operational"]},
+    }).to_list(length=100)
+    candidates = []
+    for warehouse in docs:
+        location = warehouse.get("location") or warehouse.get("coordinates")
+        d = distance_km(origin, location)
+        if d is not None:
+            candidates.append((d, warehouse))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
+
+
 async def _choose_hub(destination: Dict[str, Any], quantity: float, product: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     collection = MongoDB.get_collection("fulfillment_hubs")
     docs = await collection.find({
@@ -212,6 +230,11 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
                 "nextStep": "WAREHOUSE_RECEIVE",
             })
             warehouse_id = order.get("warehouseId")
+            if not warehouse_id:
+                warehouse = await _choose_warehouse(origin)
+                if warehouse:
+                    warehouse_id = warehouse["_id"]
+                    await orders.update_one({"_id": order["_id"]}, {"$set": {"warehouseId": warehouse_id, "fulfillmentSource": "warehouse", "updatedAt": datetime.utcnow()}})
             if warehouse_id:
                 incoming = MongoDB.get_collection("incoming_stock")
                 for item in order.get("items") or []:
