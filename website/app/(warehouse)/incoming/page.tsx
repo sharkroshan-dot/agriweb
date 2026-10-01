@@ -48,6 +48,7 @@ const emptyIncomingForm = {
 
 const emptyReceiveForm = {
   quantity: "1",
+  usableQuantity: "1",
   qualityCheck: "passed",
   notes: "",
 };
@@ -134,6 +135,7 @@ export default function WarehouseIncomingPage() {
     setSelectedIncoming(item);
     setReceiveForm({
       quantity: String(item.quantity || 1),
+      usableQuantity: String(item.quantity || 1),
       qualityCheck,
       notes: "",
     });
@@ -185,6 +187,7 @@ export default function WarehouseIncomingPage() {
       await api.put(`/warehouse/me/incoming/${selectedIncoming.id}/receive`, undefined, {
         params: {
           quantity: Number(receiveForm.quantity),
+          usableQuantity: Number(receiveForm.usableQuantity),
           quality_check: receiveForm.qualityCheck,
           notes: receiveForm.notes.trim() || undefined,
         },
@@ -293,6 +296,7 @@ export default function WarehouseIncomingPage() {
           <DialogHeader><DialogTitle>Receive Stock</DialogTitle><DialogDescription>Record the received quantity and quality result for {selectedIncoming?.productName || selectedIncoming?.productId}.</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
             <div><label className="text-sm font-medium">Received Quantity</label><Input type="number" min="1" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /></div>
+            <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Example: received 100 kg, usable 95 kg → the system creates a 5 kg shortage and blocks packing until resolved.</p></div>
             <div>
               <label className="text-sm font-medium">Quality Result</label>
               <Select value={receiveForm.qualityCheck} onValueChange={(value) => updateReceiveForm("qualityCheck", value)}>
