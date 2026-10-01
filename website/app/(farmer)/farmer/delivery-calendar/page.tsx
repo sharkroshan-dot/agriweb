@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -205,6 +206,7 @@ export default function DeliveryCalendarPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+      <DeliveryWorkflowNav current="calendar" />
         <div className="h-8 w-64 animate-pulse rounded bg-gray-200" />
         <div className="h-32 animate-pulse rounded-lg bg-gray-200" />
         <div className="h-96 animate-pulse rounded-lg bg-gray-200" />
