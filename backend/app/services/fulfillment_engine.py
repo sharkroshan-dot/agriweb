@@ -119,6 +119,7 @@ async def _choose_hub(destination: Dict[str, Any], quantity: float, product: Dic
         "deletedAt": None,
         "isActive": True,
         "isLocalFulfillmentHub": True,
+        "approvalStatus": "approved",
     }).to_list(length=100)
     candidates = []
     for hub in docs:
@@ -160,7 +161,7 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
     distance = distance_km(origin, destination)
     minutes = eta_minutes(distance)
     expected = float(product.get("expectedShelfLifeHours") or DEFAULT_SHELF_LIFE_HOURS)
-    harvested = product.get("harvestedAt")
+    harvested = product.get("harvestedAt") or product.get("harvestDate")
     remaining = product.get("remainingShelfLifeHours")
     if remaining is None and harvested:
         try:
