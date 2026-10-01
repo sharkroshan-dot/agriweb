@@ -34,20 +34,43 @@ FARMER ORDER FULFILLMENT
            Long Distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
 
       B. Warehouse Fulfillment:
-         Incoming -> Receive -> Quality Check -> Store
-         -> Allocate warehouse stock to each order
+         Farmer confirms bulk harvested product is ready at the farm
+         -> Warehouse Collection Queue -> Collection Team Assigned
+         -> Team En Route -> Arrived at Farm -> Verify Product/Quantity
+         -> Collected -> Departed Farm -> Arrived Warehouse
+         -> Warehouse Receive -> Quality Check -> Store
+         -> Allocate warehouse stock to each individual order
          -> Order-level Packing Queue -> Packing Team -> Pack Each Order
          -> Verify Packing -> Ready for Dispatch
          -> Delivery Decision
          Nearby -> Warehouse Dispatch -> Delivery Partner -> Customer
          Long Distance -> Warehouse Dispatch -> Local Hub -> Delivery Partner -> Customer
 
+      C. Farmer Fulfillment + Long Distance:
+         Farmer packs each customer order -> Dispatch -> Delivery Decision: Long Distance
+         -> Warehouse Collection Queue (already-packed transfer)
+         -> Collection Team Assigned -> En Route -> Arrived at Farm
+         -> Collect Packages -> Depart Farm -> Arrive Warehouse
+         -> Warehouse Receive -> Quality Check -> Local Hub Transfer
+         -> Local Hub -> Delivery Partner -> Customer
+         Warehouse does NOT repack these farmer-packed orders.
+
          Farmer visibility:
-         The farmer's order page mirrors the warehouse stage as a read-only
-         timeline: Incoming -> Received/Quality Checked -> Stored
-         -> Ready for Packing -> Packing Team Assigned -> Packing
+         Warehouse Fulfillment mirrors: Fulfillment Selected -> Product Ready /
+         Pickup Requested -> Collection Team Assigned -> En Route -> Arrived at Farm
+         -> Collected -> Departed Farm -> Warehouse Received -> Quality Checked
+         -> Stored -> Ready for Packing -> Packing Team Assigned -> Packing
          -> Packed -> Ready for Dispatch -> Delivery Decision -> Dispatched.
-         Warehouse staff performs these steps; the farmer only monitors progress.
+         For Farmer Fulfillment + Long Distance, the farmer sees the same
+         collection/transfer milestones after dispatch; warehouse packing is skipped.
+
+      Collection Queue rules:
+         - It is the single warehouse bridge for farm-to-warehouse pickup.
+         - bulk_harvest = warehouse fulfillment; warehouse packs later per order.
+         - packed_orders_transfer = farmer fulfillment long-distance; never repack.
+         - Collection Team status sequence: Ready -> Assigned -> En Route
+           -> Arrived at Farm -> Collected -> Departed -> Arrived Warehouse.
+         - Arrived Warehouse does not bypass Receive + Quality Check + Store.
 
   16. Each order/package keeps farmer, product, batch, order, warehouse,
       packing team, package and quantity traceability.
