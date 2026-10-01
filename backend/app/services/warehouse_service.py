@@ -151,6 +151,19 @@ class WarehouseService:
         )
         if not success:
             return None
+        if quality_check == "passed":
+            incoming = await incoming_stock_repository.get_by_id(incoming_id)
+            if incoming:
+                stock_data = {
+                    "warehouseId": str(incoming["warehouseId"]),
+                    "productId": str(incoming["productId"]),
+                    "variantId": str(incoming["variantId"]) if incoming.get("variantId") else None,
+                    "quantity": int(quantity),
+                    "batchNumber": incoming.get("batchNumber"),
+                    "expiryDate": incoming.get("expiryDate"),
+                    "storageType": incoming.get("storageType", "ambient"),
+                }
+                await WarehouseService.add_stock(WarehouseStockCreate(**stock_data))
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
