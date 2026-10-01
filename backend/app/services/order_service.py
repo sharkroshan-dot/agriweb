@@ -1449,6 +1449,7 @@ class OrderService:
         }
 
         if fm == FulfillmentMethod.WAREHOUSE.value:
+            update["warehouseFulfillmentStage"] = "incoming"
             warehouse_id = await OrderService.get_farmer_warehouse(user_id)
             if not warehouse_id:
                 return None
