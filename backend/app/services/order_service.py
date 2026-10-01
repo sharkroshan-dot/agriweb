@@ -1332,8 +1332,7 @@ class OrderService:
         eligible = [x for x in availability["orders"] if x["canFulfill"]]
 
         # Delivery responsibility may be deferred for Farmer Fulfillment.
-        # None means the farmer will choose self-delivery or a partner after
-        # the order is Picked -> Packed -> Dispatched and appears in Order Map.
+        # Last-mile delivery responsibility is chosen from Order Map after dispatch.
 
         # Validate warehouse configuration before confirming any order. This
         # prevents a partial batch where some orders become confirmed and then
@@ -1382,8 +1381,6 @@ class OrderService:
             status = str(order.get("orderStatus") or "pending")
             route = str(order.get("fulfillmentMethod") or "")
             stage = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
-            if stage == "picked":
-                stage = FulfillmentStage.PENDING.value
             try:
                 updated = None
                 if action == "confirm" and status == OrderStatus.PENDING.value:
@@ -1513,7 +1510,7 @@ class OrderService:
         # Delivery may be chosen during processing or deferred until Dispatch.
         if str(order.get("orderStatus")) not in (OrderStatus.PROCESSING.value, OrderStatus.READY_FOR_DELIVERY.value):
             return None
-        if str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value) not in (FulfillmentStage.PENDING.value, FulfillmentStage.PICKED.value, FulfillmentStage.PACKED.value, FulfillmentStage.DISPATCHED.value):
+        if str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value) not in (FulfillmentStage.PENDING.value, FulfillmentStage.PACKED.value, FulfillmentStage.DISPATCHED.value):
             return None
         value = responsibility.value if hasattr(responsibility, "value") else str(responsibility)
         if value not in (
@@ -1540,8 +1537,6 @@ class OrderService:
         if order.get("fulfillmentRouteSelected") is not True:
             return None
         current = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
-        if current == "picked":
-            current = FulfillmentStage.PENDING.value
         target = stage.value
         allowed = {
             FulfillmentStage.PENDING.value: {FulfillmentStage.PACKED.value},
