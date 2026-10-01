@@ -42,6 +42,7 @@ export default function FarmerOrderDetailPage() {
     queryKey: ["farmerOrder", orderId],
     queryFn: () => api.get(`/orders/${orderId}`),
     enabled: !!orderId,
+    refetchInterval: 10000,
   });
 
   const queryClient = useQueryClient();
@@ -172,9 +173,10 @@ export default function FarmerOrderDetailPage() {
       specialInstructions: o.specialInstructions,
       tracking: (o.statusHistory || []).map((h: any) => ({
         status: (h.status || "").toLowerCase(),
-        date: h.createdAt || h.date,
-        description: h.note || h.changedByName ? `${h.note || ""}${h.changedByName ? " by " + h.changedByName : ""}` : h.status || "Status update",
-      })),
+        eventType: h.eventType || "",
+        date: h.timestamp || h.createdAt || h.date,
+        description: h.title || h.note || String(h.status || "Status update").replace(/_/g, " ").replace(/\\b\\w/g, (c: string) => c.toUpperCase()),
+      })).sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()),
     };
   }, [data]);
 
