@@ -278,7 +278,9 @@ export default function FarmerOrdersPage() {
 
   const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
 
-  const orderList = Array.isArray(orders?.data)\n    ? orders.data\n    : orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
+  const orderList = Array.isArray(orders?.data)
+    ? orders.data
+    : orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
 
   const filteredOrderList = orderList;
 
