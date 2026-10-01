@@ -303,6 +303,38 @@ export default function FarmerOrdersPage() {
         </div>
       </div>
 
+      <Card className="overflow-hidden border shadow-sm">
+        <CardContent className="space-y-4 p-5 sm:p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="font-semibold">Order Workflow</h2>
+              <p className="text-xs text-muted-foreground">
+                Complete one stage first; the next action appears automatically. Bulk actions advance only eligible orders by one stage.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => handleBulkWorkflowAction("confirm")}>Confirm All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>Process All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Farmer Fulfillment All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Warehouse Fulfillment All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("pack")}>Pack All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch All</Button>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Badge variant="outline">Pending → Confirmed</Badge>
+            <span>→</span>
+            <Badge variant="outline">Processing</Badge>
+            <span>→</span>
+            <Badge variant="outline">Choose Fulfillment</Badge>
+            <span>→</span>
+            <Badge variant="outline">Pack → Dispatch</Badge>
+            <span>→</span>
+            <Badge variant="outline">Order Map</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
         <div className="flex items-center gap-2">
           <Button
             variant={showDeliveryRoutes ? "default" : "outline"}
