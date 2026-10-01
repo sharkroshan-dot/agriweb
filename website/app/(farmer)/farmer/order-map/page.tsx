@@ -581,6 +581,15 @@ export default function FarmerOrderMapPage() {
     deliverSelectedMutation.mutate();
   };
 
+  const continueToCalendar = () => {
+    const ids = selectedRouteIds.length ? selectedRouteIds : selectedRouteOrders.map((stop) => getStopId(stop));
+    if (!ids.length) {
+      toast.error("Select at least one self-delivery order before opening the Delivery Calendar.");
+      return;
+    }
+    window.location.href = `/farmer/delivery-calendar?orderIds=${encodeURIComponent(ids.join(","))}`;
+  };
+
   const openPlannedRoute = () => {
     if (!selectedRouteOrders.length) {
       toast.error("Select at least one order for the route");
@@ -1186,6 +1195,10 @@ export default function FarmerOrderMapPage() {
             )}
             <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>
               Clear
+            </Button>
+            <Button size="sm" variant="outline" onClick={continueToCalendar} disabled={!selectedRouteOrders.length}>
+              <CalendarDays className="mr-1.5 h-4 w-4" />
+              Delivery Calendar
             </Button>
             <Button size="sm" onClick={openPlannedRoute} disabled={!selectedRouteOrders.length}>
               <Navigation className="mr-1.5 h-4 w-4" />
