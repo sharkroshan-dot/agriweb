@@ -1659,6 +1659,17 @@ class OrderService:
                 "updatedAt": datetime.utcnow(),
             },
         )
+        try:
+            await order_repository.append_tracking_event(
+                order_id,
+                "warehouse_pickup_requested",
+                "Product ready for warehouse pickup",
+                "The farmer has confirmed that the bulk product is ready for collection.",
+                actor_id=farmer_id,
+                actor_role="farmer",
+            )
+        except Exception:
+            logger.exception("Failed to append pickup tracking event for %s", order_id)
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
