@@ -634,37 +634,19 @@ async def transition_plan_stage(
             },
         )
     elif target == 3:  # Harvested
+        raise HTTPException(
+            status_code=400,
+            detail="Use Mark Harvested and enter actual quantity and final selling rate before creating the batch.",
+        )
+    elif target == 4:  # Batched / quality-approved
+        if not batch:
+            raise HTTPException(status_code=400, detail="Harvest batch has not been created yet")
+        if batch.get("verificationStatus") != "verified" or batch.get("status") != "listed":
+            raise HTTPException(status_code=400, detail="Batch must pass quality verification before activation")
         await harvest_plan_repo.update(
             {"_id": ObjectId(plan_id)},
-            {"stage": "harvested", "status": PLAN_HARVESTED, "harvestedAt": now, "previousStatus": plan.get("status") or PLAN_PLANNED},
+            {"stage": "batched", "qualityVerificationStatus": "approved", "updatedAt": now},
         )
-        await _apply_harvest(plan)
-    elif target == 4:  # Batched
-        if plan.get("status") != PLAN_HARVESTED:
-            await harvest_plan_repo.update(
-                {"_id": ObjectId(plan_id)},
-                {"stage": "harvested", "status": PLAN_HARVESTED, "harvestedAt": plan.get("harvestedAt") or now},
-            )
-        if not batch:
-            lot_number = f"BATCH-{datetime.utcnow().strftime('%Y%m%d')}-{str(plan_id)[-4:].upper()}"
-            await harvest_batch_repo.create({
-                "farmerId": plan.get("farmerId"),
-                "lotNumber": lot_number,
-                "cropName": plan.get("cropName"),
-                "quantityKg": float(plan.get("expectedQuantityKg", 0) or 0),
-                "remainingKg": float(plan.get("expectedQuantityKg", 0) or 0),
-                "harvestDate": plan.get("harvestedAt") or now,
-                "qualityGrade": "standard",
-                "storageType": plan.get("storageType") or "normal",
-                "shelfLifeDays": 3,
-                "expiresAt": (plan.get("harvestedAt") or now) + timedelta(days=3),
-                "productId": plan.get("productId"),
-                "sourceHarvestPlanId": ObjectId(plan_id),
-                "notes": f"Auto batch from harvest plan {plan.get('cropName')}",
-                "status": "created",
-                "deletedAt": None,
-            })
-        await harvest_plan_repo.update({"_id": ObjectId(plan_id)}, {"stage": "batched"})
 
     # Reverse transitions that need to undo an existing batch.
     if target < 4 and batch:
