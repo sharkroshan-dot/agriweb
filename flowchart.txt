@@ -23,21 +23,31 @@ CUSTOMER
 
 FARMER ORDER FULFILLMENT
   13. Farmer receives order
-  14. System shows customer distance and the farmer's configured delivery radius
-  15. Farmer chooses exactly one fulfillment route:
+  14. Confirmed -> Processing
+  15. After Processing, choose exactly one fulfillment route:
       A. Farmer Fulfillment:
-         Pick -> Pack -> Dispatch -> Customer delivery OR Delivery Partner pickup
-         (farmer self-delivery is allowed only within configured radius)
+         Pack -> Dispatch -> Delivery Decision
+         Self Delivery:
+           Radius -> Start Location -> Destination -> Select Orders -> Deliver
+         Delivery Partner:
+           Nearby -> Local Hub -> Delivery Partner -> Customer
+           Long Distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
+
       B. Warehouse Fulfillment:
-         Incoming Stock -> Receive -> Receiving Check -> Store -> Inventory
-         -> Pick -> Pack -> Dispatch -> Delivery Partner -> Pickup
-         Incoming Stock -> Receive -> Receiving Check -> Store -> Inventory
-         -> Pick -> Pack -> Dispatch -> Delivery Partner -> Pickup
+         Incoming -> Receive -> Quality Check -> Store
+         -> Order-level Packing Queue -> Packing Team -> Pack Each Order
+         -> Verify Packing -> Ready for Dispatch
+         -> Delivery Decision
+         Nearby -> Warehouse Dispatch -> Delivery Partner -> Customer
+         Long Distance -> Warehouse Dispatch -> Local Hub -> Delivery Partner -> Customer
+
+  16. Each order/package keeps farmer, product, batch, order, warehouse,
+      packing team, package and quantity traceability.
 
 DELIVERY
-  16. Assignment -> Accept -> Pickup -> In Transit
-  17. Live Location / ETA -> Customer Delivery -> Proof of Delivery
-  18. Order Delivered -> Order Completed -> Review / Rating
+  17. Delivery Partner accepts the job only from the selected pickup location.
+  18. Pickup -> In Transit -> Customer Delivery -> Proof of Delivery
+  19. Order Delivered -> Order Completed -> Review / Rating
 
 GLOBAL RULES
   - Harvest Planning is optional.
