@@ -42,6 +42,15 @@ export default function WarehouseFulfillmentPage() {
     },
   });
 
+  const hubDispatchMutation = useMutation({
+    mutationFn: (orderId: string) => api.post(`/fulfillment/orders/${orderId}/hub-dispatch`, {}),
+    onSuccess: () => {
+      setRefreshKey((v) => v + 1);
+      toast.success("Local hub stock dispatched to delivery partner");
+    },
+    onError: (e: any) => toast.error(e?.message || "Hub dispatch failed"),
+  });
+
   const transferMutation = useMutation({
     mutationFn: ({ orderId, hubId, quantity }: { orderId: string; hubId: string; quantity: number }) =>
       api.post(`/fulfillment/orders/${orderId}/transfer-to-hub`, { hubId, quantity }),
@@ -106,12 +115,21 @@ export default function WarehouseFulfillmentPage() {
                     {quantity} units • {decision.perishabilityRisk || "risk pending"} • {decision.estimatedDistanceKm ?? "—"} km • ETA {decision.estimatedDeliveryMinutes ?? "—"} min
                   </p>
                 </div>
+                {decision.transferStatus === "received" ? (
+                <Button
+                  disabled={hubDispatchMutation.isPending}
+                  onClick={() => hubDispatchMutation.mutate(orderId)}
+                >
+                  Dispatch to Delivery Partner
+                </Button>
+              ) : (
                 <Button
                   disabled={!hub || transferMutation.isPending}
                   onClick={() => hub && transferMutation.mutate({ orderId, hubId: hub.id, quantity })}
                 >
                   Transfer to {hub?.name || "Recommended Local Hub"}
                 </Button>
+              )}
               </div>
             );
           })}
