@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
 from app.api.v1.auth import get_current_user
+from bson import ObjectId
+from datetime import datetime
 from app.schemas.order import (
     OrderResponse, OrderCreate, OrderUpdate,
     OrderStatusUpdate, OrderTrackingResponse,
@@ -113,6 +115,80 @@ async def get_order(
         )
     
     return order
+
+@router.get("/{order_id}/trace")
+async def get_order_trace(order_id: str, current_user: dict = Depends(get_current_user)):
+    """Return batch-level farm-to-door traceability without exposing unrelated customer data."""
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid order id")
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    role = current_user.get("role")
+    owner_id = str(order.get("customerId") or "")
+    if role == "customer" and owner_id != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Access denied")
+    if role not in ("customer", "farmer", "warehouse", "delivery", "admin", "business"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    farmer = None
+    if order.get("farmerId"):
+        farmer = await UserService.get_user_by_id(str(order["farmerId"]))
+    partner = None
+    if order.get("deliveryPartnerId"):
+        partner = await UserService.get_user_by_id(str(order["deliveryPartnerId"]))
+
+    items = []
+    for item in order.get("items") or []:
+        items.append({
+            "productId": str(item.get("productId") or item.get("product_id") or ""),
+            "productName": item.get("productName") or item.get("name"),
+            "batchId": str(item.get("batchId") or item.get("batch_id") or ""),
+            "farmerId": str(item.get("farmerId") or order.get("farmerId") or ""),
+            "harvestedAt": item.get("harvestedAt") or item.get("harvestDate"),
+            "quantity": item.get("quantity"),
+        })
+
+    hub_id = order.get("nearbyFulfillmentLocationId")
+    hub = None
+    if hub_id:
+        try:
+            hub = await MongoDB.get_collection("fulfillment_hubs").find_one({"_id": ObjectId(str(hub_id))})
+        except Exception:
+            hub = None
+
+    warehouse = None
+    if order.get("warehouseId"):
+        try:
+            warehouse = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(str(order["warehouseId"]))})
+        except Exception:
+            warehouse = None
+
+    return {
+        "orderId": str(oid),
+        "orderNumber": order.get("orderNumber"),
+        "status": order.get("orderStatus") or order.get("status"),
+        "fulfillmentSource": order.get("fulfillmentSource"),
+        "logisticsMode": order.get("logisticsMode"),
+        "farmer": {"id": str(order.get("farmerId")), "name": ((farmer or {}).get("firstName", "") + " " + (farmer or {}).get("lastName", "")).strip() or (farmer or {}).get("farmName")} if order.get("farmerId") else None,
+        "warehouse": {"id": str(order.get("warehouseId")), "name": (warehouse or {}).get("name")} if order.get("warehouseId") else None,
+        "hub": {"id": str(hub.get("_id")), "name": hub.get("name"), "address": hub.get("address")} if hub else None,
+        "deliveryPartner": {"id": str(order.get("deliveryPartnerId")), "name": ((partner or {}).get("firstName", "") + " " + (partner or {}).get("lastName", "")).strip()} if order.get("deliveryPartnerId") else None,
+        "pod": {
+            "deliveredAt": order.get("deliveredAt"),
+            "deliveryOtpVerified": bool(order.get("deliveryOtpVerified") or order.get("otpVerified")),
+            "signature": bool(order.get("signature") or order.get("deliverySignature")),
+            "photo": bool(order.get("proofOfDelivery") or order.get("podPhoto")),
+        },
+        "items": items,
+        "transfer": {
+            "status": order.get("transferStatus"),
+            "hubReceivedAt": order.get("hubReceivedAt"),
+            "localDispatchAt": order.get("localDispatchAt"),
+        },
+    }
 
 @router.get("/{order_id}/track", response_model=OrderTrackingResponse)
 async def track_order(
