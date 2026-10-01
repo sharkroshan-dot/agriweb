@@ -240,30 +240,39 @@ class WarehouseService:
                 if not stock_id:
                     return None
 
-        # For a paid warehouse-fulfilled order, receiving creates the
-        # warehouse outbound work item. Pick/Pack/Dispatch remain warehouse-only.
-        if quality_check == "passed" and incoming.get("orderId") and str(incoming.get("status")) == "received":
-            try:
-                from app.repositories.order_repository import order_repository
-                order = await order_repository.get_by_id(str(incoming["orderId"]))
-                if order and str(order.get("fulfillmentMethod") or "farmer") == "warehouse":
-                    existing_outgoing = await outgoing_stock_repository.get_by_order_id(
-                        str(incoming["orderId"]),
-                        str(incoming["productId"]),
-                        str(incoming.get("variantId") or ""),
-                    )
-                    if not existing_outgoing:
-                        await WarehouseService.create_outgoing(OutgoingStockCreate(
-                            warehouseId=str(incoming["warehouseId"]),
-                            productId=str(incoming["productId"]),
-                            variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
-                            orderId=str(incoming["orderId"]),
-                            quantity=int(quantity),
-                            batchNumber=incoming.get("batchNumber"),
-                        ))
-            except Exception:
-                logger.exception("Failed to create warehouse outgoing work for incoming %s", incoming_id)
+        # Outgoing work is intentionally created after the explicit Store step.
+        return await incoming_stock_repository.get_by_id(incoming_id)
 
+    @staticmethod
+    async def store_incoming(incoming_id: str, warehouse_id: str) -> Optional[Dict[str, Any]]:
+        incoming = await incoming_stock_repository.get_by_id(incoming_id)
+        if not incoming or str(incoming.get("warehouseId")) != str(warehouse_id):
+            return None
+        if str(incoming.get("status")) != "received" or str(incoming.get("qualityCheck")) != "passed":
+            return None
+
+        updated = await incoming_stock_repository.update(
+            {"_id": incoming["_id"]},
+            {"status": "stored", "storedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+        )
+        if not updated:
+            return None
+
+        # The outgoing work item is created only after storage. This gives the
+        # warehouse a clean Receive -> Store -> Pack -> Dispatch lifecycle.
+        if incoming.get("orderId"):
+            existing = await outgoing_stock_repository.get_by_order_id(
+                str(incoming["orderId"]), str(incoming["productId"]), str(incoming.get("variantId") or "")
+            )
+            if not existing:
+                await WarehouseService.create_outgoing(OutgoingStockCreate(
+                    warehouseId=str(warehouse_id),
+                    productId=str(incoming["productId"]),
+                    variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
+                    orderId=str(incoming["orderId"]),
+                    quantity=int(incoming.get("quantity", 0)),
+                    batchNumber=incoming.get("batchNumber"),
+                ))
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
@@ -321,6 +330,14 @@ class WarehouseService:
     ) -> Optional[Dict[str, Any]]:
         outgoing = await outgoing_stock_repository.get_by_id(outgoing_id)
         if not outgoing:
+            return None
+        current_status = str(outgoing.get("status") or "pending")
+        allowed = {
+            "pending": {"packed"},
+            "packed": {"dispatched"},
+            "dispatched": set(),
+        }
+        if status not in allowed.get(current_status, set()):
             return None
         if warehouse_id and str(outgoing.get("warehouseId")) != str(warehouse_id):
             return None
