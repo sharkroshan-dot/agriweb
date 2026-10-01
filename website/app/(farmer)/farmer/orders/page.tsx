@@ -83,6 +83,7 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
 }
 
 export default function FarmerOrdersPage() {
+  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showBulkSummary, setShowBulkSummary] = useState(false);
@@ -336,522 +337,335 @@ export default function FarmerOrdersPage() {
         </DialogContent>
       </Dialog>
 
-      <Card className="overflow-hidden border shadow-sm">
-        <CardContent className="space-y-4 p-5 sm:p-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="font-semibold">Order Workflow</h2>
-              <p className="text-xs text-muted-foreground">
-                Complete one stage first; the next action appears automatically. Bulk actions advance only eligible orders by one stage.
-              </p>
-            </div>
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={bulkRunning} onClick={() => setRunAllConfirmOpen(true)}>
-                  {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                  {bulkRunning ? "Processing Orders..." : "Run All Eligible"}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("confirm")}>Confirm All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>Process All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Farmer Fulfillment All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Warehouse Fulfillment All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("pack")}>Pack All</Button>
-                <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch All</Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                <span className="font-medium text-emerald-700">Run All Eligible</span> automatically advances each order through the farmer-owned stages it can safely complete. It stops at fulfillment selection, warehouse collection, or delivery decisions that require your input.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline">Pending → Confirmed</Badge>
-            <span>→</span>
-            <Badge variant="outline">Processing</Badge>
-            <span>→</span>
-            <Badge variant="outline">Choose Fulfillment</Badge>
-            <span>→</span>
-            <Badge variant="outline">Pack → Dispatch</Badge>
-            <span>→</span>
-            <Badge variant="outline">Delivery Decision</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-        <div className="flex items-center gap-2">
-          <Button
-            variant={showDeliveryRoutes ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowDeliveryRoutes(!showDeliveryRoutes)}
-            className="flex items-center gap-2"
-          >
-            <Navigation className="h-4 w-4" />
-            Delivery Routes
-          </Button>
-          <Button
-            variant={showBulkSummary ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowBulkSummary(!showBulkSummary)}
-            className="flex items-center gap-2"
-          >
-            <ShoppingBag className="h-4 w-4" />
-            Bulk Summary
-          </Button>
-          <Button
-            variant={showMapView ? "default" : "outline"}
-            size="sm"
-            onClick={() => setShowMapView(!showMapView)}
-            className="flex items-center gap-2"
-          >
-            <Navigation className="h-4 w-4" />
-            Split by Location
-          </Button>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full bg-white sm:w-[180px]"><SelectValue placeholder="Filter by status"/></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Orders</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
-              <SelectItem value="ready_for_delivery">Ready for Delivery</SelectItem>
-              <SelectItem value="ready_for_pickup">Ready for Pickup</SelectItem>
-              <SelectItem value="dispatched">Dispatched</SelectItem>
-              <SelectItem value="in_transit">In Transit</SelectItem>
-              <SelectItem value="delivered">Delivered</SelectItem>
-              <SelectItem value="picked_up">Picked Up</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-              <SelectItem value="refunded">Refunded</SelectItem>
-            </SelectContent>
-          </Select>
-           
-        </div>
-
-
-
-      {showDeliveryRoutes && (
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Delivery Routes</h2>
-                <p className="text-sm text-gray-500">
-                  Pending delivery orders grouped by area — choose to self-deliver or assign a partner
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setShowDeliveryRoutes(false)}>
-                <XCircle className="h-4 w-4" />
-              </Button>
-            </div>
-            {routesLoading ? (
-              <div className="h-32 animate-pulse rounded-lg bg-gray-100" />
-            ) : routesData?.data?.length === 0 || !routesData?.data ? (
-              <p className="text-sm text-gray-400">No pending delivery orders to route</p>
-            ) : (
-              <div className="space-y-4">
-                {routesData.data.map((route: any) => (
-                  <div key={route.routeName} className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="flex items-center gap-2 font-medium text-emerald-900">
-                          <Navigation className="h-4 w-4" /> {route.routeName}
-                        </p>
-                        <p className="text-sm text-emerald-700">
-                          {route.orderCount} orders · {formatPrice(route.totalAmount)} total
-                        </p>
-                        <p className="text-xs text-emerald-600">
-                          From {formatDate(route.earliestDate)} to {formatDate(route.latestDate)}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => router.push("/farmer/order-map")}
-                      >
-                        <Navigation className="mr-1 h-3 w-3" /> Open Order Map
-                      </Button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {route.orders.map((o: any) => (
-                        <Badge key={o.orderId} variant="outline" className="border-emerald-200 bg-white text-xs">
-                          <Link href={`/farmer/orders/${o.orderId}`} className="text-emerald-700 hover:underline">
-                            {o.orderNumber}
-                          </Link>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {showBulkSummary && (
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Bulk Order Summary</h2>
-                <p className="text-sm text-gray-500">
-                  Pending orders grouped by product — process in bulk for higher profit
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setShowBulkSummary(false)}>
-                <XCircle className="h-4 w-4" />
-              </Button>
-            </div>
-            {bulkLoading ? (
-              <div className="h-32 animate-pulse rounded-lg bg-gray-100" />
-            ) : bulkData?.data?.length === 0 || !bulkData?.data ? (
-              <p className="text-sm text-gray-400">No pending orders to aggregate</p>
-            ) : (
-              <div className="space-y-3">
-                {bulkData.data.map((item: any) => (
-                  <div key={item.productId} className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-blue-900">{item.productName}</p>
-                        <p className="text-sm text-blue-700">
-                          {item.totalQuantity} units across {item.orderCount} orders
-                        </p>
-                        <p className="text-xs text-blue-600">
-                          Avg price: {formatPrice(item.avgUnitPrice)}/unit · First order: {formatDate(item.earliestOrderDate)}
-                        </p>
-                      </div>
-                      <Badge className="bg-blue-600 text-white">{item.orderCount} orders</Badge>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {item.orders.map((o: any) => (
-                        <Badge key={o.orderId} variant="outline" className="border-blue-200 bg-white text-xs">
-                          <Link href={`/farmer/orders/${o.orderId}`} className="text-blue-700 hover:underline">
-                            {o.quantity}x {o.deliveryType === "pickup" ? "(Pickup)" : ""}
-                          </Link>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {(() => {
-        const groups: Record<string, any[]> = {};
-        orderList.forEach((o: any) => {
-          const city = (o.deliveryAddress?.city || "Unknown").toLowerCase();
-          if (!groups[city]) groups[city] = [];
-          groups[city].push(o);
-        });
-        const groupEntries = Object.entries(groups);
-        const activeCity = selectedCity === null ? null : (selectedCity && groups[selectedCity] ? selectedCity : null);
-        const knownPlaces: Record<string, { lat: number; lng: number }> = {
-          krishnagiri: { lat: 12.5186, lng: 78.2147 },
-          trichirapalli: { lat: 10.7905, lng: 78.7047 },
-          trichy: { lat: 10.7905, lng: 78.7047 },
-          tiruchirappalli: { lat: 10.7905, lng: 78.7047 },
-          manachanallur: { lat: 10.9289, lng: 78.7085 },
-          bangalore: { lat: 12.9716, lng: 77.5946 },
-          hosur: { lat: 12.7409, lng: 77.8253 },
-          dharmapuri: { lat: 12.1277, lng: 78.1579 },
-        };
-        function addrFallback(addr: any): { lat: number; lng: number } {
-          const addrAll = [addr?.addressLine1, addr?.addressLine2, addr?.city, addr?.state, addr?.zipCode].filter(Boolean).join(" ").toLowerCase();
-          for (const [name, coords] of Object.entries(knownPlaces)) {
-            if (addrAll.includes(name)) return coords;
-          }
-          const city = (addr?.city || "").toLowerCase();
-          return knownPlaces[city] || knownPlaces.krishnagiri;
-        }
-        const geoCache = geocodingRef.current;
-        if (showMapView && geoCache._started === undefined) {
-          geoCache._started = true;
-          let delay = 0;
-          orderList.forEach((o: any) => {
-            if (o.deliveryAddress?.location?.coordinates) return;
-            const addrText = [o.deliveryAddress?.addressLine1, o.deliveryAddress?.addressLine2, o.deliveryAddress?.city, o.deliveryAddress?.state, o.deliveryAddress?.zipCode].filter(Boolean).join(", ");
-            if (!addrText) return;
-            const key = addrText.toLowerCase();
-            if (geoCache[key]) return;
-            geoCache[key] = null;
-            const cityFallback = addrFallback(o.deliveryAddress);
-            const currentDelay = delay;
-            delay += 1100;
-            setTimeout(() => {
-              fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(addrText)}&format=json&limit=1`, { headers: { "Accept-Language": "en" } })
-                .then(r => r.json())
-                .then(data => {
-                  geoCache[key] = data?.[0] ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : cityFallback;
-                  setGeoVersion(v => v + 1);
-                })
-                .catch(() => {
-                  geoCache[key] = addrFallback(o.deliveryAddress);
-                  setGeoVersion(v => v + 1);
-                });
-            }, currentDelay);
-          });
-        }
-
-        const allMapMarkers = orderList
-          .filter((o: any) => o.deliveryAddress?.city)
-          .filter((o: any) => !activeCity || o.deliveryAddress.city.toLowerCase() === activeCity)
-          .map((o: any) => {
-            const coords = o.deliveryAddress?.location?.coordinates;
-            const label = o.orderNumber || o.id || o._id;
-            const addrFull = [o.deliveryAddress?.addressLine1, o.deliveryAddress?.addressLine2, o.deliveryAddress?.city, o.deliveryAddress?.state, o.deliveryAddress?.zipCode].filter(Boolean).join(", ");
-            const addrShort = addrFull.length > 50 ? addrFull.slice(0, 50) + "..." : addrFull;
-            const addrInfo = `${o.customerName} · ${formatPrice(o.totalAmount)} · ${addrShort}`;
-            if (coords) {
-              const [lng, lat] = coords;
-              return { id: o.id || o._id, lat, lng, title: label, info: addrInfo };
-            }
-            const addrKey = addrFull.toLowerCase();
-            const cached = addrKey ? geoCache[addrKey] : null;
-            if (cached) return { id: o.id || o._id, lat: cached.lat, lng: cached.lng, title: label, info: addrInfo };
-            const fallback = addrFallback(o.deliveryAddress);
-            return { id: o.id || o._id, lat: fallback.lat, lng: fallback.lng, title: label, info: addrInfo };
-          });
-        return (
-          <div className="space-y-4">
-            {showMapView && (
-              <>
-                <MapWithMarkers markers={allMapMarkers} />
-                <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setSelectedCity(null)}
-                className={cn(
-                  "flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors",
-                  activeCity === null
-                    ? "bg-emerald-600 text-white shadow-sm"
-                    : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                )}
-              >
-                <span>All Locations</span>
-                <span className={cn(
-                  "rounded-full px-2 py-0.5 text-xs",
-                  activeCity === null ? "bg-emerald-500 text-white" : "bg-emerald-200 text-emerald-800"
-                )}>
-                  {orderList.length}
-                </span>
-              </button>
-              {groupEntries.map(([city, orders]) => (
-                <button
-                  key={city}
-                  type="button"
-                  onClick={() => setSelectedCity(city)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors",
-                    activeCity === city
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                  )}
-                >
-                  <span className="capitalize">{city}</span>
-                  <span className={cn(
-                    "rounded-full px-2 py-0.5 text-xs",
-                    activeCity === city ? "bg-emerald-500 text-white" : "bg-emerald-200 text-emerald-800"
-                  )}>
-                    {orders.length}
-                  </span>
-                </button>
-              ))}
+      <section className="space-y-4">
+        <Card className="overflow-hidden border bg-white shadow-sm">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold text-slate-900">Order workspace</h2>
+                  <Badge variant="outline" className="bg-slate-50">{orderList.length} orders</Badge>
                 </div>
-              </>
-            )}
-            {(activeCity === null ? groupEntries : groupEntries.filter(([city]) => city === activeCity)).map(([city, orders]) => (
-              <div key={city} className="space-y-4">
-                {orders.map((order: any) => {
-                  const orderId = String(order.id || order._id || "");
+                <p className="mt-1 text-sm text-slate-500">
+                  Work from left to right: confirm → process → choose fulfillment → pack → dispatch.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setRunAllConfirmOpen(true)} disabled={bulkRunning || orderList.length === 0}>
+                  {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+                  {bulkRunning ? "Processing..." : "Run All Eligible"}
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline"><Package className="mr-2 h-4 w-4" />Bulk actions</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuItem onClick={() => handleBulkWorkflowAction("confirm")}>Confirm all eligible</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkWorkflowAction("process")}>Start processing</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Select farmer fulfillment</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Select warehouse fulfillment</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkWorkflowAction("pack")}>Pack eligible orders</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch eligible orders</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="outline" size="sm" asChild><Link href="/farmer/order-map"><Navigation className="mr-2 h-4 w-4" />Order map</Link></Button>
+                <Button variant="outline" size="sm" onClick={() => { refetch(); availabilityQuery.refetch(); }}>
+                  <RefreshCw className="mr-2 h-4 w-4" />Refresh
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {[
+                { label: "Pending", value: orderList.filter((o: any) => getStatus(o) === "pending"), tone: "border-amber-200 bg-amber-50 text-amber-800", icon: Clock },
+                { label: "Processing", value: orderList.filter((o: any) => getStatus(o) === "processing"), tone: "border-blue-200 bg-blue-50 text-blue-800", icon: Package },
+                { label: "Need delivery", value: orderList.filter((o: any) => getStatus(o) === "ready_for_delivery"), tone: "border-indigo-200 bg-indigo-50 text-indigo-800", icon: Navigation },
+                { label: "In transit", value: orderList.filter((o: any) => getStatus(o) === "in_transit"), tone: "border-violet-200 bg-violet-50 text-violet-800", icon: Truck },
+                { label: "Completed", value: orderList.filter((o: any) => ["delivered", "picked_up"].includes(getStatus(o))), tone: "border-emerald-200 bg-emerald-50 text-emerald-800", icon: CheckCircle },
+              ].map((item) => (
+                <div key={item.label} className={cn("rounded-xl border px-3 py-3", item.tone)}>
+                  <div className="flex items-center justify-between"><span className="text-xs font-semibold">{item.label}</span><item.icon className="h-4 w-4 opacity-80" /></div>
+                  <p className="mt-1 text-xl font-semibold">{item.value.length}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border bg-white shadow-sm">
+          <CardContent className="p-4 sm:p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h3 className="font-semibold text-slate-900">Find an order</h3>
+                <p className="text-xs text-slate-500">Keep the queue focused on one status at a time.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-wrap rounded-lg bg-slate-100 p-1">
+                  {[
+                    ["all", "All"],
+                    ["pending", "Pending"],
+                    ["processing", "Processing"],
+                    ["ready_for_delivery", "Delivery"],
+                    ["delivered", "Completed"],
+                  ].map(([value, label]) => (
+                    <button key={value} type="button" onClick={() => setStatusFilter(value)}
+                      className={cn("rounded-md px-3 py-2 text-xs font-semibold transition", statusFilter === value ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-10 w-full sm:w-[190px]"><SelectValue placeholder="Filter status" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="processing">Processing</SelectItem>
+                    <SelectItem value="ready_for_delivery">Ready for delivery</SelectItem>
+                    <SelectItem value="ready_for_pickup">Ready for pickup</SelectItem>
+                    <SelectItem value="dispatched">Dispatched</SelectItem>
+                    <SelectItem value="in_transit">In transit</SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                    <SelectItem value="picked_up">Picked up</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    <SelectItem value="refunded">Refunded</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button variant={showBulkSummary ? "default" : "outline"} size="sm" onClick={() => setShowBulkSummary((value) => !value)}>
+                  <ShoppingBag className="mr-2 h-4 w-4" />Bulk summary
+                </Button>
+                <Button variant={showDeliveryRoutes ? "default" : "outline"} size="sm" onClick={() => setShowDeliveryRoutes((value) => !value)}>
+                  <Navigation className="mr-2 h-4 w-4" />Routes
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {showBulkSummary && (
+          <Card className="border-blue-100 bg-blue-50/40">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div><h3 className="font-semibold text-blue-950">Bulk order summary</h3><p className="text-xs text-blue-700">Group demand by product before packing.</p></div>
+                <Button variant="ghost" size="sm" onClick={() => setShowBulkSummary(false)}><X className="h-4 w-4" /></Button>
+              </div>
+              {bulkLoading ? (
+                <div className="mt-4 h-20 animate-pulse rounded-lg bg-white" />
+              ) : !Array.isArray(bulkData?.data) || bulkData.data.length === 0 ? (
+                <div className="mt-4 rounded-lg border border-dashed border-blue-200 bg-white p-5 text-center text-sm text-blue-700">No pending bulk demand to summarize.</div>
+              ) : (
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {bulkData.data.map((item: any) => (
+                    <div key={item.productId} className="rounded-xl border border-blue-100 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><p className="font-medium text-slate-900">{item.productName}</p><p className="mt-1 text-sm text-slate-500">{item.totalQuantity} units across {item.orderCount} orders</p></div>
+                        <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">{item.orderCount} orders</Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(item.orders || []).slice(0, 6).map((itemOrder: any) => (
+                          <Link key={itemOrder.orderId} href={"/farmer/orders/" + itemOrder.orderId} className="rounded-md border bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:border-blue-300 hover:text-blue-700">
+                            {itemOrder.quantity} × order
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {showDeliveryRoutes && (
+          <Card className="border-emerald-100 bg-emerald-50/50">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div><h3 className="font-semibold text-emerald-950">Delivery routes</h3><p className="text-xs text-emerald-700">Open the dedicated map to make radius and delivery decisions.</p></div>
+                <Button variant="ghost" size="sm" onClick={() => setShowDeliveryRoutes(false)}><X className="h-4 w-4" /></Button>
+              </div>
+              {routesLoading ? (
+                <div className="mt-4 h-20 animate-pulse rounded-lg bg-white" />
+              ) : !Array.isArray(routesData?.data) || routesData.data.length === 0 ? (
+                <div className="mt-4 rounded-lg border border-dashed border-emerald-200 bg-white p-5 text-center text-sm text-emerald-700">No pending delivery routes.</div>
+              ) : (
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  {routesData.data.map((route: any) => (
+                    <div key={route.routeName} className="rounded-xl border border-emerald-100 bg-white p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div><p className="font-medium text-slate-900">{route.routeName}</p><p className="mt-1 text-sm text-slate-500">{route.orderCount} orders · {formatPrice(route.totalAmount)}</p></div>
+                        <Button size="sm" variant="outline" asChild><Link href="/farmer/order-map"><Navigation className="mr-1.5 h-4 w-4" />Open map</Link></Button>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(route.orders || []).slice(0, 8).map((routeOrder: any) => (
+                          <Link key={routeOrder.orderId} href={"/farmer/orders/" + routeOrder.orderId} className="rounded-md border bg-slate-50 px-2 py-1 text-xs text-slate-700 hover:border-emerald-300 hover:text-emerald-700">
+                            {routeOrder.orderNumber}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <Card className="overflow-hidden border bg-white shadow-sm">
+          <CardContent className="p-0">
+            {filteredOrderList.length === 0 ? (
+              <div className="px-6 py-16 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100"><Package className="h-7 w-7 text-slate-400" /></div>
+                <h3 className="mt-4 font-semibold text-slate-900">No orders in this view</h3>
+                <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+                  {statusFilter === "all" ? "New customer orders will appear here." : "No " + (statusLabels[statusFilter] || statusFilter) + " orders are currently waiting for action."}
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y">
+                {filteredOrderList.map((order: any) => {
+                  const orderId = String(order?.id || order?._id || "");
                   const status = getStatus(order);
+                  const payment = paymentBadge(order?.paymentMethod);
+                  const items = Array.isArray(order?.items) ? order.items : [];
+                  const totalItems = items.reduce((sum: number, item: any) => sum + Number(item?.quantity || 0), 0);
+                  const itemPreview = items.slice(0, 3);
+
+                  const nextAction =
+                    status === "pending" ? "Confirm order" :
+                    status === "confirmed" ? "Start processing" :
+                    status === "processing" ? "Choose fulfillment" :
+                    status === "ready_for_delivery" ? "Open delivery map" :
+                    status === "dispatched" ? "Mark in transit" :
+                    status === "in_transit" ? "Mark delivered" :
+                    status === "ready_for_pickup" ? "Open pickup" : "View details";
+
                   return (
-                  <Card key={orderId}>
-                    <CardContent className="p-6">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <article key={orderId} className="p-4 transition hover:bg-slate-50/70 sm:p-5">
+                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
-                            <Badge variant="outline" className={cn("border", statusColors[getStatus(order)] || "bg-gray-500/10 text-gray-600 border-gray-500/20")}>{statusLabels[getStatus(order)] || getStatus(order)}</Badge>
-                            {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
-                            {order.isBulkOrder && (
-                              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700"><ShoppingBag className="mr-1 h-3 w-3" /> Bulk</Badge>
-                            )}
-                            {order.selfDelivery && (
-                              <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700"><UserCheck className="mr-1 h-3 w-3" /> Self-Delivery</Badge>
-                            )}
-                            {(order.deliveryPartnerId || order.partnerRequested) && (
-                              <Badge variant="outline" className="border-indigo-300 bg-indigo-50 text-indigo-700"><Truck className="mr-1 h-3 w-3" /> Delivery Partner</Badge>
-                            )}
+                            <Link href={"/farmer/orders/" + orderId} className="font-semibold text-slate-900 hover:text-emerald-700">#{String(order?.orderNumber || orderId).slice(-10)}</Link>
+                            <Badge variant="outline" className={cn("border text-[11px]", statusColors[status] || "border-slate-200 bg-slate-50 text-slate-600")}>{statusLabels[status] || status.replace(/_/g, " ")}</Badge>
+                            {payment.label && <span className={cn("rounded-full border px-2 py-0.5 text-[11px] font-semibold", payment.cod ? "border-amber-200 bg-amber-50 text-amber-700" : "border-blue-200 bg-blue-50 text-blue-700")}>{payment.label}</span>}
+                            {order?.deliveryType === "pickup" && <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700"><Store className="h-3 w-3" />Farm pickup</span>}
+                            {order?.isBulkOrder && <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Bulk</span>}
                           </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                            <span>Customer: <span className="font-medium text-foreground">{order.customerName}</span></span>
-                            <span>•</span>
-                            <span>Ordered: {formatDate(order.orderDate)}</span>
-                            <span>•</span>
-                            <span>{(order.items || []).length} items</span>
-                            {order.deliveryAddress?.city && (
-                              <><span>•</span><span>Deliver to: <span className="font-medium text-foreground">{order.deliveryAddress.city}</span></span></>
-                            )}
-                            {order.deliveryPartnerId && order.deliveryPartnerName && (
-                              <><span>•</span><span>Partner: <span className="font-medium text-indigo-600">{order.deliveryPartnerName}</span></span></>
-                            )}
+
+                          <div className="mt-2 grid gap-1 text-sm text-slate-500 sm:grid-cols-2 lg:grid-cols-4">
+                            <span>Customer <strong className="font-medium text-slate-800">{order?.customerName || "Customer"}</strong></span>
+                            <span>{formatDate(order?.orderDate || order?.createdAt)}</span>
+                            <span>{order?.deliveryType === "pickup" ? (order?.pickupDate ? "Pickup · " + formatDate(order.pickupDate) : "Farm pickup") : (order?.deliveryAddress?.city ? "Delivery · " + order.deliveryAddress.city : "Delivery address")}</span>
+                            <span>{totalItems || items.length} item{(totalItems || items.length) === 1 ? "" : "s"}</span>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {(order.items || []).slice(0,3).map((item:any, idx:number)=> (<Badge key={idx} variant="outline" className="text-xs">{item.quantity}x {item.productName}</Badge>))}
-                            {(order.items || []).length > 3 && (<Badge variant="outline" className="text-xs">+{(order.items || []).length - 3} more</Badge>)}
+
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {itemPreview.map((item: any, index: number) => <span key={index} className="rounded-lg border bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">{item?.quantity || 0} × {item?.productName || "Product"}</span>)}
+                            {items.length > 3 && <span className="rounded-lg border bg-white px-2.5 py-1 text-xs font-medium text-slate-500">+{items.length - 3} more</span>}
                           </div>
-                        </div>
-                        <div className="flex flex-col items-stretch gap-3 lg:min-w-[180px] lg:items-end">
-                          <div className="text-right shrink-0">
-  <p className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</p>
-  {paymentBadge(order.paymentMethod).label && (
-    <span className={cn("mt-1 inline-block rounded-md px-1.5 py-0.5 text-[11px] font-semibold border", paymentBadge(order.paymentMethod).cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20")}>
-      {paymentBadge(order.paymentMethod).label}
-    </span>
-  )}
-</div>
-                          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:grid-cols-1">
-                            <Button size="sm" variant="outline" asChild className="w-full">
-                              <Link href={`/farmer/orders/${order.id || order._id}`}><Eye className="mr-1.5 h-3.5 w-3.5"/>View</Link>
-                            </Button>
-                            {getStatus(order) === "pending" && (
-                              <>
-                                <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
-                                  <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Confirm
-                                </Button>
-                                <Button size="sm" variant="destructive" className="w-full" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
-                                  <XCircle className="mr-1.5 h-3.5 w-3.5"/>Cancel
-                                </Button>
-                              </>
-                            )}
-                            {getStatus(order) === "confirmed" && (
-                              <>
-                                <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
-                                  <Package className="mr-1.5 h-3.5 w-3.5"/>Process
-                                </Button>
-                                <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
-                                  <XCircle className="mr-1.5 h-3.5 w-3.5"/>Cancel
-                                </Button>
-                              </>
-                            )}
-                            {getStatus(order) === "processing" && (
-                              <div className="flex flex-col gap-2">
-                                {order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
-                                  <>
-                                    <span className="text-xs font-medium text-muted-foreground">Fulfillment route</span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      <Button size="sm" variant="outline" className="justify-start" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
-                                        <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
-                                      </Button>
-                                      <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
-                                        <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse Fulfillment
-                                      </Button>
-                                    </div>
-                                  </>
-                                ) : order.fulfillmentMethod === "farmer" ? (
-                                  <div className="space-y-2">
-                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && (
-                                      <div className="space-y-2">
-                                        <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => finalizeFarmerPacking(order)}>
-                                          <Package className="mr-2 h-4 w-4" />Finish Packing & Check Shortage
-                                        </Button>
-                                        <p className="text-[11px] text-muted-foreground">After packing all products, enter the actual packed quantity. Any unavailable quantity is cancelled and the final amount is recalculated.</p>
-                                      </div>
-                                    )}
-                                    {order.fulfillmentStage === "packed" && (
-                                      <div className="space-y-2">
-                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}>
-                                          <Navigation className="mr-2 h-4 w-4" />Dispatch Order
-                                        </Button>
-                                        <p className="text-[11px] text-muted-foreground">After dispatch, choose the delivery route on the Order Map.</p>
-                                      </div>
-                                    )}
-                                    {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && (
-                                      <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
-                                        <strong>Warehouse transfer for long-distance delivery</strong>
-                                        <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
-                                          {[["ready_for_pickup","Warehouse collection requested"],["team_assigned","Collection team assigned"],["en_route","Team en route"],["arrived_at_farm","Team arrived at farm"],["collected","Packed orders collected"],["departed_farm","Departed farm"],["arrived_warehouse","Arrived at warehouse"]].map(([key,label]) => {
-                                            const stages=["ready_for_pickup","team_assigned","en_route","arrived_at_farm","collected","departed_farm","arrived_warehouse"];
-                                            const idx=stages.indexOf(String(order.warehouseCollectionStatus));
-                                            const complete=idx>=stages.indexOf(key);
-                                            return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
-                                          })}
-                                        </div>
-                                        <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
-                                      </div>
-                                    )}
+
+                          {status === "processing" && (
+                            <div className="mt-4 rounded-xl border bg-slate-50 p-3">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Fulfillment</p>
+                                  <p className="mt-1 text-sm font-medium text-slate-800">
+                                    {order?.fulfillmentRouteSelected === true && Number(order?.fulfillmentRouteVersion || 0) === 1
+                                      ? (order?.fulfillmentMethod === "farmer" ? "Farmer fulfillment" : "Warehouse fulfillment")
+                                      : "Choose who fulfills this order"}
+                                  </p>
+                                </div>
+
+                                {order?.fulfillmentRouteSelected !== true || Number(order?.fulfillmentRouteVersion || 0) !== 1 ? (
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(orderId, "farmer")}><UserCheck className="mr-1.5 h-4 w-4" />Farmer</Button>
+                                    <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(orderId, "warehouse")}><Store className="mr-1.5 h-4 w-4" />Warehouse</Button>
+                                  </div>
+                                ) : order?.fulfillmentMethod === "farmer" ? (
+                                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                                    {(!order?.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => finalizeFarmerPacking(order)}><Package className="mr-1.5 h-4 w-4" />Finish packing</Button>}
+                                    {order?.fulfillmentStage === "packed" && <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-1.5 h-4 w-4" />Dispatch</Button>}
                                   </div>
                                 ) : (
-                                  <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
-                                    <div>
-                                      <strong>Warehouse fulfillment</strong>
-                                      <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
-                                    </div>
-                                    {!order.warehouseCollectionStatus && (
-                                      <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}>
-                                        <Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup
-                                      </Button>
-                                    )}
-                                    <div className="grid gap-1.5 sm:grid-cols-2">
-                                      {[
-                                        ["incoming", "Warehouse Fulfillment Selected"],
-                                        ["pickup_requested", "Product Ready · Pickup Requested"],
-                                        ["collection_team_assigned", "Collection Team Assigned"],
-                                        ["collection_en_route", "Collection Team En Route"],
-                                        ["collection_arrived", "Collection Team Arrived at Farm"],
-                                        ["collected", "Collected from Farm"],
-                                        ["collection_departed", "Departed Farm"],
-                                        ["received", "Warehouse Received"],
-                                        ["received", "Received & Quality Checked"],
-                                        ["stored", "Stock Stored"],
-                                        ["ready_for_packing", "Ready for Packing"],
-                                        ["packing_team_assigned", "Packing Team Assigned"],
-                                        ["packing", "Order Packing"],
-                                        ["packed", "Packing Complete"],
-                                        ["ready_for_dispatch", "Ready for Dispatch"],
-                                        ["delivery_decision", "Delivery Decision"],
-                                        ["dispatched", "Warehouse Dispatched"],
-                                      ].map(([key, label], index) => {
-                                        const stage = String(order.warehouseFulfillmentStage || "incoming");
-                                        const stages = ["incoming", "pickup_requested", "collection_team_assigned", "collection_en_route", "collection_arrived", "collected", "collection_departed", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
-                                        const currentIndex = stages.indexOf(stage);
-                                        const isComplete = currentIndex >= index;
-                                        return (
-                                          <div key={key + index} className={"flex items-center gap-2 rounded-md px-2 py-1.5 " + (isComplete ? "bg-white font-medium text-blue-900" : "text-blue-500")}>
-                                            <span className={"h-2 w-2 rounded-full " + (isComplete ? "bg-blue-600" : "bg-blue-200")} />
-                                            <span>{label}</span>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                    <p className="border-t border-blue-200 pt-2">Farmer visibility only — warehouse staff performs these steps.</p>
+                                  <div className="flex flex-wrap gap-2 lg:justify-end">
+                                    {!order?.warehouseCollectionStatus && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => markWarehouseReadyForPickup(orderId)}><Package className="mr-1.5 h-4 w-4" />Ready for warehouse</Button>}
+                                    <span className="rounded-lg border bg-white px-3 py-2 text-xs text-slate-500">Warehouse team continues fulfillment.</span>
                                   </div>
                                 )}
                               </div>
+
+                              {order?.fulfillmentMethod === "farmer" && order?.fulfillmentStage && (
+                                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                  {[["pending","Packing"],["packed","Packed"],["dispatched","Dispatched"]].map(([key,label]) => {
+                                    const stages = ["pending","packed","dispatched"];
+                                    const complete = stages.indexOf(String(order.fulfillmentStage)) >= stages.indexOf(key);
+                                    return <span key={key} className={cn("rounded-full border px-2.5 py-1 font-medium", complete ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-400")}>{complete ? "✓ " : ""}{label}</span>;
+                                  })}
+                                </div>
+                              )}
+
+                              {order?.fulfillmentMethod === "warehouse" && (
+                                <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                                  {[["incoming","Selected"],["pickup_requested","Pickup requested"],["collected","Collected"],["received","Warehouse received"],["ready_for_packing","Ready for packing"],["packed","Packed"],["ready_for_dispatch","Ready for dispatch"],["delivery_decision","Delivery decision"],["dispatched","Dispatched"]].map(([key,label], index) => {
+                                    const stages = ["incoming","pickup_requested","collected","received","ready_for_packing","packed","ready_for_dispatch","delivery_decision","dispatched"];
+                                    const complete = stages.indexOf(String(order?.warehouseFulfillmentStage || "incoming")) >= index;
+                                    return <span key={key} className={cn("rounded-full border px-2 py-1", complete ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-400")}>{complete ? "✓ " : ""}{label}</span>;
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {(order?.selfDelivery || order?.deliveryPartnerId || order?.partnerRequested) && (
+                            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                              <span className="font-medium text-slate-700">Delivery:</span>
+                              {order?.selfDelivery && <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5 text-emerald-600" />Farmer self-delivery</span>}
+                              {order?.deliveryPartnerId && <span className="inline-flex items-center gap-1"><Truck className="h-3.5 w-3.5 text-blue-600" />{order?.deliveryPartnerName || "Delivery partner assigned"}</span>}
+                              {order?.partnerRequested && !order?.deliveryPartnerId && <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-amber-600" />Partner request pending</span>}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="w-full shrink-0 rounded-xl border bg-white p-3 xl:w-[230px]">
+                          <div className="flex items-start justify-between gap-3">
+                            <div><p className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Order total</p><p className="mt-1 text-2xl font-semibold text-emerald-700">{formatPrice(order?.totalAmount || 0)}</p></div>
+                            <Badge variant="outline" className="w-fit bg-slate-50 text-[10px]">{nextAction}</Badge>
+                          </div>
+
+                          <div className="mt-3 grid gap-2">
+                            <Button size="sm" variant="outline" asChild><Link href={"/farmer/orders/" + orderId}><Eye className="mr-1.5 h-4 w-4" />View details</Link></Button>
+
+                            {status === "pending" && (
+                              <>
+                                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setConfirmAction({ order, action: "confirmed" })}><CheckCircle className="mr-1.5 h-4 w-4" />Confirm order</Button>
+                                <Button size="sm" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmAction({ order, action: "cancelled" })}><XCircle className="mr-1.5 h-4 w-4" />Cancel</Button>
+                              </>
                             )}
-                            {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
-                              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}>
-                                <Navigation className="mr-2 h-4 w-4" />Open Order Map
-                              </Button>
+
+                            {status === "confirmed" && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(orderId, "processing")}><Package className="mr-1.5 h-4 w-4" />Start processing</Button>}
+
+                            {status === "ready_for_delivery" && order?.fulfillmentMethod === "farmer" && !order?.selfDelivery && !order?.deliveryPartnerId && !order?.partnerRequested && order?.deliveryType !== "pickup" && (
+                              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push("/farmer/order-map?delivery=required&orderId=" + encodeURIComponent(orderId))}><Navigation className="mr-1.5 h-4 w-4" />Open delivery map</Button>
                             )}
-                            {status === "ready_for_delivery" && order.selfDelivery && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-2 h-4 w-4" />Mark Delivered</Button>}
-                            {status === "dispatched" && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(orderId, "in_transit")}><Truck className="mr-2 h-4 w-4" />Mark In Transit</Button>}
-                            {status === "in_transit" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-2 h-4 w-4" />Mark Delivered</Button>}
-                            {!["pending", "confirmed", "processing", "ready_for_delivery", "dispatched", "in_transit"].includes(status) && <Button size="sm" variant="outline" className="w-full" asChild><Link href={"/farmer/orders/" + orderId}><Eye className="mr-2 h-4 w-4" />View Order</Link></Button>}
-                            {["pending", "confirmed"].includes(status) && <Button size="sm" variant="ghost" className="w-full text-slate-600" asChild><Link href={"/farmer/orders/" + orderId}><Eye className="mr-2 h-4 w-4" />View Full Order</Link></Button>}
+
+                            {status === "ready_for_delivery" && order?.selfDelivery && <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-1.5 h-4 w-4" />Mark delivered</Button>}
+
+                            {status === "dispatched" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(orderId, "in_transit")}><Truck className="mr-1.5 h-4 w-4" />Mark in transit</Button>}
+
+                            {status === "in_transit" && <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-1.5 h-4 w-4" />Mark delivered</Button>}
+
+                            {status === "ready_for_pickup" && <Button size="sm" variant="outline" asChild><Link href={"/farmer/orders/" + orderId}><Store className="mr-1.5 h-4 w-4" />Open pickup</Link></Button>}
                           </div>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </article>
                   );
                 })}
               </div>
-            ))}
-          </div>
-        );
-      })()}
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
       <Dialog open={!!confirmAction} onOpenChange={(v) => { if (!v) setConfirmAction(null); }}>
         {confirmAction && (() => {
           const o = confirmAction.order;
