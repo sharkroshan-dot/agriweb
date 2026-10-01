@@ -843,7 +843,7 @@ export default function FarmerOrdersPage() {
             </div>
           )}
         </section>
-      )}
+      })()}
       <Dialog open={!!confirmAction} onOpenChange={(v) => { if (!v) setConfirmAction(null); }}>
         {confirmAction && (() => {
           const o = confirmAction.order;
