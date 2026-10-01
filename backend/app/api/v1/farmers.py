@@ -628,7 +628,7 @@ _CALENDAR_SLOT_ORDER = {"Morning": 0, "Mid-day": 1, "Afternoon": 2}
 
 
 @router.get("/me/delivery-calendar")
-async def get_delivery_calendar(current_user: dict = Depends(get_current_user)):
+async def get_delivery_calendar(\n    orderIds: Optional[str] = Query(None),\n    current_user: dict = Depends(get_current_user),\n):
     """Get farmer's delivery calendar with weekly slots.
 
     Slots are aggregated by (delivery day, time slot) so the calendar can
@@ -642,7 +642,7 @@ async def get_delivery_calendar(current_user: dict = Depends(get_current_user)):
     capacity = await _get_delivery_capacity(farmer_id)
     active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None}
+        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "dispatched", "deliveryResponsibility": "farmer"}
     )
     orders = orders or []
     farm = await _get_farm_origin(farmer_id)
@@ -729,13 +729,13 @@ async def get_delivery_calendar(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/me/smart-route")
-async def get_smart_route(current_user: dict = Depends(get_current_user)):
+async def get_smart_route(\n    orderIds: Optional[str] = Query(None),\n    current_user: dict = Depends(get_current_user),\n):
     """Get farmer's AI-optimized route with cost & savings analysis."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None}
+        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "dispatched", "deliveryResponsibility": "farmer"}
     )
     orders = orders or []
 
@@ -1338,13 +1338,13 @@ async def get_my_deliveries(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/me/route")
-async def get_my_route(current_user: dict = Depends(get_current_user)):
+async def get_my_route(\n    orderIds: Optional[str] = Query(None),\n    current_user: dict = Depends(get_current_user),\n):
     """Get farmer's optimized pickup/delivery route for today."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery", "ready_for_pickup"]
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None}
+        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "dispatched", "deliveryResponsibility": "farmer"}
     )
     orders = orders or []
 
