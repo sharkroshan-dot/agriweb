@@ -104,6 +104,8 @@ async def hub_receive(order_id: str, data: HubReceiveRequest, current_user: dict
     now=datetime.utcnow(); received=data.qualityCheck=="passed"
     await transfers.update_one({"_id":transfer["_id"]},{"$set":{"status":"received" if received else "rejected","qualityCheck":data.qualityCheck,"qualityNotes":data.notes,"receivedAt":now,"updatedAt":now}})
     await orders.update_one({"_id":oid},{"$set":{"transferStatus":"received" if received else "rejected","hubReceivedAt":now,"localInventoryStatus":"available" if received else "rejected","orderStatus":"in_transit" if received else "cancelled","updatedAt":now}})
+    if not received:
+        await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": transfer["hubId"]}, {"$inc": {"availableCapacity": transfer.get("quantity", 0)}, "$set": {"updatedAt": now}})
     return {"success":True,"message":"Hub stock received and verified" if received else "Hub stock rejected"}
 
 @router.post("/orders/{order_id}/hub-dispatch")
@@ -125,7 +127,10 @@ async def hub_dispatch(order_id: str, data: HubDispatchRequest, current_user: di
     assignment=await delivery_assignment_repository.get_by_order_id(order_id)
     assignment_id=str(assignment["_id"]) if assignment else await delivery_assignment_repository.create_assignment({"orderId":oid,"deliveryPartnerId":partner_oid,"priority":1})
     now=datetime.utcnow()
+    active_transfer = await MongoDB.get_collection("hub_transfers").find_one({"orderId": oid, "status": "received"})
     await MongoDB.get_collection("orders").update_one({"_id":oid},{"$set":{"deliveryPartnerId":partner_oid,"orderStatus":"dispatched","logisticsMode":"hub_to_delivery_partner","transferStatus":"local_dispatch","localDispatchAt":now,"updatedAt":now}})
+    if active_transfer:
+        await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": active_transfer["hubId"]}, {"$inc": {"availableCapacity": active_transfer.get("quantity", 0)}, "$set": {"updatedAt": now}})
     return {"success":True,"assignmentId":assignment_id,"deliveryPartnerId":partner_id}
 
 @router.post("/ratings")
