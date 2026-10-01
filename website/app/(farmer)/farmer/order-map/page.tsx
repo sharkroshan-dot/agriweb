@@ -215,6 +215,7 @@ export default function FarmerOrderMapPage() {
   const accessToken = (session as any)?.accessToken;
 
   const [radiusKm, setRadiusKm] = useState<number>(10);
+  const [selfDeliveryMethod, setSelfDeliveryMethod] = useState<"route" | "radius">("radius");
   const [deliveredWindow, setDeliveredWindow] = useState<string>("today");
   const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -478,6 +479,17 @@ export default function FarmerOrderMapPage() {
     };
   }, [selectedRouteOrders, routeInfo]);
 
+  const selectSelfDeliveryMethod = (method: "route" | "radius") => {
+    setSelfDeliveryMethod(method);
+    setSelectedRouteIds([]);
+    setRouteMatches([]);
+    if (method === "radius") {
+      setRouteDestination(null);
+      setRouteGeometry([]);
+      setRouteInfo(null);
+    }
+  };
+
   const toggleRouteOrder = (orderId: string) => {
     setSelectedRouteIds((current) =>
       current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]
@@ -563,12 +575,18 @@ export default function FarmerOrderMapPage() {
 
   const deliverSelectedMutation = useMutation({
     mutationFn: async () => {
-      for (const orderId of selectedRouteIds) {
-        await api.put(`/farmers/me/delivery-map/orders/${orderId}/assignment`, { mode: "self" });
-      }
+      const orderIds = selfDeliveryMethod === "route"
+        ? selectedRouteIds
+        : withinUnassigned.map((stop) => getStopId(stop));
+      return api.post("/farmers/me/delivery-map/self-delivery-plan", {
+        method: selfDeliveryMethod,
+        orderIds,
+        radius: radiusKm,
+        destination: routeDestination ? { lat: routeDestination.lat, lng: routeDestination.lng, label: routeDestination.label } : null,
+      });
     },
     onSuccess: () => {
-      toast.success(`Selected orders are assigned to you for delivery`);
+      const selfCount = Number((res as any)?.data?.selfDeliveryCount ?? selectedRouteIds.length);\n      const partnerCount = Number((res as any)?.data?.partnerCount ?? 0);\n      toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed to delivery partners`);
       setSelectedRouteIds([]);
       refreshAll();
     },
@@ -576,8 +594,9 @@ export default function FarmerOrderMapPage() {
   });
 
   const deliverSelected = () => {
-    if (!selectedRouteIds.length) {
-      toast.error("Select at least one dispatched order");
+    const ids = selfDeliveryMethod === "route" ? selectedRouteIds : withinUnassigned.map((stop) => getStopId(stop));
+    if (!ids.length) {
+      toast.error(selfDeliveryMethod === "route" ? "Select at least one order along your route" : `No unassigned orders found within ${radiusKm} km`);
       return;
     }
     deliverSelectedMutation.mutate();
