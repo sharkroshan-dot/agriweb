@@ -2153,12 +2153,105 @@ async def get_my_delivery_partners(
     return {"success": True, "data": {"partners": partners, "farm": farm}}
 
 
+@router.post("/me/delivery-map/assign-nearby")
+async def assign_nearby_to_delivery_partners(
+    body: DeliveryMapRadiusRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Open nearby farmer-direct orders for delivery partners.
+
+    Final workflow rule:
+      Farmer Direct -> Pack -> Dispatch -> Nearby -> Delivery Partner.
+
+    Nearby orders are NOT claimed for farmer self-delivery. Each eligible
+    order is opened as a delivery job; the first eligible delivery partner
+    who accepts the job becomes responsible for the delivery.
+    """
+    _ensure_farmer(current_user)
+    farmer_id = str(current_user["_id"])
+    radius = max(1, min(body.radius, 200))
+    farm = await _get_farm_origin(farmer_id)
+    center = {"lat": farm.get("lat"), "lng": farm.get("lng")}
+
+    if center.get("lat") is None or center.get("lng") is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Farm location is not set. Please add your farm address in Settings first.",
+        )
+
+    within = await order_repository.get_active_by_farmer_within_radius(
+        farmer_id,
+        center["lng"],
+        center["lat"],
+        radius,
+        _ACTIVE_DELIVERY_STATUSES,
+    )
+
+    opened = 0
+    already_open = 0
+    skipped = 0
+    results = []
+
+    for order in within or []:
+        oid = str(order["_id"])
+
+        # Pickup orders are handled at the farm and must not enter partner delivery.
+        if order.get("deliveryType") == DeliveryType.PICKUP.value:
+            skipped += 1
+            continue
+
+        # Already assigned/self-delivery orders must not be duplicated.
+        if order.get("selfDelivery") or order.get("deliveryPartnerId"):
+            skipped += 1
+            continue
+
+        existing = await delivery_job_repository.get_by_order_id(oid)
+        if existing and existing.get("status") == JOB_OPEN:
+            already_open += 1
+            results.append({
+                "orderId": oid,
+                "jobId": str(existing["_id"]),
+                "status": "already_open",
+            })
+            continue
+
+        result = await _open_job_for_order(order, farm, farmer_id)
+        if result.get("status") == "open":
+            opened += 1
+        else:
+            skipped += 1
+        results.append(result)
+
+    _notify_delivery_map(
+        farmer_id,
+        "nearby.partner_jobs.opened",
+        radius=radius,
+        count=opened,
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "radius": radius,
+            "opened": opened,
+            "alreadyOpen": already_open,
+            "skipped": skipped,
+            "results": results,
+            "deliveryMethod": "delivery_partner",
+        },
+        "message": (
+            f"{opened} nearby order{'s' if opened != 1 else ''} "
+            f"opened for delivery partners within {radius} km"
+        ),
+    }
+
+
 @router.put("/me/delivery-map/accept-within")
 async def accept_within_for_self_delivery(
     body: DeliveryMapRadiusRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Accept orders inside the radius for farmer self-delivery, nearest first.
+    """Explicitly accept orders inside the radius for farmer self-delivery, nearest first. This endpoint is NOT used for the normal Nearby -> Delivery Partner workflow.
 
     Claims respect the farmer's delivery capacity (max orders, total weight and
     estimated route time). Candidates are filled nearest-first until a limit is
