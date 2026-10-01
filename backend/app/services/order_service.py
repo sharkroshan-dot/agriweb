@@ -1524,21 +1524,22 @@ class OrderService:
 
     @staticmethod
     async def update_fulfillment_stage(order_id: str, user_id: str, role: str, stage: FulfillmentStage) -> Optional[Dict[str, Any]]:
-        """Farmer-direct Pick -> Pack -> Dispatch lifecycle."""
+        """Farmer-direct Pack -> Dispatch lifecycle. Pick is intentionally removed."""
         order = await order_repository.get_by_id(order_id)
         if not order or str(order.get("fulfillmentMethod") or FulfillmentMethod.FARM_DIRECT.value) != FulfillmentMethod.FARM_DIRECT.value:
             return None
         if role == "farmer" and str(order.get("farmerId")) != user_id:
             return None
-        if role != "farmer" and role != "admin":
+        if role not in ("farmer", "admin"):
             return None
         if order.get("fulfillmentRouteSelected") is not True:
             return None
         current = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
+        if current == "picked":
+            current = FulfillmentStage.PENDING.value
         target = stage.value
         allowed = {
-            FulfillmentStage.PENDING.value: {FulfillmentStage.PICKED.value},
-            FulfillmentStage.PICKED.value: {FulfillmentStage.PACKED.value},
+            FulfillmentStage.PENDING.value: {FulfillmentStage.PACKED.value},
             FulfillmentStage.PACKED.value: {FulfillmentStage.DISPATCHED.value},
             FulfillmentStage.DISPATCHED.value: set(),
         }
