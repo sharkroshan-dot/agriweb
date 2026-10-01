@@ -438,17 +438,12 @@ export default function FarmerOrderMapPage() {
     return markers;
   }, [allOrders, farm, farmCoordinates]);
 
-  const acceptWithinMutation = useMutation({
-    mutationFn: () => api.put("/farmers/me/delivery-map/accept-within", { radius: radiusKm }),
+  const assignNearbyMutation = useMutation({
+    mutationFn: () => api.post("/farmers/me/delivery-map/assign-nearby", { radius: radiusKm }),
     onSuccess: (res: any) => {
-      toast.success(res?.message || `Orders accepted for self-delivery within ${radiusKm} km`);
-      const over = Number(res?.data?.overCapacity ?? 0);
-      if (over > 0) {
-        toast(
-          `${over} order${over > 1 ? "s" : ""} exceeded your capacity and stayed unassigned — use "Open for Partners" to send them to the marketplace.`,
-          { icon: "🚚", duration: 6000 }
-        );
-      }
+      toast.success(
+        res?.message || `Nearby orders opened for delivery partners within ${radiusKm} km`
+      );
       setAcceptDialogOpen(false);
       refreshAll();
     },
@@ -602,7 +597,7 @@ export default function FarmerOrderMapPage() {
           <p className="text-sm font-medium text-primary">Self-delivery workbench</p>
           <h1 className="text-3xl font-semibold tracking-tight">Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Plan deliveries by radius. Accept nearby orders for self-delivery or hand far orders to delivery partners. The time filter in the header applies to every panel on this page.
+            Plan deliveries by radius. Nearby orders go to delivery partners; farmer self-delivery is an explicit individual option. Far orders follow the warehouse/local-hub workflow. The time filter in the header applies to every panel on this page.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -747,7 +742,7 @@ export default function FarmerOrderMapPage() {
           variant="success"
           className="h-auto flex-col items-start gap-0.5 py-3 text-left"
           onClick={() => setAcceptDialogOpen(true)}
-          disabled={capacityStats.fitsCount === 0 || acceptWithinMutation.isPending}
+          disabled={capacityStats.fitsCount === 0 || assignNearbyMutation.isPending}
         >
           <span className="flex items-center">
             {acceptWithinMutation.isPending ? (
@@ -1273,17 +1268,15 @@ export default function FarmerOrderMapPage() {
       <Dialog open={acceptDialogOpen} onOpenChange={(v) => !v && setAcceptDialogOpen(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Accept {Math.min(capacityStats.fitsCount, withinUnassigned.length)} nearby orders for Self Delivery?</DialogTitle>
+            <DialogTitle>Send {withinUnassigned.length} nearby orders to Delivery Partners?</DialogTitle>
             <DialogDescription>
               {capacityStats.fitsCount === withinUnassigned.length ? (
                 <>
-                  All {withinUnassigned.length} unassigned order{withinUnassigned.length === 1 ? "" : "s"} within {radiusKm} km fit your delivery
-                  capacity. They appear in your Route, Delivery Calendar and Smart Route immediately.
+                  All {withinUnassigned.length} unassigned order{withinUnassigned.length === 1 ? "" : "s"} within {radiusKm} km will be opened as delivery jobs for eligible delivery partners.
                 </>
               ) : (
                 <>
-                  Your capacity fits {capacityStats.fitsCount} of {withinUnassigned.length} unassigned orders (nearest
-                  first). The remaining {capacityStats.overCapacity} stay unassigned — open them for partners afterwards.
+                  The orders will remain at the farmer fulfillment stage until an eligible delivery partner accepts each job.
                 </>
               )}
             </DialogDescription>
@@ -1318,26 +1311,25 @@ export default function FarmerOrderMapPage() {
           {capacityStats.overCapacity > 0 && (
             <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              {capacityStats.overCapacity} order{capacityStats.overCapacity > 1 ? "s" : ""} exceed your capacity. After
-              accepting, use “Open Outside Orders for Partners” (or jobs → Reopen) to send them to the marketplace.
+              Nearby orders are assigned to delivery partners through the delivery-job marketplace. Farmer self-delivery remains available only as an explicit individual delivery option.
             </p>
           )}
           <div className="rounded-lg border bg-slate-50 p-3 text-sm">
             <p className="flex items-center justify-between gap-2 text-muted-foreground">
-              <span>Capacity limits</span>
+              <span>Delivery routing</span>
               <button type="button" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline" onClick={openCapacityEditor}>
                 <Settings2 className="h-3.5 w-3.5" /> Edit
               </button>
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Nearest orders are claimed first until any limit is reached.
+              Nearby orders are opened for eligible delivery partners; the first eligible partner to accept a job owns that delivery.
             </p>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setAcceptDialogOpen(false)}>
               Cancel
             </Button>
-            <Button variant="success" onClick={() => acceptWithinMutation.mutate()} disabled={acceptWithinMutation.isPending}>
+            <Button variant="success" onClick={() => assignNearbyMutation.mutate()} disabled={acceptWithinMutation.isPending}>
               {acceptWithinMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
               Yes, Accept {Math.min(capacityStats.fitsCount, withinUnassigned.length)}
             </Button>
@@ -1350,7 +1342,7 @@ export default function FarmerOrderMapPage() {
           <DialogHeader>
             <DialogTitle>Delivery Capacity</DialogTitle>
             <DialogDescription>
-              Bulk self-delivery acceptance stops at these limits. Used by the Order Map and profitability estimates.
+              Nearby orders are routed to delivery partners. Farmer self-delivery is handled separately on an individual order.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
