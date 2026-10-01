@@ -41,7 +41,27 @@ async def create_hub(data: FulfillmentHubCreate, current_user: dict = Depends(ge
     doc["id"] = str(result.inserted_id); doc.pop("_id", None)
     return {"success": True, "data": doc}
 
-@router.get("/hubs")
+
+@router.post("/hubs/opt-in")
+async def farmer_opt_in_hub(data: FulfillmentHubCreate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can opt in a farm as a local fulfillment hub")
+    doc = data.model_dump() if hasattr(data, "model_dump") else data.dict()
+    doc["availableCapacity"] = doc["storageCapacity"] if doc.get("availableCapacity") is None else doc["availableCapacity"]
+    doc.update({"isLocalFulfillmentHub": True, "ownerFarmerId": ObjectId(current_user["_id"]), "approvalStatus": "pending", "isActive": False, "createdAt": datetime.utcnow(), "updatedAt": datetime.utcnow(), "deletedAt": None})
+    result = await MongoDB.get_collection("fulfillment_hubs").insert_one(doc)
+    return {"success": True, "data": {"id": str(result.inserted_id), "approvalStatus": "pending"}, "message": "Farm submitted for local fulfillment hub approval"}
+
+@router.post("/hubs/{hub_id}/approve")
+async def approve_hub(hub_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can approve local fulfillment hubs")
+    try: hid = ObjectId(hub_id)
+    except Exception: raise HTTPException(status_code=400, detail="Invalid hub id")
+    result = await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": hid, "isLocalFulfillmentHub": True, "deletedAt": None}, {"$set": {"approvalStatus": "approved", "isActive": True, "updatedAt": datetime.utcnow()}})
+    if not result.modified_count: raise HTTPException(status_code=404, detail="Hub not found")
+    return {"success": True, "message": "Local fulfillment hub approved"}
+\n@router.get("/hubs")
 async def list_hubs(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") not in ("admin", "warehouse", "delivery"):
         raise HTTPException(status_code=403, detail="Access denied")
