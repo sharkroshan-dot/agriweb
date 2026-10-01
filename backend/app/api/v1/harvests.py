@@ -432,19 +432,8 @@ async def update_harvest_plan(
 
 
 async def _apply_harvest(plan: dict) -> int:
-    """Confirm pre-orders, notify subscribers, bump linked product stock.
-
-    Shared by the direct harvest endpoint and the lifecycle stage transition.
-    Returns the number of subscribers notified.
-    """
+    """Notify subscribers; approved stock activation happens after quality verification."""
     plan_id = plan["_id"]
-    # Confirm all pending pre-orders.
-    await harvest_preorder_repo.collection.update_many(
-        {"harvestPlanId": plan_id, "status": "pending", "deletedAt": None},
-        {"$set": {"status": "confirmed", "confirmedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
-    )
-
-    # Notify "notify me" subscribers.
     subs = await harvest_notify_repo.find_many({"harvestPlanId": plan_id, "deletedAt": None})
     notified = 0
     for sub in subs:
@@ -452,35 +441,14 @@ async def _apply_harvest(plan: dict) -> int:
         if not cid:
             continue
         await NotificationService.create_in_app_notification(
-            str(cid),
-            NotificationType.SYSTEM,
-            f"{plan.get('cropName')} is harvested! 🌾",
-            f"{plan.get('cropName')} is now available. Check the farm and order fresh today.",
+            str(cid), NotificationType.SYSTEM,
+            f"{plan.get('cropName')} was harvested 🌾",
+            "The harvest is undergoing quality verification. You will be notified when approved stock is available.",
             {"harvestPlanId": str(plan_id), "cropName": plan.get("cropName"), "type": "harvest"},
             NotificationPriority.HIGH,
         )
         notified += 1
         await harvest_notify_repo.update({"_id": sub["_id"]}, {"notifiedAt": datetime.utcnow()})
-
-    # Bump the linked product's stock (if any) so the harvested crop is sellable.
-    product_id = plan.get("productId")
-    if product_id:
-        try:
-            qty = int(plan.get("expectedQuantityKg", 0)) or 0
-            await product_repository.collection.update_one(
-                {"_id": product_id},
-                {"$inc": {"quantity": qty},
-                 "$set": {"isActive": True, "harvestDate": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
-            )
-            inv = await inventory_repository.get_by_product_id(str(product_id))
-            if inv:
-                await inventory_repository.atomic_restock(str(inv["_id"]), qty)
-            else:
-                await inventory_repository.ensure_inventory_exists(
-                    str(product_id), str(plan.get("farmerId")), qty, "kg"
-                )
-        except Exception as e:
-            logger.error(f"Failed to bump product inventory on harvest {plan_id}: {e}")
     return notified
 
 
