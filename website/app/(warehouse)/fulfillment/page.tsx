@@ -42,6 +42,15 @@ export default function WarehouseFulfillmentPage() {
     },
   });
 
+  const hubReceiveMutation = useMutation({
+    mutationFn: (orderId: string) => api.post(`/fulfillment/orders/${orderId}/hub-receive`, { qualityCheck: "passed", notes: "Hub receiving verification completed" }),
+    onSuccess: () => {
+      setRefreshKey((v) => v + 1);
+      toast.success("Hub receipt verified");
+    },
+    onError: (e: any) => toast.error(e?.message || "Hub receipt failed"),
+  });
+
   const hubDispatchMutation = useMutation({
     mutationFn: (orderId: string) => api.post(`/fulfillment/orders/${orderId}/hub-dispatch`, {}),
     onSuccess: () => {
@@ -115,7 +124,14 @@ export default function WarehouseFulfillmentPage() {
                     {quantity} units • {decision.perishabilityRisk || "risk pending"} • {decision.estimatedDistanceKm ?? "—"} km • ETA {decision.estimatedDeliveryMinutes ?? "—"} min
                   </p>
                 </div>
-                {decision.transferStatus === "received" ? (
+                {decision.transferStatus === "in_transit" ? (
+                <Button
+                  disabled={hubReceiveMutation.isPending}
+                  onClick={() => hubReceiveMutation.mutate(orderId)}
+                >
+                  Verify Hub Receipt
+                </Button>
+              ) : decision.transferStatus === "received" ? (
                 <Button
                   disabled={hubDispatchMutation.isPending}
                   onClick={() => hubDispatchMutation.mutate(orderId)}
