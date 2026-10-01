@@ -35,11 +35,19 @@ FARMER ORDER FULFILLMENT
 
       B. Warehouse Fulfillment:
          Incoming -> Receive -> Quality Check -> Store
+         -> Allocate warehouse stock to each order
          -> Order-level Packing Queue -> Packing Team -> Pack Each Order
          -> Verify Packing -> Ready for Dispatch
          -> Delivery Decision
          Nearby -> Warehouse Dispatch -> Delivery Partner -> Customer
          Long Distance -> Warehouse Dispatch -> Local Hub -> Delivery Partner -> Customer
+
+         Farmer visibility:
+         The farmer's order page mirrors the warehouse stage as a read-only
+         timeline: Incoming -> Received/Quality Checked -> Stored
+         -> Ready for Packing -> Packing Team Assigned -> Packing
+         -> Packed -> Ready for Dispatch -> Delivery Decision -> Dispatched.
+         Warehouse staff performs these steps; the farmer only monitors progress.
 
   16. Each order/package keeps farmer, product, batch, order, warehouse,
       packing team, package and quantity traceability.
