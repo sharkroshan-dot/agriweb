@@ -907,8 +907,8 @@ export default function FarmerOrderMapPage() {
                 Delivery Decision Required
               </CardTitle>
               <CardDescription className="text-amber-800">
-                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} completed Pick → Pack → Dispatch without a delivery choice.
-                Choose how each order will reach the customer.
+                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} completed Pack → Dispatch and now need a delivery decision.
+                Self delivery uses the radius/route planner; delivery-partner orders must choose Nearby or Long Distance.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -922,24 +922,18 @@ export default function FarmerOrderMapPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button
                       size="sm"
-                      variant="success"
-                      disabled={switchMutation.isPending}
-                      onClick={() => switchMutation.mutate({ orderId: getStopId(stop), mode: "self" })}
+                      variant="outline"
+                      onClick={() => document.getElementById("delivery-route-selection")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     >
-                      <UserCheck className="mr-1.5 h-4 w-4" />
-                      Deliver Myself
+                      <Navigation className="mr-1.5 h-4 w-4" />
+                      Choose Delivery Route
                     </Button>
                     <Button
                       size="sm"
-                      variant="outline"
-                      disabled={switchMutation.isPending}
-                      onClick={() => {
-                        setSelectedPartnerId("auto");
-                        setPartnerPickerTarget(stop);
-                      }}
+                      variant="ghost"
+                      onClick={() => setSelectedStopId(getStopId(stop))}
                     >
-                      <Truck className="mr-1.5 h-4 w-4" />
-                      Delivery Partner
+                      View Order
                     </Button>
                   </div>
                 </div>
@@ -979,7 +973,7 @@ export default function FarmerOrderMapPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-emerald-200 bg-gradient-to-r from-emerald-50/60 to-violet-50/60">
+      <Card id="delivery-route-selection" className="scroll-mt-20 border-emerald-200 bg-gradient-to-r from-emerald-50/60 to-violet-50/60">
         <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -1076,7 +1070,7 @@ export default function FarmerOrderMapPage() {
           >
             <span className="flex items-center">
               <Truck className="mr-2 h-5 w-5" />
-              Nearby → Local Hub
+              Delivery Partner · Nearby → Local Hub
             </span>
             <span className="pl-7 text-[11px] font-normal opacity-80">
               Delivery partner collects from the nearby local hub
@@ -1091,10 +1085,10 @@ export default function FarmerOrderMapPage() {
           >
             <span className="flex items-center">
               <Truck className="mr-2 h-5 w-5" />
-              Long Distance → Warehouse
+              Delivery Partner · Long Distance
             </span>
             <span className="pl-7 text-[11px] font-normal opacity-80">
-              Warehouse → Local Hub → Delivery Partner
+              Farmer → Warehouse → Local Hub → Delivery Partner
             </span>
           </Button>
           <Button
