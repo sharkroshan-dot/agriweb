@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, ArrowUp, Truck, RefreshCw, Clock3, AlertCircle, Send } from "lucide-react";
+import { Search, ArrowUp, Truck, RefreshCw, Clock3, AlertCircle, Send, MapPin, ArrowRight } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -84,6 +84,7 @@ export default function WarehouseOutgoingPage() {
         <div><h1 className="text-3xl font-bold">Outgoing & Delivery Decision</h1><p className="text-muted-foreground">Ready for Dispatch → choose Nearby or Long Distance → dispatch → delivery partner.</p></div>
         <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
       </div>
+      <Card className="border-amber-100 bg-amber-50/60"><CardContent className="flex gap-3 p-4"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"/><div className="text-sm text-amber-950"><p className="font-semibold">Delivery decision happens after warehouse packing is verified.</p><p className="mt-1 text-xs leading-5 text-amber-900">Choose <b>Nearby</b> for Warehouse → Delivery Partner → Customer, or <b>Long Distance</b> for Warehouse → Local Hub → Delivery Partner → Customer. Dispatch remains disabled until a route is selected.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search dispatch orders..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9" /></div>
         <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-[180px]"><SelectValue placeholder="Filter status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="pending">Ready for Dispatch</SelectItem><SelectItem value="packed">Packed</SelectItem><SelectItem value="dispatched">Dispatched</SelectItem></SelectContent></Select>
