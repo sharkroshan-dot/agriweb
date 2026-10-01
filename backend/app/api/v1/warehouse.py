@@ -413,8 +413,11 @@ async def choose_warehouse_delivery_route(
     outgoing = await outgoing_stock_repository.get_by_id(outgoing_id)
     if not outgoing or str(outgoing.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Outgoing shipment not found")
-    if outgoing.get("status") != "dispatched":
-        raise HTTPException(status_code=400, detail="Choose delivery routing only after warehouse dispatch")
+    if outgoing.get("status") not in ("pending", "dispatched"):
+        raise HTTPException(
+            status_code=400,
+            detail="Delivery routing can be selected only when the package is Ready for Dispatch or already Dispatched",
+        )
 
     order_id = outgoing.get("orderId")
     if not order_id:
@@ -429,6 +432,24 @@ async def choose_warehouse_delivery_route(
         data.radius,
         warehouse_id=str(warehouse["_id"]),
     )
+    # Ready for Dispatch -> Delivery Decision happens before the physical
+    # warehouse dispatch. The delivery job is opened only after the outgoing
+    # shipment is actually dispatched.
+    if outgoing.get("status") == "pending":
+        await order_repository.update(
+            {"_id": ObjectId(str(order_id))},
+            {
+                "warehouseFulfillmentStage": "ready_for_dispatch",
+                "deliveryPartnerRoute": data.route,
+                "updatedAt": datetime.utcnow(),
+            },
+        )
+        return {
+            "success": True,
+            "data": {**result, "deliveryJob": None},
+            "message": "Delivery route selected. Dispatch the warehouse shipment next.",
+        }
+
     await order_repository.update_order_field(
         str(order_id), "warehouseFulfillmentStage", "dispatched"
     )
@@ -436,7 +457,6 @@ async def choose_warehouse_delivery_route(
     # Warehouse Fulfillment delivery decision:
     # nearby -> Warehouse -> Delivery Partner -> Customer
     # long-distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
-    # The partner job is opened only after the warehouse has dispatched.
     refreshed = await order_repository.get_by_id(str(order_id)) or order
     existing_job = await delivery_job_repository.get_by_order_id(str(order_id))
     job = existing_job
