@@ -870,7 +870,7 @@ export default function FarmerOrderMapPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {selfDeliveryMethod === "radius" && (\n{RADIUS_OPTIONS.map((distance) => (
+          {selfDeliveryMethod === "radius" && (\n            {RADIUS_OPTIONS.map((distance) => (
             <Button
               key={distance}
               size="sm"
