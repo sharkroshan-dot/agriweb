@@ -356,7 +356,11 @@ class WarehouseService:
     async def create_outgoing(data: OutgoingStockCreate) -> Optional[Dict[str, Any]]:
         from app.repositories.order_repository import order_repository
         order = await order_repository.get_by_id(data.orderId)
-        if not order or str(order.get("fulfillmentMethod") or "farmer") != "warehouse":
+        if not order:
+            return None
+        fulfillment_method = str(order.get("fulfillmentMethod") or "farmer")
+        transfer_only = str(order.get("logisticsMode") or "") == "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+        if fulfillment_method != "warehouse" and not transfer_only:
             return None
         if str(order.get("warehouseId")) != str(data.warehouseId):
             return None
