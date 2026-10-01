@@ -435,6 +435,7 @@ async def assign_packing_team(task_id: str, data: PackingTeamAssignment, current
         {"_id": ObjectId(str(task["orderId"]))},
         {"warehouseFulfillmentStage": "packing_team_assigned", "packingTeamId": data.packingTeamId, "updatedAt": datetime.utcnow()},
     )
+    await order_repository.append_tracking_event(str(task["orderId"]), "packing_team_assigned", "Packing team assigned", "The warehouse packing team has been assigned to this customer order.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packingTeamId": data.packingTeamId, "quantityRequired": task.get("quantityRequired", 0)})
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.put("/me/packing-tasks/{task_id}/start")
@@ -450,6 +451,7 @@ async def start_packing_task(task_id: str, current_user: dict = Depends(get_curr
         {"_id": ObjectId(str(task["orderId"]))},
         {"warehouseFulfillmentStage": "packing", "updatedAt": datetime.utcnow()},
     )
+    await order_repository.append_tracking_event(str(task["orderId"]), "packing_started", "Packing started", "The packing team has started preparing your customer package.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"quantityRequired": task.get("quantityRequired", 0)})
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.put("/me/packing-tasks/{task_id}/complete")
@@ -468,6 +470,7 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
         {"_id": ObjectId(str(task["orderId"]))},
         {"warehouseFulfillmentStage": "packed" if packed_status == "packed" else "partially_packed", "updatedAt": datetime.utcnow()},
     )
+    await order_repository.append_tracking_event(str(task["orderId"]), "packing_completed" if packed_status == "packed" else "packing_partial", "Order packed" if packed_status == "packed" else "Order partially packed", f"Packed quantity: {data.packedQuantity:g} of {required:g}.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packedQuantity": data.packedQuantity, "quantityRequired": required, "packageId": data.packageId or f"PKG-{str(task['_id'])[-8:]}"})
     return {"success": True, "data": await warehouse_packing_repository.get_by_id(task_id)}
 
 @router.put("/me/packing-tasks/{task_id}/verify")
@@ -482,6 +485,7 @@ async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_
         from app.repositories.order_repository import order_repository
         order_id=str(task["orderId"])
         await order_repository.update({"_id":ObjectId(order_id)}, {"warehouseFulfillmentStage":"ready_for_dispatch","updatedAt":datetime.utcnow()})
+        await order_repository.append_tracking_event(order_id, "packing_verified", "Packing verified", "Your package quantity and contents were verified and the package is ready for dispatch.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"packageId": task.get("packageId"), "quantity": task.get("packedQuantity", 0)})
         existing=await outgoing_stock_repository.get_by_order_id(order_id,str(task["productId"]),str(task.get("variantId") or ""))
         if not existing:
             await WarehouseService.create_outgoing(OutgoingStockCreate(warehouseId=str(warehouse["_id"]),productId=str(task["productId"]),variantId=str(task["variantId"]) if task.get("variantId") else None,orderId=order_id,quantity=int(task.get("packedQuantity",0)),batchNumber=task.get("batchNumber")))
