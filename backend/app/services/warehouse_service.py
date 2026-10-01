@@ -568,6 +568,21 @@ class WarehouseService:
             logger.exception("Failed to update farmer order warehouse stage for outgoing %s", outgoing_id)
 
         if status == "dispatched":
+            # The order workflow notifier informs customer/farmer/delivery after
+            # the warehouse has actually completed the physical dispatch.
+            try:
+                updated_order = await order_repository.get_by_id(str(outgoing.get("orderId"))) if outgoing.get("orderId") else None
+                if updated_order:
+                    await NotificationService.send_order_workflow_update(
+                        updated_order,
+                        status="ready_for_delivery",
+                        stage="dispatched",
+                        title=f"Order #{updated_order.get('orderNumber') or outgoing.get('orderId')}: dispatched from warehouse",
+                        message="The warehouse has dispatched the customer package. Delivery processing can continue.",
+                        actor_role="warehouse",
+                    )
+            except Exception:
+                logger.exception("Failed to send warehouse dispatch workflow notification")
             await warehouse_stock_repository.release_stock(
                 str(outgoing["productId"]),
                 outgoing.get("quantity", 0),
