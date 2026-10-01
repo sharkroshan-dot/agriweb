@@ -777,6 +777,12 @@ class OrderService:
         
         if new_status == OrderStatus.CONFIRMED:
             try:
+                from app.services.fulfillment_engine import evaluate_order
+                decision = await evaluate_order(order_id, persist=True)
+                await order_repository.update_order_field(order_id, "fulfillmentDecision", decision)
+            except Exception as e:
+                logger.warning(f"Fulfillment decision failed after farmer confirmation for {order_id}: {e}")
+            try:
                 await NotificationService.send_order_confirmation(
                     str(order["customerId"]),
                     order_id
