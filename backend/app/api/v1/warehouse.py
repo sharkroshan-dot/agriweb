@@ -626,15 +626,22 @@ async def choose_warehouse_delivery_route(
         data.radius,
         warehouse_id=str(warehouse["_id"]),
     )
-    await outgoing_stock_repository.update(
-        {"_id": outgoing["_id"]},
-        {
-            "deliveryPartnerRoute": data.route,
-            "deliveryRouteRadiusKm": data.radius,
-            "deliveryRouteSelectedAt": datetime.utcnow(),
-            "updatedAt": datetime.utcnow(),
-        },
+    # Delivery routing is an order-level decision. Persist it to every
+    # outgoing line so a multi-product package cannot split accidentally.
+    order_outgoings = await outgoing_stock_repository.find_many(
+        {"orderId": ObjectId(str(order_id)), "warehouseId": ObjectId(str(warehouse["_id"])), "deletedAt": None},
+        skip=0, limit=1000,
     )
+    for row in order_outgoings:
+        await outgoing_stock_repository.update(
+            {"_id": row["_id"]},
+            {
+                "deliveryPartnerRoute": data.route,
+                "deliveryRouteRadiusKm": data.radius,
+                "deliveryRouteSelectedAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+            },
+        )
     # Ready for Dispatch -> Delivery Decision happens before the physical
     # warehouse dispatch. The delivery job is opened only after the outgoing
     # shipment is actually dispatched.
