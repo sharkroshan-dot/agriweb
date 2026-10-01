@@ -993,6 +993,25 @@ class OrderService:
                 },
             )
 
+        # Notify the roles affected by every authoritative status transition.
+        # The actor is excluded so the user who made the change is not spammed.
+        try:
+            updated_order = await order_repository.get_by_id(order_id)
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    status=str(new_status.value if hasattr(new_status, "value") else new_status),
+                    title=f"Order #{updated_order.get('orderNumber') or order_id} status updated",
+                    message=(
+                        data.note
+                        or f"Order #{updated_order.get('orderNumber') or order_id} is now "
+                        f"{str(new_status.value if hasattr(new_status, 'value') else new_status).replace('_', ' ').title()}."
+                    ),
+                    actor_role=role,
+                )
+        except Exception as e:
+            logger.warning("Failed to notify workflow roles for order %s: %s", order_id, e)
+
         is_pickup = order.get("deliveryType") == DeliveryType.PICKUP.value
         
         if new_status == OrderStatus.CONFIRMED:
