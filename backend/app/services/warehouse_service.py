@@ -214,36 +214,83 @@ class WarehouseService:
         success = await outgoing_stock_repository.update_status(outgoing_id, status, data)
         if not success:
             return None
-        if status == "dispatched":
+
+        if status == "dispatched" and outgoing.get("orderId"):
+            order_id = str(outgoing["orderId"])
+            now = datetime.utcnow()
+            try:
+                from app.database.mongodb import MongoDB
+                warehouse = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(str(outgoing["warehouseId"]))})
+                warehouse_location = (warehouse or {}).get("location") or (warehouse or {}).get("coordinates")
+                await MongoDB.get_collection("orders").update_one(
+                    {"_id": ObjectId(order_id)},
+                    {"$set": {
+                        "currentFulfillmentLocation": warehouse_location,
+                        "fulfillmentSource": "warehouse",
+                        "warehouseDispatchedAt": now,
+                        "orderStatus": "dispatched",
+                        "updatedAt": now,
+                    }},
+                )
+
+                # The warehouse performs its own downstream logistics decision
+                # only after Pick -> Pack -> Dispatch.
+                from app.services.fulfillment_engine import evaluate_order
+                decision = await evaluate_order(order_id, persist=True)
+
+                if decision.get("nearbyFulfillmentType") == "local_hub":
+                    await MongoDB.get_collection("orders").update_one(
+                        {"_id": ObjectId(order_id)},
+                        {"$set": {
+                            "orderStatus": "transfer_pending",
+                            "transferStatus": "pending",
+                            "logisticsMode": "warehouse_to_local_hub",
+                            "updatedAt": datetime.utcnow(),
+                        }},
+                    )
+                else:
+                    partner = await MongoDB.get_collection("delivery_partners").find_one({
+                        "isAvailable": True,
+                        "status": "available",
+                        "deletedAt": None,
+                    })
+                    if partner:
+                        from app.repositories.delivery_assignment_repository import delivery_assignment_repository
+                        existing = await delivery_assignment_repository.get_by_order_id(order_id)
+                        if not existing:
+                            await delivery_assignment_repository.create_assignment({
+                                "orderId": ObjectId(order_id),
+                                "deliveryPartnerId": partner["_id"],
+                                "priority": 1,
+                            })
+                        await MongoDB.get_collection("orders").update_one(
+                            {"_id": ObjectId(order_id)},
+                            {"$set": {
+                                "deliveryPartnerId": partner["_id"],
+                                "orderStatus": "dispatched",
+                                "logisticsMode": "warehouse_direct_delivery_partner",
+                                "updatedAt": datetime.utcnow(),
+                            }},
+                        )
+                    else:
+                        await MongoDB.get_collection("orders").update_one(
+                            {"_id": ObjectId(order_id)},
+                            {"$set": {
+                                "orderStatus": "ready_for_delivery",
+                                "logisticsMode": "warehouse_waiting_delivery_partner",
+                                "updatedAt": datetime.utcnow(),
+                            }},
+                        )
+            except Exception as exc:
+                logger.warning("Warehouse dispatch logistics decision failed for order %s: %s", order_id, exc)
+
             await warehouse_stock_repository.release_stock(
                 str(outgoing["productId"]),
                 outgoing.get("quantity", 0)
             )
-            partner_id = (data or {}).get("deliveryPartnerId")
-            order_id = outgoing.get("orderId")
-            if partner_id and order_id:
-                try:
-                    from app.repositories.delivery_assignment_repository import delivery_assignment_repository
-                    existing_assignment = await delivery_assignment_repository.get_by_order_id(str(order_id))
-                    if not existing_assignment:
-                        await delivery_assignment_repository.create_assignment({
-                            "orderId": ObjectId(str(order_id)),
-                            "deliveryPartnerId": ObjectId(str(partner_id)),
-                            "priority": 1,
-                        })
-                    from app.database.mongodb import MongoDB
-                    await MongoDB.get_collection("orders").update_one(
-                        {"_id": ObjectId(str(order_id))},
-                        {"$set": {
-                            "deliveryPartnerId": ObjectId(str(partner_id)),
-                            "orderStatus": "dispatched",
-                            "logisticsMode": "warehouse_direct_delivery_partner",
-                            "updatedAt": datetime.utcnow(),
-                        }},
-                    )
-                except Exception as exc:
-                    logger.warning("Could not create delivery assignment for warehouse dispatch: %s", exc)
+
         return await outgoing_stock_repository.get_by_id(outgoing_id)
+
 
     @staticmethod
     async def get_outgoing_stock(
