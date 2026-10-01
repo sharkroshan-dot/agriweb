@@ -78,8 +78,8 @@ async def apply_partner_route(
 ) -> Dict[str, Any]:
     """Persist the physical logistics route after a delivery-partner decision.
 
-    nearby: FARM -> LOCAL HUB -> DELIVERY PARTNER -> CUSTOMER
-    long_distance: FARM -> WAREHOUSE -> LOCAL HUB -> DELIVERY PARTNER -> CUSTOMER
+    Farmer fulfillment: nearby -> Local Hub -> Delivery Partner; long-distance -> Warehouse -> Local Hub -> Delivery Partner.
+    Warehouse fulfillment: nearby -> Warehouse -> Delivery Partner; long-distance -> Warehouse -> Local Hub -> Delivery Partner.
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
     items = order.get("items") or []
@@ -120,6 +120,15 @@ async def apply_partner_route(
 
     if warehouse_route and mode == "nearby":
         hub = None
+    elif warehouse_route and mode == "long_distance" and not hub:
+        raise ValueError("No active local hub with available capacity was found for this shipment.")
+    elif not warehouse_route and mode == "nearby" and not hub:
+        raise ValueError("No active local hub with available capacity was found for this shipment.")
+    elif not warehouse_route and mode == "long_distance":
+        if not warehouse:
+            raise ValueError("No warehouse is available for this long-distance farmer route.")
+        if not hub:
+            raise ValueError("No active local hub with available capacity was found for this shipment.")
 
     pickup = None
     if mode == "nearby" and warehouse:
