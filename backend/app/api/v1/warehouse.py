@@ -549,7 +549,10 @@ async def warehouse_fulfillment_check(order_id: str, current_user: dict = Depend
     tasks = await warehouse_packing_repository.get_by_order_all(order_id)
     outgoing = await outgoing_stock_repository.find_many({"orderId": ObjectId(order_id), "warehouseId": ObjectId(str(warehouse["_id"])), "deletedAt": None}, skip=0, limit=1000)
     required = [{"productId": str(i.get("productId")), "variantId": str(i.get("variantId") or ""), "quantity": float(i.get("quantity") or 0), "productName": i.get("productName") or "Product"} for i in (order.get("items") or [])]
-    packed = {str(t.get("itemKey")): float(t.get("packedQuantity") or 0) for t in tasks for _ in [0] if t.get("itemKey")}
+    packed = {}
+    for t in tasks:
+        for line in (t.get("packingItems") or []):
+            packed[str(line.get("itemKey"))] = float(line.get("packedQuantity") or 0)
     missing=[]
     for i in required:
         key=f"{i['productId']}:{i['variantId']}"
