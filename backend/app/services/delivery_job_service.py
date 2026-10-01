@@ -208,6 +208,16 @@ def build_job_document(
         if product:
             break
     now = datetime.utcnow()
+    # Delivery-partner jobs pick up from the local hub when the logistics
+    # route selected one. The farm is never exposed as the partner pickup
+    # point for hub-routed orders.
+    hub = order.get("nearbyFulfillmentLocation") or {}
+    hub_coords = hub.get("coordinates") or []
+    use_hub = bool(order.get("nearbyFulfillmentLocationId") and len(hub_coords) >= 2)
+    pickup_lat = float(hub_coords[1]) if use_hub else float(farm.get("lat") or 0)
+    pickup_lng = float(hub_coords[0]) if use_hub else float(farm.get("lng") or 0)
+    pickup_name = hub.get("name") or "Local Fulfillment Hub" if use_hub else (farm.get("name") or "Farm")
+    pickup_address = hub.get("address") or "" if use_hub else (farm.get("address") or "")
     return {
         "orderId": order["_id"],
         "farmerId": order.get("farmerId"),
@@ -219,11 +229,11 @@ def build_job_document(
         "acceptedAt": None,
         "pickupLocation": {
             "type": "Point",
-            "coordinates": [float(farm.get("lng") or 0), float(farm.get("lat") or 0)],
+            "coordinates": [pickup_lng, pickup_lat],
         },
-        "pickupName": farm.get("name") or "Farm",
-        "pickupAddress": farm.get("address") or "",
-        "pickupPhone": order.get("farmerPhone") or "",
+        "pickupName": pickup_name,
+        "pickupAddress": pickup_address,
+        "pickupPhone": "" if use_hub else (order.get("farmerPhone") or ""),
         "deliveryLocation": {
             "type": "Point",
             "coordinates": [float(coords[0]) if coords else 0, float(coords[1]) if len(coords) > 1 else 0],
