@@ -339,18 +339,6 @@ async def submit_inspection_evidence(
         {"aiAssessment": assessment, "aiAssessedAt": assessment["assessedAt"]},
     )
     refreshed = await inspection_repo.find_one({"_id": oid})
-    if rec.get("batchId"):
-        await batch_repo.update({"_id": rec["batchId"]}, {
-            "status": "rework",
-            "verificationStatus": VERIFICATION_STATUS_REJECTED,
-            "verificationNotes": reason or rec.get("verificationNotes"),
-            "updatedAt": datetime.utcnow(),
-        })
-        batch = await batch_repo.find_one({"_id": rec["batchId"], "deletedAt": None})
-        if batch and batch.get("productId"):
-            await product_repository.update_product(str(batch["productId"]), {"isActive": False, "status": "draft"})
-        if batch and batch.get("sourceHarvestPlanId"):
-            await BaseRepository("harvest_plans").update({"_id": batch["sourceHarvestPlanId"]}, {"qualityVerificationStatus": "rework", "updatedAt": datetime.utcnow()})
     return {"success": True, "data": _serialize_inspection(refreshed), "message": "Inspection rejected; batch moved to rework"}
 
 
