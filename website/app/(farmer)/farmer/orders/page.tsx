@@ -186,6 +186,51 @@ export default function FarmerOrdersPage() {
     }
   };
 
+  const finalizeFarmerPacking = async (order: any) => {
+    const orderId = order.id || order._id;
+    const items = Array.isArray(order.items) ? order.items : [];
+    const quantities: Record<string, string> = {};
+    items.forEach((item: any, index: number) => {
+      quantities[`${String(item.productId)}:${String(item.variantId || "")}:${index}`] = String(item.quantity ?? 0);
+    });
+
+    const rows = items.map((item: any, index: number) => ({
+      item,
+      key: `${String(item.productId)}:${String(item.variantId || "")}:${index}`,
+    }));
+
+    const packedItems = rows.map(({ item, key }) => {
+      const raw = window.prompt(
+        `${item.productName || "Product"} — ordered: ${item.quantity}. Enter actual quantity packed:`,
+        quantities[key],
+      );
+      if (raw === null) throw new Error("Packing cancelled");
+      const packed = Number(raw);
+      if (!Number.isFinite(packed) || packed < 0 || packed > Number(item.quantity)) {
+        throw new Error(`Invalid packed quantity for ${item.productName || "product"}`);
+      }
+      return {
+        productId: item.productId,
+        variantId: item.variantId || null,
+        packedQuantity: packed,
+      };
+    });
+
+    try {
+      const response = await api.post(`/orders/${orderId}/farmer-packing-finalize`, { items: packedItems });
+      const result = response?.data || response;
+      const shortage = Array.isArray(result?.shortageCancelledItems) ? result.shortageCancelledItems.length : 0;
+      toast.success(
+        shortage
+          ? `Packing complete. ${shortage} shortage line(s) cancelled; final payable amount updated.`
+          : "Packing complete. All ordered quantities are available.",
+      );
+      await refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to finalize packing");
+    }
+  };
+
   const updateFulfillmentStage = async (orderId: string, stage: "packed" | "dispatched") => {
     try {
       await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, { params: { stage } });
@@ -699,7 +744,7 @@ export default function FarmerOrdersPage() {
                                   </>
                                 ) : order.fulfillmentMethod === "farmer" ? (
                                 <div className="space-y-2">
-                                  {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <div className="space-y-2"><Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Order Packed</Button><p className="text-[11px] text-muted-foreground">You pack the individual customer order before dispatch.</p></div>}
+                                  {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <div className="space-y-2"><Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => finalizeFarmerPacking(order)}><Package className="mr-2 h-4 w-4" />Finish Packing & Check Shortage</Button><p className="text-[11px] text-muted-foreground">After packing all products, enter the actual packed quantity. Any unavailable quantity is cancelled and the final amount is recalculated.</p></div>}
                                   {order.fulfillmentStage === "packed" && <div className="space-y-2"><Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button><p className="text-[11px] text-muted-foreground">After dispatch, choose the delivery route on the Order Map.</p></div>}
                                   {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 text-xs text-amber-900">
                                     <strong>Warehouse transfer for long-distance delivery</strong>
