@@ -235,13 +235,25 @@ class InventoryRepository(BaseRepository):
     async def ensure_inventory_exists(self, product_id: str, farmer_id: str, total_stock: int, unit: str = "kg") -> Optional[str]:
         try:
             existing = await self.get_by_product_id(product_id)
+            farmer_location = None
+            try:
+                farmer = await MongoDB.get_collection("farmers").find_one({"userId": farmer_id})
+                if farmer:
+                    farmer_location = farmer.get("farmLocation") or farmer.get("location")
+                if farmer_location is None:
+                    user = await MongoDB.get_collection("users").find_one({"_id": ObjectId(str(farmer_id))})
+                    if user:
+                        farmer_location = user.get("farmLocation") or user.get("location")
+            except Exception:
+                farmer_location = None
             if existing:
                 sold = existing.get("sold_stock", 0)
                 new_total = max(total_stock, sold)
-                await self.update_inventory(str(existing["_id"]), {
-                    "total_stock": new_total,
-                    "unit": unit,
-                })
+                update = {"total_stock": new_total, "unit": unit}
+                if farmer_location and not existing.get("location"):
+                    update["location"] = farmer_location
+                    update["location_type"] = "farm"
+                await self.update_inventory(str(existing["_id"]), update)
                 return str(existing["_id"])
 
             data = {
@@ -253,6 +265,9 @@ class InventoryRepository(BaseRepository):
                 "unit": unit,
                 "version": 0,
             }
+            if farmer_location:
+                data["location"] = farmer_location
+                data["location_type"] = "farm"
             return await self.create_inventory(data)
         except Exception as e:
             logger.error(f"Error ensuring inventory exists: {str(e)}")
