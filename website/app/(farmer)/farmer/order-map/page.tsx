@@ -866,11 +866,11 @@ export default function FarmerOrderMapPage() {
           <p className="text-sm font-medium text-primary">Self-delivery workbench</p>
           <h1 className="text-3xl font-semibold tracking-tight">Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Route planning starts after farmer fulfillment. Only farmer-prepared and dispatched orders appear here. Select the customer stops along your route, choose Deliver Myself, then create your navigation route.
+            After dispatch, choose exactly one self-delivery method: Route or Radius. Select the orders you will personally deliver, then AgriConnect automatically routes every remaining order to the delivery-partner flow.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {RADIUS_OPTIONS.map((distance) => (
+          {selfDeliveryMethod === "radius" && (\n{RADIUS_OPTIONS.map((distance) => (
             <Button
               key={distance}
               size="sm"
@@ -880,7 +880,7 @@ export default function FarmerOrderMapPage() {
               {distance} km
             </Button>
           ))}
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          )}\n          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           {DELIVERED_WINDOWS.map((w) => (
             <Button
               key={w.value}
@@ -1225,7 +1225,7 @@ export default function FarmerOrderMapPage() {
       )}
 
 
-      <Card className="border-blue-200 bg-blue-50/30">
+      {selfDeliveryMethod === "route" && (\n<Card className="border-blue-200 bg-blue-50/30">
         <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -1354,7 +1354,7 @@ export default function FarmerOrderMapPage() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>\n      )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.85fr)]">
         <Card>
