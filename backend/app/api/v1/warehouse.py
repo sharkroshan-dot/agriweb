@@ -17,6 +17,7 @@ from app.schemas.warehouse import (
     WarehouseDashboardResponse
 )
 from app.services.warehouse_service import WarehouseService
+from app.services.user_service import UserService
 from app.services.logistics_routing_service import apply_partner_route
 from app.services.delivery_job_service import build_job_document, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
@@ -421,6 +422,25 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
         task["id"] = str(task["_id"])
         for key in ("warehouseId","orderId","farmerId","productId","variantId","batchId"):
             if task.get(key) is not None: task[key] = str(task[key])
+        if task.get("orderId"):
+            order = await order_repository.get_by_id(str(task["orderId"]))
+            if order:
+                task["orderNumber"] = order.get("orderNumber")
+                task["deliveryAddress"] = order.get("deliveryAddress") or {}
+                task["items"] = [
+                    {
+                        "productId": str(item.get("productId")),
+                        "productName": item.get("productName") or "Product",
+                        "quantity": float(item.get("quantity", 0) or 0),
+                        "unitPrice": item.get("unitPrice", 0),
+                    }
+                    for item in (order.get("items") or [])
+                ]
+                customer = await UserService.get_user_by_id(str(order.get("customerId"))) if order.get("customerId") else None
+                task["customer"] = {
+                    "name": f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip() if customer else "Customer",
+                    "phone": customer.get("phone") if customer else None,
+                }
     return {"success": True, "data": {"tasks": tasks}}
 
 @router.put("/me/packing-tasks/{task_id}/assign")
