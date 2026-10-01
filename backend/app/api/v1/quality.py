@@ -103,6 +103,52 @@ def _serialize_inspection(rec: dict) -> dict:
     return rec
 
 
+@router.post("/inspections/{inspection_id}/approve-batch")
+async def approve_batch_from_inspection(
+    inspection_id: str,
+    data: InspectionVerify,
+    current_user: dict = Depends(get_current_user),
+):
+    """Approve a batch and activate only its actual harvested quantity."""
+    _require_verifier(current_user)
+    try:
+        oid = ObjectId(inspection_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    rec = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
+    if not rec or not rec.get("batchId"):
+        raise HTTPException(status_code=404, detail="Inspection or linked batch not found")
+    grade = (data.verifiedGrade or "").strip().upper()
+    if grade not in VALID_GRADES:
+        raise HTTPException(status_code=422, detail="verifiedGrade must be A, B or C")
+    await inspection_repo.update({"_id": oid}, {"verifiedGrade": grade, "verificationStatus": VERIFICATION_STATUS_VERIFIED, "verificationMethod": data.method or VERIFICATION_METHOD_MANUAL, "verifiedBy": ObjectId(current_user["_id"]), "verifiedAt": datetime.utcnow(), "verificationNotes": data.notes, "grade": grade})
+    refreshed = await inspection_repo.find_one({"_id": oid})
+    await _propagate_verification(refreshed)
+    batch = await batch_repo.find_one({"_id": rec["batchId"], "deletedAt": None})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    farmer_id = batch.get("farmerId")
+    product_id = batch.get("productId")
+    if not product_id:
+        plan = await BaseRepository("harvest_plans").find_one({"_id": batch.get("sourceHarvestPlanId"), "deletedAt": None})
+        product_id = plan.get("productId") if plan else None
+    if not product_id:
+        raise HTTPException(status_code=400, detail="Link the batch to a product before marketplace activation")
+    qty = float(batch.get("actualQuantityKg") or batch.get("quantityKg") or 0)
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="Batch has no approved quantity")
+    product = await product_repository.get_by_id(str(product_id))
+    if not product or str(product.get("farmerId")) != str(farmer_id):
+        raise HTTPException(status_code=400, detail="Batch product ownership mismatch")
+    current_qty = int(product.get("quantity") or 0)
+    await product_repository.update_product(str(product_id), {"quantity": current_qty + int(qty), "price": float(batch.get("finalSellingRatePerKg") or product.get("price") or 0), "batchId": batch["_id"], "harvestedAt": batch.get("harvestDate"), "isActive": True, "verificationStatus": VERIFICATION_STATUS_VERIFIED, "verifiedGrade": grade})
+    await inventory_repository.ensure_inventory_exists(str(product_id), str(farmer_id), int(qty), product.get("unit", "kg"))
+    await batch_repo.update({"_id": batch["_id"]}, {"status": "listed", "remainingKg": qty, "qualityGrade": grade, "verifiedGrade": grade, "verificationStatus": VERIFICATION_STATUS_VERIFIED, "verifiedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+    plan_id = batch.get("sourceHarvestPlanId")
+    if plan_id:
+        await BaseRepository("harvest_plans").update({"_id": plan_id}, {"qualityVerificationStatus": "approved", "productId": ObjectId(product_id), "productCreated": True, "updatedAt": datetime.utcnow()})
+    return {"success": True, "data": {"batchId": str(batch["_id"]), "productId": str(product_id), "approvedQuantityKg": qty, "finalSellingRatePerKg": batch.get("finalSellingRatePerKg"), "verificationStatus": VERIFICATION_STATUS_VERIFIED}, "message": "Batch approved and activated in marketplace"}
+
 async def _propagate_verification(inspection: dict) -> None:
     """Push verified grade to the linked batch and (via batch) its product."""
     if not inspection.get("verifiedGrade"):
