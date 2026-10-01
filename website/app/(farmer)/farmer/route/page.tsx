@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryWorkflowNav } from "../../../components/farmer/delivery-workflow-nav";
 
 import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -482,6 +483,7 @@ export default function FarmerRoutePage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
+      <DeliveryWorkflowNav current="route" />
         <div className="h-8 w-48 animate-pulse rounded bg-muted" />
         <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           {[1, 2, 3, 4, 5, 6].map((i) => (
