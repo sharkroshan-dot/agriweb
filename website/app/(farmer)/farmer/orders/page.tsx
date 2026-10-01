@@ -162,52 +162,6 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleSelfDeliver = async (orderId: string) => {
-    try {
-      await api.put(`/orders/${orderId}/self-delivery`);
-      toast.success("Order marked for self-delivery");
-      refetch();
-    } catch (error) {
-      toast.error("Failed to mark for self-delivery");
-    }
-  };
-
-  const handleAssignPartner = async (orderId: string) => {
-    try {
-      await api.put(`/orders/${orderId}/assign-partner`, {});
-      toast.success("Delivery partner assigned");
-      refetch();
-    } catch (error: any) {
-      let msg = "Failed to assign delivery partner";
-      try { const j = JSON.parse(error.message); msg = j.detail || j.error?.message || j.message || msg; } catch {}
-      toast.error(msg);
-    }
-  };
-
-  const handleRouteSelfDeliver = async (orders: any[]) => {
-    try {
-      for (const o of orders) {
-        await api.put(`/orders/${o.orderId}/self-delivery`);
-      }
-      toast.success(`Marked ${orders.length} orders for self-delivery`);
-      refetch();
-    } catch (error) {
-      toast.error("Failed to mark some orders for self-delivery");
-    }
-  };
-
-  const handleRouteAssignPartner = async (orders: any[]) => {
-    try {
-      for (const o of orders) {
-        await api.put(`/orders/${o.orderId}/assign-partner`);
-      }
-      toast.success(`Assigned partners for ${orders.length} orders`);
-      refetch();
-    } catch (error) {
-      toast.error("Failed to assign partners for some orders");
-    }
-  };
-
   const updateFulfillmentStage = async (orderId: string, stage: "packed" | "dispatched") => {
     try {
       await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, { params: { stage } });
@@ -235,27 +189,6 @@ export default function FarmerOrdersPage() {
       refetch();
     } catch (error: any) {
       let msg = "Failed to select fulfillment route";
-      try {
-        const j = JSON.parse(error.message);
-        msg = j.detail || j.error?.message || j.message || msg;
-      } catch {}
-      toast.error(msg);
-    }
-  };
-
-  const setDeliveryResponsibility = async (orderId: string, responsibility: "farmer" | "delivery_partner") => {
-    try {
-      await api.put("/orders/" + orderId + "/delivery-responsibility", {
-        deliveryResponsibility: responsibility,
-      });
-      toast.success(
-        responsibility === "farmer"
-          ? "Farmer will deliver this order"
-          : "Delivery partner will collect the order from the farm",
-      );
-      refetch();
-    } catch (error: any) {
-      let msg = "Failed to select delivery responsibility";
       try {
         const j = JSON.parse(error.message);
         msg = j.detail || j.error?.message || j.message || msg;
@@ -419,23 +352,13 @@ export default function FarmerOrdersPage() {
                           From {formatDate(route.earliestDate)} to {formatDate(route.latestDate)}
                         </p>
                       </div>
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="default"
-                          
-                          onClick={() => handleRouteSelfDeliver(route.orders)}
-                        >
-                          <UserCheck className="mr-1 h-3 w-3" /> Deliver Myself
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleRouteAssignPartner(route.orders)}
-                        >
-                          <Truck className="mr-1 h-3 w-3" /> Assign Partner
-                        </Button>
-                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => router.push("/farmer/order-map")}
+                      >
+                        <Navigation className="mr-1 h-3 w-3" /> Open Order Map
+                      </Button>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2">
                       {route.orders.map((o: any) => (
