@@ -18,6 +18,8 @@ from app.schemas.warehouse import (
 )
 from app.services.warehouse_service import WarehouseService
 from app.services.logistics_routing_service import apply_partner_route
+from app.services.delivery_job_service import build_job_document, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
+from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
 import logging
@@ -430,7 +432,44 @@ async def choose_warehouse_delivery_route(
     await order_repository.update_order_field(
         str(order_id), "warehouseFulfillmentStage", "dispatched"
     )
-    return {"success": True, "data": result, "message": "Delivery route selected successfully"}
+
+    # Warehouse Fulfillment delivery decision:
+    # nearby -> Warehouse -> Delivery Partner -> Customer
+    # long-distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
+    # The partner job is opened only after the warehouse has dispatched.
+    refreshed = await order_repository.get_by_id(str(order_id)) or order
+    existing_job = await delivery_job_repository.get_by_order_id(str(order_id))
+    job = existing_job
+    if not existing_job or existing_job.get("status") != JOB_OPEN:
+        destination = (refreshed.get("deliveryAddress") or {}).get("location") or {}
+        coords = destination.get("coordinates") or []
+        pickup = refreshed.get("deliveryPickupLocation") or {}
+        pickup_coords = pickup.get("coordinates") or []
+        pickup_lat = float(pickup_coords[1]) if len(pickup_coords) >= 2 else 0.0
+        pickup_lng = float(pickup_coords[0]) if len(pickup_coords) >= 2 else 0.0
+        delivery_lat = float(coords[1]) if len(coords) >= 2 else 0.0
+        delivery_lng = float(coords[0]) if len(coords) >= 2 else 0.0
+        from app.services.delivery_job_service import _haversine_km
+        distance = _haversine_km(pickup_lat, pickup_lng, delivery_lat, delivery_lng)
+        partners = await eligible_partners_for_job(
+            pickup_lat, pickup_lng, job_weight_kg(refreshed)
+        )
+        eligible_ids = [p["id"] for p in partners]
+        farm_location = refreshed.get("farmLocation") or {"lat": pickup_lat, "lng": pickup_lng}
+        job_doc = build_job_document(
+            refreshed, farm_location, distance,
+            expires_in_minutes=JOB_DEFAULT_EXPIRY_MINUTES,
+            eligible_partner_ids=eligible_ids,
+        )
+        job_id = await delivery_job_repository.create(job_doc)
+        if job_id:
+            job = await delivery_job_repository.get_by_id(job_id)
+
+    return {
+        "success": True,
+        "data": {**result, "deliveryJob": {"id": str(job["_id"]), "status": job.get("status")} if job else None},
+        "message": "Delivery decision saved and delivery partner job opened",
+    }
 
 
 @router.get("/me/outgoing", response_model=dict)
