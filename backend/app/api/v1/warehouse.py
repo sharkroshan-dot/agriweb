@@ -28,6 +28,13 @@ from app.services.warehouse_collection_service import serialize_collection
 import logging
 
 logger = logging.getLogger(__name__)
+class WarehouseReceiveRequest(BaseModel):
+    quantity: int = Field(..., gt=0)
+    usableQuantity: Optional[float] = Field(None, ge=0)
+    qualityCheck: str = Field(..., pattern="^(pending|passed|failed)$")
+    notes: Optional[str] = None
+
+
 class WarehouseDeliveryRouteRequest(BaseModel):
     route: str = Field(..., pattern="^(nearby|long_distance)$")
     radius: int = Field(10, ge=1, le=200)
@@ -361,6 +368,7 @@ async def receive_incoming_stock(
     incoming_id: str,
     quantity: int = Query(..., gt=0),
     quality_check: str = Query(..., pattern="^(pending|passed|failed)$"),
+    usable_quantity: Optional[float] = Query(None, ge=0, alias="usableQuantity"),
     notes: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
@@ -380,7 +388,8 @@ async def receive_incoming_stock(
         quantity,
         quality_check,
         notes,
-        str(warehouse["_id"])
+        str(warehouse["_id"]),
+        usable_quantity
     )
     if not incoming:
         raise HTTPException(
@@ -802,6 +811,26 @@ async def update_outgoing_status(
         dispatched.append(str(row["_id"]))
     await order_repository.append_tracking_event(order_id, "warehouse_order_dispatched", "Complete customer order dispatched", "All packed customer-order lines were dispatched together from the warehouse.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"outgoingCount":len(dispatched),"route":outgoing.get("deliveryPartnerRoute")})
     return {"success":True,"data":{"orderId":order_id,"outgoingIds":dispatched},"message":"Complete customer order dispatched. No order line was left behind."}
+
+@router.get("/me/shortages")
+async def get_my_shortages(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access shortage cases")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+    cases = await warehouse_shortage_repository.get_by_warehouse(str(warehouse["_id"]), status_filter)
+    for case in cases:
+        case["id"] = str(case["_id"])
+        for key in ("orderId", "warehouseId", "productId", "variantId"):
+            if case.get(key) is not None:
+                case[key] = str(case[key])
+    return {"success": True, "data": {"shortages": cases}}
+
 
 @router.get("/me/cold-storage", response_model=dict)
 async def get_my_cold_storage(
