@@ -154,6 +154,70 @@ async def consolidate_hub_orders(hub_id: str, data: HubConsolidationCreate, curr
     return {"success": True, "data": transfer}
 
 
+@router.post("/transfers/{transfer_id}/receive")
+async def receive_transfer_manifest(transfer_id: str, data: HubReceiveRequest, current_user: dict = Depends(get_current_user)):
+    _manage(current_user)
+    try: tid = ObjectId(transfer_id)
+    except Exception: raise HTTPException(status_code=400, detail="Invalid transfer id")
+    transfers = MongoDB.get_collection("hub_transfers")
+    transfer = await transfers.find_one({"_id": tid, "status": "in_transit"})
+    if not transfer: raise HTTPException(status_code=404, detail="Active transfer manifest not found")
+    now = datetime.utcnow()
+    received = data.qualityCheck == "passed"
+    new_status = "received" if received else "rejected"
+    await transfers.update_one({"_id": tid}, {"$set": {"status": new_status, "qualityCheck": data.qualityCheck, "qualityNotes": data.notes, "receivedAt": now, "updatedAt": now}})
+    order_ids = transfer.get("orderIds") or ([transfer.get("orderId")] if transfer.get("orderId") else [])
+    orders = MongoDB.get_collection("orders")
+    if order_ids:
+        await orders.update_many({"_id": {"$in": order_ids}}, {"$set": {
+            "transferStatus": "received" if received else "rejected",
+            "hubReceivedAt": now,
+            "localInventoryStatus": "available" if received else "rejected",
+            "orderStatus": "in_transit" if received else "cancelled",
+            "updatedAt": now,
+        }})
+    if not received:
+        await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": transfer["hubId"]}, {"$inc": {"availableCapacity": transfer.get("quantity", 0)}, "$set": {"updatedAt": now}})
+    return {"success": True, "message": "Transfer manifest received and verified" if received else "Transfer manifest rejected", "orderCount": len(order_ids)}
+
+
+@router.post("/transfers/{transfer_id}/dispatch")
+async def dispatch_transfer_manifest(transfer_id: str, data: HubDispatchRequest, current_user: dict = Depends(get_current_user)):
+    _manage(current_user)
+    try: tid = ObjectId(transfer_id)
+    except Exception: raise HTTPException(status_code=400, detail="Invalid transfer id")
+    transfers = MongoDB.get_collection("hub_transfers")
+    transfer = await transfers.find_one({"_id": tid, "status": "received"})
+    if not transfer: raise HTTPException(status_code=404, detail="Received transfer manifest not found")
+    order_ids = transfer.get("orderIds") or ([transfer.get("orderId")] if transfer.get("orderId") else [])
+    if not order_ids: raise HTTPException(status_code=400, detail="Transfer has no orders")
+    partner_id = data.deliveryPartnerId
+    if partner_id:
+        try: partner_oid = ObjectId(partner_id)
+        except Exception: raise HTTPException(status_code=400, detail="Invalid delivery partner id")
+    else:
+        partner = await MongoDB.get_collection("delivery_partners").find_one({"isAvailable": True, "status": "available", "deletedAt": None})
+        if not partner: raise HTTPException(status_code=409, detail="No available delivery partner")
+        partner_oid, partner_id = partner["_id"], str(partner["_id"])
+    now = datetime.utcnow()
+    orders = MongoDB.get_collection("orders")
+    for oid in order_ids:
+        await orders.update_one({"_id": oid}, {"$set": {
+            "deliveryPartnerId": partner_oid, "orderStatus": "dispatched",
+            "logisticsMode": "hub_to_delivery_partner", "transferStatus": "local_dispatch",
+            "localDispatchAt": now, "updatedAt": now,
+        }})
+        try:
+            existing = await delivery_assignment_repository.get_by_order_id(str(oid))
+            if not existing:
+                await delivery_assignment_repository.create_assignment({"orderId": oid, "deliveryPartnerId": partner_oid, "priority": 1, "source": "local_hub"})
+        except Exception:
+            pass
+    await transfers.update_one({"_id": tid}, {"$set": {"status": "dispatched", "deliveryPartnerId": partner_oid, "dispatchedAt": now, "updatedAt": now}})
+    await MongoDB.get_collection("fulfillment_hubs").update_one({"_id": transfer["hubId"]}, {"$inc": {"availableCapacity": transfer.get("quantity", 0)}, "$set": {"updatedAt": now}})
+    return {"success": True, "deliveryPartnerId": partner_id, "orderCount": len(order_ids)}
+
+
 @router.post("/orders/{order_id}/hub-receive")
 async def hub_receive(order_id: str, data: HubReceiveRequest, current_user: dict = Depends(get_current_user)):
     _manage(current_user)
