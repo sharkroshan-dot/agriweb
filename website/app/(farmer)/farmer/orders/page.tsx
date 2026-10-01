@@ -799,6 +799,7 @@ export default function FarmerOrdersPage() {
                                     Farmer visibility only — warehouse staff performs these steps.
                                   </p>
                                 </div>
+                              </div>
                             )}
                             {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
                               <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}>
