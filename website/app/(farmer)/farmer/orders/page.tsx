@@ -669,9 +669,9 @@ export default function FarmerOrdersPage() {
                   const status = getStatus(order);
                   return (
                   <Card key={orderId}>
-                    <CardContent className="p-6">
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1">
+                    <CardContent className="p-5 sm:p-6">
+                      <div className="grid gap-5 lg:grid-cols-3 lg:items-start">
+                        <div className="min-w-0 lg:col-span-2">
                           <div className="flex flex-wrap items-center gap-2">
                             <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
                             <Badge variant="outline" className={cn("border", statusColors[getStatus(order)] || "bg-gray-500/10 text-gray-600 border-gray-500/20")}>{statusLabels[getStatus(order)] || getStatus(order)}</Badge>
@@ -704,19 +704,21 @@ export default function FarmerOrdersPage() {
                             {(order.items || []).length > 3 && (<Badge variant="outline" className="text-xs">+{(order.items || []).length - 3} more</Badge>)}
                           </div>
                         </div>
-                        <div className="flex flex-col items-stretch gap-3 lg:min-w-[180px] lg:items-end">
-                          <div className="text-right shrink-0">
-  <p className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</p>
+                        <div className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-4 lg:col-span-1 lg:border-l lg:border-t-0 lg:rounded-l-none lg:bg-transparent lg:pl-5">
+                          <div className="flex items-center justify-between gap-3 border-b pb-3 lg:block">
+  <div><p className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</p>
   {paymentBadge(order.paymentMethod).label && (
     <span className={cn("mt-1 inline-block rounded-md px-1.5 py-0.5 text-[11px] font-semibold border", paymentBadge(order.paymentMethod).cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20")}>
       {paymentBadge(order.paymentMethod).label}
     </span>
   )}
+                          </div>
 </div>
                           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:grid-cols-1">
                             <Button size="sm" variant="outline" asChild className="w-full">
                               <Link href={`/farmer/orders/${order.id || order._id}`}><Eye className="mr-1.5 h-3.5 w-3.5"/>View</Link>
                             </Button>
+                            <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:col-span-1">Manual processing</p>
                             {getStatus(order) === "pending" && (
                               <>
                                 <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
