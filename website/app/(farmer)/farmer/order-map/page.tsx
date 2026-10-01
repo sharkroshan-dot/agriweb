@@ -575,9 +575,7 @@ export default function FarmerOrderMapPage() {
 
   const deliverSelectedMutation = useMutation({
     mutationFn: async () => {
-      const orderIds = selfDeliveryMethod === "route"
-        ? selectedRouteIds
-        : withinUnassigned.map((stop) => getStopId(stop));
+      const orderIds = selectedRouteIds;
       return api.post("/farmers/me/delivery-map/self-delivery-plan", {
         method: selfDeliveryMethod,
         orderIds,
@@ -596,9 +594,9 @@ export default function FarmerOrderMapPage() {
   });
 
   const deliverSelected = () => {
-    const ids = selfDeliveryMethod === "route" ? selectedRouteIds : withinUnassigned.map((stop) => getStopId(stop));
+    const ids = selectedRouteIds;
     if (!ids.length) {
-      toast.error(selfDeliveryMethod === "route" ? "Select at least one order along your route" : `No unassigned orders found within ${radiusKm} km`);
+      toast.error(selfDeliveryMethod === "route" ? "Select at least one order along your route" : `Select at least one order within ${radiusKm} km`);
       return;
     }
     deliverSelectedMutation.mutate();
@@ -902,10 +900,15 @@ export default function FarmerOrderMapPage() {
             <Crosshair className="mr-1.5 h-4 w-4" /> Radius
           </Button>
           {selfDeliveryMethod === "radius" && (
-            <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !withinUnassigned.length}>
-              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Truck className="mr-1.5 h-4 w-4" />}
-              Create Self-Delivery Route
-            </Button>
+            <>
+              <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
+                Select All Within Radius
+              </Button>
+              <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
+                {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Truck className="mr-1.5 h-4 w-4" />}
+                Create Self-Delivery Route
+              </Button>
+            </>
           )}
           <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>
             {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Crosshair className="mr-1.5 h-4 w-4" />}
@@ -1074,69 +1077,19 @@ export default function FarmerOrderMapPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Button
-          size="lg"
-          variant="success"
-          className="h-auto flex-col items-start gap-0.5 py-3 text-left"
-          onClick={() => setAcceptDialogOpen(true)}
-          disabled={capacityStats.fitsCount === 0 || acceptWithinMutation.isPending}
-        >
-          <span className="flex items-center">
-            {acceptWithinMutation.isPending ? (
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            ) : (
-              <CheckCircle className="mr-2 h-5 w-5" />
-            )}
-            Accept {Math.min(capacityStats.fitsCount, withinUnassigned.length)} Nearby Orders
-            {capacityStats.overCapacity > 0 ? ` of ${withinUnassigned.length}` : ""}
-          </span>
-          <span className="pl-7 text-[11px] font-normal opacity-80">
-            Self Delivery · fits your capacity ({capacityStats.maxOrders} orders / {capacityStats.maxWeightKg} kg)
-          </span>
-        </Button>
-        <div className="grid flex-1 gap-2 md:grid-cols-2">
-          <Button
-            size="lg"
-            variant="outline"
-            className="h-auto flex-col items-start gap-0.5 py-3 text-left"
-            onClick={() => partnerRouteMutation.mutate({ route: "nearby" })}
-            disabled={withinUnassigned.length === 0 || partnerRouteMutation.isPending}
-          >
-            <span className="flex items-center">
-              <Truck className="mr-2 h-5 w-5" />
-              Delivery Partner · Nearby → Local Hub
-            </span>
-            <span className="pl-7 text-[11px] font-normal opacity-80">
-              Delivery partner collects from the nearby local hub
-            </span>
+      <Card className="border-emerald-200 bg-emerald-50/30">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <p className="font-medium text-emerald-900">Automatic delivery-partner handoff</p>
+            <p className="text-xs text-emerald-800">
+              After you create the self-delivery route, every remaining dispatched order is automatically routed to the appropriate delivery-partner flow.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" title="Edit delivery capacity" onClick={openCapacityEditor}>
+            <Settings2 className="mr-2 h-4 w-4" /> Delivery Capacity
           </Button>
-          <Button
-            size="lg"
-            variant="warning"
-            className="h-auto flex-col items-start gap-0.5 py-3 text-left"
-            onClick={() => partnerRouteMutation.mutate({ route: "long_distance" })}
-            disabled={outsideUnassigned.length === 0 || partnerRouteMutation.isPending}
-          >
-            <span className="flex items-center">
-              <Truck className="mr-2 h-5 w-5" />
-              Delivery Partner · Long Distance
-            </span>
-            <span className="pl-7 text-[11px] font-normal opacity-80">
-              Farmer → Warehouse → Local Hub → Delivery Partner
-            </span>
-          </Button>
-          <Button
-            size="lg"
-            variant="outline"
-            className="h-auto self-stretch px-3"
-            title="Edit delivery capacity"
-            onClick={openCapacityEditor}
-          >
-            <Settings2 className="h-5 w-5" />
-          </Button>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
       {(activeJobs.length > 0 || stuckJobs.length > 0) && (
         <Card>
