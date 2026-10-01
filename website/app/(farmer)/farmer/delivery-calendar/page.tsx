@@ -123,7 +123,6 @@ function DeliveryRow({ d }: { d: any }) {
       </p>
       <div className="mt-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {workflowIds.length > 0 && <Button variant="outline" onClick={() => router.push(`/farmer/smart-route?orderIds=${encodeURIComponent(workflowOrderIds)}`)}>Continue to Smart Route</Button>
           {d.total != null && (
             <p className="text-xs font-medium text-gray-700">{formatPrice(d.total)}</p>
           )}
