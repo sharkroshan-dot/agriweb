@@ -742,10 +742,10 @@ export default function FarmerOrderMapPage() {
           variant="success"
           className="h-auto flex-col items-start gap-0.5 py-3 text-left"
           onClick={() => setAcceptDialogOpen(true)}
-          disabled={capacityStats.fitsCount === 0 || assignNearbyMutation.isPending}
+          disabled={withinUnassigned.length === 0 || assignNearbyMutation.isPending}
         >
           <span className="flex items-center">
-            {acceptWithinMutation.isPending ? (
+            {assignNearbyMutation.isPending ? (
               <Loader2 className="mr-2 h-5 w-5 animate-spin" />
             ) : (
               <CheckCircle className="mr-2 h-5 w-5" />
@@ -1329,8 +1329,8 @@ export default function FarmerOrderMapPage() {
             <Button variant="outline" onClick={() => setAcceptDialogOpen(false)}>
               Cancel
             </Button>
-            <Button variant="success" onClick={() => assignNearbyMutation.mutate()} disabled={acceptWithinMutation.isPending}>
-              {acceptWithinMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
+            <Button variant="success" onClick={() => assignNearbyMutation.mutate()} disabled={assignNearbyMutation.isPending}>
+              {assignNearbyMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
               Yes, Accept {Math.min(capacityStats.fitsCount, withinUnassigned.length)}
             </Button>
           </div>
