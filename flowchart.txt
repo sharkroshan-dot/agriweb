@@ -544,75 +544,115 @@ Farmer Dashboard
  +--> Handle B2B RFQs
 
 
-11. DELIVERY FLOW
+11. DELIVERY + FULFILLMENT FLOW
 
-Farmer marks order ready_for_delivery
+Customer
  |
  v
-Farmer chooses self delivery OR delivery partner
+Order + payment + stock reservation
  |
- +-----------------------------+
- |                             |
- v                             v
-Self Delivery              Assign Partner
- |                             |
- v                             v
-Farmer delivers            Backend finds/assigns partner
- |                             |
- v                             v
-Status updates             Partner accepts job
- |                             |
- v                             v
-Customer tracks order      Partner updates location/status
- |                             |
- +-------------+---------------+
+ v
+Fulfillment Decision Engine
+ |
+ +--> Farmer source
+ |      |
+ |      +--> acceptable distance/time/risk
+ |      |       |
+ |      |       v
+ |      |   Farmer Direct
+ |      |
+ |      +--> nearby distance/time/risk
+ |              |
+ |              v
+ |        Farmer Nearby -> Delivery Partner
+ |
+ +--> Farmer source too far / high risk
+        |
+        v
+      Warehouse Inbound
+        |
+        v
+      Receive -> Quality Check -> Inventory
+        |
+        v
+      Pick -> Pack -> Dispatch
+        |
+        v
+      Warehouse Logistics Decision
+        |
+        +--> acceptable
+        |      |
+        |      v
+        |  Warehouse Direct -> Delivery Partner
+        |
+        +--> too far / high risk
                |
                v
-           delivered
+          Approved Local Hub
                |
                v
-       payment update
+          Transfer Manifest
                |
                v
-       inventory finalized
+          Hub Receive + Quality Verify
                |
                v
-       notification sent
+          Local Inventory
+               |
+               v
+          Hub -> Delivery Partner
+               |
+               v
+          Customer
+               |
+               v
+          OTP / QR / POD
+               |
+               v
+          Delivered
 
-
-12. WAREHOUSE FLOW
+Critical rule:
+Farmer Direct -> Nearby -> Delivery Partner.
+A hub is NOT inserted into the farmer-nearby path.
+Only the warehouse too-far/high-risk path can use an approved Local Hub.\n\n12. WAREHOUSE FLOW
 
 Warehouse User Login
  |
  v
 Warehouse Dashboard
  |
- +--> View Stock
+ +--> Incoming Stock
+ |      |
+ |      v
+ |   Receive -> Quality Check -> Store
  |
- +--> Add Incoming Stock
+ +--> Stock Management
  |
- +--> Process Outgoing Stock
+ +--> Outgoing Stock
+ |      |
+ |      v
+ |   Pick -> Pack -> Dispatch
+ |
+ +--> Fulfillment Routing
+ |      |
+ |      +--> distance
+ |      +--> ETA
+ |      +--> remaining shelf life
+ |      +--> perishability risk
+ |      +--> nearby hub capacity
+ |      |
+ |      +--> Direct -> Delivery Partner
+ |      |
+ |      +--> Nearby -> Approved Local Hub
+ |                 -> Transfer -> Hub Receive
+ |                 -> Local Dispatch -> Delivery Partner
  |
  +--> Manage Transfers
- |
- +--> Manage Cold Storage
- |
- +--> View Warehouse Analytics
- |
- v
-Warehouse APIs
- |
- v
-WarehouseService
- |
- v
-Warehouse Repositories
- |
- v
-MongoDB
+ +--> Cold Storage
+ +--> Warehouse Analytics
 
-
-13. ADMIN FLOW
+Warehouse does not choose a hub only because of distance.
+The decision uses distance + travel time + remaining shelf life + storage condition + nearby capacity + delivery capacity.\n\n13. ADMIN FLOW
 
 Admin Login
  |
@@ -956,3 +996,32 @@ User action
  -> Notification/Payment/AI/Inventory updates
  -> Response
  -> UI update
+
+
+24. TRACEABILITY + RATING RULES
+
+Traceability:
+Farmer -> Harvest -> Batch -> Product -> Order -> Warehouse/Local Hub -> Delivery Assignment -> Customer -> POD
+
+Every order item preserves farmerId, productId and batchId when available.
+
+Perishability:
+expectedShelfLifeHours + harvestedAt/harvestDate -> remainingShelfLifeHours -> travel time -> perishabilityRisk.
+
+Ratings are separated:
+- Product/Farmer: quality, freshness, quantity accuracy, description and batch quality.
+- Warehouse/Hub: handling, packaging, storage and fulfillment accuracy.
+- Delivery: on-time performance, handling, communication and delivery experience.
+
+A delivery delay, traffic problem, warehouse delay or hub transfer does not automatically reduce a farmer's product-quality rating.
+
+25. IMPLEMENTED FULFILLMENT API
+
+GET  /api/v1/fulfillment/orders/{order_id}/decision
+POST /api/v1/fulfillment/hubs
+POST /api/v1/fulfillment/hubs/opt-in
+POST /api/v1/fulfillment/hubs/{hub_id}/approve
+GET  /api/v1/fulfillment/hubs
+POST /api/v1/fulfillment/orders/{order_id}/transfer-to-hub
+POST /api/v1/fulfillment/orders/{order_id}/hub-receive
+POST /api/v1/fulfillment/orders/{order_id}/hub-dispatch
