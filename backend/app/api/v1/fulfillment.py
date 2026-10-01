@@ -65,7 +65,7 @@ async def approve_hub(hub_id: str, current_user: dict = Depends(get_current_user
 async def list_hubs(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") not in ("admin", "warehouse", "delivery"):
         raise HTTPException(status_code=403, detail="Access denied")
-    docs = await MongoDB.get_collection("fulfillment_hubs").find({"isLocalFulfillmentHub": True, "isActive": True, "deletedAt": None}).sort("availableCapacity", -1).to_list(length=200)
+    docs = await MongoDB.get_collection("fulfillment_hubs").find({"isLocalFulfillmentHub": True, "isActive": True, "approvalStatus": "approved", "deletedAt": None}).sort("availableCapacity", -1).to_list(length=200)
     for d in docs: d["id"] = str(d.pop("_id"))
     return {"success": True, "data": {"hubs": docs}}
 
