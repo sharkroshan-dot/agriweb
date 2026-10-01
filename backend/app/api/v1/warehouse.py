@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
 from datetime import datetime
+from pydantic import BaseModel, Field
 from bson import ObjectId
 from app.api.v1.auth import get_current_user
 from app.repositories.warehouse_repository import warehouse_repository
+from app.repositories.order_repository import order_repository
+from app.repositories.outgoing_stock_repository import outgoing_stock_repository
 from app.schemas.warehouse import (
     WarehouseResponse, WarehouseCreate, WarehouseUpdate,
     WarehouseStockResponse, WarehouseStockCreate, WarehouseStockUpdate,
@@ -342,7 +345,7 @@ async def choose_warehouse_delivery_route(
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
-    outgoing = await WarehouseService.get_outgoing_by_id(outgoing_id)
+    outgoing = await outgoing_stock_repository.get_by_id(outgoing_id)
     if not outgoing or str(outgoing.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Outgoing shipment not found")
     if outgoing.get("status") != "dispatched":
