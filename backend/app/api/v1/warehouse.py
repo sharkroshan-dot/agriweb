@@ -907,7 +907,7 @@ async def update_outgoing_status(
 class ShortageResolutionRequest(BaseModel):
     resolutionType: str = Field(
         ...,
-        pattern="^(farmer_replenishment|customer_approval_pending|manual_reallocation|substitution_pending|refund_cancellation)$",
+        pattern="^(farmer_replenishment|customer_approval_pending|substitution_pending|refund_cancellation)$",
     )
     notes: Optional[str] = None
     resolvedQuantity: Optional[float] = Field(None, ge=0)
@@ -982,26 +982,6 @@ async def update_shortage_resolution(
         return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
                 "message": "Substitution proposal recorded. Customer approval is required."}
 
-    if resolution == "manual_reallocation":
-        if data.resolvedQuantity is None or data.resolvedQuantity <= 0:
-            raise HTTPException(status_code=400, detail="resolvedQuantity is required for manual reallocation")
-        if data.resolvedQuantity > shortage + 1e-9:
-            raise HTTPException(status_code=400, detail="Reallocated quantity cannot exceed the shortage")
-        new_available = available + float(data.resolvedQuantity)
-        fully_resolved = new_available + 1e-9 >= required
-        await warehouse_shortage_repository.update_case(shortage_id, {
-            "resolutionType": resolution,
-            "status": "resolved" if fully_resolved else "partial_allocation",
-            "availableQuantity": new_available,
-            "resolvedQuantity": float(data.resolvedQuantity),
-            "remainingShortage": max(0.0, required - new_available),
-            "resolvedAt": datetime.utcnow() if fully_resolved else None,
-            "notes": data.notes or "Warehouse stock was explicitly reallocated to this order line.",
-        })
-        await WarehouseService.ensure_order_packing_task(str(case["orderId"]), str(warehouse["_id"]))
-        return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
-                "message": "Reallocation applied and the order packing task was recalculated."}
-
     if resolution == "refund_cancellation":
         if data.resolvedQuantity is None or data.resolvedQuantity <= 0:
             raise HTTPException(status_code=400, detail="resolvedQuantity is required for refund/cancellation")
@@ -1023,6 +1003,42 @@ async def update_shortage_resolution(
             "resolvedAt": datetime.utcnow() if fully_resolved else None,
             "notes": data.notes or "Unfulfilled quantity marked for refund/cancellation processing.",
         })
+        # Cancel/refund the unavailable portion of the customer order. The
+        # physically packed quantity stays unchanged; only the order line and
+        # payable amount are reduced.
+        cancel_qty = float(data.resolvedQuantity)
+        items = [dict(x) for x in (order.get("items") or [])]
+        for item in items:
+            if str(item.get("productId")) == str(case.get("productId")) and str(item.get("variantId") or "") == str(case.get("variantId") or ""):
+                original_qty = float(item.get("quantity") or 0)
+                if cancel_qty > max(0.0, original_qty - available) + 1e-9:
+                    raise HTTPException(status_code=400, detail="Cancellation quantity exceeds the unresolved packed shortage")
+                item["quantity"] = max(0.0, original_qty - cancel_qty)
+                item["totalPrice"] = float(item.get("unitPrice") or 0) * item["quantity"]
+                break
+        items = [x for x in items if float(x.get("quantity") or 0) > 1e-9]
+        final_subtotal = sum(float(x.get("totalPrice") or 0) for x in items)
+        final_discount = min(float(order.get("discount") or 0), final_subtotal)
+        final_total = max(0.0, final_subtotal + float(order.get("deliveryCharge") or 0) + float(order.get("platformFee") or 0) - final_discount)
+        payment_method = str(order.get("paymentMethod") or "").lower()
+        is_cod = payment_method in ("cash", "cod", "cash_on_delivery")
+        order_update = {
+            "items": items,
+            "subtotal": final_subtotal,
+            "discount": final_discount,
+            "totalAmount": final_total,
+            "finalPayableAmount": final_total,
+            "shortageResolutionRequired": False if fully_resolved else True,
+            "shortageResolved": fully_resolved,
+            "warehouseFulfillmentStage": "packed" if fully_resolved else "shortage_pending",
+            "shortagePaymentHandling": "cod_amount_reduced" if is_cod else "refund_required",
+            "updatedAt": datetime.utcnow(),
+        }
+        if not is_cod and str(order.get("paymentStatus") or "").lower() == PaymentStatus.PAID.value:
+            order_update["refundStatus"] = "pending"
+            order_update["refundRequiredAmount"] = float(data.resolvedQuantity) * float(case.get("unitPrice") or 0)
+        await order_repository.update({"_id": order["_id"]}, order_update)
+
         await order_repository.append_tracking_event(
             str(case["orderId"]),
             "shortage_refund_requested",
