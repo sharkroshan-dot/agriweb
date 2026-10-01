@@ -435,16 +435,12 @@ class WarehouseService:
                 "packedQuantity": total_packed,
                 "packingItems": packing_items,
                 "orderPacking": True,
-                "status": "ready_for_packing" if has_packable_stock else "shortage_pending",
+                "status": "ready_for_packing",
                 "packingResponsibility": "warehouse",
             })
             task = await warehouse_packing_repository.get_by_id(str(task_id)) if task_id else None
 
-        stage = (
-            "shortage_pending"
-            if has_shortage and not has_packable_stock
-            else ("partially_allocated" if has_shortage else "ready_for_packing")
-        )
+        stage = "ready_for_packing"
         await order_repository.update({"_id": ObjectId(order_id)}, {
             "warehouseFulfillmentStage": stage,
             "packingReadiness": {
