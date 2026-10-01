@@ -195,11 +195,18 @@ class WarehouseService:
         if quantity > expected_quantity:
             return None
 
+        usable_quantity = float(quantity)
+        if notes and "usableQuantity=" in notes:
+            try:
+                usable_quantity = float(notes.split("usableQuantity=", 1)[1].split()[0])
+            except (TypeError, ValueError):
+                usable_quantity = float(quantity)
         success = await incoming_stock_repository.receive_stock(
             incoming_id,
             quantity,
             quality_check,
-            notes
+            notes,
+            usable_quantity=usable_quantity,
         )
         if not success:
             return None
@@ -345,7 +352,9 @@ class WarehouseService:
         inbound_by_key = {}
         for row in incoming:
             key = (str(row.get("productId")), str(row.get("variantId") or ""))
-            inbound_by_key[key] = inbound_by_key.get(key, 0.0) + float(row.get("quantityReceived") or row.get("quantity") or 0)
+            row_usable = float(row.get("usableQuantity") if row.get("usableQuantity") is not None else row.get("quantityReceived") or 0)
+            if str(row.get("qualityCheck") or "") == "passed":
+                inbound_by_key[key] = inbound_by_key.get(key, 0.0) + row_usable
         packing_items = []
         missing = []
         for item in order.get("items") or []:
@@ -353,7 +362,8 @@ class WarehouseService:
             required = float(item.get("quantity") or 0)
             stored_qty = inbound_by_key.get(key, 0.0)
             if stored_qty + 1e-9 < required:
-                missing.append({"productId": key[0], "variantId": key[1] or None, "required": required, "stored": stored_qty})
+                shortage = required - stored_qty
+                missing.append({"productId": key[0], "variantId": key[1] or None, "required": required, "stored": stored_qty, "shortage": shortage})
             packing_items.append({
                 "itemKey": f"{key[0]}:{key[1]}",
                 "productId": key[0],
@@ -364,9 +374,37 @@ class WarehouseService:
                 "unit": item.get("unit") or "kg",
             })
         if missing:
+            from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+            for line in missing:
+                existing_shortage = await warehouse_shortage_repository.find_one({
+                    "orderId": ObjectId(order_id),
+                    "warehouseId": ObjectId(warehouse_id),
+                    "productId": ObjectId(line["productId"]),
+                    "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
+                    "status": {"$nin": ["resolved", "cancelled"]},
+                    "deletedAt": None,
+                })
+                payload = {
+                    "orderId": ObjectId(order_id),
+                    "warehouseId": ObjectId(warehouse_id),
+                    "productId": ObjectId(line["productId"]),
+                    "variantId": ObjectId(line["variantId"]) if line.get("variantId") else None,
+                    "requiredQuantity": line["required"],
+                    "availableQuantity": line["stored"],
+                    "shortageQuantity": line["shortage"],
+                    "shortageType": "farmer_supply",
+                    "status": "open",
+                    "resolutionType": None,
+                    "notes": "Usable warehouse quantity is below the customer order requirement.",
+                }
+                if existing_shortage:
+                    await warehouse_shortage_repository.update({"_id": existing_shortage["_id"]}, {**payload, "updatedAt": datetime.utcnow()})
+                else:
+                    await warehouse_shortage_repository.create_case(payload)
             await order_repository.update({"_id": ObjectId(order_id)}, {
-                "warehouseFulfillmentStage": "stored",
-                "packingReadiness": {"complete": False, "missingItems": missing},
+                "warehouseFulfillmentStage": "shortage_pending",
+                "packingReadiness": {"complete": False, "missingItems": missing, "shortagePending": True},
+                "shortageResolutionRequired": True,
                 "updatedAt": datetime.utcnow(),
             })
             return None
