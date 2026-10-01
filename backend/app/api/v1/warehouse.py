@@ -246,6 +246,7 @@ async def assign_collection_team(collection_id: str, data: CollectionTeamAssignm
     await warehouse_collection_repository.update_job(collection_id, {"collectionTeamId": data.teamId, "status": "team_assigned", "teamAssignedAt": datetime.utcnow()})
     if job.get("orderId"):
         await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "team_assigned", "warehouseCollectionTeamId": data.teamId, "warehouseFulfillmentStage": "collection_team_assigned", "updatedAt": datetime.utcnow()})
+        await order_repository.append_tracking_event(str(job["orderId"]), "collection_team_assigned", "Collection team assigned", "A warehouse collection team has been assigned to collect the farm shipment.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"teamId": data.teamId})
     return {"success": True, "data": serialize_collection(await warehouse_collection_repository.get_by_id(collection_id))}
 
 
@@ -280,9 +281,11 @@ async def update_collection_status(collection_id: str, collection_status: str = 
         await incoming_stock_repository.update({"_id": ObjectId(str(incoming_id))}, {"status": "in_transit", "arrivedWarehouseAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
         if job.get("orderId"):
             await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": "arrived_warehouse", "warehouseFulfillmentStage": "warehouse_arrived", "updatedAt": datetime.utcnow()})
+            await order_repository.append_tracking_event(str(job["orderId"]), "arrived_warehouse", "Shipment arrived at warehouse", "The collection team has arrived at the warehouse. Warehouse receiving and quality check are still required.", actor_id=str(current_user["_id"]), actor_role="warehouse")
     elif job.get("orderId"):
         stage_map = {"en_route": "collection_en_route", "arrived_at_farm": "collection_arrived", "collected": "collected", "departed_farm": "collection_departed"}
         await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": collection_status, "warehouseFulfillmentStage": stage_map[collection_status], "updatedAt": datetime.utcnow()})
+        await order_repository.append_tracking_event(str(job["orderId"]), f"collection_{collection_status}", {"en_route":"Collection team en route","arrived_at_farm":"Collection team arrived at farm","collected":"Product collected from farm","departed_farm":"Collection team departed farm"}[collection_status], "Warehouse collection progress updated.", actor_id=str(current_user["_id"]), actor_role="warehouse")
     return {"success": True, "data": serialize_collection(await warehouse_collection_repository.get_by_id(collection_id))}
 
 
