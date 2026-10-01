@@ -3,7 +3,7 @@ from typing import List, Optional
 from app.api.v1.auth import get_current_user
 from app.schemas.order import (
     OrderResponse, OrderCreate, OrderUpdate,
-    OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage, BulkOrderProcessRequest,
+    OrderStatusUpdate, OrderTrackingResponse, FulfillmentStage, BulkOrderProcessRequest, BulkFarmerOrderRequest,
     OrderSummaryResponse, OrderFilterParams, DeliveryType, AssignPartnerRequest, FulfillmentRouteUpdate, DeliveryResponsibilityUpdate
 )
 from app.services.order_service import (
