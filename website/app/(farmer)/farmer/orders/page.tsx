@@ -93,8 +93,6 @@ export default function FarmerOrdersPage() {
   const [geoVersion, setGeoVersion] = useState(0);
   // Farmer fulfillment is the default selection, so the delivery dropdown
   // is visible immediately on page load. Switching to warehouse hides it.
-  const [overallFulfillmentMethod, setOverallFulfillmentMethod] = useState<"farmer" | "warehouse">("farmer");
-  const [overallDeliveryResponsibility, setOverallDeliveryResponsibility] = useState<"none" | "farmer" | "delivery_partner" | "">("");
   const geocodingRef = useRef<Record<string, any>>({});
 
   const { data: orders, isLoading, refetch } = useQuery({
@@ -133,32 +131,29 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleProcessAvailableOrders = async () => {
-    if (!overallFulfillmentMethod) {
-      toast.error("Select Farmer Fulfillment or Warehouse Fulfillment.");
-      return;
-    }
-    if (overallFulfillmentMethod === "farmer" && !overallDeliveryResponsibility) {
-      toast.error("Select a delivery responsibility.");
-      return;
-    }
+  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "pack" | "dispatch") => {
     try {
-      const response = await api.post("/orders/farmer/process-available", {
-        fulfillmentMethod: overallFulfillmentMethod,
-        deliveryResponsibility:
-          overallFulfillmentMethod === "farmer" ? overallDeliveryResponsibility : null,
-      });
+      const response = await api.post("/orders/farmer/bulk-advance", { action });
       const result = response?.data || response;
       const processed = Number(result?.processedOrders || 0);
+      const skipped = Number(result?.skippedOrders || 0);
+      const labels: Record<string, string> = {
+        confirm: "confirmed",
+        process: "processing started",
+        farmer_fulfillment: "set to Farmer Fulfillment",
+        warehouse_fulfillment: "set to Warehouse Fulfillment",
+        pack: "packed",
+        dispatch: "dispatched",
+      };
       toast.success(
         processed
-          ? `${processed} order${processed === 1 ? "" : "s"} confirmed and processed`
-          : "No availability-qualified orders were processed",
+          ? processed + " order" + (processed === 1 ? "" : "s") + " " + labels[action] + (skipped ? " · " + skipped + " skipped" : "")
+          : "No orders are ready for " + (labels[action] || action),
       );
       await refetch();
       await availabilityQuery.refetch();
     } catch (error: any) {
-      let msg = "Failed to process available orders";
+      let msg = "Bulk workflow action failed";
       try {
         const j = JSON.parse(error.message);
         msg = j.detail || j.error?.message || j.message || msg;
@@ -310,9 +305,39 @@ export default function FarmerOrdersPage() {
 
       <Card className="overflow-hidden border shadow-sm">
         <CardContent className="space-y-5 p-5 sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="font-semibold">Order Workflow</h2>
+              <p className="text-xs text-muted-foreground">Each action advances one workflow stage. Use individual order actions or bulk actions for eligible orders.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => handleBulkWorkflowAction("confirm")}>Confirm All Eligible</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>Process All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>Farmer Fulfillment All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>Warehouse Fulfillment All</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("pack")}>Pack All Farmer Orders</Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("dispatch")}>Dispatch All Farmer Orders</Button>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              ["Pending", orderList.filter((o:any) => getStatus(o) === "pending").length],
+              ["Confirmed", orderList.filter((o:any) => getStatus(o) === "confirmed").length],
+              ["Processing", orderList.filter((o:any) => getStatus(o) === "processing").length],
+              ["Packed", orderList.filter((o:any) => o.fulfillmentMethod === "farmer" && o.fulfillmentStage === "packed").length],
+              ["Dispatched", orderList.filter((o:any) => o.fulfillmentStage === "dispatched" || getStatus(o) === "ready_for_delivery").length],
+              ["Warehouse", orderList.filter((o:any) => o.fulfillmentMethod === "warehouse" && !["delivered","cancelled"].includes(getStatus(o))).length],
+            ].map(([label,value]) => (
+              <div key={String(label)} className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="text-2xl font-bold">{value}</p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+        <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
                   <CheckCircle className="h-4 w-4"/>
                 </span>
@@ -804,21 +829,7 @@ export default function FarmerOrdersPage() {
                                   </>
                                 ) : order.fulfillmentMethod === "farmer" ? (
                                   <>
-                                    {!order.deliveryResponsibility && (
-                                      <>
-                                        <span className="text-xs font-medium text-muted-foreground">Delivery responsibility</span>
-                                        <div className="flex flex-wrap gap-1.5">
-                                          <Button size="sm" variant="outline" className="justify-start" onClick={() => setDeliveryResponsibility(order.id || order._id, "farmer")}>
-                                            <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Delivery
-                                          </Button>
-                                          <Button size="sm" variant="outline" onClick={() => setDeliveryResponsibility(order.id || order._id, "delivery_partner")}>
-                                            <Truck className="mr-1.5 h-3.5 w-3.5"/>Delivery Partner
-                                          </Button>
-                                        </div>
-                                      </>
-                                    )}
-                                    {order.deliveryResponsibility && (!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => updateFulfillmentStage(order.id || order._id, "picked")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pick</Button>}
-                                    {order.fulfillmentStage === "picked" && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
+                                    {(!order.fulfillmentStage || order.fulfillmentStage === "pending" || order.fulfillmentStage === "picked") && <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(order.id || order._id, "packed")}><Package className="mr-1.5 h-3.5 w-3.5"/>Pack</Button>}
                                     {order.fulfillmentStage === "packed" && <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateFulfillmentStage(order.id || order._id, "dispatched")}><Navigation className="mr-1.5 h-3.5 w-3.5"/>Dispatch</Button>}
                                   </>
                                 ) : (
@@ -831,17 +842,9 @@ export default function FarmerOrdersPage() {
                             )}
 
                             {getStatus(order) === "ready_for_delivery" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && (
-                              <>
-                                {order.fulfillmentMethod === "warehouse" || order.deliveryResponsibility === "delivery_partner" ? (
-                                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => handleAssignPartner(order)}>
-                                    <Truck className="mr-1.5 h-3.5 w-3.5"/>Assign Delivery Partner
-                                  </Button>
-                                ) : order.deliveryResponsibility === "farmer" ? (
-                                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleSelfDeliver(order.id || order._id)}>
-                                    <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Deliver Myself
-                                  </Button>
-                                ) : null}
-                              </>
+                              <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(order.id || order._id)}`)}>
+                                <Navigation className="mr-1.5 h-3.5 w-3.5"/>Open Order Map
+                              </Button>
                             )}
                             {getStatus(order) === "ready_for_delivery" && order.deliveryType !== "pickup" && (order.selfDelivery || order.deliveryPartnerId || order.partnerRequested) && (
                               <Button size="sm" className="bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(order.id || order._id, 'dispatched')}>
