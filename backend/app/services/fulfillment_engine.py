@@ -189,6 +189,8 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
 
     result: Dict[str, Any] = {
         "orderId": str(order["_id"]),
+        "orderStatus": order.get("orderStatus"),
+        "transferStatus": order.get("transferStatus"),
         "fulfillmentSource": source,
         "originLocation": origin,
         "customerLocation": destination,
