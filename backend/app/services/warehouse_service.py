@@ -398,9 +398,8 @@ class WarehouseService:
             return None
         current_status = str(outgoing.get("status") or "pending")
         # Packing verification creates an outgoing record in "pending",
-        # which represents the UI stage "Ready for Dispatch". The warehouse
-        # now dispatches that verified package directly; the delivery route is
-        # chosen only after dispatch.
+        # which represents the UI stage "Ready for Dispatch".
+        # Delivery Decision must be recorded before the physical dispatch.
         allowed = {
             "pending": {"dispatched"},
             "packed": {"dispatched"},
@@ -417,6 +416,20 @@ class WarehouseService:
         transfer_only = str(order.get("logisticsMode") or "") == "farmer_to_warehouse_to_local_hub_to_delivery_partner"
         if str(order.get("fulfillmentMethod") or "farmer") != "warehouse" and not transfer_only:
             return None
+
+        # Exact warehouse sequence:
+        # Ready for Dispatch -> Delivery Decision -> Warehouse Dispatch.
+        # Never allow a package to leave the warehouse without a selected
+        # nearby/long-distance delivery route.
+        if status == "dispatched":
+            route = str(outgoing.get("deliveryPartnerRoute") or "")
+            if route not in ("nearby", "long_distance"):
+                return None
+            if str(order.get("warehouseFulfillmentStage") or "") not in (
+                "ready_for_dispatch", "delivery_decision"
+            ):
+                return None
+
         success = await outgoing_stock_repository.update_status(outgoing_id, status, data)
         if not success:
             return None
