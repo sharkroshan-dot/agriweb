@@ -74,7 +74,12 @@ class IncomingStockRepository(BaseRepository):
             "qualityCheck": quality_check,
             "updatedAt": datetime.utcnow()
         }
-        if total_received >= expected_quantity:
+        # A physical receipt can be short. If the warehouse records a final
+        # usable quantity below the expected shipment quantity, close receiving
+        # as received-with-shortage instead of leaving the shipment permanently
+        # in transit.
+        final_short_receipt = usable_for_this_receipt + previous_usable < expected_quantity
+        if total_received >= expected_quantity or final_short_receipt:
             update_data["receivedAt"] = datetime.utcnow()
             update_data["receivedDate"] = update_data["receivedAt"]
             update_data["status"] = "received" if quality_check == "passed" else "rejected"
