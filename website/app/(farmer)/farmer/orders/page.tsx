@@ -803,7 +803,7 @@ export default function FarmerOrdersPage() {
                                     <strong>Warehouse fulfillment</strong>
                                     <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
                                   </div>
-                                  {(!order.warehouseCollectionStatus || order.warehouseFulfillmentStage === "pickup_requested") && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}><Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup</Button>}
+                                  {!order.warehouseCollectionStatus && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}><Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup</Button>}
                                   <div className="grid gap-1.5 sm:grid-cols-2">
                                     {[
                                       ["incoming", "Warehouse Fulfillment Selected"],
