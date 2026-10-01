@@ -157,6 +157,46 @@ async def _choose_hub(destination: Dict[str, Any], quantity: float, product: Dic
     return candidates[0][1]
 
 
+async def _nearby_stock_available(destination: Dict[str, Any], product: Dict[str, Any], radius_km: float = 25.0) -> float:
+    """Find active stock of the same product already positioned near the customer."""
+    product_id = product.get("_id")
+    if not product_id:
+        return 0.0
+    inventories = await MongoDB.get_collection("inventory").find({
+        "product_id": str(product_id), "deleted_at": None,
+    }).to_list(length=200)
+    total = 0.0
+    for inv in inventories:
+        loc = inv.get("location")
+        d = distance_km(destination, loc)
+        if d is None or d > radius_km:
+            continue
+        total += max(0.0, float(inv.get("total_stock", 0) or 0) - float(inv.get("reserved_stock", 0) or 0) - float(inv.get("sold_stock", 0) or 0))
+    return round(total, 2)
+
+
+async def _delivery_capacity_available(pickup: Dict[str, Any], quantity: float) -> Tuple[Optional[float], Optional[bool]]:
+    """Return nearby delivery capacity for the requested load, when profiles exist."""
+    docs = await MongoDB.get_collection("delivery_partners").find({
+        "deletedAt": None, "isAvailable": True, "status": {"$in": ["available", None]}, "isVerified": True,
+    }).to_list(length=100)
+    available = 0.0
+    for partner in docs:
+        loc = partner.get("currentLocation") or partner.get("location")
+        d = distance_km(pickup, loc)
+        if d is None or d > 60:
+            continue
+        cap = partner.get("capacity")
+        if cap is None:
+            available += quantity
+            continue
+        active_weight = float(partner.get("activeLoad", 0) or 0)
+        available += max(0.0, float(cap) - active_weight)
+    if not docs:
+        return None, None
+    return round(available, 2), available >= quantity
+
+
 async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
     orders = MongoDB.get_collection("orders")
     order = await orders.find_one({"_id": ObjectId(order_id)})
@@ -200,6 +240,9 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
     storage_condition = str(product.get("storageCondition") or "good").lower()
     storage_ok = storage_condition not in ("bad", "failed", "unsafe")
     risk = _risk(remaining, minutes, perishability, storage_ok)
+    quantity = float(sum(float(i.get("quantity") or 0) for i in order.get("items") or []))
+    nearby_stock = await _nearby_stock_available(destination, product) if destination else 0.0
+    delivery_capacity, capacity_sufficient = await _delivery_capacity_available(origin, quantity) if origin else (None, None)
 
     source = "farmer"
     if order.get("warehouseId") and order.get("fulfillmentSource") == "warehouse":
@@ -217,11 +260,14 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
         "remainingShelfLifeHours": round(float(remaining), 1) if remaining is not None else None,
         "perishabilityLevel": perishability,
         "perishabilityRisk": risk,
+        "nearbyStockAvailable": nearby_stock,
+        "deliveryCapacityAvailable": delivery_capacity,
+        "deliveryCapacitySufficient": capacity_sufficient,
         "decisionAt": datetime.utcnow(),
     }
 
     if source == "farmer":
-        if _should_use_warehouse(distance, minutes, risk):
+        if _should_use_warehouse(distance, minutes, risk) or capacity_sufficient is False:
             result.update({
                 "fulfillmentSource": "warehouse",
                 "nearbyFulfillmentRequired": False,
@@ -275,8 +321,8 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
             })
     else:
         # Warehouse path: only this path can select a Local Hub.
-        if _should_use_warehouse(distance, minutes, risk):
-            qty = float(sum(float(i.get("quantity") or 0) for i in order.get("items") or []))
+        if _should_use_warehouse(distance, minutes, risk) or capacity_sufficient is False:
+            qty = quantity
             hub = await _choose_hub(destination, qty, product)
             if hub:
                 hub_distance = distance_km(hub.get("location"), destination)
