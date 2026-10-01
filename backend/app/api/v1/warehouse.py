@@ -813,6 +813,42 @@ async def update_outgoing_status(
     await order_repository.append_tracking_event(order_id, "warehouse_order_dispatched", "Complete customer order dispatched", "All packed customer-order lines were dispatched together from the warehouse.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"outgoingCount":len(dispatched),"route":outgoing.get("deliveryPartnerRoute")})
     return {"success":True,"data":{"orderId":order_id,"outgoingIds":dispatched},"message":"Complete customer order dispatched. No order line was left behind."}
 
+class ShortageResolutionRequest(BaseModel):
+    resolutionType: str = Field(..., pattern="^(farmer_replenishment|customer_approval_pending|substitution_pending|manual_reallocation)$")
+    notes: Optional[str] = None
+
+
+@router.put("/me/shortages/{shortage_id}/resolution")
+async def update_shortage_resolution(
+    shortage_id: str,
+    data: ShortageResolutionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can resolve shortage cases")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+    case = await warehouse_shortage_repository.get_by_id(shortage_id)
+    if not case or str(case.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Shortage case not found")
+    if case.get("status") in ("resolved", "cancelled"):
+        raise HTTPException(status_code=400, detail="Shortage case is already closed")
+    status_map = {
+        "farmer_replenishment": "replenishment_requested",
+        "customer_approval_pending": "customer_approval_pending",
+        "substitution_pending": "substitution_pending",
+        "manual_reallocation": "partial_allocation",
+    }
+    await warehouse_shortage_repository.update_case(shortage_id, {
+        "resolutionType": data.resolutionType,
+        "status": status_map[data.resolutionType],
+        "notes": data.notes or case.get("notes"),
+    })
+    return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id)}
+
+
 @router.get("/me/shortages")
 async def get_my_shortages(
     status_filter: Optional[str] = Query(None, alias="status"),
