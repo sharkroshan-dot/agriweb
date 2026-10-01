@@ -74,6 +74,7 @@ export function AdminSidebar() {
     {
       label: "Operations",
       items: [
+        { name: "My Workflow", href: "/workflow", icon: LayoutDashboard },
         { name: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
         { name: "Customers", href: "/admin/users", icon: Users, badge: compact(stats.totalCustomers) },
         { name: "Farmers", href: "/admin/farmers", icon: User, badge: compact(stats.totalFarmers) },
