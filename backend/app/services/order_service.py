@@ -500,12 +500,6 @@ class OrderService:
             order_id
         )
         
-        try:
-            from app.services.fulfillment_engine import evaluate_order
-            await evaluate_order(order_id, persist=True)
-        except Exception as exc:
-            logger.warning("Fulfillment decision could not be evaluated for order %s: %s", order_id, exc)
-
         order = await order_repository.get_by_id(order_id)
         order["id"] = str(order["_id"])
         order["paymentIntent"] = payment_intent
