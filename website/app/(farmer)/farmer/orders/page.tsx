@@ -91,8 +91,6 @@ export default function FarmerOrdersPage() {
   const [confirmAction, setConfirmAction] = useState<{ order: any; action: string } | null>(null);
   const [selectedCity, setSelectedCity] = useState<string | null>(null);
   const [geoVersion, setGeoVersion] = useState(0);
-  // Farmer fulfillment is the default selection, so the delivery dropdown
-  // is visible immediately on page load. Switching to warehouse hides it.
   const geocodingRef = useRef<Record<string, any>>({});
 
   const { data: orders, isLoading, refetch } = useQuery({
@@ -263,7 +261,7 @@ export default function FarmerOrdersPage() {
             <span>→</span>
             <Badge variant="outline">Pack → Dispatch</Badge>
             <span>→</span>
-            <Badge variant="outline">Order Map</Badge>
+            <Badge variant="outline">Delivery Decision</Badge>
           </div>
         </CardContent>
       </Card>
@@ -789,7 +787,7 @@ export default function FarmerOrdersPage() {
                                   {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Packed</Button>}
                                   {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
                                 </div>
-                              ) : <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800"><strong>Warehouse fulfillment</strong><br />Receive → Check → Store → Pick → Pack → Dispatch → Delivery</div>
+                              ) : <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800"><strong>Warehouse fulfillment</strong><br />Farmer sends product → Warehouse Incoming → Receive → Store → Order Packing → Verify → Ready for Dispatch → Delivery Decision</div>
                             )}
                             {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
                               <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}>
