@@ -18,6 +18,16 @@ export default function WarehousePackingPage() {
   });
   const tasks = data?.data?.tasks || [];
 
+  const printLabel = (t: any) => {
+    const address = t.deliveryAddress || {};
+    const items = t.items || [];
+    const addressText = [address.addressLine1, address.addressLine2, address.city, address.state, address.zipCode].filter(Boolean).join(", ");
+    const win = window.open("", "_blank", "width=720,height=900");
+    if (!win) { toast.error("Please allow pop-ups to print the package label"); return; }
+    win.document.write(`<!doctype html><html><head><title>Package ${t.packageId || ""}</title><style>body{font-family:Arial,sans-serif;padding:32px;max-width:680px;margin:auto}h1{font-size:24px;margin-bottom:4px}.muted{color:#64748b;font-size:12px}.box{border:2px solid #111;padding:20px;margin-top:18px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:8px 0}.address{line-height:1.6}.qr{margin:24px auto;border:2px dashed #111;width:150px;height:150px;display:flex;align-items:center;justify-content:center;font-size:12px;text-align:center}</style></head><body><h1>AGRICONNECT</h1><div class="muted">DELIVERY PACKAGE</div><div class="box"><strong>Order:</strong> ${t.orderNumber || t.orderId}<br/><strong>Package:</strong> ${t.packageId || "—"}<h3>Customer</h3><div>${t.customer?.name || "Customer"}</div><h3>Products</h3>${items.map((i:any)=`<div class="row"><span>${i.productName}</span><strong>${i.quantity} ${i.unit || "kg"}</strong></div>`).join("")}<h3>Delivery Address</h3><div class="address">${addressText || "Address not available"}</div><div class="qr">SCAN PACKAGE<br/>${t.packageId || "PACKAGE"}</div></div><script>window.onload=()=>window.print();</script></body></html>`);
+    win.document.close();
+  };
+
   const run = async (url: string, body?: any) => {
     try {
       await api.put(url, body);
@@ -41,13 +51,16 @@ export default function WarehousePackingPage() {
             <div>
               <div className="flex items-center gap-2"><h3 className="font-semibold">Order #{t.orderId?.slice(-8)}</h3><Badge variant="outline">{t.status.replace(/_/g, " ")}</Badge></div>
               <p className="mt-2 text-sm text-muted-foreground">Required: <b>{t.quantityRequired}</b> · Packed: <b>{t.packedQuantity || 0}</b> · Batch: {t.batchId || "—"}</p>
-              <p className="mt-1 text-xs text-muted-foreground">Farmer: {t.farmerId} · Product: {t.productId}</p>
+              <p className="mt-1 text-sm font-medium text-slate-900">Customer: {t.customer?.name || "Loading customer"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Products: {(t.items || []).map((i:any) => `${i.productName} — ${i.quantity}`).join(" · ") || t.productId}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Delivery: {t.deliveryAddress ? [t.deliveryAddress.addressLine1, t.deliveryAddress.city, t.deliveryAddress.state, t.deliveryAddress.zipCode].filter(Boolean).join(", ") : "Address not available"}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {["ready_for_packing","assigned"].includes(t.status) && <div className="flex items-center gap-2"><Users className="h-4 w-4"/><Input className="w-32" placeholder="Team ID" value={team[t.id] || ""} onChange={e=>setTeam({...team,[t.id]:e.target.value})}/><Button size="sm" variant="outline" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/assign`,{packingTeamId:team[t.id]})}>Assign</Button></div>}
               {t.status === "assigned" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/start`)}><Play className="mr-2 h-4 w-4"/>Start</Button>}
               {["packing","partially_packed"].includes(t.status) && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/complete`,{packedQuantity:t.quantityRequired,packageId:t.packageId || undefined})}><PackageCheck className="mr-2 h-4 w-4"/>Pack Order</Button>}
               {t.status === "packed" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify</Button>}
+              {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
               {t.status === "ready_for_dispatch" && <Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Ready for Dispatch</Badge>}
             </div>
           </div>
