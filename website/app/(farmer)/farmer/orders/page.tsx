@@ -787,7 +787,42 @@ export default function FarmerOrdersPage() {
                                   {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => updateFulfillmentStage(orderId, "packed")}><Package className="mr-2 h-4 w-4" />Mark Packed</Button>}
                                   {order.fulfillmentStage === "packed" && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}><Navigation className="mr-2 h-4 w-4" />Dispatch Order</Button>}
                                 </div>
-                              ) : <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800"><strong>Warehouse fulfillment</strong><br />Farmer sends product → Warehouse Incoming → Receive → Store → Order Packing → Verify → Ready for Dispatch → Delivery Decision</div>
+                              ) : (
+                                <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+                                  <div>
+                                    <strong>Warehouse fulfillment</strong>
+                                    <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
+                                  </div>
+                                  <div className="grid gap-1.5 sm:grid-cols-2">
+                                    {[
+                                      ["incoming", "Warehouse Incoming"],
+                                      ["received", "Received & Quality Checked"],
+                                      ["stored", "Stock Stored"],
+                                      ["ready_for_packing", "Ready for Packing"],
+                                      ["packing_team_assigned", "Packing Team Assigned"],
+                                      ["packing", "Order Packing"],
+                                      ["packed", "Packing Complete"],
+                                      ["ready_for_dispatch", "Ready for Dispatch"],
+                                      ["delivery_decision", "Delivery Decision"],
+                                      ["dispatched", "Warehouse Dispatched"],
+                                    ].map(([key, label], index) => {
+                                      const stage = String(order.warehouseFulfillmentStage || "incoming");
+                                      const stages = ["incoming", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
+                                      const currentIndex = stages.indexOf(stage);
+                                      const isComplete = currentIndex >= index;
+                                      return (
+                                        <div key={key} className={"flex items-center gap-2 rounded-md px-2 py-1.5 " + (isComplete ? "bg-white font-medium text-blue-900" : "text-blue-500")}>
+                                          <span className={"h-2 w-2 rounded-full " + (isComplete ? "bg-blue-600" : "bg-blue-200")} />
+                                          <span>{label}</span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <p className="border-t border-blue-200 pt-2">
+                                    Farmer visibility only — warehouse staff performs these steps.
+                                  </p>
+                                </div>
+                              )
                             )}
                             {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
                               <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}>
