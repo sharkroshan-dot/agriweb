@@ -1495,11 +1495,11 @@ class OrderService:
         role: str,
         responsibility: DeliveryResponsibility,
     ) -> Optional[Dict[str, Any]]:
-        """Choose who performs final delivery for farmer-fulfilled orders.
+        """Record the post-dispatch delivery responsibility for Farmer Fulfillment.
 
-        The farmer still performs Pick -> Pack -> Dispatch. If a delivery
-        partner is selected, the partner collects the packed order from the
-        farm after dispatch and delivers it to the customer.
+        Packing and dispatch are already complete when this method is used.
+        The physical partner route (Nearby or Long Distance) is selected from
+        the Farmer Order Map and determines the actual pickup location.
         """
         if role != "farmer":
             return None
@@ -1510,10 +1510,10 @@ class OrderService:
             return None
         if order.get("fulfillmentMethod") != FulfillmentMethod.FARM_DIRECT.value:
             return None
-        # Delivery may be chosen during processing or deferred until Dispatch.
-        if str(order.get("orderStatus")) not in (OrderStatus.PROCESSING.value, OrderStatus.READY_FOR_DELIVERY.value):
+        # Delivery responsibility is a post-dispatch decision only.
+        if str(order.get("orderStatus")) != OrderStatus.READY_FOR_DELIVERY.value:
             return None
-        if str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value) not in (FulfillmentStage.PENDING.value, FulfillmentStage.PACKED.value, FulfillmentStage.DISPATCHED.value):
+        if str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value) != FulfillmentStage.DISPATCHED.value:
             return None
         value = responsibility.value if hasattr(responsibility, "value") else str(responsibility)
         if value not in (
@@ -1846,14 +1846,18 @@ class OrderService:
         
         if not partner_id:
             from app.services.delivery_service import DeliveryService
-            # For farmer fulfillment, the delivery partner must be able to
-            # collect the packed order from the farm. Therefore assignment is
+            # Delivery partner pickup must use the route-selected handoff
+            # location (local hub for Nearby/Long Distance), never the farm.ent is
             # based on the farm pickup location, not the customer destination.
             if (
                 order.get("fulfillmentMethod") == FulfillmentMethod.FARM_DIRECT.value
                 and order.get("deliveryResponsibility") == DeliveryResponsibility.DELIVERY_PARTNER.value
             ):
-                location = await _resolve_tracking_origin(order)
+                pickup = order.get("deliveryPickupLocation") or {}
+                coordinates = pickup.get("coordinates") if isinstance(pickup, dict) else None
+                if not isinstance(coordinates, (list, tuple)) or len(coordinates) < 2:
+                    return "Choose Nearby or Long Distance routing before assigning a delivery partner."
+                location = {"lat": float(coordinates[1]), "lng": float(coordinates[0])}
             else:
                 delivery_address = order.get("deliveryAddress", {})
                 location = delivery_address.get("location")
