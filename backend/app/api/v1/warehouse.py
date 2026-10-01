@@ -814,8 +814,15 @@ async def update_outgoing_status(
     return {"success":True,"data":{"orderId":order_id,"outgoingIds":dispatched},"message":"Complete customer order dispatched. No order line was left behind."}
 
 class ShortageResolutionRequest(BaseModel):
-    resolutionType: str = Field(..., pattern="^(farmer_replenishment|customer_approval_pending|substitution_pending|manual_reallocation)$")
+    resolutionType: str = Field(
+        ...,
+        pattern="^(farmer_replenishment|customer_approval_pending|manual_reallocation|substitution_pending|refund_cancellation)$",
+    )
     notes: Optional[str] = None
+    resolvedQuantity: Optional[float] = Field(None, ge=0)
+    approvedQuantity: Optional[float] = Field(None, ge=0)
+    substituteProductId: Optional[str] = None
+    substituteVariantId: Optional[str] = None
 
 
 @router.put("/me/shortages/{shortage_id}/resolution")
@@ -824,29 +831,121 @@ async def update_shortage_resolution(
     data: ShortageResolutionRequest,
     current_user: dict = Depends(get_current_user),
 ):
+    """Record and execute a shortage resolution for one affected order line.
+
+    Available stock is never discarded. This endpoint only resolves the
+    missing quantity; the packing task is then recalculated so already
+    available quantity can continue through packing immediately.
+    """
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can resolve shortage cases")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
+
     from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
     case = await warehouse_shortage_repository.get_by_id(shortage_id)
     if not case or str(case.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Shortage case not found")
     if case.get("status") in ("resolved", "cancelled"):
         raise HTTPException(status_code=400, detail="Shortage case is already closed")
-    status_map = {
-        "farmer_replenishment": "replenishment_requested",
-        "customer_approval_pending": "customer_approval_pending",
-        "substitution_pending": "substitution_pending",
-        "manual_reallocation": "partial_allocation",
-    }
-    await warehouse_shortage_repository.update_case(shortage_id, {
-        "resolutionType": data.resolutionType,
-        "status": status_map[data.resolutionType],
-        "notes": data.notes or case.get("notes"),
-    })
-    return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id)}
+
+    required = float(case.get("requiredQuantity") or 0)
+    available = float(case.get("availableQuantity") or 0)
+    shortage = max(0.0, required - available)
+    resolution = data.resolutionType
+
+    if resolution == "farmer_replenishment":
+        await warehouse_shortage_repository.update_case(shortage_id, {
+            "resolutionType": resolution,
+            "status": "replenishment_requested",
+            "replenishmentQuantity": shortage,
+            "notes": data.notes or "Farmer replenishment requested for the unresolved quantity.",
+        })
+        return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
+                "message": f"Replenishment requested for {shortage:g} kg. The available quantity remains packable."}
+
+    if resolution == "customer_approval_pending":
+        await warehouse_shortage_repository.update_case(shortage_id, {
+            "resolutionType": resolution,
+            "status": "customer_approval_pending",
+            "proposedQuantity": data.approvedQuantity if data.approvedQuantity is not None else available,
+            "notes": data.notes or "Customer approval is required for the reduced quantity.",
+        })
+        return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
+                "message": "Customer approval is pending. Available quantity remains reserved for this order."}
+
+    if resolution == "substitution_pending":
+        if not data.substituteProductId:
+            raise HTTPException(status_code=400, detail="substituteProductId is required for substitution")
+        if not ObjectId.is_valid(data.substituteProductId):
+            raise HTTPException(status_code=400, detail="Invalid substitute product ID")
+        await warehouse_shortage_repository.update_case(shortage_id, {
+            "resolutionType": resolution,
+            "status": "substitution_pending",
+            "substituteProductId": ObjectId(data.substituteProductId),
+            "substituteVariantId": ObjectId(data.substituteVariantId) if data.substituteVariantId else None,
+            "proposedQuantity": shortage,
+            "notes": data.notes or "Substitute product requires customer approval before packing.",
+        })
+        return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
+                "message": "Substitution proposal recorded. Customer approval is required."}
+
+    if resolution == "manual_reallocation":
+        if data.resolvedQuantity is None or data.resolvedQuantity <= 0:
+            raise HTTPException(status_code=400, detail="resolvedQuantity is required for manual reallocation")
+        if data.resolvedQuantity > shortage + 1e-9:
+            raise HTTPException(status_code=400, detail="Reallocated quantity cannot exceed the shortage")
+        new_available = available + float(data.resolvedQuantity)
+        fully_resolved = new_available + 1e-9 >= required
+        await warehouse_shortage_repository.update_case(shortage_id, {
+            "resolutionType": resolution,
+            "status": "resolved" if fully_resolved else "partial_allocation",
+            "availableQuantity": new_available,
+            "resolvedQuantity": float(data.resolvedQuantity),
+            "remainingShortage": max(0.0, required - new_available),
+            "resolvedAt": datetime.utcnow() if fully_resolved else None,
+            "notes": data.notes or "Warehouse stock was explicitly reallocated to this order line.",
+        })
+        await WarehouseService.ensure_order_packing_task(str(case["orderId"]), str(warehouse["_id"]))
+        return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
+                "message": "Reallocation applied and the order packing task was recalculated."}
+
+    if resolution == "refund_cancellation":
+        if data.resolvedQuantity is None or data.resolvedQuantity <= 0:
+            raise HTTPException(status_code=400, detail="resolvedQuantity is required for refund/cancellation")
+        if data.resolvedQuantity > shortage + 1e-9:
+            raise HTTPException(status_code=400, detail="Refund quantity cannot exceed the shortage")
+        order = await order_repository.get_by_id(str(case["orderId"]))
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        # Do not silently alter the paid amount. Record the exact quantity
+        # approved for cancellation/refund for the payment/refund workflow.
+        new_available = available + float(data.resolvedQuantity)
+        fully_resolved = new_available + 1e-9 >= required
+        await warehouse_shortage_repository.update_case(shortage_id, {
+            "resolutionType": resolution,
+            "status": "resolved" if fully_resolved else "partial_allocation",
+            "refundQuantity": float(data.resolvedQuantity),
+            "availableQuantity": new_available,
+            "remainingShortage": max(0.0, required - new_available),
+            "resolvedAt": datetime.utcnow() if fully_resolved else None,
+            "notes": data.notes or "Unfulfilled quantity marked for refund/cancellation processing.",
+        })
+        await order_repository.append_tracking_event(
+            str(case["orderId"]),
+            "shortage_refund_requested",
+            "Short quantity marked for refund/cancellation",
+            f"{data.resolvedQuantity:g} kg of shortage was marked for refund/cancellation.",
+            actor_id=str(current_user["_id"]),
+            actor_role="warehouse",
+            metadata={"shortageId": shortage_id, "quantity": float(data.resolvedQuantity)},
+        )
+        await WarehouseService.ensure_order_packing_task(str(case["orderId"]), str(warehouse["_id"]))
+        return {"success": True, "data": await warehouse_shortage_repository.get_by_id(shortage_id),
+                "message": "Short quantity recorded for refund/cancellation and packing was recalculated."}
+
+    raise HTTPException(status_code=400, detail="Unsupported shortage resolution")
 
 
 @router.get("/me/shortages")
