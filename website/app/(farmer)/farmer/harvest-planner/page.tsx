@@ -110,6 +110,7 @@ export default function FarmerHarvestPlannerPage() {
   const [routeFor, setRouteFor] = useState<string | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routes, setRoutes] = useState<Record<string, any>>({});
+  const [harvestConfirm, setHarvestConfirm] = useState<{ planId: string; quantity: string; rate: string } | null>(null);
   const [form, setForm] = useState({
     cropName: "",
     fieldName: "",
@@ -163,18 +164,18 @@ export default function FarmerHarvestPlannerPage() {
   });
 
   const harvestMutation = useMutation({
-    mutationFn: (planId: string) => api.post(`/harvests/plans/${planId}/harvest`),
-    onSuccess: (_data, planId) => {
+    mutationFn: ({ planId, actualQuantityKg, finalSellingRatePerKg }: { planId: string; actualQuantityKg: number; finalSellingRatePerKg: number }) => api.post(`/harvests/plans/${planId}/harvest`, { actualQuantityKg, finalSellingRatePerKg }),
+    onSuccess: (_data, vars) => {
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
       queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
-      const plan = plans.find((p) => p.id === planId);
+      const plan = plans.find((p) => p.id === vars.planId);
       const params = new URLSearchParams({
         name: plan?.cropName || "",
         price: plan?.preOrderPricePerKg ? String(plan.preOrderPricePerKg) : "",
         quantity: plan?.expectedQuantityKg != null ? String(plan.expectedQuantityKg) : "",
         unit: "kg",
         harvestDate: plan?.expectedHarvestDate || "",
-        fromHarvest: planId,
+        fromHarvest: vars.planId,
       });
       router.push(`/farmer/products/new?${params.toString()}`);
       toast.success("Harvest marked! Now finish creating your product.");
@@ -944,7 +945,7 @@ export default function FarmerHarvestPlannerPage() {
                         className="flex-1"
                         size="sm"
                         disabled={harvestMutation.isPending}
-                        onClick={() => harvestMutation.mutate(plan.id)}
+                        onClick={() => setHarvestConfirm({ planId: plan.id, quantity: String(plan.expectedQuantityKg || ""), rate: String(plan.preOrderPricePerKg || "") })}
                       >
                         {harvestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
                         Mark Harvested
