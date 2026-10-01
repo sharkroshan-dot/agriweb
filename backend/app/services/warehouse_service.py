@@ -180,6 +180,7 @@ class WarehouseService:
         quality_check: str,
         notes: Optional[str] = None,
         warehouse_id: Optional[str] = None,
+        usable_quantity: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         incoming = await incoming_stock_repository.get_by_id(incoming_id)
         if not incoming:
@@ -195,12 +196,9 @@ class WarehouseService:
         if quantity > expected_quantity:
             return None
 
-        usable_quantity = float(quantity)
-        if notes and "usableQuantity=" in notes:
-            try:
-                usable_quantity = float(notes.split("usableQuantity=", 1)[1].split()[0])
-            except (TypeError, ValueError):
-                usable_quantity = float(quantity)
+        usable_quantity = float(quantity if usable_quantity is None else usable_quantity)
+        if usable_quantity > float(quantity):
+            return None
         success = await incoming_stock_repository.receive_stock(
             incoming_id,
             quantity,
