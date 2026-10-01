@@ -14,9 +14,15 @@ from app.schemas.warehouse import (
     WarehouseDashboardResponse
 )
 from app.services.warehouse_service import WarehouseService
+from app.services.logistics_routing_service import apply_partner_route
 import logging
 
 logger = logging.getLogger(__name__)
+class WarehouseDeliveryRouteRequest(BaseModel):
+    route: str = Field(..., pattern="^(nearby|long_distance)$")
+    radius: int = Field(10, ge=1, le=200)
+
+
 router = APIRouter()
 
 @router.get("/me", response_model=WarehouseResponse)
@@ -322,6 +328,43 @@ async def store_incoming_stock(
     if not incoming:
         raise HTTPException(status_code=400, detail="Incoming stock must be received and quality approved before storage")
     return {"success": True, "data": incoming, "message": "Stock stored successfully"}
+
+
+@router.post("/me/outgoing/{outgoing_id}/delivery-route")
+async def choose_warehouse_delivery_route(
+    outgoing_id: str,
+    data: WarehouseDeliveryRouteRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can choose delivery routing")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    outgoing = await WarehouseService.get_outgoing_by_id(outgoing_id)
+    if not outgoing or str(outgoing.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Outgoing shipment not found")
+    if outgoing.get("status") != "dispatched":
+        raise HTTPException(status_code=400, detail="Choose delivery routing only after warehouse dispatch")
+
+    order_id = outgoing.get("orderId")
+    if not order_id:
+        raise HTTPException(status_code=400, detail="This shipment is not linked to an order")
+    order = await order_repository.get_by_id(str(order_id))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    result = await apply_partner_route(
+        order,
+        data.route,
+        data.radius,
+        warehouse_id=str(warehouse["_id"]),
+    )
+    await order_repository.update_order_field(
+        str(order_id), "warehouseFulfillmentStage", "dispatched"
+    )
+    return {"success": True, "data": result, "message": "Delivery route selected successfully"}
 
 
 @router.get("/me/outgoing", response_model=dict)
