@@ -1411,6 +1411,111 @@ class OrderService:
         return {"action": action, "processedOrders": len(processed), "skippedOrders": len(skipped), "processed": processed, "skipped": skipped}
 
     @staticmethod
+    async def bulk_run_farmer_workflow(farmer_id: str) -> Dict[str, Any]:
+        """Safely run every currently eligible farmer-owned workflow step.
+
+        Never guesses a fulfillment route. Warehouse fulfillment stops at the
+        warehouse handoff because the farmer must explicitly confirm the bulk
+        product is ready for collection. Farmer fulfillment may continue through
+        pack and dispatch because those are explicit farmer-owned stages.
+        """
+        orders = await order_repository.get_by_farmer(farmer_id, 0, 500, None)
+        processed, blocked = [], []
+
+        for order in orders:
+            oid = str(order["_id"])
+            changed = []
+            reason = None
+            try:
+                # Confirm -> Processing.
+                if str(order.get("orderStatus")) == OrderStatus.PENDING.value:
+                    updated = await OrderService.update_order_status(
+                        oid, farmer_id, "farmer",
+                        OrderStatusUpdate(status=OrderStatus.CONFIRMED),
+                    )
+                    if not updated:
+                        reason = "Could not confirm order"
+                    else:
+                        changed.append("confirmed")
+                        order = await order_repository.get_by_id(oid)
+                if reason is None and str(order.get("orderStatus")) == OrderStatus.CONFIRMED.value:
+                    updated = await OrderService.update_order_status(
+                        oid, farmer_id, "farmer",
+                        OrderStatusUpdate(status=OrderStatus.PROCESSING),
+                    )
+                    if not updated:
+                        reason = "Could not start processing"
+                    else:
+                        changed.append("processing")
+                        order = await order_repository.get_by_id(oid)
+
+                route = str(order.get("fulfillmentMethod") or "")
+                status = str(order.get("orderStatus") or "")
+                stage = str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value)
+
+                if reason is None and status == OrderStatus.PROCESSING.value and not route:
+                    reason = "Fulfillment method required"
+                elif reason is None and route == FulfillmentMethod.FARM_DIRECT.value:
+                    if stage == FulfillmentStage.PENDING.value:
+                        updated = await OrderService.update_fulfillment_stage(
+                            oid, farmer_id, "farmer", FulfillmentStage.PACKED
+                        )
+                        if updated:
+                            changed.append("packed")
+                            order = await order_repository.get_by_id(oid)
+                            stage = str(order.get("fulfillmentStage") or "")
+                        else:
+                            reason = "Could not pack order"
+                    if reason is None and stage == FulfillmentStage.PACKED.value:
+                        updated = await OrderService.update_fulfillment_stage(
+                            oid, farmer_id, "farmer", FulfillmentStage.DISPATCHED
+                        )
+                        if updated:
+                            changed.append("dispatched")
+                        else:
+                            reason = "Could not dispatch order"
+                    elif reason is None and stage == FulfillmentStage.DISPATCHED.value:
+                        reason = "Delivery route decision required"
+                elif reason is None and route == FulfillmentMethod.WAREHOUSE.value:
+                    warehouse_stage = str(order.get("warehouseFulfillmentStage") or "incoming")
+                    if warehouse_stage in ("incoming", "ready_for_pickup"):
+                        reason = "Farmer must confirm bulk product is ready for warehouse collection"
+                    elif warehouse_stage in ("received", "quality_check", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision"):
+                        reason = "Warehouse owns the next fulfillment stage"
+                    else:
+                        reason = "Warehouse fulfillment is awaiting its next stage"
+                else:
+                    reason = "Order is not eligible for farmer bulk processing"
+
+                if changed:
+                    processed.append({
+                        "orderId": oid,
+                        "orderNumber": order.get("orderNumber"),
+                        "steps": changed,
+                        "stoppedAt": reason,
+                    })
+                elif reason:
+                    blocked.append({
+                        "orderId": oid,
+                        "orderNumber": order.get("orderNumber"),
+                        "reason": reason,
+                    })
+            except Exception as exc:
+                logger.warning("Bulk run failed for %s: %s", oid, exc)
+                blocked.append({
+                    "orderId": oid,
+                    "orderNumber": order.get("orderNumber"),
+                    "reason": str(exc),
+                })
+
+        return {
+            "processedOrders": len(processed),
+            "blockedOrders": len(blocked),
+            "processed": processed,
+            "blocked": blocked,
+        }
+
+    @staticmethod
     async def set_fulfillment_route(
         order_id: str,
         user_id: str,
