@@ -2531,8 +2531,16 @@ async def assign_outside_to_partners(
     )
     within_ids = {str(o["_id"]) for o in (within or [])}
 
+    # Order Map only handles the post-dispatch Farmer Fulfillment branch.
+    # Warehouse Fulfillment stays entirely inside warehouse operations.
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None}
+        {
+            "farmerId": ObjectId(farmer_id),
+            "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
+            "fulfillmentMethod": "farmer",
+            "fulfillmentStage": "dispatched",
+            "deletedAt": None,
+        }
     )
 
     targets = []
@@ -2671,7 +2679,7 @@ async def update_order_assignment(
     body: AssignmentUpdateRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Switch a single order between farmer self-delivery and a delivery partner."""
+    """Switch a single dispatched Farmer Fulfillment order between self-delivery and partner routing."""
     _ensure_farmer(current_user)
     if body.mode not in ("self", "partner"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mode must be 'self' or 'partner'")
@@ -2717,19 +2725,44 @@ async def update_order_assignment(
         )
 
     if body.mode == "partner":
+        # Partner assignment is downstream of the explicit route decision.
+        # Nearby must use the local hub as pickup; long-distance must wait until
+        # the warehouse -> local-hub transfer is completed.
+        route = str(order.get("deliveryPartnerRoute") or "")
+        if route not in ("nearby", "long_distance"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Choose Nearby or Long Distance delivery-partner routing first.",
+            )
+        if route == "long_distance" and order.get("transferStatus") not in (
+            "hub_handoff_pending",
+            "hub_received",
+            "warehouse_dispatched",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Long-distance delivery partner assignment opens after the warehouse transfer reaches the local hub.",
+            )
+
         partner_id = body.partnerId
         if not partner_id:
-            addr = order.get("deliveryAddress", {}) or {}
-            lat, lng = await _stop_coords(addr, order_id)
-            partner = None
-            if lat is not None:
-                nearby = await _available_partners_with_load({"lat": lat, "lng": lng}, 50)
-                partner = nearby[0] if nearby else None
+            pickup = order.get("deliveryPickupLocation") or {}
+            coords = pickup.get("coordinates") if isinstance(pickup, dict) else None
+            pickup_point = None
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                pickup_point = {"lat": float(coords[1]), "lng": float(coords[0])}
+            if not pickup_point:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The delivery pickup location is not ready yet.",
+                )
+            nearby = await _available_partners_with_load(pickup_point, 50)
+            partner = nearby[0] if nearby else None
             if not partner:
                 await order_repository.update_order_field(order_id, "partnerRequested", True)
                 return {
                     "success": True,
-                    "message": "No partner available nearby; order flagged for partner request",
+                    "message": "No delivery partner is available near the selected pickup location; order remains open for partner acceptance.",
                 }
             partner_id = partner["id"]
             partner_info = partner
