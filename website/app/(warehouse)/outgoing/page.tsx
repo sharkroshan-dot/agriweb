@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search, ArrowUp, Truck, RefreshCw, Clock3, AlertCircle, Send } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
@@ -25,6 +25,20 @@ export default function WarehouseOutgoingPage() {
     queryKey: ["warehouseOutgoing", statusFilter],
     queryFn: () => api.get("/warehouse/me/outgoing", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 100 } }),
   });
+
+  const allOutgoing = data?.data?.outgoing || [];
+
+  useEffect(() => {
+    const persisted: Record<string, "nearby" | "long_distance"> = {};
+    for (const item of allOutgoing) {
+      if (item?.id && (item?.deliveryPartnerRoute === "nearby" || item?.deliveryPartnerRoute === "long_distance")) {
+        persisted[item.id] = item.deliveryPartnerRoute;
+      }
+    }
+    if (Object.keys(persisted).length) {
+      setSelectedRoutes((current) => ({ ...persisted, ...current }));
+    }
+  }, [data?.data?.outgoing]);
 
   const outgoing = (data?.data?.outgoing || []).filter((item: any) => {
     const q = searchTerm.trim().toLowerCase();
