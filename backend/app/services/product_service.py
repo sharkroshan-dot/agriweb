@@ -156,6 +156,8 @@ class ProductService:
         product_data["farmerId"] = ObjectId(farmer_id)
         product_data["status"] = "draft"
         product_data["isActive"] = False
+        # Stock stays zero while quality verification is pending; the batch is the source of truth.
+        product_data["quantity"] = 0
         if not product_data.get("country"):
             product_data["country"] = "India"
 
@@ -219,7 +221,7 @@ class ProductService:
         
         # Create inventory record for the product
         await inventory_repository.ensure_inventory_exists(
-            product_id, farmer_id, data.quantity, data.unit
+            product_id, farmer_id, product_data["quantity"], data.unit
         )
 
         # Create initial price history
