@@ -134,6 +134,38 @@ async def apply_partner_route(
         update["fulfillmentSource"] = order.get("fulfillmentSource") or "farmer"
 
     await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
+
+    # Farmer Fulfillment + long distance uses the warehouse only as a
+    # transfer point. The farmer has already packed the individual order, so
+    # the warehouse must never create another packing task for this route.
+    if mode == "long_distance" and str(order.get("fulfillmentMethod") or "") == "farmer" and warehouse:
+        incoming = MongoDB.get_collection("incoming_stock")
+        for item in items:
+            existing = await incoming.find_one({
+                "orderId": order["_id"],
+                "warehouseId": warehouse["_id"],
+                "packingRequired": False,
+                "deletedAt": None,
+            })
+            if not existing:
+                await incoming.insert_one({
+                    "warehouseId": warehouse["_id"],
+                    "productId": ObjectId(str(item.get("productId"))),
+                    "variantId": ObjectId(str(item.get("variantId"))) if item.get("variantId") else None,
+                    "farmerId": ObjectId(str(order.get("farmerId"))),
+                    "orderId": order["_id"],
+                    "quantity": int(item.get("quantity", 0) or 0),
+                    "quantityReceived": 0,
+                    "expectedDate": datetime.utcnow(),
+                    "status": "in_transit",
+                    "packingRequired": False,
+                    "sourceMode": "farmer_fulfillment_transfer",
+                    "batchNumber": item.get("batchNumber"),
+                    "createdAt": datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                    "deletedAt": None,
+                })
+
     return {
         "route": mode,
         "warehouse": {"id": str(warehouse["_id"]), "name": warehouse.get("name")} if warehouse else None,
