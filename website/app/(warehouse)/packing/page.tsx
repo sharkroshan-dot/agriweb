@@ -19,7 +19,7 @@ export default function WarehousePackingPage() {
   const tasks = data?.data?.tasks || [];
   const { data: shortageData, refetch: refetchShortages } = useQuery({
     queryKey: ["warehouseShortages"],
-    queryFn: () => api.get("/warehouse/me/shortages", { params: { status: "open" } }),
+    queryFn: () => api.get("/warehouse/me/shortages", { params: { status: "all" } }),
   });
   const shortages = shortageData?.data?.shortages || [];
 
@@ -55,18 +55,20 @@ export default function WarehousePackingPage() {
             <div className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-red-600"/>
               <div className="flex-1">
-                <p className="font-semibold text-red-900">Bulk stock shortage — packing is blocked</p>
-                <p className="mt-1 text-sm text-red-800">Do not reduce customer quantities silently. Resolve each shortage before the affected order can be packed or dispatched.</p>
+                <p className="font-semibold text-red-900">Order-line shortage — available stock can still be packed</p>
+                <p className="mt-1 text-sm text-red-800">Available usable quantity is packed immediately. Only the unresolved quantity stays pending; the affected order cannot be dispatched until every line is resolved.</p>
                 <div className="mt-4 space-y-2">
                   {shortages.map((x:any) => (
                     <div key={x.id} className="rounded-md border border-red-200 bg-white p-3 text-sm">
                       <div className="font-medium">Order #{x.orderId?.slice(-8)} · {x.shortageQuantity} kg shortage</div>
-                      <div className="mt-1 text-xs text-muted-foreground">Required: {x.requiredQuantity} · Usable: {x.availableQuantity} · Resolution: {x.status.replace(/_/g, " ")}</div>
-                      <div className="mt-1 text-xs text-red-700">Choose an explicit resolution. The order stays blocked until the shortage is actually resolved.</div>
+                      <div className="mt-1 text-xs text-muted-foreground">Required: {x.requiredQuantity} · Available/usable: {x.availableQuantity} · Status: {String(x.status || "").replace(/_/g, " ")}</div>
+                      <div className="mt-1 text-xs text-red-700">The available quantity is not lost. It can be packed now; choose how the remaining quantity will be resolved.</div>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"farmer_replenishment"});toast.success("Farmer replenishment requested");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Request Farmer Replenishment</Button>
-                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"customer_approval_pending"});toast.success("Customer approval required");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Request Customer Approval</Button>
-                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"substitution_pending"});toast.success("Substitution review opened");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Substitution</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"farmer_replenishment"});toast.success("Farmer replenishment requested");refetchShortages();refetch();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Farmer Replenishment</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"customer_approval_pending",approvedQuantity:x.availableQuantity});toast.success("Customer approval requested");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to update shortage");}}}>Customer Approval</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{const q=window.prompt("How many kg should be reallocated to this order?", String(x.shortageQuantity)); if(!q)return; try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"manual_reallocation",resolvedQuantity:Number(q)});toast.success("Reallocation applied");refetchShortages();refetch();}catch(e:any){toast.error(e?.message||"Failed to reallocate");}}}>Reallocation</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{const q=window.prompt("How many kg should be marked for refund/cancellation?", String(x.shortageQuantity)); if(!q)return; try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"refund_cancellation",resolvedQuantity:Number(q)});toast.success("Refund/cancellation recorded");refetchShortages();refetch();}catch(e:any){toast.error(e?.message||"Failed to record refund");}}}>Refund / Cancellation</Button>
+                        <Button size="sm" variant="outline" onClick={async()=>{const productId=window.prompt("Enter substitute product ID"); if(!productId)return; try{await api.put(`/warehouse/me/shortages/${x.id}/resolution`,{resolutionType:"substitution_pending",substituteProductId:productId});toast.success("Substitution proposal recorded");refetchShortages();}catch(e:any){toast.error(e?.message||"Failed to record substitution");}}}>Substitution</Button>
                       </div>
                     </div>
                   ))}
@@ -91,7 +93,7 @@ export default function WarehousePackingPage() {
             <div className="flex flex-wrap items-center gap-2">
               {["ready_for_packing","assigned"].includes(t.status) && <div className="flex items-center gap-2"><Users className="h-4 w-4"/><Input className="w-32" placeholder="Team ID" value={team[t.id] || ""} onChange={e=>setTeam({...team,[t.id]:e.target.value})}/><Button size="sm" variant="outline" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/assign`,{packingTeamId:team[t.id]})}>Assign</Button></div>}
               {t.status === "assigned" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/start`)}><Play className="mr-2 h-4 w-4"/>Start</Button>}
-              {["packing","partially_packed"].includes(t.status) && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/complete`,{packedQuantity:t.quantityRequired,packageId:t.packageId || undefined})}><PackageCheck className="mr-2 h-4 w-4"/>Pack Order</Button>}
+              {["packing","partially_packed"].includes(t.status) && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/complete`,{packedQuantity:(t.items || t.packingItems || []).reduce((s:any,i:any)=>s+Number(i.quantityAvailable ?? i.quantityRequired ?? 0),0) || Number(t.quantityRequired || 0),packageId:t.packageId || undefined})}><PackageCheck className="mr-2 h-4 w-4"/>Pack Order</Button>}
               {t.status === "packed" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify</Button>}
               {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
               {t.status === "ready_for_dispatch" && <Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Ready for Dispatch</Badge>}
