@@ -2154,6 +2154,19 @@ class OrderService:
             update["dispatchedAt"] = datetime.utcnow()
             update["dispatchReadyChecklistComplete"] = True
         await order_repository.update({"_id": order["_id"]}, update)
+        try:
+            updated_order = await order_repository.get_by_id(order_id)
+            if updated_order:
+                await NotificationService.send_order_workflow_update(
+                    updated_order,
+                    status=OrderStatus.READY_FOR_DELIVERY.value,
+                    stage=FulfillmentStage.DISPATCHED.value,
+                    title=f"Order #{updated_order.get('orderNumber') or order_id}: dispatched",
+                    message="The farmer has completed packing and dispatched your order. Delivery routing can now proceed.",
+                    actor_role=role,
+                )
+        except Exception as e:
+            logger.warning("Failed to notify roles after farmer dispatch for %s: %s", order_id, e)
         await order_repository.append_tracking_event(
             order_id,
             "fulfillment_dispatched",
