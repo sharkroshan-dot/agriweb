@@ -120,6 +120,15 @@ export default function OrderDetailPage() {
     enabled: !!orderId,
   });
 
+  const { data: traceData } = useQuery({
+    queryKey: ["orderTrace", orderId],
+    queryFn: () => api.get(`/orders/${orderId}/trace`),
+    enabled: !!orderId,
+    retry: 1,
+  });
+
+  const orderTrace = traceData?.data || traceData || null;
+
   const { data: cancelEligibilityData, refetch: refetchEligibility } = useQuery({
     queryKey: ["orderCancelEligibility", orderId],
     queryFn: () => api.get(`/refunds/orders/${orderId}/eligibility`, { params: { type: "cancellation" } }),
@@ -1130,6 +1139,35 @@ export default function OrderDetailPage() {
             </Card>
           )}
           {chatOpen && order && <LiveChatDialog orderId={orderId} customerName="Delivery partner" onClose={() => setChatOpen(false)} />}
+
+          {orderTrace && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Farm-to-Door Traceability</CardTitle>
+                <CardDescription>Batch-level origin and fulfillment history for this order.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Farm</p><p className="font-medium">{orderTrace.farmer?.name || "Recorded farm"}</p></div>
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Warehouse</p><p className="font-medium">{orderTrace.warehouse?.name || "Not used"}</p></div>
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Local hub</p><p className="font-medium">{orderTrace.hub?.name || "Not used"}</p></div>
+                  <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Delivery partner</p><p className="font-medium">{orderTrace.deliveryPartner?.name || "Not assigned"}</p></div>
+                </div>
+                <div className="space-y-2">
+                  {(orderTrace.items || []).map((item: any, i: number) => (
+                    <div key={item.productId || i} className="rounded-lg border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-medium">{item.productName || "Product"}</p><Badge variant="outline">Batch {item.batchId || "—"}</Badge></div>
+                      <p className="mt-1 text-xs text-muted-foreground">Harvested: {item.harvestedAt ? formatDate(item.harvestedAt) : "Recorded at batch level"} · Quantity: {item.quantity ?? "—"}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3 text-sm">
+                  <p className="font-medium">Transfer status: <span className="capitalize">{String(orderTrace.transfer?.status || "not required").replace(/_/g, " ")}</span></p>
+                  <p className="mt-1 text-xs text-muted-foreground">POD: {orderTrace.pod?.deliveredAt ? `Delivered ${formatDate(orderTrace.pod.deliveredAt)}` : "Pending"}{orderTrace.pod?.deliveryOtpVerified ? " · OTP verified" : ""}{orderTrace.pod?.signature ? " · Signature recorded" : ""}{orderTrace.pod?.photo ? " · Photo recorded" : ""}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {order.tracking.length > 0 && (
             <Card>
