@@ -56,7 +56,8 @@ export function DeliverySidebar() {
     {
       label: "Overview",
       items: [
-        { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
+        { name: "My Workflow", href: "/workflow", icon: RefreshCcw },
+    { name: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
         { name: "My Deliveries", href: "/delivery/deliveries", icon: Truck, badge: todayCount > 0 ? todayCount : undefined },
         { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
         { name: "Order Map", href: "/delivery/order-map", icon: Map },
