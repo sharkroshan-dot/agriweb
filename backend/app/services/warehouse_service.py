@@ -593,11 +593,18 @@ class WarehouseService:
                         },
                     )
                     try:
-                        customer_id = order.get("customerId")
-                        if customer_id:
-                            await NotificationService.send_order_ready(str(customer_id), str(order["_id"]))
+                        updated_order = await order_repository.get_by_id(str(order["_id"]))
+                        if updated_order:
+                            await NotificationService.send_order_workflow_update(
+                                updated_order,
+                                status="ready_for_delivery",
+                                stage="dispatched",
+                                title=f"Order #{updated_order.get('orderNumber') or order['_id']}: warehouse dispatch complete",
+                                message="Your order has left the warehouse and is ready for delivery routing.",
+                                actor_role="warehouse",
+                            )
                     except Exception:
-                        logger.exception("Failed to notify customer after warehouse dispatch")
+                        logger.exception("Failed to notify roles after warehouse dispatch")
         return await outgoing_stock_repository.get_by_id(outgoing_id)
 
     @staticmethod
