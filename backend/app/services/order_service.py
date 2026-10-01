@@ -1988,22 +1988,6 @@ class OrderService:
             + float(order.get("platformFee") or 0) - discount,
         )
 
-        await order_repository.update(
-            {"_id": order["_id"]},
-            {
-                "items": items,
-                "subtotal": subtotal,
-                "discount": discount,
-                "totalAmount": final_total,
-                "finalPayableAmount": final_total,
-                "shortageResolutionRequired": False,
-                "shortageResolved": True,
-                "warehouseFulfillmentStage": "ready_for_packing",
-                "customerShortageDecision": resolution_type,
-                "updatedAt": datetime.utcnow(),
-            },
-        )
-
         await warehouse_shortage_repository.update_case(shortage_id, {
             "status": "resolved",
             "resolutionType": resolution_type,
@@ -2013,6 +1997,32 @@ class OrderService:
             "customerApprovedAt": datetime.utcnow(),
             "customerApprovedBy": ObjectId(user_id),
         })
+
+        active_cases = await warehouse_shortage_repository.get_by_warehouse(
+            str(case.get("warehouseId")), status=None, limit=1000
+        )
+        remaining_cases = [
+            x for x in active_cases
+            if str(x.get("orderId")) == order_id
+            and x.get("status") not in ("resolved", "cancelled")
+        ]
+        all_resolved = len(remaining_cases) == 0
+
+        await order_repository.update(
+            {"_id": order["_id"]},
+            {
+                "items": items,
+                "subtotal": subtotal,
+                "discount": discount,
+                "totalAmount": final_total,
+                "finalPayableAmount": final_total,
+                "shortageResolutionRequired": not all_resolved,
+                "shortageResolved": all_resolved,
+                "warehouseFulfillmentStage": "ready_for_packing" if all_resolved else "shortage_pending",
+                "customerShortageDecision": resolution_type,
+                "updatedAt": datetime.utcnow(),
+            },
+        )
 
         # If a paid order becomes cheaper after the customer's decision,
         # issue only the difference; COD simply uses the new final payable.
