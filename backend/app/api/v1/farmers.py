@@ -2759,6 +2759,11 @@ async def _open_job_for_order(order: dict, farm: dict, farmer_id: str, expires_i
     job_id = await delivery_job_repository.create_job(job_doc)
     await order_repository.update_order_field(oid, "partnerAssignmentOpen", True)
     await order_repository.update_order_field(oid, "partnerRequested", False)
+    await order_repository.update_order_field(oid, "nearbyFulfillmentRequired", True)
+    await order_repository.update_order_field(oid, "nearbyFulfillmentType", "delivery_partner")
+    await order_repository.update_order_field(oid, "logisticsMode", "farmer_to_delivery_partner")
+    if order.get("orderStatus") in ("confirmed", "processing", "ready_for_delivery", "nearby_fulfillment_required"):
+        await order_repository.update_order_field(oid, "orderStatus", "nearby_fulfillment_required")
     try:
         await order_repository.update_order_field(oid, "partnerAssignmentOpenedAt", datetime.utcnow())
     except Exception:
