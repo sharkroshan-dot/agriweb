@@ -388,6 +388,43 @@ async def send_cooperative_invitation(
     return {"success": True, "data": {"invitationId": str(invitation_id)}, "message": "Invitation sent to the farmer"}
 
 
+@router.get("/invitations/mine")
+async def my_cooperative_invitations(current_user: dict = Depends(get_current_user)):
+    _require_farmer(current_user)
+    uid = _oid(current_user["_id"], "farmer id")
+    invitations = await cooperative_repo.find_many(
+        {
+            "type": "invitation",
+            "farmerId": uid,
+            "status": "pending",
+            "deletedAt": None,
+            "expiresAt": {"$gt": datetime.utcnow()},
+        },
+        limit=50,
+        sort=[("createdAt", -1)],
+    )
+    result = []
+    for invitation in invitations:
+        coop = await cooperative_repo.find_one({
+            "_id": invitation.get("cooperativeId"),
+            "status": "active",
+            "deletedAt": None,
+        })
+        if not coop:
+            continue
+        result.append({
+            "id": str(invitation["_id"]),
+            "cooperativeId": str(invitation["cooperativeId"]),
+            "cooperativeName": coop.get("name"),
+            "location": coop.get("location"),
+            "description": coop.get("description"),
+            "crops": coop.get("crops", []),
+            "invitedAt": invitation.get("createdAt"),
+            "expiresAt": invitation.get("expiresAt"),
+        })
+    return {"success": True, "data": {"invitations": result, "count": len(result)}}
+
+
 @router.post("/invitations/{invitation_id}/accept")
 async def accept_cooperative_invitation(
     invitation_id: str,
