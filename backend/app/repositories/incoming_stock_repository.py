@@ -49,7 +49,8 @@ class IncomingStockRepository(BaseRepository):
         incoming_id: str,
         quantity: int,
         quality_check: str,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        usable_quantity: Optional[float] = None,
     ) -> bool:
         incoming = await self.get_by_id(incoming_id)
         if not incoming:
@@ -60,9 +61,16 @@ class IncomingStockRepository(BaseRepository):
         if quantity <= 0 or previously_received + quantity > expected_quantity:
             return False
 
+        usable_for_this_receipt = float(quantity if usable_quantity is None else usable_quantity)
+        if usable_for_this_receipt < 0 or usable_for_this_receipt > quantity:
+            return False
+        previous_usable = float(incoming.get("usableQuantity", 0) or 0)
+        total_usable = previous_usable + usable_for_this_receipt
         total_received = previously_received + quantity
         update_data = {
             "quantityReceived": total_received,
+            "usableQuantity": total_usable,
+            "quantityRejected": max(0.0, total_received - total_usable),
             "qualityCheck": quality_check,
             "updatedAt": datetime.utcnow()
         }
