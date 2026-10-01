@@ -985,17 +985,19 @@ Run project
 
 23. ONE-LINE FULL PROJECT FLOW
 
-User action
- -> Website/Mobile UI
- -> API client
- -> Backend route
- -> Schema validation
- -> Service logic
- -> Repository
- -> MongoDB/Redis
- -> Notification/Payment/AI/Inventory updates
- -> Response
- -> UI update
+Customer
+ -> Product/Farm/Batch
+ -> Cart/Checkout/Payment
+ -> Order + Stock Reservation
+ -> Fulfillment Engine
+ -> Farmer Direct OR Farmer Nearby -> Delivery Partner
+ -> If farmer too far/high risk: Warehouse Receive -> QC -> Inventory -> Pick/Pack
+ -> Warehouse Direct -> Delivery Partner
+ -> If warehouse too far/high risk: Approved Local Hub -> Transfer -> Hub Receive/QC -> Local Dispatch -> Delivery Partner
+ -> Customer
+ -> OTP/QR/POD
+ -> Delivered
+ -> Separate Product/Farmer + Warehouse/Hub + Delivery Ratings
 
 
 24. TRACEABILITY + RATING RULES
