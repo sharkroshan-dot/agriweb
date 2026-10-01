@@ -1476,9 +1476,12 @@ class OrderService:
                         "orderId": order["_id"],
                         "quantity": int(item.get("quantity", 0)),
                         "expectedDate": datetime.utcnow(),
-                        "batchNumber": None,
+                        "batchId": ObjectId(str(item["batchId"])) if item.get("batchId") else None,
+                        "batchNumber": item.get("batchNumber"),
                         "qualityGrade": None,
                         "storageType": "ambient",
+                        "packingRequired": True,
+                        "sourceMode": "warehouse_fulfillment",
                     })
             except Exception:
                 logger.exception("Failed to create warehouse incoming work for order %s", order_id)
