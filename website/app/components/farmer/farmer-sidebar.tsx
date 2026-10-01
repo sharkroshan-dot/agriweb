@@ -49,6 +49,7 @@ const navGroups = [
   {
     label: "Management",
     items: [
+      { name: "My Workflow", href: "/workflow", icon: Sparkles },
       { name: "Dashboard", href: "/farmer/dashboard", icon: LayoutDashboard },
       { name: "Products", href: "/farmer/products", icon: Package },
       { name: "Restock & Inventory", href: "/farmer/restock", icon: PackagePlus },
