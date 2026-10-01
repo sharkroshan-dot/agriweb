@@ -13,6 +13,7 @@ from app.services.order_service import (
     AddressNotFoundError, OrderCreationError
 )
 from app.repositories.order_repository import order_repository
+from app.database.mongodb import MongoDB
 from app.services.product_service import ProductService
 from app.services.user_service import UserService
 import logging
