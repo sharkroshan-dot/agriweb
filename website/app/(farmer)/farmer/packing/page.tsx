@@ -72,25 +72,32 @@ export default function FarmerPackingPage() {
       .sort((a: any, b: any) => orderTime(b) - orderTime(a));
   }, [ordersQuery.data]);
 
+  const isPackingCancelled = (order: any) =>
+    String(order?.orderStatus || order?.status || "").toLowerCase() === "cancelled" ||
+    Boolean(order?.packingCancelled);
+
+  const hasPackingShortage = (order: any) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    return Boolean(order?.packingShortage) ||
+      Boolean(order?.packingCancelled) ||
+      Boolean(order?.shortageCaseId) ||
+      Boolean(order?.shortageDetected) ||
+      Boolean(order?.shortageCancelledItems?.length) ||
+      Boolean(order?.shortageAdjustment) ||
+      items.some((item: any) => Number(item?.packedQuantity ?? item?.actualPackedQuantity ?? item?.quantity) < Number(item?.quantity ?? 0));
+  };
+
   const toPack = orders.filter((o: any) => {
     const stage = String(o?.fulfillmentStage || "pending").toLowerCase();
-    return !["packed", "dispatched"].includes(stage) && !o?.packingComplete;
+    return !isPackingCancelled(o) && !["packed", "dispatched"].includes(stage) && !o?.packingComplete;
   });
 
   const packed = orders.filter((o: any) => {
     const stage = String(o?.fulfillmentStage || "").toLowerCase();
-    return stage === "packed" || stage === "dispatched" || o?.packingComplete;
+    return !isPackingCancelled(o) && (stage === "packed" || stage === "dispatched" || o?.packingComplete);
   });
 
-  const shortage = orders.filter((o: any) => {
-    const items = Array.isArray(o?.items) ? o.items : [];
-    return Boolean(o?.packingShortage) ||
-      Boolean(o?.shortageCaseId) ||
-      Boolean(o?.shortageDetected) ||
-      Boolean(o?.shortageCancelledItems?.length) ||
-      Boolean(o?.shortageAdjustment) ||
-      items.some((item: any) => Number(item?.packedQuantity ?? item?.actualPackedQuantity ?? item?.quantity) < Number(item?.quantity ?? 0));
-  });
+  const shortage = orders.filter((o: any) => hasPackingShortage(o));
 
   const visibleOrders = tab === "to_pack" ? toPack : tab === "packed" ? packed : shortage;
   const total = orders.length;
@@ -253,7 +260,7 @@ export default function FarmerPackingPage() {
                       <p className="mt-1 text-xs text-slate-500">{order.orderDate ? new Date(order.orderDate).toLocaleString() : "Recent order"}</p>
                     </div>
                     <Badge className={shortage.includes(order) ? "bg-red-100 text-red-800 hover:bg-red-100" : isPacked ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
-                      {shortage.includes(order) ? "Packed · Shortage" : isPacked ? "Packed" : "To Pack"}
+                      {isPackingCancelled(order) ? "Cancelled · Shortage" : shortage.includes(order) ? "Packed · Shortage" : isPacked ? "Packed" : "To Pack"}
                     </Badge>
                   </div>
                 </CardHeader>
@@ -295,7 +302,9 @@ export default function FarmerPackingPage() {
                       <ClipboardCheck className="mr-1.5 h-3.5 w-3.5" /> Full order details <ChevronRight className="ml-0.5 h-3 w-3" />
                     </Link>
                     <div className="flex flex-wrap gap-2">
-                      {isPacked ? (
+                      {isPackingCancelled(order) ? (
+                        <span className="text-xs font-medium text-red-700">Order cancelled during packing</span>
+                      ) : isPacked ? (
                         <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
                       ) : (
                         <div className="flex flex-wrap gap-2">
