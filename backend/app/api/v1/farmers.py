@@ -2029,29 +2029,20 @@ async def get_my_delivery_map(
     # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
-    # A farmer-packed customer delivery becomes ready_for_delivery in the
-    # order state machine. Older/newer records may also carry an explicit
-    # packed fulfillment stage, so accept both representations.
-    packed_farmer_statuses = {"ready_for_delivery", "packed"}
-    packed_farmer_stages = {"packed", "packing_complete", "ready_for_delivery", "ready_for_dispatch"}
+    # The map is a delivery-planning view of the PACKED tab from
+    # Farmer Packing & Checking. Therefore an order must have explicitly
+    # completed packing. Do not infer "packed" from orderStatus, customer
+    # location, or an item quantity alone.
     orders = [
         o for o in orders
         if str(o.get("deliveryType") or "delivery").lower() == DeliveryType.DELIVERY.value.lower()
-        # Warehouse-fulfillment orders belong to the warehouse map/workflow.
         and not o.get("warehouseId")
         and str(o.get("fulfillmentSource") or "").lower() != "warehouse"
-        and str(o.get("orderStatus") or "").lower() not in _FINISHED_DELIVERY_STATUSES
+        and str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct")
+        and str(o.get("orderStatus") or o.get("status") or "").lower() not in _FINISHED_DELIVERY_STATUSES
         and (
-            str(o.get("orderStatus") or "").lower() in packed_farmer_statuses
-            or str(o.get("fulfillmentStage") or "").lower() in packed_farmer_stages
+            str(o.get("fulfillmentStage") or "").lower() == "packed"
             or bool(o.get("packingComplete"))
-            or any(
-                isinstance(item, dict) and (
-                    item.get("packedQuantity") is not None
-                    or item.get("actualPackedQuantity") is not None
-                )
-                for item in (o.get("items") or [])
-            )
         )
     ]
 
