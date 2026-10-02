@@ -280,6 +280,15 @@ export default function FarmerOrdersPage() {
 
   const filteredOrderList = orderList;
 
+  const packedFarmerOrders = useMemo(
+    () => orderList.filter((order: any) => {
+      const method = String(order?.fulfillmentMethod || "").toLowerCase();
+      const stage = String(order?.fulfillmentStage || "").toLowerCase();
+      return method === "farmer" && (stage === "packed" || order?.packingComplete === true) && String(order?.orderStatus || "").toLowerCase() === "processing";
+    }),
+    [orderList],
+  );
+
 
   if (isLoading) {
     return (
@@ -301,7 +310,7 @@ export default function FarmerOrdersPage() {
         <div>
           <p className="text-sm font-medium text-emerald-600">Farmer workspace</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Orders</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Review customer demand, confirm available stock, and manage fulfillment.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Process orders through fulfillment, then move completed Farmer Fulfillment orders into Packing & Checking and the Farmer Order Map.</p>
         </div>
         <div className="mb-3 flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
           <div className="flex items-center gap-3">
@@ -316,9 +325,14 @@ export default function FarmerOrdersPage() {
           </Button>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="bg-white px-3 py-1">
-            {orderList.length} orders · newest first
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="bg-white px-3 py-1">
+              {orderList.length} orders · newest first
+            </Badge>
+            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1">
+              {packedFarmerOrders.length} packed Farmer Fulfillment
+            </Badge>
+          </div>
           <Button variant="outline" size="icon" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
             <RefreshCw className="h-4 w-4"/>
           </Button>
@@ -352,7 +366,7 @@ export default function FarmerOrdersPage() {
             <div>
               <h2 className="font-semibold">Order Workflow</h2>
               <p className="text-xs text-muted-foreground">
-                Complete one stage first; the next action appears automatically. Bulk actions advance only eligible orders by one stage.
+                Orders must follow Pending → Confirmed → Processing → Fulfillment selection. Farmer Fulfillment then moves to Packing & Checking; only Packed orders enter the Farmer Order Map.
               </p>
             </div>
             <div className="space-y-3">
@@ -420,7 +434,7 @@ export default function FarmerOrdersPage() {
                     className="border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
                   >
                     <Link href="/farmer/order-map?delivery=required">
-                      <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
+                      <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map ({packedFarmerOrders.length} packed)
                     </Link>
                   </Button>
                 </div>
@@ -442,16 +456,18 @@ export default function FarmerOrdersPage() {
             <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
               <p className="text-xs font-semibold text-emerald-900">Farmer Fulfillment branch</p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-emerald-900">
-                <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Packs Each Order</Badge>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Packing & Checking</Badge>
                 <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Shortage Check</Badge>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Actual Packed Qty</Badge>
                 <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Packed</Badge>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Shortage / Final Amount</Badge>
+                <span>→</span>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Confirm Packed + Label</Badge>
                 <span>→</span>
                 <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
               </div>
               <p className="mt-2 text-[11px] text-emerald-800">
-                After packing, open the Farmer Order Map. Self-delivery follows Dispatch → Farmer → Customer; delivery-partner routes also Dispatch first and then follow the nearby/long-distance path.
+                After every Farmer Fulfillment order is packed and labeled, the Order Map displays the packed orders. Select Radius or Route, choose the orders for Self Delivery, then confirm; every remaining order is automatically routed by distance.
               </p>
             </div>
           </div>
@@ -515,7 +531,7 @@ export default function FarmerOrdersPage() {
               <div>
                 <h2 className="text-lg font-semibold">Delivery Routes</h2>
                 <p className="text-sm text-gray-500">
-                  Pending delivery orders grouped by area — choose to self-deliver or assign a partner
+                  Use the Farmer Order Map for packed Farmer Fulfillment orders. Delivery assignment should happen only after Packing & Checking is complete.
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setShowDeliveryRoutes(false)}>
