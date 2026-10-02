@@ -56,6 +56,7 @@ export default function FarmerPackingPage() {
   const [packedQuantities, setPackedQuantities] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<any | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
 
   const ordersQuery = useQuery({
     queryKey: ["farmer-packing-orders"],
@@ -150,6 +151,22 @@ export default function FarmerPackingPage() {
     }
   };
 
+  const cancelForShortage = async (order: any) => {
+    const orderId = order?.id || order?._id;
+    if (!orderId) return;
+    const confirmed = window.confirm(`Cancel ${order.orderNumber || "this order"} because the required quantity cannot be fulfilled? Reserved stock will be released and the order will be cancelled.`);
+    if (!confirmed) return;
+    try {
+      setCancellingOrderId(orderId);
+      await api.post(`/orders/${orderId}/farmer-packing-cancel`, { reason: "Farmer packing shortage - required quantity cannot be fulfilled" });
+      toast.success("Order cancelled due to packing shortage and reserved stock released.");
+      await ordersQuery.refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to cancel the order");
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
   const printLabel = async (order: any) => {
     const orderId = order?.id || order?._id;
     if (!orderId) { toast.error("Order ID is missing"); return; }
@@ -281,9 +298,14 @@ export default function FarmerPackingPage() {
                       {isPacked ? (
                         <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
                       ) : (
-                        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { try { startPacking(order); } catch (e: any) { toast.error(e.message); } }}>
-                          <Package className="mr-1.5 h-4 w-4" /> Start / Check Packing
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" disabled={cancellingOrderId === orderId} onClick={() => void cancelForShortage(order)} className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800">
+                            {cancellingOrderId === orderId ? "Cancelling..." : "Cancel Order"}
+                          </Button>
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { try { startPacking(order); } catch (e: any) { toast.error(e.message); } }}>
+                            <Package className="mr-1.5 h-4 w-4" /> Start / Check Packing
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </div>
