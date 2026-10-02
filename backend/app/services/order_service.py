@@ -1899,8 +1899,15 @@ class OrderService:
                 "resolutionStatus": "resolved",
             })
 
+            # Persist the physical packed quantity for every surviving line.
+            # This keeps the packing audit, customer-facing order, label and
+            # delivery map consistent with what was actually placed in the parcel.
+            item_copy["packedQuantity"] = actual
+            item_copy["actualPackedQuantity"] = actual
+            item_copy["quantity"] = actual
+            item_copy["totalPrice"] = actual * unit_price
+
             if shortage > 0:
-                unresolved = False
                 cancelled_value += shortage * unit_price
                 cancelled_items.append({
                     "productId": key[0],
@@ -1912,8 +1919,6 @@ class OrderService:
                     "reason": "Farmer packing shortage",
                     "cancelledAt": datetime.utcnow(),
                 })
-                item_copy["quantity"] = actual
-                item_copy["totalPrice"] = actual * unit_price
 
             if actual > 0:
                 updated_items.append(item_copy)
