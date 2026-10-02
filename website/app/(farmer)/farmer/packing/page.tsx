@@ -104,6 +104,32 @@ export default function FarmerPackingPage() {
   const progress = total ? Math.round((packed.length / total) * 100) : 0;
   const allPacked = total > 0 && packed.length >= total;
 
+  const packingPreview = useMemo(() => {
+    if (!selectedOrder) return { shortageLines: 0, shortageValue: 0, finalAmount: 0 };
+    const items = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
+    let shortageLines = 0;
+    let shortageValue = 0;
+    let subtotal = 0;
+    for (const [index, item] of items.entries()) {
+      const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
+      const ordered = Number(item.quantity ?? 0);
+      const packed = Number(packedQuantities[key] ?? ordered);
+      const safePacked = Number.isFinite(packed) ? Math.max(0, Math.min(ordered, packed)) : 0;
+      const unitPrice = Number(item.unitPrice ?? 0);
+      subtotal += safePacked * unitPrice;
+      if (safePacked < ordered) {
+        shortageLines += 1;
+        shortageValue += (ordered - safePacked) * unitPrice;
+      }
+    }
+    const discount = Math.min(Number(selectedOrder.discount ?? 0), subtotal);
+    const finalAmount = Math.max(
+      0,
+      subtotal + Number(selectedOrder.deliveryCharge ?? 0) + Number(selectedOrder.platformFee ?? 0) - discount
+    );
+    return { shortageLines, shortageValue, finalAmount };
+  }, [selectedOrder, packedQuantities]);
+
   const startPacking = (order: any) => {
     setSelectedOrder(order);
     const initial: Record<string, string> = {};
@@ -116,23 +142,23 @@ export default function FarmerPackingPage() {
 
   const finalizePacking = async () => {
     if (!selectedOrder) return;
-    const orderId = selectedOrder.id || selectedOrder._id;
-    const items = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
-    const packedItems = items.map((item: any, index: number) => {
-      const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
-      const value = Number(packedQuantities[key]);
-      const ordered = Number(item.quantity ?? 0);
-      if (!Number.isFinite(value) || value < 0 || value > ordered) {
-        throw new Error(`Invalid packed quantity for ${item.productName || "product"}`);
-      }
-      return {
-        productId: item.productId,
-        variantId: item.variantId || null,
-        packedQuantity: value,
-      };
-    });
-
     try {
+      const orderId = selectedOrder.id || selectedOrder._id;
+      const items = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
+      const packedItems = items.map((item: any, index: number) => {
+        const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
+        const value = Number(packedQuantities[key]);
+        const ordered = Number(item.quantity ?? 0);
+        if (!Number.isFinite(value) || value < 0 || value > ordered) {
+          throw new Error(`Invalid packed quantity for ${item.productName || "product"}`);
+        }
+        return {
+          productId: item.productId,
+          variantId: item.variantId || null,
+          packedQuantity: value,
+        };
+      });
+
       setSaving(true);
       const response = await api.post(`/orders/${orderId}/farmer-packing-finalize`, { items: packedItems });
       const result = response?.data || response;
@@ -200,7 +226,7 @@ export default function FarmerPackingPage() {
               <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back to Orders
             </Link>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Packing & Checking</h1>
-            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order, record actual packed quantities, and prepare parcels for delivery.</p>
+            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order → enter actual packed quantity → resolve shortages → Confirm Packed → print the delivery label.</p>
           </div>
           {allPacked && (
             <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
@@ -377,8 +403,23 @@ export default function FarmerPackingPage() {
                     return <div key={key} className="flex items-center justify-between gap-3 rounded-lg border p-3"><div><p className="text-xs font-semibold">{item.productName || "Product"}</p><p className="text-[11px] text-slate-500">Ordered: {item.quantity} {item.unit || "kg"}</p></div><input type="number" min="0" max={Number(item.quantity ?? 0)} step="0.01" value={packedQuantities[key] ?? String(item.quantity ?? 0)} onChange={(e) => setPackedQuantities((prev) => ({ ...prev, [key]: e.target.value }))} className="w-28 rounded-md border px-3 py-2 text-right text-sm" /></div>;
                   })}
                 </div>
-                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> If actual quantity is lower than ordered, the backend shortage workflow recalculates the final payable amount.</div>
-                <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setSelectedOrder(null)}>Cancel</Button><Button disabled={saving} className="bg-emerald-600 hover:bg-emerald-700" onClick={finalizePacking}>{saving ? "Saving..." : "Confirm Packed"}</Button></div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shortage Check</p>
+                  {packingPreview.shortageLines > 0 ? (
+                    <div className="mt-2 space-y-1 text-xs text-amber-900">
+                      <p><span className="font-semibold">{packingPreview.shortageLines}</span> line(s) are short by the quantity you entered.</p>
+                      <p>Amount removed from unavailable stock: <span className="font-semibold">₹{packingPreview.shortageValue.toFixed(2)}</span></p>
+                      <p>The backend will release the missing quantity from inventory and recalculate the final amount before the order is marked Packed.</p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-emerald-700">No shortage. The full ordered quantity will be confirmed as packed.</p>
+                  )}
+                  <div className="mt-3 flex items-center justify-between border-t pt-3 text-sm">
+                    <span className="font-medium text-slate-700">Final amount</span>
+                    <span className="font-bold text-slate-900">₹{packingPreview.finalAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setSelectedOrder(null)} disabled={saving}>Cancel</Button><Button disabled={saving} className="bg-emerald-600 hover:bg-emerald-700" onClick={finalizePacking}>{saving ? "Saving..." : "Confirm Packed"}</Button></div>
               </CardContent>
             </Card>
           </div>
