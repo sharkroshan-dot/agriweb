@@ -1383,9 +1383,12 @@ export default function FarmerOrderMapPage() {
               <Navigation className="mr-1.5 h-4 w-4" />
               Preview Route
             </Button>
-            <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
-              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Truck className="mr-1.5 h-4 w-4" />}
-              Create Self-Delivery Route
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
+              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
+              Farmer Self Delivery
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteOrders.length || assignSelectedPartnerMutation.isPending}>
+              <Truck className="mr-1.5 h-4 w-4" /> Delivery Partner
             </Button>
           </div>
         </CardHeader>
