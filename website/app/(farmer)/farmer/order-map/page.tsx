@@ -1601,6 +1601,21 @@ export default function FarmerOrderMapPage() {
         </Card>
 
         <div className="space-y-4">
+          <Card className="border-emerald-200 bg-emerald-50/30 shadow-sm">
+            <CardContent className="p-4">
+              <p className="text-sm font-semibold text-emerald-950">{selectedRouteIds.length} order{selectedRouteIds.length === 1 ? "" : "s"} selected</p>
+              <p className="mt-1 text-xs text-emerald-800">Filter selection does not assign orders. Choose a delivery action only when the selection is final.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={!selectedRouteIds.length || deliverSelectedMutation.isPending}>
+                  <UserCheck className="mr-1.5 h-3.5 w-3.5" /> Farmer Self Delivery
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteIds.length || assignSelectedPartnerMutation.isPending}>
+                  <Truck className="mr-1.5 h-3.5 w-3.5" /> Delivery Partner
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear Selection</Button>
+              </div>
+            </CardContent>
+          </Card>
           <Card className="xl:sticky xl:top-4 border-slate-200 shadow-sm">
             <CardHeader className="border-b bg-white py-4">
               <CardTitle className="text-base">Order Details</CardTitle>
