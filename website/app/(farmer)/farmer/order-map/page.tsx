@@ -421,6 +421,9 @@ export default function FarmerOrderMapPage() {
   const selectedStop =
     allOrders.find((stop) => getStopId(stop) === selectedStopId) || allOrders[0] || null;
 
+  // Every packed Farmer Fulfillment order is eligible to be shown
+  // on the map. Delivery assignment is decided after the map/radius/route
+  // selection, so assignment must not hide a packed order from the map.
   const routeCandidates = useMemo(
     () =>
       allOrders.filter(
@@ -428,9 +431,7 @@ export default function FarmerOrderMapPage() {
           !isDone(stop) &&
           getCoordinates(stop) &&
           String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" &&
-          String(stop?.fulfillmentStage || "").toLowerCase() === "packed" &&
-          String(stop?.assignment || "").toLowerCase() !== "partner" &&
-          !stop?.deliveryPartnerId
+          (String(stop?.fulfillmentStage || "").toLowerCase() === "packed" || stop?.packingComplete === true)
       ),
     [allOrders]
   );
