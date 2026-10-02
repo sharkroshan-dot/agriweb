@@ -95,7 +95,7 @@ export default function FarmerOrdersPage() {
 
   const { data: orders, isLoading, refetch } = useQuery({
     queryKey: ["farmerOrders", statusFilter],
-    queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 500 } }),
+    queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 50 } }),
   });
 
   const availabilityQuery = useQuery({
@@ -278,27 +278,16 @@ export default function FarmerOrdersPage() {
   const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
 
   const orderList = (() => {
-    // api/client flattens {data:{orders}} into {orders}, while some older
-    // responses can still expose the nested data envelope. Handle every
-    // supported shape so All Orders never renders an empty list incorrectly.
-    const candidates = [
-      orders?.orders,
-      orders?.data?.orders,
-      orders?.data,
-      orders,
-    ];
-    const raw = candidates.find((value: any) => Array.isArray(value)) || [];
+    const raw = Array.isArray(orders?.data)
+      ? orders.data
+      : orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
     return [...raw].sort((a: any, b: any) => {
-      const timestamp = (order: any) => {
-        const values = [order?.orderDate, order?.createdAt, order?.updatedAt];
-        for (const value of values) {
-          if (!value) continue;
-          const parsed = new Date(value).getTime();
-          if (Number.isFinite(parsed) && parsed > 0) return parsed;
-        }
-        return 0;
+      const time = (order: any) => {
+        const value = order?.orderDate || order?.createdAt || order?.updatedAt;
+        const parsed = value ? new Date(value).getTime() : 0;
+        return Number.isFinite(parsed) ? parsed : 0;
       };
-      return timestamp(b) - timestamp(a);
+      return time(b) - time(a);
     });
   })();
 
