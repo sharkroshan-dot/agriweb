@@ -863,10 +863,10 @@ export default function FarmerOrderMapPage() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-sm font-medium text-primary">Self-delivery workbench</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Order Map</h1>
+          <p className="text-sm font-medium text-primary">Farmer Fulfillment → Delivery</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Farmer Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            After dispatch, choose exactly one self-delivery method: Route or Radius. Select the orders you will personally deliver, then AgriConnect automatically routes every remaining order to the delivery-partner flow.
+            After Farmer Fulfillment packing, shortage handling, and dispatch, this page is opened automatically for delivery assignment. Select your start location, destination/route or radius, choose the orders you will personally deliver, and AgriConnect automatically routes the remaining orders to delivery partners.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -880,7 +880,8 @@ export default function FarmerOrderMapPage() {
             >
               {distance} km
             </Button>
-          )))}\n          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          )))}
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           {DELIVERED_WINDOWS.map((w) => (
             <Button
               key={w.value}
