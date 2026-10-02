@@ -715,60 +715,108 @@ export default function FarmerOrdersPage() {
                   const orderId = String(order.id || order._id || "");
                   const status = getStatus(order);
                   return (
-                  <Card key={orderId}>
-                    <CardContent className="p-5 sm:p-6">
-                      <div className="grid gap-5 lg:grid-cols-3 lg:items-start">
-                        <div className="min-w-0 lg:col-span-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Link href={`/farmer/orders/${order.id || order._id}`} className="font-medium hover:text-emerald-600">{order.orderNumber || order.id || order._id}</Link>
-                            <Badge variant="outline" className={cn("border", statusColors[getStatus(order)] || "bg-gray-500/10 text-gray-600 border-gray-500/20")}>{statusLabels[getStatus(order)] || getStatus(order)}</Badge>
-                            {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
-                            {order.isBulkOrder && (
-                              <Badge variant="outline" className="border-blue-300 bg-blue-50 text-blue-700"><ShoppingBag className="mr-1 h-3 w-3" /> Bulk</Badge>
-                            )}
-                            {order.selfDelivery && (
-                              <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700"><UserCheck className="mr-1 h-3 w-3" /> Self-Delivery</Badge>
-                            )}
-                            {(order.deliveryPartnerId || order.partnerRequested) && (
-                              <Badge variant="outline" className="border-indigo-300 bg-indigo-50 text-indigo-700"><Truck className="mr-1 h-3 w-3" /> Delivery Partner</Badge>
-                            )}
-                          </div>
-                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-                            <span>Customer: <span className="font-medium text-foreground">{order.customerName}</span></span>
-                            <span>•</span>
-                            <span>Ordered: {formatDate(order.orderDate)}</span>
-                            <span>•</span>
-                            <span>{(order.items || []).length} items</span>
-                            {order.deliveryAddress?.city && (
-                              <><span>•</span><span>Deliver to: <span className="font-medium text-foreground">{order.deliveryAddress.city}</span></span></>
-                            )}
-                            {order.deliveryPartnerId && order.deliveryPartnerName && (
-                              <><span>•</span><span>Partner: <span className="font-medium text-indigo-600">{order.deliveryPartnerName}</span></span></>
-                            )}
-                          </div>
-                          <div className="mt-3 flex flex-wrap gap-1.5">
-                            {(order.items || []).slice(0,3).map((item:any, idx:number)=> (<Badge key={idx} variant="outline" className="text-xs">{item.quantity}x {item.productName}</Badge>))}
-                            {(order.items || []).length > 3 && (<Badge variant="outline" className="text-xs">+{(order.items || []).length - 3} more</Badge>)}
-                          </div>
+                  <Card key={orderId} className="overflow-hidden border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md">
+                    <CardContent className="p-0">
+                      <div className="flex flex-col lg:flex-row">
+                        <div className="min-w-0 flex-1 p-4 sm:p-5">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Link href={`/farmer/orders/${orderId}`} className="text-sm font-semibold text-slate-900 hover:text-emerald-700">
+                                  #{order.orderNumber || String(orderId).slice(-8)}
+                                </Link>
+                                <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5 text-xs", statusColors[status] || "bg-slate-50 text-slate-600 border-slate-200")}>
+                                  {statusLabels[status] || status}
+                                </Badge>
+                                {order.paymentStatus === "paid" && <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-xs">Paid</Badge>}
+                                {order.isBulkOrder && (
+                                  <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
+                                    <ShoppingBag className="mr-1 h-3 w-3" />Bulk
+                                  </Badge>
+                                )}
+                                {order.selfDelivery && (
+                                  <Badge variant="outline" className="rounded-full border-purple-200 bg-purple-50 text-purple-700">
+                                    <UserCheck className="mr-1 h-3 w-3" />Self Delivery
+                                  </Badge>
+                                )}
+                                {(order.deliveryPartnerId || order.partnerRequested) && (
+                                  <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
+                                    <Truck className="mr-1 h-3 w-3" />Delivery Partner
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="mt-1 text-sm text-muted-foreground">{formatDate(order.orderDate)}</p>
+                            </div>
 
-                          <div className="mt-4 flex items-center justify-between rounded-lg border bg-emerald-50/60 px-3 py-2.5">
-                            <span className="text-xs font-medium text-slate-500">Order total</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-lg font-bold text-emerald-600">{formatPrice(order.totalAmount)}</span>
+                            <div className="text-left sm:text-right">
+                              <p className="text-lg font-bold tracking-tight text-slate-900">{formatPrice(order.totalAmount)}</p>
                               {paymentBadge(order.paymentMethod).label && (
-                                <span className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-semibold border", paymentBadge(order.paymentMethod).cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-blue-500/10 text-blue-600 border-blue-500/20")}>
+                                <span className={cn(
+                                  "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
+                                  paymentBadge(order.paymentMethod).cod
+                                    ? "border-amber-200 bg-amber-50 text-amber-700"
+                                    : "border-blue-200 bg-blue-50 text-blue-700"
+                                )}>
                                   {paymentBadge(order.paymentMethod).label}
                                 </span>
                               )}
                             </div>
                           </div>
+
+                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div className="rounded-lg bg-slate-50 p-3">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
+                              <p className="mt-1 truncate text-sm font-medium text-slate-900">{order.customerName || "Customer"}</p>
+                            </div>
+                            <div className="rounded-lg bg-slate-50 p-3">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Items</p>
+                              <p className="mt-1 text-sm font-medium text-slate-900">{(order.items || []).length} item{(order.items || []).length === 1 ? "" : "s"}</p>
+                            </div>
+                            <div className="rounded-lg bg-slate-50 p-3">
+                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Delivery</p>
+                              <p className="mt-1 truncate text-sm font-medium text-slate-900">
+                                {order.deliveryType === "pickup" ? "Customer Pickup" : (order.deliveryAddress?.city || "Home delivery")}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {(order.items || []).slice(0, 2).map((item: any, idx: number) => (
+                              <span key={idx} className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                                {item.productName} · {item.quantity}
+                              </span>
+                            ))}
+                            {(order.items || []).length > 2 && (
+                              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                                +{(order.items || []).length - 2} more
+                              </span>
+                            )}
+                          </div>
+
+                          {(order.deliveryPartnerName || order.pickedBy) && (
+                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                              {order.deliveryPartnerName && <span>Partner: <strong className="text-indigo-600">{order.deliveryPartnerName}</strong></span>}
+                              {order.pickedBy && <span>Picked by: <strong className="text-emerald-600">{order.pickedBy}</strong></span>}
+                            </div>
+                          )}
                         </div>
-                        <div className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-4 lg:col-span-1 lg:border-l lg:border-t-0 lg:rounded-l-none lg:bg-transparent lg:pl-5">
-                          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:grid-cols-1">
-                            <Button size="sm" variant="outline" asChild className="w-full">
-                              <Link href={`/farmer/orders/${order.id || order._id}`}><Eye className="mr-1.5 h-3.5 w-3.5"/>View</Link>
-                            </Button>
-                            <p className="col-span-2 text-xs font-semibold uppercase tracking-wide text-slate-500 lg:col-span-1">Manual processing</p>
+                        <div className="border-t bg-slate-50/70 p-4 sm:p-5 lg:w-[280px] lg:border-l lg:border-t-0">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p>
+                              <p className="mt-0.5 text-sm font-medium text-slate-900">
+                                {status === "pending" ? "Review order" :
+                                 status === "confirmed" ? "Start processing" :
+                                 status === "processing" ? "Complete fulfillment" :
+                                 status === "ready_for_delivery" ? "Arrange delivery" :
+                                 status === "dispatched" ? "Track delivery" :
+                                 status === "in_transit" ? "Complete delivery" : "View order"}
+                              </p>
+                            </div>
+                            <Link href={`/farmer/orders/${orderId}`} className="text-xs font-medium text-emerald-700 hover:underline">Details</Link>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Manual processing</p>
                             {getStatus(order) === "pending" && (
                               <>
                                 <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
