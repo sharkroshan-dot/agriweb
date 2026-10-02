@@ -433,12 +433,17 @@ export default function FarmerOrderMapPage() {
           getCoordinates(stop) &&
           (
             String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" ||
-            String(stop?.fulfillmentSource || "").toLowerCase() === "farmer"
+            String(stop?.fulfillmentMethod || "").toLowerCase() === "farm_direct" ||
+            String(stop?.fulfillmentSource || "").toLowerCase() === "farmer" ||
+            String(stop?.fulfillmentSource || "").toLowerCase() === "farm_direct"
           ) &&
           (
             ["packed", "packing_complete", "ready_for_delivery", "ready_for_dispatch"].includes(String(stop?.fulfillmentStage || "").toLowerCase()) ||
             ["ready_for_delivery", "packed"].includes(String(stop?.status || "").toLowerCase()) ||
-            stop?.packingComplete === true
+            stop?.packingComplete === true ||
+            (Array.isArray(stop?.items) && stop.items.some((item: any) =>
+              item?.packedQuantity != null || item?.actualPackedQuantity != null
+            ))
           )
       ),
     [allOrders]
