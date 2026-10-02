@@ -1198,6 +1198,7 @@ async def _stop_coords(addr: dict, order_id: Optional[str] = None, refresh: bool
     ):
         if addr.get(k):
             parts.append(str(addr[k]))
+    query = ", ".join(parts).strip()
     # Give Indian geocoders a country hint when the saved address does not
     # already contain one. This materially improves resolution of short or
     # older checkout addresses such as "Anna Nagar, Chennai, 600040".
