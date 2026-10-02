@@ -1749,6 +1749,21 @@ class OrderService:
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
+    @staticmethod
+    async def prepare_farmer_delivery_label(order_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return authoritative label data only after Farmer Fulfillment packing is complete."""
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("farmerId")) != user_id:
+            return None
+        if str(order.get("fulfillmentMethod") or "") != FulfillmentMethod.FARM_DIRECT.value:
+            return None
+        if not bool(order.get("packingComplete")) or str(order.get("fulfillmentStage") or "") not in (FulfillmentStage.PACKED.value, FulfillmentStage.DISPATCHED.value):
+            return None
+        label_count = int(order.get("deliveryLabelPrintCount") or 0) + 1
+        now = datetime.utcnow()
+        await order_repository.update({"_id": order["_id"]}, {"deliveryLabelPreparedAt": now, "deliveryLabelPrintCount": label_count, "updatedAt": now})
+        latest = await order_repository.get_by_id(order_id) or order
+        return {"_id": latest.get("_id"), "orderNumber": latest.get("orderNumber"), "customerName": latest.get("customerName") or (latest.get("customer") or {}).get("name"), "customerPhone": latest.get("customerPhone") or (latest.get("customer") or {}).get("phone"), "deliveryAddress": latest.get("deliveryAddress") or latest.get("shippingAddress") or {}, "paymentMethod": latest.get("paymentMethod"), "totalAmount": latest.get("totalAmount"), "items": latest.get("items") or [], "deliveryLabelPreparedAt": latest.get("deliveryLabelPreparedAt"), "deliveryLabelPrintCount": label_count}
     async def finalize_farmer_packing(
         order_id: str,
         user_id: str,
