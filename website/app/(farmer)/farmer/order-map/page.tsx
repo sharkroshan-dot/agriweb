@@ -156,14 +156,34 @@ const getCustomerIdentityKey = (stop: any) => {
 const getCustomerDisplayName = (stop: any) =>
   String(stop?.buyerName ?? stop?.customerName ?? stop?.customer?.name ?? stop?.memberName ?? stop?.member?.name ?? "Customer");
 
+const getProductIdentityKey = (stop: any) => {
+  const raw =
+    stop?.productId ?? stop?.product_id ??
+    stop?.product?.id ?? stop?.product?.productId ??
+    stop?.variantId ?? stop?.variant_id;
+  if (raw != null && raw !== "") return String(raw);
+  const name = stop?.product ?? stop?.productName ?? stop?.itemName ?? stop?.cropName ?? stop?.name;
+  return name == null || name === "" ? "" : String(name).trim().toLowerCase();
+};
+
+const getProductDisplayName = (stop: any) =>
+  String(stop?.product ?? stop?.productName ?? stop?.itemName ?? stop?.cropName ?? "Items");
+
 const getLocationGroupMeta = (orders: any[]) => {
   const customerKeys = orders.map(getCustomerIdentityKey).filter(Boolean);
   const sameCustomer = orders.length > 1 && customerKeys.length === orders.length && new Set(customerKeys).size === 1;
+  const productKeys = orders.map(getProductIdentityKey).filter(Boolean);
+  const sameProduct = orders.length > 1 && productKeys.length === orders.length && new Set(productKeys).size === 1;
+  const productNames = Array.from(new Set(orders.map(getProductDisplayName).filter(Boolean)));
+  const totalWeight = orders.reduce((sum, order) => sum + Number(order?.quantityKg ?? order?.quantity ?? 0), 0);
   return {
     sameCustomer,
+    sameProduct,
     customerName: sameCustomer ? getCustomerDisplayName(orders[0]) : "",
+    productName: sameProduct ? getProductDisplayName(orders[0]) : "",
     customerNames: Array.from(new Set(orders.map(getCustomerDisplayName).filter(Boolean))),
-    totalWeight: orders.reduce((sum, order) => sum + Number(order?.quantityKg ?? order?.quantity ?? 0), 0),
+    productNames,
+    totalWeight,
     totalValue: orders.reduce((sum, order) => sum + Number(order?.total ?? 0), 0),
   };
 };
@@ -507,7 +527,7 @@ export default function FarmerOrderMapPage() {
     );
     return {
       count: selectedRouteOrders.length,
-      physicalStops: new Set(selectedRouteOrders.map((stop) => getLocationGroupKey(stop)).filter(Boolean)).size || selectedRouteOrders.length,
+      physicalStops: new Set(selectedRouteOrders.map((stop) => stop?.physicalStopKey || getLocationGroupKey(stop)).filter(Boolean)).size || selectedRouteOrders.length,
       weight: Math.round(weight * 10) / 10,
       distance: Math.round(distance * 10) / 10,
       minutes: Math.round(minutes),
@@ -849,12 +869,19 @@ export default function FarmerOrderMapPage() {
 
       const selectedCount = group.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
       const groupMeta = group.meta || getLocationGroupMeta(group.orders);
-      const customerLabel = groupMeta.sameCustomer
-        ? `${groupMeta.customerName} · ${group.orders.length} Orders`
-        : `${group.orders.length} Orders`;
+      const customerLabel = groupMeta.sameCustomer && groupMeta.sameProduct
+        ? `${groupMeta.customerName} · ${group.orders.length} ${groupMeta.productName} Orders`
+        : groupMeta.sameProduct
+          ? `${group.orders.length} ${groupMeta.productName} Orders`
+          : groupMeta.sameCustomer
+            ? `${groupMeta.customerName} · ${group.orders.length} Orders`
+            : `${group.orders.length} Orders`;
       const customerSummary = groupMeta.sameCustomer
         ? `<strong>${groupMeta.customerName}</strong><br/><span>Same customer/member · same delivery address</span>`
         : `<span>Customers: ${groupMeta.customerNames.join(", ") || "Multiple customers"}</span>`;
+      const productSummary = groupMeta.sameProduct
+        ? `<span>Same product: ${groupMeta.productName}</span>`
+        : `<span>Products: ${groupMeta.productNames.join(", ") || "Multiple products"}</span>`;
       const orderLines = group.orders
         .map((order) => {
           const id = getStopId(order);
@@ -868,7 +895,7 @@ export default function FarmerOrderMapPage() {
         lat: coordinates.lat,
         lng: coordinates.lng,
         title: customerLabel,
-        info: `<strong>${customerLabel}</strong><br/>${customerSummary}<br/>${formatAddress(first)}<br/><span>${group.orders.length} separate orders · ${groupMeta.totalWeight} kg · ${formatPrice(groupMeta.totalValue)}</span><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>Click the marker to select individual orders.`,
+        info: `<strong>${customerLabel}</strong><br/>${customerSummary}<br/>${productSummary}<br/>${formatAddress(first)}<br/><span>${group.orders.length} separate orders · ${groupMeta.totalWeight} kg · ${formatPrice(groupMeta.totalValue)}</span><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>One physical stop · click the marker to select individual orders.`,
         color: selectedCount > 0 ? "#10B981" : "#2563EB",
         label: String(group.orders.length),
       });
@@ -1610,7 +1637,8 @@ export default function FarmerOrderMapPage() {
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <SummaryStat label="Selected Stops" value={String(routePlanStats.count)} tone="blue" />
+            <SummaryStat label="Selected Orders" value={String(routePlanStats.count)} tone="blue" />
+            <SummaryStat label="Physical Stops" value={String(routePlanStats.physicalStops)} tone="violet" />
             <SummaryStat label="Product Weight" value={`${routePlanStats.weight} KG`} tone="amber" />
             <SummaryStat label="Distance" value={`${routePlanStats.distance} KM`} tone="violet" />
             <SummaryStat label="Est. Travel + Stops" value={`${routePlanStats.minutes} min`} tone="blue" />
