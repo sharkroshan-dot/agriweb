@@ -2556,8 +2556,8 @@ async def create_self_delivery_plan(
             },
         )
 
-    # No self-delivery selection is valid. In that case every eligible
-    # dispatched order continues directly into automatic distance-based
+    # No self-delivery selection is also valid. In that case every eligible
+    # packed order continues directly into automatic distance-based
     # delivery-partner routing below.
     selected_results = []
     for order in selected:
@@ -2575,6 +2575,15 @@ async def create_self_delivery_plan(
         )
         await delivery_job_repository.cancel_by_order(oid, "Farmer selected this order for self delivery")
         await order_repository.update_order_field(oid, "partnerAssignmentOpen", False)
+        await order_repository.update(
+            {"_id": ObjectId(oid)},
+            {
+                "orderStatus": "ready_for_delivery",
+                "deliveryResponsibility": "farmer",
+                "fulfillmentStage": "packed",
+                "updatedAt": datetime.utcnow(),
+            },
+        )
         selected_results.append(oid)
         try:
             await NotificationService.send_custom_notification(
