@@ -155,7 +155,7 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "pack" | "dispatch") => {
+  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "pack") => {
     try {
       const response = await api.post("/orders/farmer/bulk-advance", { action });
       const result = response?.data || response;
@@ -167,7 +167,6 @@ export default function FarmerOrdersPage() {
         farmer_fulfillment: "set to Farmer Fulfillment",
         warehouse_fulfillment: "set to Warehouse Fulfillment",
         pack: "packed",
-        dispatch: "dispatched",
       };
       toast.success(
         processed
@@ -327,7 +326,7 @@ export default function FarmerOrdersPage() {
           </DialogHeader>
           <div className="space-y-3 rounded-xl bg-slate-50 p-4 text-sm">
             <div className="flex justify-between"><span>Total visible orders</span><strong>{orderList.length}</strong></div>
-            <p className="text-xs text-muted-foreground">Farmer Fulfillment orders may continue through packing and dispatch. Warehouse Fulfillment orders stop when farmer or warehouse input is required.</p>
+            <p className="text-xs text-muted-foreground">Farmer Fulfillment stops at Packed here. Open the Farmer Order Map for distance calculation and delivery decision; Dispatch happens only on the delivery-partner branch.</p>
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRunAllConfirmOpen(false)} disabled={bulkRunning}>Cancel</Button>
@@ -429,12 +428,12 @@ export default function FarmerOrdersPage() {
                 <span>→</span>
                 <Badge variant="outline" className="border-emerald-200 bg-white">Packed</Badge>
                 <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Dispatch</Badge>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
                 <span>→</span>
                 <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
               </div>
               <p className="mt-2 text-[11px] text-emerald-800">
-                After dispatch, select self-delivery orders by route or radius. Remaining orders automatically enter the delivery-partner flow.
+                After packing, open the Farmer Order Map. Self-delivery goes directly to the customer; delivery-partner routes Dispatch first and then follow the nearby/long-distance path.
               </p>
             </div>
           </div>
