@@ -2016,9 +2016,11 @@ async def get_my_delivery_map(
     center = {"lat": farm.get("lat"), "lng": farm.get("lng")}
     window_start = _delivered_window_start(delivered_window, datetime.utcnow())
 
+    # Fetch the farmer's non-deleted orders first, then determine packed
+    # eligibility from the packing state. Do not rely on orderStatus alone:
+    # packing can complete while the order remains in "processing".
     orders_filter = {
         "farmerId": ObjectId(farmer_id),
-        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "deletedAt": None,
     }
     # Active packed Farmer Fulfillment orders are the source of the
@@ -2034,14 +2036,22 @@ async def get_my_delivery_map(
     packed_farmer_stages = {"packed", "packing_complete", "ready_for_delivery", "ready_for_dispatch"}
     orders = [
         o for o in orders
-        if o.get("deliveryType") == DeliveryType.DELIVERY.value
+        if str(o.get("deliveryType") or "delivery").lower() == DeliveryType.DELIVERY.value.lower()
         # Warehouse-fulfillment orders belong to the warehouse map/workflow.
         and not o.get("warehouseId")
         and str(o.get("fulfillmentSource") or "").lower() != "warehouse"
+        and str(o.get("orderStatus") or "").lower() not in _FINISHED_DELIVERY_STATUSES
         and (
             str(o.get("orderStatus") or "").lower() in packed_farmer_statuses
             or str(o.get("fulfillmentStage") or "").lower() in packed_farmer_stages
             or bool(o.get("packingComplete"))
+            or any(
+                isinstance(item, dict) and (
+                    item.get("packedQuantity") is not None
+                    or item.get("actualPackedQuantity") is not None
+                )
+                for item in (o.get("items") or [])
+            )
         )
     ]
 
