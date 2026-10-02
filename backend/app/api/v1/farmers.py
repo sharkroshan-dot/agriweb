@@ -2518,7 +2518,6 @@ async def create_self_delivery_plan(
         "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "fulfillmentMethod": "farmer",
         "fulfillmentStage": "packed",
-        "dispatchedAt": {"$ne": None},
         "deliveryType": {"$ne": DeliveryType.PICKUP.value},
         "deletedAt": None,
     }) or []
@@ -2951,7 +2950,8 @@ async def update_order_assignment(
             )
         if await order_repository.reclaim_for_self_delivery(order_id, farmer_id, _ACTIVE_DELIVERY_STATUSES):
             # A packed farmer-fulfilled order is already prepared for delivery.
-            # Self delivery does not require a Dispatch handoff.
+            # Self delivery follows its own Dispatch handoff before the farmer
+            # starts final delivery.
             await delivery_assignment_repository.cancel_by_order_id(
                 order_id, "Farmer switched order to self-delivery"
             )
@@ -2965,7 +2965,7 @@ async def update_order_assignment(
             except Exception:
                 pass
             _notify_delivery_map(farmer_id, "order.updated", orderId=order_id, mode="self", orderNumber=order.get("orderNumber", ""))
-            return {"success": True, "message": "Order switched to self delivery"}
+            return {"success": True, "message": "Order switched to self delivery and dispatched to farmer"}
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Order could not be switched to self delivery (it was already marked for self delivery).",
