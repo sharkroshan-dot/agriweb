@@ -1881,6 +1881,7 @@ async def _map_order_payload(
     qty = sum(int(i.get("quantity", 0) or 0) for i in items)
     first = items[0] if items else {}
     product = first.get("productName") or first.get("name") or "Items"
+    product_id = first.get("productId") or first.get("product_id") or first.get("variantId") or first.get("variant_id")
     status = order.get("orderStatus", "pending")
     fulfillment_method = str(order.get("fulfillmentMethod") or "").lower()
     fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
@@ -1998,6 +1999,8 @@ async def _map_order_payload(
         "id": oid,
         "orderId": oid,
         "orderNumber": order.get("orderNumber", ""),
+        "customerId": str(order.get("customerId")) if order.get("customerId") else None,
+        "memberId": str(order.get("memberId")) if order.get("memberId") else None,
         "buyerName": customer_name,
         "customerName": customer_name,
         "customerPhone": customer_phone,
@@ -2009,6 +2012,7 @@ async def _map_order_payload(
         "quantity": f"{qty} kg",
         "quantityKg": qty,
         "product": product,
+        "productId": str(product_id) if product_id else None,
         "items": [
             {"name": i.get("productName") or i.get("name") or "Item", "quantity": i.get("quantity", 1)}
             for i in items
@@ -2061,7 +2065,36 @@ async def _map_order_payload(
         "canComplete": status in _ROUTE_COMPLETABLE_STATUSES,
         "deliveredAt": order.get("deliveredAt") or order.get("updatedAt"),
         "isDelivered": is_delivered,
+        "physicalStopKey": (
+            f"{float(lat):.6f},{float(lng):.6f}"
+            if lat is not None and lng is not None else None
+        ),
     }
+
+
+def _annotate_physical_stops(payloads: list[dict]) -> None:
+    """Annotate independent orders with shared physical-stop metadata.
+
+    Same coordinates mean one physical visit, regardless of customer/product.
+    This is display/routing metadata only; it never merges order records.
+    """
+    groups: dict[str, list[dict]] = {}
+    for payload in payloads:
+        key = payload.get("physicalStopKey")
+        if key:
+            groups.setdefault(key, []).append(payload)
+    for key, group in groups.items():
+        names = list(dict.fromkeys(str(p.get("customerName") or "Customer") for p in group))
+        products = list(dict.fromkeys(str(p.get("product") or "Items") for p in group))
+        total_weight = round(sum(float(p.get("quantityKg") or 0) for p in group), 2)
+        for payload in group:
+            payload["physicalStopOrderCount"] = len(group)
+            payload["physicalStopCustomerCount"] = len(names)
+            payload["physicalStopProductCount"] = len(products)
+            payload["physicalStopTotalWeight"] = total_weight
+            payload["physicalStopCustomers"] = names
+            payload["physicalStopProducts"] = products
+            payload["isGroupedPhysicalStop"] = len(group) > 1
 
 
 @router.get("/me/delivery-map")
@@ -2181,6 +2214,7 @@ async def get_my_delivery_map(
         payload["isDelivered"] = True
         delivered_payloads.append(payload)
     delivered_payloads.sort(key=lambda p: (p["distance"] or 0))
+    _annotate_physical_stops(delivered_payloads)
 
     payloads = []
     for order in orders:
@@ -2189,6 +2223,7 @@ async def get_my_delivery_map(
             refresh_coords=True, job_info=jobs_by_order.get(str(order["_id"])),
         )
         payloads.append(payload)
+    _annotate_physical_stops(payloads)
 
     within = [p for p in payloads if p["inRadius"]]
     outside = [p for p in payloads if not p["inRadius"] and p["distance"] is not None]
@@ -2213,9 +2248,16 @@ async def get_my_delivery_map(
     within_distance = round(sum(float(p.get("distance") or 0) for p in within) * 2, 2)
     outside_distance = round(sum(float(p.get("distance") or 0) for p in outside) * 2, 2)
 
+    physical_stop_keys = {p.get("physicalStopKey") for p in payloads if p.get("physicalStopKey")}
+    within_physical_stop_keys = {p.get("physicalStopKey") for p in within if p.get("physicalStopKey")}
+    outside_physical_stop_keys = {p.get("physicalStopKey") for p in outside if p.get("physicalStopKey")}
+
     summary = {
         "radius": radius,
         "totalOrders": len(payloads),
+        "physicalStops": len(physical_stop_keys),
+        "withinPhysicalStops": len(within_physical_stop_keys),
+        "outsidePhysicalStops": len(outside_physical_stop_keys),
         "withinRadius": len(within),
         "outsideRadius": len(outside),
         "unlocated": len(unlocated),
