@@ -2518,6 +2518,7 @@ async def create_self_delivery_plan(
         "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "fulfillmentMethod": "farmer",
         "fulfillmentStage": "dispatched",
+        "dispatchedAt": {"$ne": None},
         "deliveryType": {"$ne": DeliveryType.PICKUP.value},
         "deletedAt": None,
     }) or []
