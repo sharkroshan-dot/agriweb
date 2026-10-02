@@ -1751,6 +1751,16 @@ export default function FarmerOrderMapPage() {
         </div>
       </div>
 
+      <Card className="border-indigo-200 bg-indigo-50/40 shadow-sm">
+        <CardContent className="p-4 sm:p-5">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. FILTER</p><p className="mt-1 text-sm font-semibold text-slate-900">Radius / Route only filters orders</p><p className="mt-1 text-xs text-slate-600">10 KM shows eligible packed orders inside 10 KM. Nothing is assigned.</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-wide text-emerald-700">2. SELECT ORDERS</p><p className="mt-1 text-sm font-semibold text-slate-900">Farmer explicitly selects orders</p><p className="mt-1 text-xs text-slate-600">Select individual orders or Select All Visible. Selected map markers turn green.</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-wide text-blue-700">3. DELIVERY DECISION</p><p className="mt-1 text-sm font-semibold text-slate-900">Self Delivery or Delivery Partner</p><p className="mt-1 text-xs text-slate-600">Only selected orders enter the chosen delivery workflow.</p></div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
