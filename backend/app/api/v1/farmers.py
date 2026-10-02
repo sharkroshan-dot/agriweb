@@ -1874,7 +1874,47 @@ async def _map_order_payload(
     if is_pickup:
         lat, lng = farm.get("lat"), farm.get("lng")
     else:
-        lat, lng = await _stop_coords(addr, oid, refresh=refresh_coords)
+        # Orders created through different checkout versions can store the
+        # destination under deliveryAddress, shippingAddress, or customerAddress.
+        # Resolve them in that order so every genuinely packed order gets its
+        # real customer location instead of silently becoming an unlocated stop.
+        address_candidates = [
+            addr,
+            order.get("shippingAddress") or {},
+            order.get("customerAddress") or {},
+            order.get("address") or {},
+        ]
+        seen_queries = set()
+        for candidate in address_candidates:
+            if not isinstance(candidate, dict):
+                continue
+            key = repr(sorted((str(k), str(v)) for k, v in candidate.items() if k != "location"))
+            if key in seen_queries:
+                continue
+            seen_queries.add(key)
+            lat, lng = await _stop_coords(candidate, oid, refresh=refresh_coords)
+            if lat is not None and lng is not None:
+                # Keep the payload address consistent with the resolved
+                # destination so the marker/details refer to the same place.
+                if not addr and candidate:
+                    addr = candidate
+                break
+
+        # Last fallback: use customer profile address/location when checkout
+        # did not copy the destination onto the order document.
+        if lat is None or lng is None:
+            customer_candidates = [
+                cust.get("location") if isinstance(cust, dict) else None,
+                cust.get("address") if isinstance(cust, dict) else None,
+                cust.get("deliveryAddress") if isinstance(cust, dict) else None,
+                cust.get("shippingAddress") if isinstance(cust, dict) else None,
+            ]
+            for candidate in customer_candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                lat, lng = await _stop_coords(candidate, oid, refresh=False)
+                if lat is not None and lng is not None:
+                    break
 
     dist = None
     if lat is not None and center.get("lat") is not None:
