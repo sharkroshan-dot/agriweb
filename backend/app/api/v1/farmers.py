@@ -2032,10 +2032,9 @@ async def get_my_delivery_map(
     orders = [
         o for o in orders
         if o.get("deliveryType") == DeliveryType.DELIVERY.value
-        and (
-            str(o.get("fulfillmentSource") or "").lower() == "farmer"
-            or str(o.get("fulfillmentMethod") or "").lower() == "farmer"
-        )
+        # Warehouse-fulfillment orders belong to the warehouse map/workflow.
+        and not o.get("warehouseId")
+        and str(o.get("fulfillmentSource") or "").lower() != "warehouse"
         and (
             str(o.get("orderStatus") or "").lower() in packed_farmer_statuses
             or str(o.get("fulfillmentStage") or "").lower() in packed_farmer_stages
