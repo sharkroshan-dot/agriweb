@@ -1176,7 +1176,14 @@ async def _stop_coords(addr: dict, order_id: Optional[str] = None, refresh: bool
     if loc.get("coordinates") and not refresh:
         return loc["coordinates"][1], loc["coordinates"][0]
     parts = []
-    for k in ("addressLine1", "addressLine2", "address", "city", "state"):
+    # Checkout data has used several address shapes over time. Include
+    # every useful component so a packed order is not lost merely because
+    # its coordinates were not persisted at checkout.
+    for k in (
+        "addressLine1", "addressLine2", "address", "street",
+        "area", "locality", "landmark", "city", "district", "state",
+        "postalCode", "pincode", "zipCode",
+    ):
         if addr.get(k):
             parts.append(str(addr[k]))
     query = ", ".join(parts)
