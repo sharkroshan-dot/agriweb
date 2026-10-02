@@ -900,6 +900,7 @@ export default function FarmerOrderMapPage() {
         lat: coordinates.lat,
         lng: coordinates.lng,
         title: customerLabel,
+        displayLabel: `${customerLabel}\n${groupMeta.totalWeight} kg`,
         info: `<strong>${customerLabel}</strong><br/>${customerSummary}<br/>${productSummary}<br/>${formatAddress(first)}<br/><span>${group.orders.length} separate orders · ${groupMeta.totalWeight} kg · ${formatPrice(groupMeta.totalValue)}</span><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>One physical stop · click the marker to select individual orders.`,
         color: selectedCount > 0 ? "#10B981" : "#2563EB",
         label: String(group.orders.length),
