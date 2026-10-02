@@ -150,9 +150,17 @@ export default function FarmerPackingPage() {
     }
   };
 
-  const printLabel = (order: any) => {
-    setSelectedOrder(order);
-    window.setTimeout(() => window.print(), 50);
+  const printLabel = async (order: any) => {
+    const orderId = order?.id || order?._id;
+    if (!orderId) { toast.error("Order ID is missing"); return; }
+    try {
+      const response = await api.post("/orders/" + orderId + "/farmer-delivery-label");
+      const labelOrder = response?.data || response;
+      setSelectedOrder(labelOrder);
+      window.setTimeout(() => window.print(), 50);
+    } catch (error: any) {
+      toast.error(error?.message || "Delivery label is not ready. Confirm packing first.");
+    }
   };
 
   if (ordersQuery.isLoading) {
@@ -271,7 +279,7 @@ export default function FarmerPackingPage() {
                     </Link>
                     <div className="flex flex-wrap gap-2">
                       {isPacked ? (
-                        <Button size="sm" variant="outline" onClick={() => printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
+                        <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
                       ) : (
                         <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { try { startPacking(order); } catch (e: any) { toast.error(e.message); } }}>
                           <Package className="mr-1.5 h-4 w-4" /> Start / Check Packing
@@ -309,7 +317,7 @@ export default function FarmerPackingPage() {
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
                   <Button variant="outline" onClick={() => setCompletedOrder(null)}>Continue Packing</Button>
-                  <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { const order = completedOrder; setCompletedOrder(null); printLabel(order); }}>
+                  <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={async () => { const order = completedOrder; setCompletedOrder(null); await printLabel(order); }}>
                     <Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label
                   </Button>
                 </div>
