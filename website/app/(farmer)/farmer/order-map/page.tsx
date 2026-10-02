@@ -431,8 +431,15 @@ export default function FarmerOrderMapPage() {
         (stop) =>
           !isDone(stop) &&
           getCoordinates(stop) &&
-          String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" &&
-          (String(stop?.fulfillmentStage || "").toLowerCase() === "packed" || stop?.packingComplete === true)
+          (
+            String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" ||
+            String(stop?.fulfillmentSource || "").toLowerCase() === "farmer"
+          ) &&
+          (
+            ["packed", "packing_complete", "ready_for_delivery", "ready_for_dispatch"].includes(String(stop?.fulfillmentStage || "").toLowerCase()) ||
+            ["ready_for_delivery", "packed"].includes(String(stop?.status || "").toLowerCase()) ||
+            stop?.packingComplete === true
+          )
       ),
     [allOrders]
   );
