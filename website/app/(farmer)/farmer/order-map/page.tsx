@@ -1812,6 +1812,8 @@ export default function FarmerOrderMapPage() {
                           selected={getStopId(stop) === selectedStopId}
                           onSelect={() => setSelectedStopId(getStopId(stop))}
                           onSwitch={(v) => onSwitchSelect(stop, v)}
+                          deliverySelected={selectedRouteIds.includes(getStopId(stop))}
+                          onToggleDelivery={() => toggleSelectedOrder(getStopId(stop))}
                         />
                       ))}
                     </div>
@@ -2410,6 +2412,8 @@ function OrderCard({
   selected,
   onSelect,
   onSwitch,
+  deliverySelected = false,
+  onToggleDelivery,
   readOnly = false,
 }: {
   stop: any;
@@ -2417,6 +2421,8 @@ function OrderCard({
   selected: boolean;
   onSelect: () => void;
   onSwitch: (value: string) => void;
+  deliverySelected?: boolean;
+  onToggleDelivery?: () => void;
   readOnly?: boolean;
 }) {
   return (
@@ -2457,11 +2463,11 @@ function OrderCard({
       </button>
       {!readOnly && (
         <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border bg-slate-50 p-2">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-            <span className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white"}`}>{selected ? "✓" : ""}</span>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onToggleDelivery?.(); }} className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <span className={`flex h-5 w-5 items-center justify-center rounded border ${deliverySelected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white"}`}>{deliverySelected ? "✓" : ""}</span>
             Select this order
           </button>
-          {selected && <Badge className="bg-emerald-600 text-white">Selected</Badge>}
+          {deliverySelected && <Badge className="bg-emerald-600 text-white">Selected</Badge>}
         </div>
       )}
     </div>
