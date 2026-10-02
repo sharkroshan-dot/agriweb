@@ -2325,7 +2325,7 @@ async def accept_within_for_self_delivery(
             try:
                 await NotificationService.send_custom_notification(
                     str(order.get("customerId")),
-                    f"Your order {order.get('orderNumber', '')} will be delivered directly by the farmer.",
+                    f"Your order {order.get('orderNumber', '')} has been dispatched for farmer self-delivery.",
                 )
             except Exception:
                 pass
@@ -2574,14 +2574,21 @@ async def create_self_delivery_plan(
             oid, "Farmer selected this order for self delivery"
         )
         await delivery_job_repository.cancel_by_order(oid, "Farmer selected this order for self delivery")
-        await order_repository.update_order_field(oid, "partnerAssignmentOpen", False)
+        dispatch_at = datetime.utcnow()
         await order_repository.update(
             {"_id": ObjectId(oid)},
             {
                 "orderStatus": "ready_for_delivery",
                 "deliveryResponsibility": "farmer",
-                "fulfillmentStage": "packed",
-                "updatedAt": datetime.utcnow(),
+                "fulfillmentStage": "dispatched",
+                "dispatchedAt": dispatch_at,
+                "dispatchReadyChecklistComplete": True,
+                "deliveryDispatchStatus": "dispatched",
+                "deliveryDispatchAt": dispatch_at,
+                "deliveryPartnerRoute": "self_delivery",
+                "deliveryRouteSequence": ["packed", "self_delivery", "dispatch", "farmer", "customer"],
+                "partnerAssignmentOpen": False,
+                "updatedAt": dispatch_at,
             },
         )
         selected_results.append(oid)
