@@ -1875,7 +1875,6 @@ class OrderService:
         updated_items = []
         cancelled_items = []
         cancelled_value = 0.0
-        unresolved = False
 
         for item in items:
             key = (str(item.get("productId")), str(item.get("variantId") or ""))
