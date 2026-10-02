@@ -1750,6 +1750,61 @@ class OrderService:
 
     @staticmethod
     @staticmethod
+    @staticmethod
+    async def cancel_farmer_packing_order(order_id: str, user_id: str, reason: str) -> Optional[Dict[str, Any]]:
+        """Cancel a Farmer Fulfillment order during final packing and release its reserved stock."""
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("farmerId")) != user_id:
+            return None
+        if str(order.get("fulfillmentMethod") or "") != FulfillmentMethod.FARM_DIRECT.value:
+            return None
+        if str(order.get("orderStatus") or "") != OrderStatus.PROCESSING.value:
+            return None
+        if str(order.get("fulfillmentStage") or FulfillmentStage.PENDING.value) != FulfillmentStage.PENDING.value:
+            return None
+        if order.get("packingComplete") is True:
+            return None
+
+        released = []
+        for item in order.get("items") or []:
+            product_id = str(item.get("productId"))
+            quantity = float(item.get("quantity") or 0)
+            inventory_id = str(item.get("variantId")) if item.get("variantId") else None
+            if quantity <= 0:
+                continue
+            try:
+                await inventory_repository.atomic_refund(product_id, quantity, inventory_id=inventory_id)
+                released.append({"productId": product_id, "variantId": inventory_id, "quantity": quantity})
+                stock = await InventoryService.get_stock(product_id)
+                if stock:
+                    await broadcast_stock_update(product_id, stock)
+            except Exception:
+                logger.exception("Failed to release reserved stock while cancelling packed order %s", order_id)
+
+        now = datetime.utcnow()
+        update = {
+            "orderStatus": OrderStatus.CANCELLED.value,
+            "fulfillmentStage": FulfillmentStage.PENDING.value,
+            "packingComplete": False,
+            "packingCancelled": True,
+            "packingCancellationReason": reason,
+            "cancelledAt": now,
+            "cancellationReason": reason,
+            "inventoryReleasedForPackingCancellation": released,
+            "updatedAt": now,
+        }
+        payment_status = str(order.get("paymentStatus") or "").lower()
+        if payment_status == PaymentStatus.PAID.value:
+            update["refundStatus"] = "pending"
+            update["refundRequiredAmount"] = float(order.get("totalAmount") or 0)
+        await order_repository.update({"_id": order["_id"]}, update)
+        updated = await order_repository.get_by_id(order_id)
+        if updated:
+            try:
+                await NotificationService.send_order_workflow_update(updated, stage=OrderStatus.CANCELLED.value, title=f"Order #{updated.get('orderNumber') or order_id}: cancelled during packing", message=reason)
+            except Exception:
+                logger.exception("Failed to notify cancellation for order %s", order_id)
+        return updated
     async def prepare_farmer_delivery_label(order_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Return authoritative label data only after Farmer Fulfillment packing is complete."""
         order = await order_repository.get_by_id(order_id)
