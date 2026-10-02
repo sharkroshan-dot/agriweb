@@ -249,13 +249,16 @@ async def get_my_earnings(current_user: dict = Depends(get_current_user)):
 async def get_my_orders(
     status: Optional[str] = None,
     page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(500, ge=1, le=500),
     current_user: dict = Depends(get_current_user),
 ):
     _ensure_farmer(current_user)
     skip = (page - 1) * limit
     orders = await order_repository.get_by_farmer(str(current_user["_id"]), skip, limit, status)
-    total = await order_repository.count({"farmerId": current_user["_id"], "deletedAt": None})
+    total_filter = {"farmerId": current_user["_id"], "deletedAt": None}
+    if status:
+        total_filter["orderStatus"] = status
+    total = await order_repository.count(total_filter)
 
     for order in orders:
         order["id"] = str(order["_id"])
