@@ -2626,140 +2626,12 @@ async def create_self_delivery_plan(
             orderNumber=order.get("orderNumber", ""),
         )
 
-    # Every remaining packed order is automatically assigned to a verified
-    # delivery partner after the distance route is decided. The assignment is
-    # created now, while the physical pickup still follows the route below.
-    partner_results = []
-    nearby_count = 0
-    long_distance_count = 0
-    skipped = []
-    route_targets = []
-
-    for order in remaining:
-        oid = str(order["_id"])
-        addr = order.get("deliveryAddress") or {}
-        lat, lng = await _stop_coords(addr, oid)
-        if lat is None:
-            skipped.append({"orderId": oid, "reason": "Customer location unavailable"})
-            continue
-        dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
-        route = "nearby" if dist <= body.radius else "long_distance"
-        route_targets.append((order, dist, route))
-
-    # Find eligible partners once and let the existing deterministic AI matcher
-    # balance the whole remaining batch by rating, load, proximity and capacity.
-    available = await _available_partners_with_load(farm, max(body.radius, 50))
-    eligible = [p for p in available if p.get("isAvailable") and p.get("isVerified")]
-    assignment_plan = _ai_partner_plan([(order, dist) for order, dist, _route in route_targets], eligible) if eligible else []
-    partner_by_order = {str(order["_id"]): (partner, reason) for order, partner, reason in assignment_plan}
-
-    for order, dist, route in route_targets:
-        oid = str(order["_id"])
-        try:
-            await apply_partner_route(order, route, body.radius)
-            if route == "nearby":
-                nearby_count += 1
-            else:
-                long_distance_count += 1
-
-            await order_repository.update_order_field(oid, "deliveryDistanceFromFarmKm", round(dist, 2))
-            await order_repository.update_order_field(oid, "deliveryDecision", route)
-            await order_repository.update_order_field(oid, "deliveryDecisionSource", "distance")
-            await order_repository.update_order_field(oid, "deliveryDecisionThresholdKm", body.radius)
-
-            partner_entry = partner_by_order.get(oid)
-            if not partner_entry:
-                # A named partner is required for automatic assignment. If no
-                # verified partner is available, keep the order visible as an
-                # explicit exception instead of silently claiming it was assigned.
-                job = None
-                refreshed = await order_repository.get_by_id(oid) or order
-                if route == "nearby":
-                    job = await _open_job_for_order(refreshed, farm, farmer_id)
-                skipped.append({
-                    "orderId": oid,
-                    "reason": "No available verified delivery partner; order opened for partner acceptance",
-                    "deliveryJob": job,
-                })
-                partner_results.append({
-                    "orderId": oid,
-                    "distanceKm": round(dist, 2),
-                    "route": route,
-                    "status": "partner_pending",
-                    "deliveryJob": job,
-                })
-                continue
-
-            partner, reason = partner_entry
-            if not await order_repository.assign_partner_safe(oid, farmer_id, partner["id"], _ACTIVE_DELIVERY_STATUSES):
-                skipped.append({"orderId": oid, "reason": "Order was already assigned or is no longer eligible"})
-                continue
-
-            assignment_time = datetime.utcnow()
-            await order_repository.update(
-                {"_id": ObjectId(oid)},
-                {"$set": {
-                    "deliveryResponsibility": "delivery_partner",
-                    "deliveryPartnerName": partner["name"],
-                    "partnerAssignmentOpen": False,
-                    "partnerRequested": False,
-                    "partnerAssignmentSource": "farmer_order_map_auto",
-                    "partnerAssignmentMethod": "ai_auto",
-                    "partnerAssignedAt": assignment_time,
-                    "deliveryPartnerHandoffStatus": "awaiting_hub_handoff",
-                    "updatedAt": assignment_time,
-                }}
-            )
-            try:
-                existing = await delivery_assignment_repository.get_by_order_id(oid)
-                if existing:
-                    await delivery_assignment_repository.reassign_open_assignment(oid, partner["id"])
-                else:
-                    await delivery_assignment_repository.create_assignment({
-                        "orderId": ObjectId(oid),
-                        "deliveryPartnerId": ObjectId(partner["id"]),
-                        "farmerId": ObjectId(farmer_id),
-                        "priority": 1,
-                        "source": "farmer_order_map_auto",
-                        "assignee": "system",
-                        "assignmentMethod": "ai_auto",
-                    })
-            except Exception as exc:
-                logger.warning("Automatic delivery assignment record failed for %s: %s", oid, exc)
-
-            try:
-                if partner.get("userId"):
-                    await NotificationService.send_custom_notification(
-                        partner["userId"],
-                        f"Delivery assigned: order {order.get('orderNumber', '')}. Route: {'Nearby' if route == 'nearby' else 'Long Distance'}.",
-                    )
-            except Exception:
-                pass
-
-            partner_results.append({
-                "orderId": oid,
-                "distanceKm": round(dist, 2),
-                "route": route,
-                "status": "assigned",
-                "partnerId": partner["id"],
-                "partnerName": partner["name"],
-                "assignmentReason": reason,
-                "handoffStatus": "awaiting_hub_handoff",
-            })
-            _notify_delivery_map(
-                farmer_id, "order.assigned", orderId=oid,
-                partnerId=partner["id"], partnerName=partner["name"],
-                route=route, automatic=True,
-            )
-        except Exception as exc:
-            logger.warning("Automatic partner routing failed for order %s: %s", oid, exc)
-            skipped.append({"orderId": oid, "reason": "Partner routing could not be created"})
-
-
+    # IMPORTANT: selection and assignment are separate decisions.
+    # This endpoint handles ONLY the orders explicitly selected for self delivery.
+    # Orders that were merely visible because of the radius filter remain untouched.
     _notify_delivery_map(
         farmer_id, "delivery.plan.finalized",
-        method=body.method, selfDeliveryCount=len(selected_results),
-        partnerCount=len(partner_results),
+        method=body.method, selfDeliveryCount=len(selected_results), partnerCount=0,
     )
     return {
         "success": True,
@@ -2767,19 +2639,16 @@ async def create_self_delivery_plan(
             "method": body.method,
             "selfDeliveryOrderIds": selected_results,
             "selfDeliveryCount": len(selected_results),
-            "partnerCount": len(partner_results),
-            "nearbyCount": nearby_count,
-            "longDistanceCount": long_distance_count,
-            "partnerResults": partner_results,
-            "skipped": skipped,
+            "partnerCount": 0,
+            "nearbyCount": 0,
+            "longDistanceCount": 0,
+            "partnerResults": [],
+            "skipped": [],
+            "remainingOrderIds": [str(o["_id"]) for o in remaining],
             "radius": body.radius,
             "destination": body.destination,
         },
-        "message": (
-            f"Self delivery route created for {len(selected_results)} orders. "
-            f"{len(partner_results)} remaining orders were routed automatically "
-            f"by distance ({nearby_count} nearby, {long_distance_count} long distance)."
-        ),
+        "message": f"Self delivery confirmed for {len(selected_results)} selected orders. Other packed orders remain unassigned.",
     }
 
 
