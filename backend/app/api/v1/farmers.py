@@ -1192,13 +1192,17 @@ async def _stop_coords(addr: dict, order_id: Optional[str] = None, refresh: bool
     # every useful component so a packed order is not lost merely because
     # its coordinates were not persisted at checkout.
     for k in (
-        "addressLine1", "addressLine2", "address", "street",
+        "addressLine1", "addressLine2", "line1", "line2", "address", "street",
         "area", "locality", "landmark", "city", "district", "state",
-        "postalCode", "pincode", "zipCode",
+        "postalCode", "pincode", "zipCode", "zip_code",
     ):
         if addr.get(k):
             parts.append(str(addr[k]))
-    query = ", ".join(parts)
+    # Give Indian geocoders a country hint when the saved address does not
+    # already contain one. This materially improves resolution of short or
+    # older checkout addresses such as "Anna Nagar, Chennai, 600040".
+    if query and "india" not in query.lower():
+        query = f"{query}, India"
     if not query:
         if loc.get("coordinates"):
             return loc["coordinates"][1], loc["coordinates"][0]
@@ -1897,6 +1901,9 @@ async def _map_order_payload(
         ):
             if isinstance(candidate, dict) and candidate:
                 addr = candidate
+                break
+            if isinstance(candidate, str) and candidate.strip():
+                addr = {"address": candidate.strip()}
                 break
     first_name = cust.get("firstName") or cust.get("name") or ""
     last_name = cust.get("lastName") or ""
