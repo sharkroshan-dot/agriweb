@@ -18,9 +18,9 @@ import {
   AlertTriangle,
   ChevronRight,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "../../../components/ui/button";
+import { Badge } from "../../../components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 
 type Tab = "to_pack" | "packed" | "shortage";
 
