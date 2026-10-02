@@ -2808,11 +2808,18 @@ async def choose_delivery_partner_route(
         "deletedAt": None,
     }) or []
 
-    selected = set(body.orderIds or [])
+    # Explicit selection is mandatory. Radius/route is only a filter and
+    # must never cause an implicit delivery assignment.
+    selected = {str(x) for x in (body.orderIds or []) if str(x)}
+    if not selected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select at least one packed order before choosing a delivery-partner route.",
+        )
     targets = []
     for order in orders:
         oid = str(order["_id"])
-        if selected and oid not in selected:
+        if oid not in selected:
             continue
         if order.get("selfDelivery") or order.get("deliveryPartnerId"):
             continue
