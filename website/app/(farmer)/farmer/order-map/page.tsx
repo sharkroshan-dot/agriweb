@@ -1397,7 +1397,13 @@ export default function FarmerOrderMapPage() {
               {routeInfo && <Badge variant="secondary">{routeInfo.distanceKm} km · {routeInfo.durationMinutes} min</Badge>}
             </div>
           )}
-          <Button size="lg" className="self-end" onClick={findOrdersAlongRoute} disabled={!routeDestination || routeLoading}>
+          <div className="flex justify-end">
+            <Button
+              size="lg"
+              className="w-full sm:w-auto"
+              onClick={findOrdersAlongRoute}
+              disabled={!routeDestination || routeLoading || !(routeStart || farmCoordinates || liveLocation)}
+            >
               {routeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Navigation className="mr-2 h-4 w-4" />}
               Find Orders Along My Route
             </Button>
