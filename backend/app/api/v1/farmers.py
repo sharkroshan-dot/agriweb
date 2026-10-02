@@ -2748,6 +2748,9 @@ async def create_self_delivery_plan(
                 "deliveryDispatchStatus": "dispatched",
                 "deliveryDispatchAt": dispatch_at,
                 "deliveryPartnerRoute": "self_delivery",
+                "deliveryDecision": "self_delivery",
+                "deliveryDecisionStatus": "confirmed_self",
+                "deliveryDecisionCompletedAt": dispatch_at,
                 "deliveryRouteSequence": ["packed", "self_delivery", "dispatch", "farmer", "customer"],
                 "partnerAssignmentOpen": False,
                 "updatedAt": dispatch_at,
@@ -2806,6 +2809,7 @@ async def create_self_delivery_plan(
                 "distanceKm": round(distance_km, 2),
                 "route": partner_route,
                 "deliveryJob": job,
+                "deliveryDecisionStatus": "partner_pending" if partner_route == "nearby" else "warehouse_transfer_pending",
                 **(route_result or {}),
             })
             _notify_delivery_map(
