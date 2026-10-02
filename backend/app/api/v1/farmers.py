@@ -2766,12 +2766,69 @@ async def create_self_delivery_plan(
             orderNumber=order.get("orderNumber", ""),
         )
 
-    # IMPORTANT: selection and assignment are separate decisions.
-    # This endpoint handles ONLY the orders explicitly selected for self delivery.
-    # Orders that were merely visible because of the radius filter remain untouched.
+    # Every packed order that the farmer did NOT explicitly select now enters
+    # the delivery-partner branch. The radius/route selection is only a filter:
+    # it never selects orders for self delivery. Once the farmer confirms the
+    # selection, the remaining orders are classified by physical distance.
+    partner_results = []
+    nearby_count = 0
+    long_distance_count = 0
+    skipped_partner = []
+
+    for order in remaining:
+        oid = str(order["_id"])
+        addr = order.get("deliveryAddress") or {}
+        lat, lng = await _stop_coords(addr, oid)
+        if lat is None:
+            skipped_partner.append({"orderId": oid, "reason": "Customer location unavailable"})
+            continue
+
+        distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
+        partner_route = "nearby" if distance_km <= body.radius else "long_distance"
+
+        try:
+            route_result = await apply_partner_route(order, partner_route, body.radius)
+            refreshed = await order_repository.get_by_id(oid) or order
+
+            # Nearby orders can go to the local hub and then the delivery
+            # partner. Long-distance orders first go to the warehouse, then
+            # local hub, then delivery partner. The partner job is opened only
+            # when the physical handoff is ready.
+            job = None
+            if partner_route == "nearby":
+                job = await _open_job_for_order(refreshed, farm, farmer_id)
+                nearby_count += 1
+            else:
+                long_distance_count += 1
+
+            partner_results.append({
+                "orderId": oid,
+                "distanceKm": round(distance_km, 2),
+                "route": partner_route,
+                "deliveryJob": job,
+                **(route_result or {}),
+            })
+            _notify_delivery_map(
+                farmer_id,
+                "order.updated",
+                orderId=oid,
+                mode="delivery_partner",
+                route=partner_route,
+                orderNumber=order.get("orderNumber", ""),
+            )
+        except Exception as exc:
+            logger.exception("Failed to route remaining order %s through delivery partner flow", oid)
+            skipped_partner.append({"orderId": oid, "reason": str(exc)})
+
+    partner_count = len(partner_results)
     _notify_delivery_map(
-        farmer_id, "delivery.plan.finalized",
-        method=body.method, selfDeliveryCount=len(selected_results), partnerCount=0,
+        farmer_id,
+        "delivery.plan.finalized",
+        method=body.method,
+        selfDeliveryCount=len(selected_results),
+        partnerCount=partner_count,
+        nearbyCount=nearby_count,
+        longDistanceCount=long_distance_count,
     )
     return {
         "success": True,
@@ -2779,16 +2836,19 @@ async def create_self_delivery_plan(
             "method": body.method,
             "selfDeliveryOrderIds": selected_results,
             "selfDeliveryCount": len(selected_results),
-            "partnerCount": 0,
-            "nearbyCount": 0,
-            "longDistanceCount": 0,
-            "partnerResults": [],
-            "skipped": [],
+            "partnerCount": partner_count,
+            "nearbyCount": nearby_count,
+            "longDistanceCount": long_distance_count,
+            "partnerResults": partner_results,
+            "skipped": skipped_partner,
             "remainingOrderIds": [str(o["_id"]) for o in remaining],
             "radius": body.radius,
             "destination": body.destination,
         },
-        "message": f"Self delivery confirmed for {len(selected_results)} selected orders. Other packed orders remain unassigned.",
+        "message": (
+            f"Delivery plan finalized: {len(selected_results)} self-delivery · "
+            f"{nearby_count} nearby partner route · {long_distance_count} long-distance warehouse route"
+        ),
     }
 
 
