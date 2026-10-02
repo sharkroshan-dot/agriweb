@@ -422,32 +422,17 @@ export default function FarmerOrderMapPage() {
   const selectedStop =
     allOrders.find((stop) => getStopId(stop) === selectedStopId) || allOrders[0] || null;
 
-  // Every packed Farmer Fulfillment order is eligible to be shown
-  // on the map. Delivery assignment is decided after the map/radius/route
-  // selection, so assignment must not hide a packed order from the map.
-  // The backend delivery-map endpoint already returns only orders that have
-  // completed Farmer Fulfillment packing and are eligible for this map.
-  // Do not apply a second fulfillment/stage filter here: older orders can have
-  // different but valid workflow field combinations (for example processing +
-  // packingComplete, or ready_for_delivery + selfDelivery). A second filter
-  // was the reason only a few packed orders appeared on the map.
-  // The API returns only explicitly packed Farmer Fulfillment orders.
-  // Keep the client filter aligned with the Packing & Checking "Packed" tab:
-  // fulfillment stage packed OR the persisted packingComplete flag.
+  // The delivery-map API is the single source of truth for packed Farmer
+  // Fulfillment orders. It applies the same packed criteria as Packing &
+  // Checking and performs address -> coordinates geocoding when coordinates
+  // are missing. Do not repeat fulfillment/stage filtering here: doing so can
+  // silently hide valid packed orders created by older checkout versions.
+  //
+  // Keep located and unlocated orders together for the workflow/list. Only
+  // located orders can become map markers; unlocated orders are shown in the
+  // Unlocated section with the reason instead of being silently discarded.
   const routeCandidates = useMemo(
-    () =>
-      allOrders.filter(
-        (stop) =>
-          !isDone(stop) &&
-          Boolean(getCoordinates(stop)) &&
-          ["farmer", "farm_direct"].includes(
-            String(stop?.fulfillmentMethod || stop?.fulfillment_route || "").toLowerCase()
-          ) &&
-          (
-            String(stop?.fulfillmentStage || "").toLowerCase() === "packed" ||
-            stop?.packingComplete === true
-          )
-      ),
+    () => allOrders.filter((stop) => !isDone(stop)),
     [allOrders]
   );
 
