@@ -111,7 +111,7 @@ class OrderRepository(BaseRepository):
             filter,
             skip=skip,
             limit=limit,
-            sort=[("orderDate", -1)]
+            sort=[("orderDate", -1), ("createdAt", -1), ("updatedAt", -1), ("_id", -1)]
         )
     
     async def get_by_delivery_partner(
