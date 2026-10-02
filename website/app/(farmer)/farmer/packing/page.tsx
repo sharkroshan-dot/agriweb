@@ -55,6 +55,7 @@ export default function FarmerPackingPage() {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [packedQuantities, setPackedQuantities] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [completedOrder, setCompletedOrder] = useState<any | null>(null);
 
   const ordersQuery = useQuery({
     queryKey: ["farmer-packing-orders"],
@@ -129,7 +130,18 @@ export default function FarmerPackingPage() {
       const result = response?.data || response;
       const shortageCount = Array.isArray(result?.shortageCancelledItems) ? result.shortageCancelledItems.length : 0;
       toast.success(shortageCount ? `Packed with ${shortageCount} shortage line(s) resolved.` : "Order packed successfully.");
+      const completed = {
+        ...selectedOrder,
+        packingComplete: true,
+        fulfillmentStage: "packed",
+        items: items.map((item: any, index: number) => ({
+          ...item,
+          packedQuantity: packedItems[index]?.packedQuantity ?? 0,
+          actualPackedQuantity: packedItems[index]?.packedQuantity ?? 0,
+        })),
+      };
       setSelectedOrder(null);
+      setCompletedOrder(completed);
       await ordersQuery.refetch();
     } catch (error: any) {
       toast.error(error?.message || "Failed to complete packing");
@@ -259,7 +271,7 @@ export default function FarmerPackingPage() {
                     </Link>
                     <div className="flex flex-wrap gap-2">
                       {isPacked ? (
-                        <Button size="sm" variant="outline" onClick={() => printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Label</Button>
+                        <Button size="sm" variant="outline" onClick={() => printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
                       ) : (
                         <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { try { startPacking(order); } catch (e: any) { toast.error(e.message); } }}>
                           <Package className="mr-1.5 h-4 w-4" /> Start / Check Packing
@@ -279,6 +291,31 @@ export default function FarmerPackingPage() {
             <p className="mt-3 text-sm font-semibold text-slate-900">{tab === "to_pack" ? "No orders waiting for packing" : "No orders in this section"}</p>
             <p className="mt-1 max-w-md text-xs text-slate-500">{tab === "to_pack" ? "All available Farmer Fulfillment orders are packed. Continue to the Farmer Order Map when ready." : "Orders will appear here automatically as their packing stage changes."}</p>
           </CardContent></Card>
+        )}
+
+        {completedOrder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+            <Card className="w-full max-w-md shadow-2xl">
+              <CardHeader className="border-b text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+                  <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+                </div>
+                <CardTitle className="mt-2 text-base">Packing Completed</CardTitle>
+                <p className="text-xs text-slate-500">{completedOrder.orderNumber || "Order"} is packed and ready for labeling.</p>
+              </CardHeader>
+              <CardContent className="space-y-3 p-4">
+                <div className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">
+                  Confirm Packed is complete. Print the delivery label now and paste it on the top of this package before continuing to the next order.
+                </div>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button variant="outline" onClick={() => setCompletedOrder(null)}>Continue Packing</Button>
+                  <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { const order = completedOrder; setCompletedOrder(null); printLabel(order); }}>
+                    <Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
 
         {selectedOrder && (
