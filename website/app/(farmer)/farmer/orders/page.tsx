@@ -277,19 +277,55 @@ export default function FarmerOrdersPage() {
 
   const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
 
-  const orderList = (() => {
-    const raw = Array.isArray(orders?.data)
-      ? orders.data
-      : orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
+  const orderList = useMemo(() => {
+    const candidates = [
+      orders?.orders,
+      orders?.data?.orders,
+      orders?.data,
+      orders,
+    ];
+    const raw = candidates.find((value: any) => Array.isArray(value)) || [];
+
+    const getOrderTime = (order: any) => {
+      // Prefer the actual order creation time. updatedAt must not move an
+      // old order above a newly created order just because its status changed.
+      const dateValues = [order?.orderDate, order?.createdAt];
+      for (const value of dateValues) {
+        if (!value) continue;
+        const parsed = new Date(value).getTime();
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
+
+      // Some legacy orders do not have a parseable date. Their order number
+      // contains YYYYMMDD-HHMMSS (e.g. ORD-20261002-095038), so use it as a
+      // deterministic recent-order fallback.
+      const orderNumber = String(order?.orderNumber || "");
+      const match = orderNumber.match(/(20\\d{6})[-_](\\d{6})/);
+      if (match) {
+        const parsed = new Date(
+          Number(match[1].slice(0, 4)),
+          Number(match[1].slice(4, 6)) - 1,
+          Number(match[1].slice(6, 8)),
+          Number(match[2].slice(0, 2)),
+          Number(match[2].slice(2, 4)),
+          Number(match[2].slice(4, 6)),
+        ).getTime();
+        if (Number.isFinite(parsed)) return parsed;
+      }
+
+      return 0;
+    };
+
     return [...raw].sort((a: any, b: any) => {
-      const time = (order: any) => {
-        const value = order?.orderDate || order?.createdAt || order?.updatedAt;
-        const parsed = value ? new Date(value).getTime() : 0;
-        return Number.isFinite(parsed) ? parsed : 0;
-      };
-      return time(b) - time(a);
+      const timeDifference = getOrderTime(b) - getOrderTime(a);
+      if (timeDifference !== 0) return timeDifference;
+
+      // Final deterministic fallback when timestamps are identical/missing.
+      return String(b?.orderNumber || b?.id || b?._id || "").localeCompare(
+        String(a?.orderNumber || a?.id || a?._id || ""),
+      );
     });
-  })();
+  }, [orders]);
 
   const filteredOrderList = orderList;
 
