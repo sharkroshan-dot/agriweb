@@ -1932,7 +1932,9 @@ async def _map_order_payload(
         ],
         "status": status,
         "fulfillmentMethod": fulfillment_method or None,
+        "fulfillmentSource": str(order.get("fulfillmentSource") or "").lower() or None,
         "fulfillmentStage": fulfillment_stage or None,
+        "packingComplete": bool(order.get("packingComplete")),
         "readyForFarmerRoute": (
             delivery_type == DeliveryType.DELIVERY.value
             and fulfillment_method == "farmer"
