@@ -1042,8 +1042,8 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant={mapFilterMode === "all" ? "default" : "outline"} onClick={showAllMapOrders}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> All Orders
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
-                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select All Within Radius
+                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!withinUnassigned.length}>
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select All Visible
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
