@@ -482,7 +482,7 @@ export default function FarmerOrderMapPage() {
     setSelfDeliveryMethod(method);
     setSelectedRouteIds([]);
     setRouteMatches([]);
-    setMapFilterMode(method === "route" ? "route" : "all");
+    setMapFilterMode("all");
     if (method === "radius") {
       setRouteDestination(null);
       setRouteGeometry([]);
