@@ -888,7 +888,7 @@ export default function FarmerOrderMapPage() {
           <p className="text-sm font-medium text-primary">Farmer Fulfillment → Delivery</p>
           <h1 className="text-3xl font-semibold tracking-tight">Farmer Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            After Farmer Fulfillment packing, shortage handling, and dispatch, this page is opened automatically for delivery assignment. Select your start location, destination/route or radius, choose the orders you will personally deliver, and AgriConnect automatically routes the remaining orders to delivery partners.
+            After Farmer Fulfillment packing, shortage handling, and Dispatch, this page is opened automatically for delivery assignment. Select your start location, destination/route or radius, choose the orders you will personally deliver, and AgriConnect automatically routes the remaining orders to delivery partners.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1105,8 +1105,8 @@ export default function FarmerOrderMapPage() {
             <p className="font-medium text-emerald-900">Automatic distance-based delivery decision</p>
             <p className="text-xs text-emerald-800">
               After self-delivery orders are selected, every remaining dispatched order is routed automatically.
-              The system calculates farm-to-customer distance: ≤ {radiusKm} km → Nearby → Local Hub → Delivery Partner;
-              &gt; {radiusKm} km → Long Distance → Warehouse → Local Hub → Delivery Partner.
+              The system calculates farm-to-customer distance: Dispatch → ≤ {radiusKm} km → Nearby → Local Hub → Delivery Partner;
+              Dispatch → &gt; {radiusKm} km → Long Distance → Warehouse → Local Hub → Delivery Partner.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
