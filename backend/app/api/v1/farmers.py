@@ -2103,19 +2103,21 @@ async def get_my_delivery_map(
     # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
-    # The map is a delivery-planning view of the PACKED tab from
-    # Farmer Packing & Checking. Therefore an order must have explicitly
-    # completed packing. Do not infer "packed" from orderStatus, customer
-    # location, or an item quantity alone.
+    # IMPORTANT: Keep this criterion identical to the Packing & Checking
+    # page. That page builds its Farmer Fulfillment list from fulfillmentMethod
+    # and considers an order packed when stage is packed/dispatched or the
+    # persisted packingComplete flag is true. Do not add deliveryType,
+    # warehouseId, fulfillmentSource, orderStatus, or coordinate requirements
+    # here: those extra filters were causing packed orders to disappear from
+    # the map even though they were visible in the Packed tab.
     orders = [
         o for o in orders
-        if str(o.get("deliveryType") or "delivery").lower() == DeliveryType.DELIVERY.value.lower()
-        and not o.get("warehouseId")
-        and str(o.get("fulfillmentSource") or "").lower() != "warehouse"
-        and str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct")
-        and str(o.get("orderStatus") or o.get("status") or "").lower() not in _FINISHED_DELIVERY_STATUSES
+        if str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower()
+        in ("farmer", "farm_direct")
+        and str(o.get("orderStatus") or o.get("status") or "").lower() != "cancelled"
+        and not bool(o.get("packingCancelled"))
         and (
-            str(o.get("fulfillmentStage") or "").lower() == "packed"
+            str(o.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
             or bool(o.get("packingComplete"))
         )
     ]
