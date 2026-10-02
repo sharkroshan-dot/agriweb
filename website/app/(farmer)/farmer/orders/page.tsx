@@ -95,7 +95,7 @@ export default function FarmerOrdersPage() {
 
   const { data: orders, isLoading, refetch } = useQuery({
     queryKey: ["farmerOrders", statusFilter],
-    queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 50 } }),
+    queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 500 } }),
   });
 
   const availabilityQuery = useQuery({
@@ -277,9 +277,19 @@ export default function FarmerOrdersPage() {
 
   const getStatus = (order: any) => (order.status || order.orderStatus || "pending").toLowerCase();
 
-  const orderList = Array.isArray(orders?.data)
-    ? orders.data
-    : orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
+  const orderList = (() => {
+    const raw = Array.isArray(orders?.data)
+      ? orders.data
+      : orders?.data?.orders || orders?.orders || (Array.isArray(orders) ? orders : []);
+    return [...raw].sort((a: any, b: any) => {
+      const time = (order: any) => {
+        const value = order?.orderDate || order?.createdAt || order?.updatedAt;
+        const parsed = value ? new Date(value).getTime() : 0;
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      return time(b) - time(a);
+    });
+  })();
 
   const filteredOrderList = orderList;
 
@@ -308,7 +318,7 @@ export default function FarmerOrdersPage() {
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-white px-3 py-1">
-            {orderList.length} visible orders
+            {orderList.length} orders · newest first
           </Badge>
           <Button variant="outline" size="icon" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
             <RefreshCw className="h-4 w-4"/>
