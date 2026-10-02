@@ -425,26 +425,16 @@ export default function FarmerOrderMapPage() {
   // Every packed Farmer Fulfillment order is eligible to be shown
   // on the map. Delivery assignment is decided after the map/radius/route
   // selection, so assignment must not hide a packed order from the map.
+  // The backend delivery-map endpoint already returns only orders that have
+  // completed Farmer Fulfillment packing and are eligible for this map.
+  // Do not apply a second fulfillment/stage filter here: older orders can have
+  // different but valid workflow field combinations (for example processing +
+  // packingComplete, or ready_for_delivery + selfDelivery). A second filter
+  // was the reason only a few packed orders appeared on the map.
   const routeCandidates = useMemo(
     () =>
       allOrders.filter(
-        (stop) =>
-          !isDone(stop) &&
-          getCoordinates(stop) &&
-          (
-            String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" ||
-            String(stop?.fulfillmentMethod || "").toLowerCase() === "farm_direct" ||
-            String(stop?.fulfillmentSource || "").toLowerCase() === "farmer" ||
-            String(stop?.fulfillmentSource || "").toLowerCase() === "farm_direct"
-          ) &&
-          (
-            ["packed", "packing_complete", "ready_for_delivery", "ready_for_dispatch"].includes(String(stop?.fulfillmentStage || "").toLowerCase()) ||
-            ["ready_for_delivery", "packed"].includes(String(stop?.status || "").toLowerCase()) ||
-            stop?.packingComplete === true ||
-            (Array.isArray(stop?.items) && stop.items.some((item: any) =>
-              item?.packedQuantity != null || item?.actualPackedQuantity != null
-            ))
-          )
+        (stop) => !isDone(stop) && Boolean(getCoordinates(stop))
       ),
     [allOrders]
   );
