@@ -793,33 +793,69 @@ export default function FarmerOrdersPage() {
                             )}
                           </div>
 
-                          {(order.deliveryPartnerName || order.pickedBy) && (
-                            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                              {order.deliveryPartnerName && <span>Partner: <strong className="text-indigo-600">{order.deliveryPartnerName}</strong></span>}
-                              {order.pickedBy && <span>Picked by: <strong className="text-emerald-600">{order.pickedBy}</strong></span>}
-                            </div>
-                          )}
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {order.fulfillmentMethod === "farmer" && (
+                              <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
+                                <UserCheck className="mr-1 h-3 w-3" />Farmer Fulfillment
+                              </Badge>
+                            )}
+                            {order.fulfillmentMethod === "warehouse" && (
+                              <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
+                                <Store className="mr-1 h-3 w-3" />Warehouse Fulfillment
+                              </Badge>
+                            )}
+                            {status === "processing" && order.fulfillmentRouteSelected !== true && (
+                              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
+                                Fulfillment Selection Required
+                              </Badge>
+                            )}
+                            {order.deliveryPartnerRoute === "long_distance" && (
+                              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
+                                <Truck className="mr-1 h-3 w-3" />Long-Distance · Warehouse Transfer
+                              </Badge>
+                            )}
+                            {order.deliveryPartnerRoute === "nearby" && (
+                              <Badge variant="outline" className="rounded-full border-green-200 bg-green-50 text-green-700">
+                                <Navigation className="mr-1 h-3 w-3" />Nearby Delivery
+                              </Badge>
+                            )}
+                            {order.deliveryPartnerName && (
+                              <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
+                                Partner: {order.deliveryPartnerName}
+                              </Badge>
+                            )}
+                            {order.pickedBy && (
+                              <Badge variant="outline" className="rounded-full border-slate-200 bg-white text-slate-600">
+                                Picked by: {order.pickedBy}
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                        <div className="border-t bg-slate-50/70 p-4 sm:p-5 lg:w-[280px] lg:border-l lg:border-t-0">
-                          <div className="mb-3 flex items-center justify-between gap-2">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p>
-                              <p className="mt-0.5 text-sm font-medium text-slate-900">
-                                {status === "pending" ? "Review order" :
-                                 status === "confirmed" ? "Start processing" :
-                                 status === "processing" ? "Complete fulfillment" :
-                                 status === "ready_for_delivery" ? "Arrange delivery" :
-                                 status === "dispatched" ? "Track delivery" :
-                                 status === "in_transit" ? "Complete delivery" : "View order"}
-                              </p>
+                        <div className="border-t bg-slate-50/70 p-4 sm:p-5 lg:w-[300px] lg:border-l lg:border-t-0">
+                          <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p>
+                                <p className="mt-0.5 text-sm font-semibold text-slate-900">
+                                  {status === "pending" ? "Review and confirm order" :
+                                   status === "confirmed" ? "Start processing" :
+                                   status === "processing" && order.fulfillmentRouteSelected !== true ? "Choose fulfillment route" :
+                                   status === "processing" && order.fulfillmentMethod === "farmer" && (!order.fulfillmentStage || order.fulfillmentStage === "pending") ? "Complete farmer packing" :
+                                   status === "processing" && order.fulfillmentMethod === "warehouse" && !order.warehouseCollectionStatus ? "Prepare product for warehouse pickup" :
+                                   status === "ready_for_delivery" && order.deliveryPartnerRoute === "long_distance" ? "Complete warehouse transfer / delivery routing" :
+                                   status === "ready_for_delivery" ? "Arrange delivery" :
+                                   status === "dispatched" ? "Track delivery" :
+                                   status === "in_transit" ? "Complete delivery" : "View order"}
+                                </p>
+                              </div>
+                              <Link href={`/farmer/orders/${orderId}`} className="shrink-0 text-xs font-medium text-emerald-700 hover:underline">Details</Link>
                             </div>
-                            <Link href={`/farmer/orders/${orderId}`} className="text-xs font-medium text-emerald-700 hover:underline">Details</Link>
                           </div>
                           <div className="space-y-2">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Manual processing</p>
                             {getStatus(order) === "pending" && (
                               <>
-                                <Button size="sm"  onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
+                                <Button size="sm" className="w-full" onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
                                   <CheckCircle className="mr-1.5 h-3.5 w-3.5"/>Confirm
                                 </Button>
                                 <Button size="sm" variant="destructive" className="w-full" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
@@ -829,10 +865,10 @@ export default function FarmerOrdersPage() {
                             )}
                             {getStatus(order) === "confirmed" && (
                               <>
-                                <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
+                                <Button size="sm" className="w-full bg-purple-600 hover:bg-purple-700" onClick={() => handleUpdateStatus(order.id || order._id, 'processing')}>
                                   <Package className="mr-1.5 h-3.5 w-3.5"/>Process
                                 </Button>
-                                <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
+                                <Button size="sm" variant="destructive" className="w-full" onClick={() => setConfirmAction({ order, action: 'cancelled' })}>
                                   <XCircle className="mr-1.5 h-3.5 w-3.5"/>Cancel
                                 </Button>
                               </>
