@@ -397,6 +397,26 @@ export default function FarmerOrdersPage() {
                 >
                   <Store className="mr-2 h-4 w-4" />Warehouse Fulfillment All
                 </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  asChild
+                  className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                >
+                  <Link href="/farmer/packing">
+                    <Package className="mr-2 h-4 w-4" />Open Packing
+                  </Link>
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  asChild
+                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
+                >
+                  <Link href="/farmer/order-map?delivery=required">
+                    <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
+                  </Link>
+                </Button>
 </div>
 
               <p className="text-xs text-muted-foreground">
