@@ -396,15 +396,7 @@ export default function FarmerOrdersPage() {
                 >
                   <Package className="mr-2 h-4 w-4" />Pack All
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bulkRunning}
-                  onClick={() => handleBulkWorkflowAction("dispatch")}
-                >
-                  <Truck className="mr-2 h-4 w-4" />Dispatch All
-                </Button>
-              </div>
+</div>
 
               <p className="text-xs text-muted-foreground">
                 Use a stage button when you want to run only that stage for eligible orders. Fulfillment selection and delivery routing still require the individual order when a manual decision is needed.
@@ -427,8 +419,6 @@ export default function FarmerOrdersPage() {
                 <Badge variant="outline" className="border-emerald-200 bg-white">Shortage Check</Badge>
                 <span>→</span>
                 <Badge variant="outline" className="border-emerald-200 bg-white">Packed</Badge>
-                <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
                 <span>→</span>
                 <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
               </div>
@@ -913,10 +903,14 @@ export default function FarmerOrdersPage() {
                                     )}
                                     {order.fulfillmentStage === "packed" && (
                                       <div className="space-y-2">
-                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => updateFulfillmentStage(orderId, "dispatched")}>
-                                          <Navigation className="mr-2 h-4 w-4" />Dispatch Order
+                                        <Button
+                                          size="sm"
+                                          className="w-full bg-indigo-600 hover:bg-indigo-700"
+                                          onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}
+                                        >
+                                          <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
                                         </Button>
-                                        <p className="text-[11px] text-muted-foreground">After dispatch, choose the delivery route on the Order Map.</p>
+                                        <p className="text-[11px] text-muted-foreground">Packing is complete. Choose self delivery or let distance decide the delivery-partner route.</p>
                                       </div>
                                     )}
                                     {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && (
