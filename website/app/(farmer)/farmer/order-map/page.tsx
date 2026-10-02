@@ -1105,8 +1105,8 @@ export default function FarmerOrderMapPage() {
             <p className="font-medium text-emerald-900">Automatic distance-based delivery decision</p>
             <p className="text-xs text-emerald-800">
               After self-delivery orders are selected, every remaining dispatched order is routed automatically.
-              The system calculates farm-to-customer distance: ≤ {radiusKm} km → Local Hub → Delivery Partner;
-              &gt; {radiusKm} km → Warehouse → Local Hub → Delivery Partner.
+              The system calculates farm-to-customer distance: ≤ {radiusKm} km → Nearby → Local Hub → Delivery Partner;
+              &gt; {radiusKm} km → Long Distance → Warehouse → Local Hub → Delivery Partner.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1117,7 +1117,7 @@ export default function FarmerOrderMapPage() {
               disabled={autoRouteRemainingMutation.isPending}
             >
               {autoRouteRemainingMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-              Route All Remaining Automatically
+              Retry Automatic Routing
             </Button>
             <Button size="sm" variant="outline" title="Edit delivery capacity" onClick={openCapacityEditor}>
               <Settings2 className="mr-2 h-4 w-4" /> Delivery Capacity
@@ -1572,7 +1572,7 @@ export default function FarmerOrderMapPage() {
                     </p>
                   </div>
                   <p className="mb-3 text-xs text-muted-foreground">
-                    Unassigned orders that will be claimed when you accept within {radiusKm} km.
+                    Orders in this group are candidates for your self-delivery selection. After you finalize the selection, all remaining dispatched orders are routed automatically.
                   </p>
                   {withinUnassigned.length === 0 ? (
                     <p className="rounded-lg border border-dashed py-3 text-center text-sm text-muted-foreground">
@@ -1622,7 +1622,7 @@ export default function FarmerOrderMapPage() {
             <CardTitle className="text-orange-700">
               Outside {radiusKm} km <span className="text-muted-foreground">({outside.length})</span>
             </CardTitle>
-            <CardDescription>Far orders - assign these to delivery partners to save time.</CardDescription>
+            <CardDescription>Orders outside the selected radius are automatically routed through the long-distance logistics flow after you finalize self-delivery selection.</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
             {outside.length === 0 ? (
@@ -1636,8 +1636,7 @@ export default function FarmerOrderMapPage() {
                     </p>
                   </div>
                   <p className="mb-3 text-xs text-muted-foreground">
-                    Unassigned far orders. These are handed to partners when you confirm{" "}
-                    &quot;Assign All Outside {radiusKm} km&quot;.
+                    These orders are not selected for self delivery. The system automatically calculates distance and sends them through Nearby or Long Distance partner routing.
                   </p>
                   {outsideUnassigned.length === 0 ? (
                     <p className="rounded-lg border border-dashed py-3 text-center text-sm text-muted-foreground">
