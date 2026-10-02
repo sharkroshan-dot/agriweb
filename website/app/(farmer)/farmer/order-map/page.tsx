@@ -969,7 +969,7 @@ export default function FarmerOrderMapPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Plan delivery for packed Farmer Fulfillment orders. Choose the orders you will deliver, then route the remaining orders to delivery partners.
+                Only fully packed and confirmed Farmer Fulfillment orders appear here. Select Radius or Route, choose your Self Delivery orders, then confirm the selection; remaining packed orders are routed automatically by distance.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -986,8 +986,8 @@ export default function FarmerOrderMapPage() {
 
           <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivery filter</p>
-              <p className="mt-0.5 text-xs text-slate-500">Set how nearby orders are measured and what completed orders you want to see.</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">1. Select delivery planning mode</p>
+              <p className="mt-0.5 text-xs text-slate-500">Choose Radius or Route. All fully packed Farmer Fulfillment orders remain available for selection.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
@@ -1139,10 +1139,10 @@ export default function FarmerOrderMapPage() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-emerald-600" />
-              AI Delivery Insight
+              3. Delivery Decision
             </CardTitle>
             <CardDescription>
-              Predicted delivery risk and grouping opportunities from your active orders.
+              After you confirm Self Delivery, remaining packed orders follow the automatic distance decision: Nearby or Long Distance.
             </CardDescription>
           </div>
           {deliveryInsight.highRisk > 0 && (
