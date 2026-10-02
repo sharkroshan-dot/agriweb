@@ -2026,7 +2026,7 @@ async def get_my_delivery_map(
         o for o in orders
         if o.get("deliveryType") == DeliveryType.DELIVERY.value
         and str(o.get("fulfillmentMethod") or "").lower() == "farmer"
-        and str(o.get("fulfillmentStage") or "").lower() == "dispatched"
+        and str(o.get("fulfillmentStage") or "").lower() == "packed"
         and not o.get("deliveryPartnerId")
     ]
 
@@ -2270,14 +2270,13 @@ async def accept_within_for_self_delivery(
         oid = str(order["_id"])
         if order.get("deliveryType") != DeliveryType.DELIVERY.value:
             continue
-        # Order Map is the farmer's post-dispatch delivery workspace. Only
-        # farmer-fulfilled orders that have actually been dispatched may enter
-        # a personal route. Warehouse fulfillment and unprepared orders stay
-        # in their respective operational workflows.
+        # Order Map is the Farmer Fulfillment delivery-decision workspace. Only
+        # packed farmer orders enter the route decision. Dispatch is created
+        # only for the delivery-partner branch.
         if str(order.get("fulfillmentMethod") or "").lower() != "farmer":
             skipped_other += 1
             continue
-        if str(order.get("fulfillmentStage") or "").lower() != "dispatched":
+        if str(order.get("fulfillmentStage") or "").lower() != "packed":
             skipped_other += 1
             continue
         if order.get("deliveryPartnerId"):
@@ -2437,7 +2436,7 @@ def _ai_partner_plan(targets, available: list) -> list:
 
 @router.get("/me/orders/{order_id}/fulfillment-check")
 async def farmer_fulfillment_check(order_id: str, current_user: dict = Depends(get_current_user)):
-    """Final dispatch checkpoint for Farmer Fulfillment after actual packing."""
+    """Final packing checkpoint for Farmer Fulfillment before the Order Map."""
     _ensure_farmer(current_user)
     order = await order_repository.get_by_id(order_id)
     if not order or str(order.get("farmerId")) != str(current_user["_id"]):
@@ -2490,7 +2489,7 @@ async def farmer_fulfillment_check(order_id: str, current_user: dict = Depends(g
             "finalPayableAmount": float(order.get("finalPayableAmount", order.get("totalAmount", 0)) or 0),
             "paymentMethod": order.get("paymentMethod"),
             "paymentHandling": order.get("shortagePaymentHandling"),
-            "nextAction": "Dispatch this order" if ready else "Finalize packing and resolve any shortage before dispatch",
+            "nextAction": "Open Farmer Order Map" if ready else "Finalize packing and resolve any shortage before the Order Map",
         },
     }
 
@@ -2499,13 +2498,14 @@ async def create_self_delivery_plan(
     body: SelfDeliveryPlanRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Finalize one farmer self-delivery route and automatically route every remaining order.
+    """Finalize the Farmer Order Map delivery decision.
 
     The farmer first chooses either a route-based or radius-based self-delivery
-    method and selects the orders they will personally deliver. Every other
-    dispatched Farmer Fulfillment order is automatically moved into the
-    delivery-partner routing flow. Nearby orders go through the local hub;
-    long-distance orders go through warehouse -> local hub before the partner.
+    method and selects the packed orders they will personally deliver. Every
+    remaining packed Farmer Fulfillment order is automatically classified by
+    distance and moved into the delivery-partner routing flow. Nearby orders
+    Dispatch -> local hub -> partner; long-distance orders Dispatch -> warehouse
+    -> local hub -> partner.
     """
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
@@ -2524,8 +2524,8 @@ async def create_self_delivery_plan(
     }) or []
 
     selected_ids = {str(x) for x in body.orderIds}
-    # Empty selection is valid: all eligible dispatched orders can be sent
-    # through automatic distance-based delivery-partner routing.
+    # Empty selection is valid: all eligible packed orders can be sent through
+    # automatic distance-based delivery-partner routing.
     selected = []
     remaining = []
     invalid_selected = []
