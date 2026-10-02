@@ -10,6 +10,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   ClipboardCheck,
+  ChevronRight,
   MapPin,
   Package,
   Printer,
