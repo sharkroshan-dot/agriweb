@@ -1801,9 +1801,27 @@ class OrderService:
         updated = await order_repository.get_by_id(order_id)
         if updated:
             try:
-                await NotificationService.send_order_workflow_update(updated, stage=OrderStatus.CANCELLED.value, title=f"Order #{updated.get('orderNumber') or order_id}: cancelled during packing", message=reason)
+                await NotificationService.send_order_workflow_update(
+                    updated,
+                    stage=OrderStatus.CANCELLED.value,
+                    title=f"Order #{updated.get('orderNumber') or order_id}: cancelled during packing",
+                    message=reason,
+                )
             except Exception:
-                logger.exception("Failed to notify cancellation for order %s", order_id)
+                logger.exception("Failed to send workflow cancellation notification for order %s", order_id)
+
+            # Explicit customer notification: the existing notification service
+            # creates an in-app ORDER notification and sends a push notification.
+            customer_id = str(updated.get("customerId") or "")
+            if customer_id:
+                try:
+                    await NotificationService.send_order_cancelled(
+                        customer_id,
+                        str(updated.get("orderNumber") or order_id),
+                        reason,
+                    )
+                except Exception:
+                    logger.exception("Failed to send customer cancellation notification for order %s", order_id)
         return updated
     async def prepare_farmer_delivery_label(order_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Return authoritative label data only after Farmer Fulfillment packing is complete."""
