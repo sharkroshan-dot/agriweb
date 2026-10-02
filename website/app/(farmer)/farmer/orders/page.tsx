@@ -927,17 +927,50 @@ export default function FarmerOrdersPage() {
                             {getStatus(order) === "processing" && (
                               <div className="flex flex-col gap-2">
                                 {order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
-                                  <>
-                                    <span className="text-xs font-medium text-muted-foreground">Fulfillment route</span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                      <Button size="sm" variant="outline" className="justify-start" onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}>
-                                        <UserCheck className="mr-1.5 h-3.5 w-3.5"/>Farmer Fulfillment
+                                  <div className="space-y-2.5">
+                                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+                                      <p className="text-xs font-semibold text-slate-900">Choose fulfillment</p>
+                                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
+                                        Select who will prepare and fulfill this customer order.
+                                      </p>
+                                    </div>
+                                    <div className="grid gap-2">
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-auto w-full justify-start rounded-xl border-emerald-200 bg-white p-3 text-left hover:border-emerald-400 hover:bg-emerald-50/60"
+                                        onClick={() => setFulfillmentRoute(order.id || order._id, "farmer")}
+                                      >
+                                        <span className="mr-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700">
+                                          <UserCheck className="h-4 w-4" />
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block text-xs font-semibold text-slate-900">Farmer Fulfillment</span>
+                                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
+                                            You pack the order and continue to the Farmer Order Map.
+                                          </span>
+                                        </span>
                                       </Button>
-                                      <Button size="sm" variant="outline" onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}>
-                                        <Store className="mr-1.5 h-3.5 w-3.5"/>Warehouse Fulfillment
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="outline"
+                                        className="h-auto w-full justify-start rounded-xl border-blue-200 bg-white p-3 text-left hover:border-blue-400 hover:bg-blue-50/60"
+                                        onClick={() => setFulfillmentRoute(order.id || order._id, "warehouse")}
+                                      >
+                                        <span className="mr-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700">
+                                          <Store className="h-4 w-4" />
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block text-xs font-semibold text-slate-900">Warehouse Fulfillment</span>
+                                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
+                                            Send stock to the warehouse for order allocation and packing.
+                                          </span>
+                                        </span>
                                       </Button>
                                     </div>
-                                  </>
+                                  </div>
                                 ) : order.fulfillmentMethod === "farmer" ? (
                                   <div className="space-y-2">
                                     {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && (
