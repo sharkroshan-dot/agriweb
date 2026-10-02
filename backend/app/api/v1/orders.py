@@ -331,6 +331,17 @@ class CustomerShortageResolutionRequest(BaseModel):
     substituteVariantId: Optional[str] = None
 
 
+@router.post("/{order_id}/farmer-delivery-label")
+async def prepare_farmer_delivery_label(order_id: str, current_user: dict = Depends(get_current_user)):
+    """Prepare delivery-label data only after Farmer Fulfillment packing is complete."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can print Farmer Fulfillment delivery labels")
+    result = await OrderService.prepare_farmer_delivery_label(order_id, str(current_user["_id"]))
+    if not result:
+        raise HTTPException(status_code=400, detail="Delivery label is available only after packing is confirmed")
+    result["id"] = str(result["_id"])
+    result.pop("_id", None)
+    return {"success": True, "data": result, "message": "Delivery label prepared"}
 @router.put("/{order_id}/shortage-resolution")
 async def resolve_customer_shortage(
     order_id: str,
