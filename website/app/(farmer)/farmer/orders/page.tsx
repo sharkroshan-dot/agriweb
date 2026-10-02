@@ -446,14 +446,6 @@ export default function FarmerOrdersPage() {
                 >
                   <Store className="mr-2 h-4 w-4" />Warehouse Fulfillment All
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bulkRunning}
-                  onClick={() => handleBulkWorkflowAction("pack")}
-                >
-                  <Package className="mr-2 h-4 w-4" />Pack All
-                </Button>
 </div>
 
               <p className="text-xs text-muted-foreground">
