@@ -76,10 +76,13 @@ async def apply_partner_route(
     warehouse_id: Optional[str] = None,
     hub_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Persist the physical logistics route after a delivery-partner decision.
+    """Persist the physical logistics route after automatic distance classification.
 
-    Farmer fulfillment: nearby -> Local Hub -> Delivery Partner; long-distance -> Warehouse -> Local Hub -> Delivery Partner.
-    Warehouse fulfillment: nearby -> Warehouse -> Delivery Partner; long-distance -> Warehouse -> Local Hub -> Delivery Partner.
+    Farmer fulfillment:
+      nearby -> Local Hub -> Delivery Partner
+      long_distance -> Warehouse -> Local Hub -> Delivery Partner
+
+    Warehouse fulfillment keeps its warehouse-origin route.
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
     items = order.get("items") or []
@@ -160,6 +163,8 @@ async def apply_partner_route(
 
     update: Dict[str, Any] = {
         "deliveryPartnerRoute": mode,
+        "deliveryDecision": mode,
+        "deliveryDecisionSource": "distance",
         "deliveryPartnerRouteSelectedAt": datetime.utcnow(),
         "nearbyFulfillmentRequired": route_requires_hub,
         "nearbyFulfillmentType": "local_hub" if route_requires_hub else None,
