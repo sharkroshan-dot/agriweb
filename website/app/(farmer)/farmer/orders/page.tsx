@@ -759,9 +759,10 @@ export default function FarmerOrdersPage() {
                 </div>
               </>
             )}
-            {(activeCity === null ? groupEntries : groupEntries.filter(([city]) => city === activeCity)).map(([city, orders]) => (
-              <div key={city} className="space-y-4">
-                {orders.map((order: any) => {
+            {(activeCity === null
+              ? orderList
+              : orderList.filter((order: any) => (order.deliveryAddress?.city || "Unknown").toLowerCase() === activeCity)
+            ).map((order: any) => {
                   const orderId = String(order.id || order._id || "");
                   const status = getStatus(order);
                   return (
@@ -1038,9 +1039,7 @@ export default function FarmerOrdersPage() {
                     </CardContent>
                   </Card>
                   );
-                })}
-              </div>
-            ))}
+            })}
           </div>
         );
       })()}
