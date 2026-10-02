@@ -352,6 +352,18 @@ export default function FarmerOrdersPage() {
           <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Orders</h1>
           <p className="mt-1 text-sm text-muted-foreground">Review customer demand, confirm available stock, and manage fulfillment.</p>
         </div>
+        <div className="mb-3 flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm"><Package className="h-4 w-4" /></div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Packing & Checking</p>
+              <p className="text-xs text-slate-600">Check all Farmer Fulfillment orders, record packed quantities, and prepare delivery labels.</p>
+            </div>
+          </div>
+          <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+            <Link href="/farmer/packing">Open Packing</Link>
+          </Button>
+        </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-white px-3 py-1">
             {orderList.length} orders · newest first
