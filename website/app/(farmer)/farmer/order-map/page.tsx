@@ -305,6 +305,7 @@ export default function FarmerOrderMapPage() {
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [capacityEditorOpen, setCapacityEditorOpen] = useState(false);
   const [capacityDraft, setCapacityDraft] = useState({ maxOrders: "20", maxWeightKg: "100", maxRouteMinutes: "180" });
+  const [lastPlanResult, setLastPlanResult] = useState<any>(null);
 
   const mapQuery = useQuery({
     queryKey: ["farmerDeliveryMap", radiusKm, deliveredWindow],
@@ -706,9 +707,13 @@ export default function FarmerOrderMapPage() {
       });
     },
     onSuccess: (res: any) => {
-      const selfCount = Number(res?.data?.selfDeliveryCount ?? selectedRouteIds.length);
-      const partnerCount = Number((res as any)?.data?.partnerCount ?? 0);
-      toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} automatically assigned to delivery partners`);
+      const result = res?.data || {};
+      const selfCount = Number(result.selfDeliveryCount ?? selectedRouteIds.length);
+      const partnerCount = Number(result.partnerCount ?? 0);
+      const nearbyCount = Number(result.nearbyCount ?? 0);
+      const longDistanceCount = Number(result.longDistanceCount ?? 0);
+      setLastPlanResult({ selfCount, partnerCount, nearbyCount, longDistanceCount, skipped: result.skipped || [] });
+      toast.success(`Delivery plan confirmed: ${selfCount} self · ${nearbyCount} nearby partner · ${longDistanceCount} long-distance`);
       setSelectedRouteIds([]);
       refreshAll();
     },
@@ -1185,9 +1190,6 @@ export default function FarmerOrderMapPage() {
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
                     Confirm Delivery Plan
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteIds.length || assignSelectedPartnerMutation.isPending}>
-                    <Truck className="mr-1.5 h-3.5 w-3.5" /> Delivery Partner
-                  </Button>
                 </>
               )}
             </div>
@@ -1305,6 +1307,30 @@ export default function FarmerOrderMapPage() {
           </div>
         </CardContent>
       </Card>
+
+      {lastPlanResult && (
+        <Card className="border-emerald-200 bg-emerald-50/60">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base text-emerald-900">Delivery Plan Confirmed</CardTitle>
+            <CardDescription className="text-emerald-800">
+              The selected orders were assigned to Farmer Self Delivery. Every remaining packed order was processed by the distance decision.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <SummaryStat label="Self Delivery" value={String(lastPlanResult.selfCount)} tone="emerald" />
+              <SummaryStat label="Partner Route" value={String(lastPlanResult.partnerCount)} tone="blue" />
+              <SummaryStat label="Nearby" value={String(lastPlanResult.nearbyCount)} tone="blue" />
+              <SummaryStat label="Long Distance" value={String(lastPlanResult.longDistanceCount)} tone="violet" />
+            </div>
+            {lastPlanResult.skipped?.length > 0 && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                {lastPlanResult.skipped.length} order{lastPlanResult.skipped.length === 1 ? "" : "s"} could not be routed automatically. Review the order location or logistics resources and retry.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="pb-3">
@@ -1568,9 +1594,6 @@ export default function FarmerOrderMapPage() {
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
               Confirm Delivery Plan
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteOrders.length || assignSelectedPartnerMutation.isPending}>
-              <Truck className="mr-1.5 h-4 w-4" /> Delivery Partner
             </Button>
           </div>
         </CardHeader>
