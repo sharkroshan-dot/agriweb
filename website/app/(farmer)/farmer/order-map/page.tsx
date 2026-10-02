@@ -389,47 +389,12 @@ export default function FarmerOrderMapPage() {
   // order.updated / order.delivered events pushed by the backend over SSE and
   // refresh the map without a full page reload. Auto-reconnects on drop and the
   // 30s polling interval above remains as a fallback.
+  // The authenticated map query already refreshes every 30 seconds.
+  // Browser EventSource cannot attach this app's Bearer token, so using it here
+  // caused repeated 401 responses from /farmers/me/delivery-map/events.
   useEffect(() => {
-    if (!accessToken) return;
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
-    const prefix = apiBase
-      ? apiBase.endsWith("/api/v1")
-        ? apiBase
-        : `${apiBase.replace(/\/+$/, "")}/api/v1`
-      : "/api/v1";
-    let retryTimer: number | null = null;
-    let disposed = false;
-
-    const connect = () => {
-      if (disposed) return;
-      try {
-        const es = new EventSource(`${prefix}/farmers/me/delivery-map/events`);
-        es.onopen = () => setRealtimeConnected(true);
-        es.onmessage = () => {
-          if (disposed) return;
-          queryClient.invalidateQueries({ queryKey: ["farmerDeliveryMap"] });
-          PENDING_QUERY_KEYS.forEach((key) => queryClient.invalidateQueries({ queryKey: key }));
-        };
-        es.onerror = () => {
-          es.close();
-          if (disposed) return;
-          setRealtimeConnected(false);
-          if (retryTimer) window.clearTimeout(retryTimer);
-          retryTimer = window.setTimeout(connect, 5000);
-        };
-      } catch {
-        setRealtimeConnected(false);
-      }
-    };
-
-    connect();
-    return () => {
-      disposed = true;
-      if (retryTimer) window.clearTimeout(retryTimer);
-      setRealtimeConnected(false);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken]);
+    setRealtimeConnected(Boolean(mapQuery.data));
+  }, [mapQuery.data]);
 
   const allOrders = useMemo(() => {
     const active = [...within, ...outside, ...unlocated]
@@ -893,7 +858,7 @@ export default function FarmerOrderMapPage() {
                 </Badge>
                 <Badge variant={realtimeConnected ? "success" : "outline"} className="gap-1.5">
                   <span className={`h-1.5 w-1.5 rounded-full ${realtimeConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
-                  {realtimeConnected ? "Live updates" : "Connecting"}
+                  {realtimeConnected ? "Auto refresh · 30s" : "Waiting for data"}
                 </Badge>
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
@@ -1405,33 +1370,33 @@ export default function FarmerOrderMapPage() {
           <CardContent className="p-0">
             {isLoading ? (
               <div className="h-[560px] animate-pulse rounded-b-lg bg-muted" />
-            ) : allOrders.length === 0 ? (
-              <div className="flex h-[420px] flex-col items-center justify-center gap-3 rounded-b-lg border-t bg-muted/20 p-6 text-center">
-                <MapPin className="h-10 w-10 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">No pending orders on the map</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    New orders will appear here once buyers place them.
-                  </p>
-                </div>
-              </div>
             ) : (
-              <Map
-                center={mapCenter}
-                zoom={12}
-                markers={mapMarkers}
-                route={routeGeometry}
-                trackUserLocation
-                userLocation={liveLocation}
-                height="560px"
-                circle={farmCoordinates ? { center: farmCoordinates, radiusKm } : undefined}
-                onMarkerClick={(marker) => {
-                  if (marker.id !== "farm") setSelectedStopId(String(marker.id));
-                }}
-                onMapClick={(coords) => {
-                  if (routePickMode) chooseRouteDestination(coords.lat, coords.lng, `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
-                }}
-              />
+              <div className="relative">
+                <Map
+                  center={mapCenter}
+                  zoom={12}
+                  markers={mapMarkers}
+                  route={routeGeometry}
+                  trackUserLocation
+                  userLocation={liveLocation}
+                  height="560px"
+                  circle={farmCoordinates ? { center: farmCoordinates, radiusKm } : undefined}
+                  onMarkerClick={(marker) => {
+                    if (marker.id !== "farm") setSelectedStopId(String(marker.id));
+                  }}
+                  onMapClick={(coords) => {
+                    if (routePickMode) chooseRouteDestination(coords.lat, coords.lng, coords.lat.toFixed(5) + ", " + coords.lng.toFixed(5));
+                  }}
+                />
+                {allOrders.length === 0 && (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
+                    <div className="rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
+                      <p className="text-sm font-semibold text-slate-800">No orders to route yet</p>
+                      <p className="mt-1 text-xs text-slate-500">The map is ready. Packed Farmer Fulfillment orders will appear here automatically.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
