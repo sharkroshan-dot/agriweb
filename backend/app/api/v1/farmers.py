@@ -2541,6 +2541,12 @@ async def create_self_delivery_plan(
         "deletedAt": None,
     }) or []
 
+    if body.method == "route" and not body.destination:
+        raise HTTPException(
+            status_code=400,
+            detail="A route destination is required when Route mode is selected.",
+        )
+
     selected_ids = {str(x) for x in body.orderIds}
     # Empty selection is valid: all eligible packed orders can be sent through
     # automatic distance-based delivery-partner routing.
