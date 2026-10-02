@@ -2018,19 +2018,20 @@ async def get_my_delivery_map(
         "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "deletedAt": None,
     }
-    if window_start is not None:
-        orders_filter["createdAt"] = {"$gte": window_start}
+    # Active packed Farmer Fulfillment orders are the source of the
+    # Farmer Order Map. Do NOT apply the delivered-window date filter to these
+    # orders: a packed order must remain visible until its delivery decision is
+    # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
-    # The Order Map is the Farmer Fulfillment delivery-decision stage. Packed
-    # orders appear here before Dispatch; Dispatch happens only for the
-    # delivery-partner branch after distance classification.
     orders = [
         o for o in orders
         if o.get("deliveryType") == DeliveryType.DELIVERY.value
         and str(o.get("fulfillmentMethod") or "").lower() == "farmer"
-        and str(o.get("fulfillmentStage") or "").lower() == "packed"
-        and not o.get("deliveryPartnerId")
+        and (
+            str(o.get("fulfillmentStage") or "").lower() == "packed"
+            or bool(o.get("packingComplete"))
+        )
     ]
 
     # Sweep expired open jobs (open -> no_partner_found) and index the rest by
