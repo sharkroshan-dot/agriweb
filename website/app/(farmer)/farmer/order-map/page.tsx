@@ -437,21 +437,23 @@ export default function FarmerOrderMapPage() {
     [allOrders]
   );
 
+  // Initial state shows every eligible packed Farmer Fulfillment order.
+  // Radius and Route only filter the visible set; they never assign orders.
   const mapOrders = useMemo(() => {
     if (mapFilterMode === "radius") {
       const center = farmCoordinates || liveLocation;
-      if (!center) return [];
-      return allOrders.filter((stop) => {
+      if (!center) return routeCandidates;
+      return routeCandidates.filter((stop) => {
         const coordinates = getCoordinates(stop);
         return coordinates ? haversineKm(center, coordinates) <= radiusKm : false;
       });
     }
     if (mapFilterMode === "route") {
       const ids = new Set(routeMatches.map((stop) => getStopId(stop)));
-      return allOrders.filter((stop) => ids.has(getStopId(stop)));
+      return routeCandidates.filter((stop) => ids.has(getStopId(stop)));
     }
-    return allOrders;
-  }, [allOrders, farmCoordinates, liveLocation, mapFilterMode, radiusKm, routeMatches]);
+    return routeCandidates;
+  }, [routeCandidates, farmCoordinates, liveLocation, mapFilterMode, radiusKm, routeMatches]);
 
   const selectedRouteOrders = useMemo(
     () =>
@@ -734,6 +736,17 @@ export default function FarmerOrderMapPage() {
         label: "S",
       });
     }
+    if (routeDestination) {
+      markers.push({
+        id: "route-destination",
+        lat: routeDestination.lat,
+        lng: routeDestination.lng,
+        title: `Route End: ${routeDestination.label}`,
+        info: `<strong>Route End</strong><br/>${routeDestination.label}`,
+        color: "#EF4444",
+        label: "E",
+      });
+    }
     if (farmCoordinates) {
       markers.push({
         id: "farm",
@@ -766,7 +779,7 @@ export default function FarmerOrderMapPage() {
       });
     });
     return markers;
-  }, [mapOrders, farm, farmCoordinates, routeStart, selectedRouteIds]);
+  }, [mapOrders, farm, farmCoordinates, routeStart, routeDestination, selectedRouteIds]);
 
   const acceptWithinMutation = useMutation({
     mutationFn: () => api.put("/farmers/me/delivery-map/accept-within", { radius: radiusKm }),
@@ -989,7 +1002,7 @@ export default function FarmerOrderMapPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Only fully packed Farmer Fulfillment orders appear here. Radius and Route are filters only. They never assign orders. The farmer must explicitly select orders and then choose Self Delivery or Delivery Partner.
+                All eligible packed Farmer Fulfillment orders appear initially. Radius and Route only filter visible orders. The farmer must explicitly select orders and then choose Self Delivery or Delivery Partner.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -1007,7 +1020,7 @@ export default function FarmerOrderMapPage() {
           <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">1. Select delivery planning mode</p>
-              <p className="mt-0.5 text-xs text-slate-500">Choose Radius or Route. All fully packed Farmer Fulfillment orders remain available for selection.</p>
+              <p className="mt-0.5 text-xs text-slate-500">All eligible packed orders are shown initially. Radius filters by farm distance; Route uses the selected start and end points to show orders along that road route.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
