@@ -1105,7 +1105,7 @@ export default function FarmerOrderMapPage() {
             <p className="font-medium text-emerald-900">Automatic distance-based delivery decision</p>
             <p className="text-xs text-emerald-800">
               After self-delivery orders are selected, every remaining packed order is routed automatically.
-              The system calculates farm-to-customer distance. Self delivery goes directly to the customer. Partner delivery follows:
+              The system calculates farm-to-customer distance. Self delivery follows Dispatch → Farmer → Customer. Partner delivery follows:
               ≤ {radiusKm} km → Dispatch → Nearby → Local Hub → Delivery Partner → Customer;
               &gt; {radiusKm} km → Dispatch → Long Distance → Warehouse → Local Hub → Delivery Partner → Customer.
             </p>
