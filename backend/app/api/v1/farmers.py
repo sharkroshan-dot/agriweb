@@ -2555,9 +2555,9 @@ async def create_self_delivery_plan(
             },
         )
 
-    if not selected:
-        raise HTTPException(status_code=400, detail="None of the selected orders are available for self delivery")
-
+    # No self-delivery selection is valid. In that case every eligible
+    # dispatched order continues directly into automatic distance-based
+    # delivery-partner routing below.
     selected_results = []
     for order in selected:
         oid = str(order["_id"])
