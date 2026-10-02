@@ -875,8 +875,10 @@ export default function FarmerOrdersPage() {
                                    status === "processing" && order.fulfillmentRouteSelected !== true ? "Choose fulfillment route" :
                                    status === "processing" && order.fulfillmentMethod === "farmer" && (!order.fulfillmentStage || order.fulfillmentStage === "pending") ? "Complete farmer packing" :
                                    status === "processing" && order.fulfillmentMethod === "warehouse" && !order.warehouseCollectionStatus ? "Prepare product for warehouse pickup" :
+                                   status === "ready_for_delivery" && order.deliveryPartnerId && order.deliveryPartnerRoute === "long_distance" ? "Delivery partner assigned · Warehouse transfer in progress" :
+                                   status === "ready_for_delivery" && order.deliveryPartnerId ? "Delivery partner assigned · Continue delivery route" :
                                    status === "ready_for_delivery" && order.deliveryPartnerRoute === "long_distance" ? "Complete warehouse transfer / delivery routing" :
-                                   status === "ready_for_delivery" ? "Arrange delivery" :
+                                   status === "ready_for_delivery" ? "Open Farmer Order Map" :
                                    status === "dispatched" ? "Track delivery" :
                                    status === "in_transit" ? "Complete delivery" : "View order"}
                                 </p>
@@ -1038,6 +1040,12 @@ export default function FarmerOrdersPage() {
                               <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}>
                                 <Navigation className="mr-2 h-4 w-4" />Open Order Map
                               </Button>
+                            )}
+                            {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && order.deliveryPartnerId && (
+                              <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-900">
+                                <div className="font-semibold">Delivery Partner Assigned</div>
+                                <div className="mt-1">{order.deliveryPartnerName || "Assigned partner"} · {order.deliveryPartnerRoute === "long_distance" ? "Long Distance · Warehouse → Local Hub → Partner" : "Nearby · Local Hub → Partner"}</div>
+                              </div>
                             )}
                             {status === "ready_for_delivery" && order.selfDelivery && <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => handleUpdateStatus(orderId, "delivered")}><CheckCircle className="mr-2 h-4 w-4" />Mark Delivered</Button>}
                             {status === "dispatched" && <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => handleUpdateStatus(orderId, "in_transit")}><Truck className="mr-2 h-4 w-4" />Mark In Transit</Button>}
