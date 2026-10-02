@@ -240,6 +240,7 @@ export default function FarmerOrderMapPage() {
 
   const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [partnerDecisionOpen, setPartnerDecisionOpen] = useState(false);
   const [assignMode, setAssignMode] = useState<"marketplace" | "manual" | "ai">("marketplace");
   const [selfSwitchTarget, setSelfSwitchTarget] = useState<any>(null);
   const [partnerPickerTarget, setPartnerPickerTarget] = useState<any>(null);
@@ -760,12 +761,12 @@ export default function FarmerOrderMapPage() {
         title: `${index + 1}. ${stop.buyerName || stop.orderNumber || "Delivery order"}`,
         info: `<strong>${index + 1}. ${stop.buyerName || "Customer"}</strong><br/>${formatAddress(stop)}${distText}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText} · ${formatPrice(stop.total)}`,
         address: formatAddress(stop),
-        color: DELIVERY_STATE_COLOR[state] || "#F59E0B",
-        label: String(index + 1),
+        color: selectedRouteIds.includes(getStopId(stop)) ? "#10B981" : (DELIVERY_STATE_COLOR[state] || "#F59E0B"),
+        label: selectedRouteIds.includes(getStopId(stop)) ? "✓" : String(index + 1),
       });
     });
     return markers;
-  }, [mapOrders, farm, farmCoordinates, routeStart]);
+  }, [mapOrders, farm, farmCoordinates, routeStart, selectedRouteIds]);
 
   const acceptWithinMutation = useMutation({
     mutationFn: () => api.put("/farmers/me/delivery-map/accept-within", { radius: radiusKm }),
@@ -826,8 +827,8 @@ export default function FarmerOrderMapPage() {
   });
 
   const partnerRouteMutation = useMutation({
-    mutationFn: ({ route }: { route: "nearby" | "long_distance" }) =>
-      api.post("/farmers/me/delivery-map/partner-route", { route, radius: radiusKm }),
+    mutationFn: ({ route, orderIds }: { route: "nearby" | "long_distance"; orderIds: string[] }) =>
+      api.post("/farmers/me/delivery-map/partner-route", { route, orderIds, radius: radiusKm }),
     onSuccess: (res: any) => {
       toast.success(res?.message || "Delivery partner route selected");
       refreshAll();
@@ -835,6 +836,25 @@ export default function FarmerOrderMapPage() {
     onError: (e: any) => toast.error(getApiError(e)),
   });
 
+  const assignSelectedPartnerMutation = useMutation({
+    mutationFn: async () => {
+      const orderIds = selectedRouteIds;
+      const [nearby, longDistance] = await Promise.all([
+        api.post("/farmers/me/delivery-map/partner-route", { route: "nearby", orderIds, radius: radiusKm }),
+        api.post("/farmers/me/delivery-map/partner-route", { route: "long_distance", orderIds, radius: radiusKm }),
+      ]);
+      return { nearby, longDistance };
+    },
+    onSuccess: (res: any) => {
+      const nearbyCount = Number(res?.nearby?.data?.processed ?? 0);
+      const longCount = Number(res?.longDistance?.data?.processed ?? 0);
+      toast.success((nearbyCount + longCount) + " selected order" + (nearbyCount + longCount === 1 ? "" : "s") + " routed to delivery partners");
+      setPartnerDecisionOpen(false);
+      setSelectedRouteIds([]);
+      refreshAll();
+    },
+    onError: (e: any) => toast.error(getApiError(e)),
+  });
   const assignOutsideMutation = useMutation({
     mutationFn: ({ mode, partnerIds }: { mode: "marketplace" | "manual" | "ai"; partnerIds?: Record<string, string> }) =>
       api.post("/farmers/me/delivery-map/assign-outside", { radius: radiusKm, mode, partnerIds }),
@@ -969,7 +989,7 @@ export default function FarmerOrderMapPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                Only fully packed and confirmed Farmer Fulfillment orders appear here. Select Radius or Route, choose your Self Delivery orders, then confirm the selection; remaining packed orders are routed automatically by distance.
+                Only fully packed Farmer Fulfillment orders appear here. Radius and Route are filters only. They never assign orders. The farmer must explicitly select orders and then choose Self Delivery or Delivery Partner.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -1025,9 +1045,12 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select All Within Radius
                   </Button>
-                  <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
-                    {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Truck className="mr-1.5 h-3.5 w-3.5" />}
-                    Confirm Selection + Auto-Assign Remaining
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
+                    {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
+                    Farmer Self Delivery
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteIds.length || assignSelectedPartnerMutation.isPending}>
+                    <Truck className="mr-1.5 h-3.5 w-3.5" /> Delivery Partner
                   </Button>
                 </>
               )}
@@ -1035,8 +1058,8 @@ export default function FarmerOrderMapPage() {
           </div>
           <div className="mt-3 flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-blue-900">
-              <span className="font-semibold">{selectedRouteIds.length} selected</span> for Farmer Self Delivery.
-              <span className="ml-1 text-blue-700">Every other packed order is automatically assigned to a delivery partner, then follows the distance-based delivery route.</span>
+              <span className="font-semibold">{selectedRouteIds.length} selected</span> for delivery.
+              <span className="ml-1 text-blue-700">Radius and Route only filter the candidates. Nothing is assigned until you choose a delivery action.</span>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!mapOrders.length}>
@@ -2049,6 +2072,27 @@ export default function FarmerOrderMapPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={partnerDecisionOpen} onOpenChange={(v) => !v && setPartnerDecisionOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Assign selected orders to Delivery Partner?</DialogTitle>
+            <DialogDescription>
+              {selectedRouteIds.length} selected order{selectedRouteIds.length === 1 ? "" : "s"} will be routed by distance. Nearby orders use the Local Hub flow; long-distance orders use Warehouse → Local Hub before Delivery Partner.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-xl border bg-slate-50 p-4 text-sm">
+            <div className="flex justify-between"><span>Selected orders</span><strong>{selectedRouteIds.length}</strong></div>
+            <p className="mt-2 text-xs text-slate-600">Orders merely visible because of the radius filter remain unassigned.</p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPartnerDecisionOpen(false)}>Cancel</Button>
+            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => assignSelectedPartnerMutation.mutate()} disabled={assignSelectedPartnerMutation.isPending || !selectedRouteIds.length}>
+              {assignSelectedPartnerMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
+              Confirm Delivery Partner
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={assignDialogOpen} onOpenChange={(v) => !v && setAssignDialogOpen(false)} wide>
         <DialogContent>
           <DialogHeader>
