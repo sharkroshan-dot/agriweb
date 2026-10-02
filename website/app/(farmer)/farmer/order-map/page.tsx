@@ -1809,7 +1809,7 @@ export default function FarmerOrderMapPage() {
                           key={getStopId(stop)}
                           stop={stop}
                           index={index + 1}
-                          selected={getStopId(stop) === selectedStopId}
+                          selected={selectedRouteIds.includes(getStopId(stop))}
                           onSelect={() => setSelectedStopId(getStopId(stop))}
                           onSwitch={(v) => onSwitchSelect(stop, v)}
                           deliverySelected={selectedRouteIds.includes(getStopId(stop))}
@@ -1830,7 +1830,7 @@ export default function FarmerOrderMapPage() {
                           key={getStopId(stop)}
                           stop={stop}
                           index={index + 1}
-                          selected={getStopId(stop) === selectedStopId}
+                          selected={selectedRouteIds.includes(getStopId(stop))}
                           onSelect={() => setSelectedStopId(getStopId(stop))}
                           onSwitch={(v) => onSwitchSelect(stop, v)}
                         />
@@ -1875,7 +1875,7 @@ export default function FarmerOrderMapPage() {
                           key={getStopId(stop)}
                           stop={stop}
                           index={index + 1}
-                          selected={getStopId(stop) === selectedStopId}
+                          selected={selectedRouteIds.includes(getStopId(stop))}
                           onSelect={() => setSelectedStopId(getStopId(stop))}
                           onSwitch={(v) => onSwitchSelect(stop, v)}
                         />
@@ -1894,7 +1894,7 @@ export default function FarmerOrderMapPage() {
                           key={getStopId(stop)}
                           stop={stop}
                           index={index + 1}
-                          selected={getStopId(stop) === selectedStopId}
+                          selected={selectedRouteIds.includes(getStopId(stop))}
                           onSelect={() => setSelectedStopId(getStopId(stop))}
                           onSwitch={(v) => onSwitchSelect(stop, v)}
                         />
@@ -1955,7 +1955,7 @@ export default function FarmerOrderMapPage() {
                 key={getStopId(stop)}
                 stop={stop}
                 index={index + 1}
-                selected={getStopId(stop) === selectedStopId}
+                selected={selectedRouteIds.includes(getStopId(stop))}
                 onSelect={() => setSelectedStopId(getStopId(stop))}
                 onSwitch={(v) => onSwitchSelect(stop, v)}
                 readOnly
