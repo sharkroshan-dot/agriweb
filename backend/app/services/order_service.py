@@ -1365,7 +1365,7 @@ class OrderService:
         eligible = [x for x in availability["orders"] if x["canFulfill"]]
 
         # Delivery responsibility may be deferred for Farmer Fulfillment.
-        # Last-mile delivery responsibility is chosen from Order Map after dispatch.
+        # Last-mile delivery responsibility is chosen from the Order Map after packing and before partner Dispatch.
 
         # Validate warehouse configuration before confirming any order. This
         # prevents a partial batch where some orders become confirmed and then
@@ -1716,7 +1716,7 @@ class OrderService:
         role: str,
         responsibility: DeliveryResponsibility,
     ) -> Optional[Dict[str, Any]]:
-        """Record the post-dispatch delivery responsibility for Farmer Fulfillment.
+        """Record delivery responsibility after packing and before partner Dispatch.
 
         Packing and dispatch are already complete when this method is used.
         The physical partner route (Nearby or Long Distance) is selected from
@@ -2145,7 +2145,8 @@ class OrderService:
 
     @staticmethod
     async def update_fulfillment_stage(order_id: str, user_id: str, role: str, stage: FulfillmentStage) -> Optional[Dict[str, Any]]:
-        """Farmer-direct Pack -> Dispatch lifecycle with a complete-order gate."""
+        """Farmer-direct packing lifecycle. Partner Dispatch is created by the
+        Farmer Order Map after distance-based delivery decision."""
         order = await order_repository.get_by_id(order_id)
         if not order or str(order.get("fulfillmentMethod") or FulfillmentMethod.FARM_DIRECT.value) != FulfillmentMethod.FARM_DIRECT.value:
             return None
