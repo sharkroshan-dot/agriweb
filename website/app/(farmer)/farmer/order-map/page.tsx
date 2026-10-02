@@ -649,7 +649,7 @@ export default function FarmerOrderMapPage() {
     onSuccess: (res: any) => {
       const selfCount = Number(res?.data?.selfDeliveryCount ?? selectedRouteIds.length);
       const partnerCount = Number((res as any)?.data?.partnerCount ?? 0);
-      toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed to delivery partners`);
+      toast.success(`Self delivery: ${selfCount} order${selfCount === 1 ? "" : "s"} · ${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} automatically assigned to delivery partners`);
       setSelectedRouteIds([]);
       refreshAll();
     },
@@ -680,7 +680,7 @@ export default function FarmerOrderMapPage() {
       const nearbyCount = Number(res?.data?.nearbyCount ?? 0);
       const longDistanceCount = Number(res?.data?.longDistanceCount ?? 0);
       toast.success(
-        `${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed automatically: ${nearbyCount} nearby · ${longDistanceCount} long distance`
+        `${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} automatically assigned: ${nearbyCount} nearby · ${longDistanceCount} long distance`
       );
       refreshAll();
     },
@@ -1027,7 +1027,7 @@ export default function FarmerOrderMapPage() {
                   </Button>
                   <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Truck className="mr-1.5 h-3.5 w-3.5" />}
-                    Confirm Self Delivery + Auto-Route Remaining
+                    Confirm Selection + Auto-Assign Remaining
                   </Button>
                 </>
               )}
@@ -1036,7 +1036,7 @@ export default function FarmerOrderMapPage() {
           <div className="mt-3 flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-blue-900">
               <span className="font-semibold">{selectedRouteIds.length} selected</span> for Farmer Self Delivery.
-              <span className="ml-1 text-blue-700">Every other packed order is automatically sent through the delivery-partner distance decision.</span>
+              <span className="ml-1 text-blue-700">Every other packed order is automatically assigned to a delivery partner, then follows the distance-based delivery route.</span>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!mapOrders.length}>
@@ -1065,7 +1065,7 @@ export default function FarmerOrderMapPage() {
               </CardTitle>
               <CardDescription className="text-emerald-800">
                 {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} packed and ready for delivery decision.
-                Select the orders you will deliver yourself; every remaining order is automatically classified by distance:
+                Select the orders you will deliver yourself; every remaining order is automatically assigned to a delivery partner and classified by distance:
                 ≤ {radiusKm} km → Nearby, &gt; {radiusKm} km → Long Distance.
               </CardDescription>
             </CardHeader>
