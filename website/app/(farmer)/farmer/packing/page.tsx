@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api/client";
-import { toast } from "sonner";
+import { api } from "../../../lib/api/client";
+import toast from "react-hot-toast";
 import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowLeft,
