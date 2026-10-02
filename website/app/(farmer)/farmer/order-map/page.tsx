@@ -561,7 +561,7 @@ export default function FarmerOrderMapPage() {
         .sort((a, b) => Number(a.routePosition) - Number(b.routePosition));
       setRouteMatches(matches);
       setSelectedRouteIds([]);
-      if (!matches.length) toast("No eligible dispatched orders were found within 3 km of this route.", { icon: "🗺️" });
+      if (!matches.length) toast("No eligible packed orders were found within 3 km of this route.", { icon: "🗺️" });
       else toast.success(`${matches.length} eligible order${matches.length === 1 ? "" : "s"} found along your route`);
     } catch (e: any) {
       setRouteGeometry([]);
@@ -1326,7 +1326,7 @@ export default function FarmerOrderMapPage() {
           </div>
           {routeMatches.length === 0 ? (
             <p className="rounded-lg border border-dashed bg-white p-4 text-center text-sm text-muted-foreground">
-              {routeDestination ? "Calculate the route to see eligible dispatched orders within 3 km of it." : "Choose a destination to find customer orders along your route."}
+              {routeDestination ? "Calculate the route to see eligible packed orders within 3 km of it." : "Choose a destination to find customer orders along your route."}
             </p>
           ) : (
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
