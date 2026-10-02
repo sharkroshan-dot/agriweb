@@ -1885,6 +1885,19 @@ async def _map_order_payload(
     is_pickup = delivery_type == DeliveryType.PICKUP.value
 
     cust = (customers or {}).get(str(order.get("customerId"))) or {}
+    # Keep the customer's stored address available as a final geocoding source.
+    # This is important for older orders whose checkout record has no
+    # coordinates yet.
+    if not addr:
+        for candidate in (
+            cust.get("deliveryAddress"),
+            cust.get("shippingAddress"),
+            cust.get("address"),
+            cust.get("location"),
+        ):
+            if isinstance(candidate, dict) and candidate:
+                addr = candidate
+                break
     first_name = cust.get("firstName") or cust.get("name") or ""
     last_name = cust.get("lastName") or ""
     real_name = " ".join(p for p in (first_name, last_name) if p).strip()
