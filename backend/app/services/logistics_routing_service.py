@@ -217,6 +217,18 @@ async def apply_partner_route(
         update["transferStatus"] = "hub_handoff_pending"
         update["logisticsMode"] = "warehouse_to_local_hub_to_delivery_partner"
 
+    # Partner delivery begins with the Dispatch handoff. Packing is already
+    # complete; this transition is intentionally created only after the
+    # distance-based delivery decision and route resources are available.
+    if not warehouse_route:
+        dispatch_at = datetime.utcnow()
+        update["fulfillmentStage"] = "dispatched"
+        update["orderStatus"] = "ready_for_delivery"
+        update["dispatchedAt"] = dispatch_at
+        update["dispatchReadyChecklistComplete"] = True
+        update["deliveryDispatchStatus"] = "dispatched"
+        update["deliveryDispatchAt"] = dispatch_at
+
     await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
 
     # Farmer Fulfillment + long distance: the farmer has already packed
