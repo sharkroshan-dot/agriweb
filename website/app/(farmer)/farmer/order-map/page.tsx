@@ -501,11 +501,22 @@ export default function FarmerOrderMapPage() {
     setSelectedStopId(null);
   };
 
-  const toggleRouteOrder = (orderId: string) => {
+  const toggleSelectedOrder = (orderId: string) => {
     setSelectedRouteIds((current) =>
       current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]
     );
   };
+
+  const selectVisibleOrdersForSelfDelivery = () => {
+    const eligible = mapOrders
+      .filter((stop) => !isDone(stop) && stop?.assignment === "unassigned")
+      .map((stop) => getStopId(stop))
+      .filter(Boolean);
+    setSelectedRouteIds(eligible);
+    toast.success(eligible.length + " order" + (eligible.length === 1 ? "" : "s") + " selected for self delivery");
+  };
+
+  const toggleRouteOrder = toggleSelectedOrder;
 
   const chooseRouteStart = (lat: number, lng: number, label: string) => {
     setRouteStart({ lat, lng, label });
@@ -1012,14 +1023,26 @@ export default function FarmerOrderMapPage() {
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> All Orders
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
-                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Nearby
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select All Within Radius
                   </Button>
                   <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Truck className="mr-1.5 h-3.5 w-3.5" />}
-                    Create Route
+                    Confirm Self Delivery + Auto-Route Remaining
                   </Button>
                 </>
               )}
+            </div>
+          </div>
+          <div className="mt-3 flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-blue-900">
+              <span className="font-semibold">{selectedRouteIds.length} selected</span> for Farmer Self Delivery.
+              <span className="ml-1 text-blue-700">Every other packed order is automatically sent through the delivery-partner distance decision.</span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!mapOrders.length}>
+                <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Visible
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear</Button>
             </div>
           </div>
         </CardContent>
@@ -1600,8 +1623,24 @@ export default function FarmerOrderMapPage() {
                     </p>
                   )}
                   {!isDone(selectedStop) && (
-                    <div>
-                      <p className="mb-1 text-xs font-medium text-muted-foreground">Assignment</p>
+                    <>
+                      <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs font-semibold text-blue-900">Delivery selection</p>
+                            <p className="text-[11px] text-blue-700">Select this packed order only if you will deliver it yourself.</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant={selectedRouteIds.includes(getStopId(selectedStop)) ? "default" : "outline"}
+                            onClick={() => toggleSelectedOrder(getStopId(selectedStop))}
+                          >
+                            {selectedRouteIds.includes(getStopId(selectedStop)) ? "Selected for Self Delivery" : "Select for Self Delivery"}
+                          </Button>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">Assignment</p>
                       <Select
                         value={selectedStop.assignment === "unassigned" ? "unassigned" : selectedStop.assignment}
                         onValueChange={(v) => onSwitchSelect(selectedStop, v)}
@@ -1617,7 +1656,8 @@ export default function FarmerOrderMapPage() {
                           </SelectItem>
                         </SelectContent>
                       </Select>
-                    </div>
+                      </div>
+                    </>
                   )}
                   <div className="flex flex-col gap-2 sm:flex-row">
                     {!isDone(selectedStop) && selectedStop.canComplete !== false && (
