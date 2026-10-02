@@ -1172,9 +1172,21 @@ async def _stop_coords(addr: dict, order_id: Optional[str] = None, refresh: bool
     replaced with the real position of the delivery address. Geocoded results
     are cached in ``geocode_cache``. Returns (lat, lng) or (None, None).
     """
-    loc = addr.get("location") or {}
+    loc = (
+        addr.get("location")
+        or addr.get("deliveryLocation")
+        or addr.get("geo")
+        or {}
+    )
+    # Some checkout versions stored plain lat/lng instead of GeoJSON.
+    direct_lat = addr.get("lat") if addr.get("lat") is not None else addr.get("latitude")
+    direct_lng = addr.get("lng") if addr.get("lng") is not None else addr.get("longitude")
+    if _valid_coord(direct_lat, direct_lng) and not refresh:
+        return float(direct_lat), float(direct_lng)
     if loc.get("coordinates") and not refresh:
         return loc["coordinates"][1], loc["coordinates"][0]
+    if _valid_coord(loc.get("lat"), loc.get("lng")) and not refresh:
+        return float(loc["lat"]), float(loc["lng"])
     parts = []
     # Checkout data has used several address shapes over time. Include
     # every useful component so a packed order is not lost merely because
@@ -1190,6 +1202,8 @@ async def _stop_coords(addr: dict, order_id: Optional[str] = None, refresh: bool
     if not query:
         if loc.get("coordinates"):
             return loc["coordinates"][1], loc["coordinates"][0]
+        if _valid_coord(loc.get("lat"), loc.get("lng")):
+            return float(loc["lat"]), float(loc["lng"])
         return None, None
     coords = await _geocode_cached(query)
     if not coords:
