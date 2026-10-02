@@ -331,6 +331,18 @@ class CustomerShortageResolutionRequest(BaseModel):
     substituteVariantId: Optional[str] = None
 
 
+@router.post("/{order_id}/farmer-packing-cancel")
+async def cancel_farmer_packing_order(order_id: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
+    """Cancel a Farmer Fulfillment order during packing when the farmer cannot fulfill it due to shortage."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can cancel a Farmer Fulfillment order during packing")
+    reason = str(payload.get("reason") or "Farmer packing shortage - unable to fulfill the order").strip()
+    result = await OrderService.cancel_farmer_packing_order(order_id, str(current_user["_id"]), reason)
+    if not result:
+        raise HTTPException(status_code=400, detail="Order cannot be cancelled during the current packing stage")
+    result["id"] = str(result["_id"])
+    result.pop("_id", None)
+    return {"success": True, "data": result, "message": "Order cancelled because the farmer could not fulfill the required quantity."}
 @router.post("/{order_id}/farmer-delivery-label")
 async def prepare_farmer_delivery_label(order_id: str, current_user: dict = Depends(get_current_user)):
     """Prepare delivery-label data only after Farmer Fulfillment packing is complete."""
