@@ -1948,6 +1948,14 @@ async def _map_order_payload(
         "isPickup": is_pickup,
         "distance": dist,
         "inRadius": in_radius,
+        "deliveryDistanceFromFarmKm": order.get("deliveryDistanceFromFarmKm", dist),
+        "deliveryDecision": order.get("deliveryDecision"),
+        "deliveryDecisionSource": order.get("deliveryDecisionSource"),
+        "deliveryDecisionThresholdKm": order.get("deliveryDecisionThresholdKm", radius),
+        "automaticDecisionPreview": (
+            "nearby" if dist is not None and dist <= radius else
+            "long_distance" if dist is not None else None
+        ),
         "total": total,
         "paymentMethod": payment_method,
         "isCOD": payment_method == "cash",
@@ -2515,9 +2523,8 @@ async def create_self_delivery_plan(
     }) or []
 
     selected_ids = {str(x) for x in body.orderIds}
-    if not selected_ids:
-        raise HTTPException(status_code=400, detail="Select at least one order for self delivery")
-
+    # Empty selection is valid: all eligible dispatched orders can be sent
+    # through automatic distance-based delivery-partner routing.
     selected = []
     remaining = []
     invalid_selected = []
@@ -2581,6 +2588,8 @@ async def create_self_delivery_plan(
         )
 
     partner_results = []
+    nearby_count = 0
+    long_distance_count = 0
     skipped = []
     for order in remaining:
         oid = str(order["_id"])
@@ -2593,6 +2602,14 @@ async def create_self_delivery_plan(
         route = "nearby" if dist <= body.radius else "long_distance"
         try:
             route_result = await apply_partner_route(order, route, body.radius)
+            if route == "nearby":
+                nearby_count += 1
+            else:
+                long_distance_count += 1
+            await order_repository.update_order_field(oid, "deliveryDistanceFromFarmKm", round(dist, 2))
+            await order_repository.update_order_field(oid, "deliveryDecision", route)
+            await order_repository.update_order_field(oid, "deliveryDecisionSource", "distance")
+            await order_repository.update_order_field(oid, "deliveryDecisionThresholdKm", body.radius)
             refreshed = await order_repository.get_by_id(oid) or order
             job = None
             if route == "nearby":
@@ -2619,6 +2636,8 @@ async def create_self_delivery_plan(
             "selfDeliveryOrderIds": selected_results,
             "selfDeliveryCount": len(selected_results),
             "partnerCount": len(partner_results),
+            "nearbyCount": nearby_count,
+            "longDistanceCount": long_distance_count,
             "partnerResults": partner_results,
             "skipped": skipped,
             "radius": body.radius,
@@ -2626,7 +2645,8 @@ async def create_self_delivery_plan(
         },
         "message": (
             f"Self delivery route created for {len(selected_results)} orders. "
-            f"{len(partner_results)} remaining orders were routed automatically."
+            f"{len(partner_results)} remaining orders were routed automatically "
+            f"by distance ({nearby_count} nearby, {long_distance_count} long distance)."
         ),
     }
 
