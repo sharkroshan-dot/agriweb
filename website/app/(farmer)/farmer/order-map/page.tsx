@@ -401,6 +401,13 @@ export default function FarmerOrderMapPage() {
     setRealtimeConnected(Boolean(mapQuery.data));
   }, [mapQuery.data]);
 
+  // Resolve the farm origin before any memoized map/radius/route calculations.
+  // Keeping this above those hooks avoids a temporal-dead-zone runtime error.
+  const farmCoordinates =
+    farm?.lat != null && farm?.lng != null
+      ? { lat: Number(farm.lat), lng: Number(farm.lng) }
+      : null;
+
   const allOrders = useMemo(() => {
     const active = [...within, ...outside, ...unlocated]
       .map((stop) => ({ ...stop, mapCoordinates: getCoordinates(stop) }))
@@ -697,9 +704,6 @@ export default function FarmerOrderMapPage() {
     if (waypoints) params.set("waypoints", waypoints);
     window.open(`https://www.google.com/maps/dir/?${params.toString()}`, "_blank");
   };
-
-  const farmCoordinates =
-    farm?.lat != null && farm?.lng != null ? { lat: Number(farm.lat), lng: Number(farm.lng) } : null;
 
   const mapCenter =
     selectedStop?.mapCoordinates || liveLocation || farmCoordinates || FALLBACK_CENTER;
