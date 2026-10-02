@@ -81,7 +81,11 @@ export default function FarmerPackingPage() {
 
   const shortage = orders.filter((o: any) => {
     const items = Array.isArray(o?.items) ? o.items : [];
-    return Boolean(o?.packingShortage) || Boolean(o?.shortageCaseId) ||
+    return Boolean(o?.packingShortage) ||
+      Boolean(o?.shortageCaseId) ||
+      Boolean(o?.shortageDetected) ||
+      Boolean(o?.shortageCancelledItems?.length) ||
+      Boolean(o?.shortageAdjustment) ||
       items.some((item: any) => Number(item?.packedQuantity ?? item?.actualPackedQuantity ?? item?.quantity) < Number(item?.quantity ?? 0));
   });
 
@@ -210,8 +214,8 @@ export default function FarmerPackingPage() {
                       <CardTitle className="text-sm font-bold text-slate-900">{order.orderNumber || `Order #${orderId}`}</CardTitle>
                       <p className="mt-1 text-xs text-slate-500">{order.orderDate ? new Date(order.orderDate).toLocaleString() : "Recent order"}</p>
                     </div>
-                    <Badge className={isPacked ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
-                      {isPacked ? "Packed" : "To Pack"}
+                    <Badge className={shortage.includes(order) ? "bg-red-100 text-red-800 hover:bg-red-100" : isPacked ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
+                      {shortage.includes(order) ? "Packed · Shortage" : isPacked ? "Packed" : "To Pack"}
                     </Badge>
                   </div>
                 </CardHeader>
