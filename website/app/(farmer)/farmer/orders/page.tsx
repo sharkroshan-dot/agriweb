@@ -361,120 +361,76 @@ export default function FarmerOrdersPage() {
       </Dialog>
 
       <Card className="overflow-hidden border shadow-sm">
-        <CardContent className="space-y-4 p-5 sm:p-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="font-semibold">Order Workflow</h2>
-              <p className="text-xs text-muted-foreground">
-                Orders must follow Pending → Confirmed → Processing → Fulfillment selection. Farmer Fulfillment then moves to Packing & Checking; only Packed orders enter the Farmer Order Map.
-              </p>
-            </div>
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={bulkRunning} onClick={() => setRunAllConfirmOpen(true)}>
-                  {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-                  {bulkRunning ? "Processing Orders..." : "Overall Processing"}
-                </Button>
-                <span className="text-xs text-muted-foreground">Advances each eligible order through the workflow.</span>
-              </div>
+        <CardContent className="p-5 sm:p-6">
+          <div className="flex flex-col gap-2">
+            <h2 className="font-semibold text-slate-900">Farmer Order Processing Workflow</h2>
+            <p className="text-xs text-muted-foreground">
+              The order page controls the order lifecycle. Farmer Fulfillment orders cannot skip Packing & Checking or the Farmer Order Map delivery decision.
+            </p>
+          </div>
 
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bulkRunning}
-                  onClick={() => handleBulkWorkflowAction("confirm")}
-                >
-                  <CheckCircle className="mr-2 h-4 w-4" />Confirm All
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bulkRunning}
-                  onClick={() => handleBulkWorkflowAction("process")}
-                >
-                  <Package className="mr-2 h-4 w-4" />Process All
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bulkRunning}
-                  onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}
-                >
-                  <UserCheck className="mr-2 h-4 w-4" />Farmer Fulfillment All
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={bulkRunning}
-                  onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}
-                >
-                  <Store className="mr-2 h-4 w-4" />Warehouse Fulfillment All
-                </Button>
-
-</div>
-
-              <div className="rounded-lg border bg-slate-50/70 p-2">
-                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quick Access</p>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    asChild
-                    className="border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-                  >
-                    <Link href="/farmer/packing">
-                      <Package className="mr-2 h-4 w-4" />Open Packing
-                    </Link>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    asChild
-                    className="border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
-                  >
-                    <Link href="/farmer/order-map?delivery=required">
-                      <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map ({packedFarmerOrders.length} packed)
-                    </Link>
-                  </Button>
+          <div className="mt-5 overflow-x-auto pb-2">
+            <div className="flex min-w-[980px] items-center gap-2 text-xs">
+              {[
+                ["1", "Farmer Fulfillment", "Select Farmer Fulfillment after Processing"],
+                ["2", "Packing & Checking", "Check every order"],
+                ["3", "Actual Packed Qty", "Enter physical packed quantity"],
+                ["4", "Shortage Check", "Adjust quantity, final amount, release missing stock"],
+                ["5", "Confirm Packed", "Finalize packing"],
+                ["6", "Delivery Label", "Print the parcel label"],
+                ["7", "Packing Complete", "Order becomes eligible for Order Map"],
+                ["8", "Farmer Order Map", "All packed Farmer Fulfillment orders"],
+              ].map(([step, title, description], index, items) => (
+                <div key={step} className="flex items-center gap-2">
+                  <div className="w-[145px] rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-600 text-[11px] font-bold text-white">{step}</span>
+                      <span className="font-semibold text-emerald-950">{title}</span>
+                    </div>
+                    <p className="mt-2 leading-4 text-emerald-800">{description}</p>
+                  </div>
+                  {index < items.length - 1 && <span className="text-lg text-slate-300">→</span>}
                 </div>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                Use a stage button when you want to run only that stage for eligible orders. Fulfillment selection and delivery routing still require the individual order when a manual decision is needed.
-              </p>
+              ))}
             </div>
           </div>
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Badge variant="outline">Pending → Confirmed</Badge>
-              <span>→</span>
-              <Badge variant="outline">Processing</Badge>
-              <span>→</span>
-              <Badge variant="outline">Choose Fulfillment</Badge>
+
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-indigo-700">Order Map</p>
+              <p className="mt-1 text-sm font-semibold text-indigo-950">Select Radius OR Route</p>
+              <p className="mt-1 text-xs leading-5 text-indigo-800">The farmer selects only the packed orders they personally want to deliver.</p>
             </div>
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
-              <p className="text-xs font-semibold text-emerald-900">Farmer Fulfillment branch</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-emerald-900">
-                <Badge variant="outline" className="border-emerald-200 bg-white">Packing & Checking</Badge>
-                <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Actual Packed Qty</Badge>
-                <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Shortage / Final Amount</Badge>
-                <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Confirm Packed + Label</Badge>
-                <span>→</span>
-                <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
-              </div>
-              <p className="mt-2 text-[11px] text-emerald-800">
-                After every Farmer Fulfillment order is packed and labeled, the Order Map displays the packed orders. Select Radius or Route, choose the orders for Self Delivery, then confirm; every remaining order is automatically routed by distance.
-              </p>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Selected Orders</p>
+              <p className="mt-1 text-sm font-semibold text-emerald-950">Self Delivery → Farmer → Customer</p>
+              <p className="mt-1 text-xs leading-5 text-emerald-800">Confirm Selection creates the farmer self-delivery dispatch path.</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+              <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Remaining Orders</p>
+              <p className="mt-1 text-sm font-semibold text-amber-950">Automatic Partner Assignment + Distance Decision</p>
+              <p className="mt-1 text-xs leading-5 text-amber-800">Nearby → Dispatch → Local Hub → Delivery Partner → Customer. Long Distance → Dispatch → Warehouse → Local Hub → Delivery Partner → Customer.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">{packedFarmerOrders.length} packed Farmer Fulfillment order{packedFarmerOrders.length === 1 ? "" : "s"} ready for the Order Map</p>
+              <p className="text-xs text-slate-600">Only orders with fulfillmentStage=packed and packingComplete=true are eligible.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button asChild size="sm" variant="outline">
+                <Link href="/farmer/packing"><Package className="mr-2 h-4 w-4" />Packing & Checking</Link>
+              </Button>
+              <Button asChild size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                <Link href="/farmer/order-map?delivery=required"><Navigation className="mr-2 h-4 w-4" />Farmer Order Map</Link>
+              </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-        <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2">
           <Button
             variant={showDeliveryRoutes ? "default" : "outline"}
             size="sm"
