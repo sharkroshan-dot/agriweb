@@ -412,16 +412,31 @@ export default function FarmerOrdersPage() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Badge variant="outline">Pending → Confirmed</Badge>
-            <span>→</span>
-            <Badge variant="outline">Processing</Badge>
-            <span>→</span>
-            <Badge variant="outline">Choose Fulfillment</Badge>
-            <span>→</span>
-            <Badge variant="outline">Pack → Dispatch</Badge>
-            <span>→</span>
-            <Badge variant="outline">Delivery Decision</Badge>
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline">Pending → Confirmed</Badge>
+              <span>→</span>
+              <Badge variant="outline">Processing</Badge>
+              <span>→</span>
+              <Badge variant="outline">Choose Fulfillment</Badge>
+            </div>
+            <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+              <p className="text-xs font-semibold text-emerald-900">Farmer Fulfillment branch</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-emerald-900">
+                <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Packs Each Order</Badge>
+                <span>→</span>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Shortage Check</Badge>
+                <span>→</span>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Packed</Badge>
+                <span>→</span>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Dispatch</Badge>
+                <span>→</span>
+                <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
+              </div>
+              <p className="mt-2 text-[11px] text-emerald-800">
+                After dispatch, select self-delivery orders by route or radius. Remaining orders automatically enter the delivery-partner flow.
+              </p>
+            </div>
           </div>
         </CardContent>
       </Card>
