@@ -216,6 +216,7 @@ export default function FarmerOrderMapPage() {
 
   const [radiusKm, setRadiusKm] = useState<number>(10);
   const [selfDeliveryMethod, setSelfDeliveryMethod] = useState<"route" | "radius">("radius");
+  const [mapFilterMode, setMapFilterMode] = useState<"all" | "radius" | "route">("all");
   const [deliveredWindow, setDeliveredWindow] = useState<string>("today");
   const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -417,13 +418,31 @@ export default function FarmerOrderMapPage() {
     () =>
       allOrders.filter(
         (stop) =>
-          stop?.readyForFarmerRoute === true &&
           !isDone(stop) &&
           getCoordinates(stop) &&
-          String(stop?.assignment || "").toLowerCase() !== "partner"
+          String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" &&
+          String(stop?.fulfillmentStage || "").toLowerCase() === "packed" &&
+          String(stop?.assignment || "").toLowerCase() !== "partner" &&
+          !stop?.deliveryPartnerId
       ),
     [allOrders]
   );
+
+  const mapOrders = useMemo(() => {
+    if (mapFilterMode === "radius") {
+      const center = farmCoordinates || liveLocation;
+      if (!center) return [];
+      return allOrders.filter((stop) => {
+        const coordinates = getCoordinates(stop);
+        return coordinates ? haversineKm(center, coordinates) <= radiusKm : false;
+      });
+    }
+    if (mapFilterMode === "route") {
+      const ids = new Set(routeMatches.map((stop) => getStopId(stop)));
+      return allOrders.filter((stop) => ids.has(getStopId(stop)));
+    }
+    return allOrders;
+  }, [allOrders, farmCoordinates, liveLocation, mapFilterMode, radiusKm, routeMatches]);
 
   const selectedRouteOrders = useMemo(
     () =>
@@ -452,11 +471,26 @@ export default function FarmerOrderMapPage() {
     setSelfDeliveryMethod(method);
     setSelectedRouteIds([]);
     setRouteMatches([]);
+    setMapFilterMode(method === "route" ? "route" : "all");
     if (method === "radius") {
       setRouteDestination(null);
       setRouteGeometry([]);
       setRouteInfo(null);
     }
+  };
+
+  const applyRadiusFilter = (distance: number) => {
+    setRadiusKm(distance);
+    setMapFilterMode("radius");
+    setSelectedRouteIds([]);
+    setSelectedStopId(null);
+    toast.success(`Showing orders within ${distance} km of the farm`);
+  };
+
+  const showAllMapOrders = () => {
+    setMapFilterMode("all");
+    setSelectedRouteIds([]);
+    setSelectedStopId(null);
   };
 
   const toggleRouteOrder = (orderId: string) => {
@@ -569,6 +603,7 @@ export default function FarmerOrderMapPage() {
         .filter((stop): stop is any => Boolean(stop) && Number(stop.routeDistanceKm) <= 3)
         .sort((a, b) => Number(a.routePosition) - Number(b.routePosition));
       setRouteMatches(matches);
+      setMapFilterMode("route");
       setSelectedRouteIds([]);
       if (!matches.length) toast("No eligible packed orders were found within 3 km of this route.", { icon: "🗺️" });
       else toast.success(`${matches.length} eligible order${matches.length === 1 ? "" : "s"} found along your route`);
@@ -694,7 +729,7 @@ export default function FarmerOrderMapPage() {
         label: "F",
       });
     }
-    allOrders.forEach((stop, index) => {
+    mapOrders.forEach((stop, index) => {
       const c = stop.mapCoordinates;
       if (!c) return;
       const state = getDeliveryState(stop);
@@ -714,7 +749,7 @@ export default function FarmerOrderMapPage() {
       });
     });
     return markers;
-  }, [allOrders, farm, farmCoordinates]);
+  }, [mapOrders, farm, farmCoordinates, routeStart]);
 
   const acceptWithinMutation = useMutation({
     mutationFn: () => api.put("/farmers/me/delivery-map/accept-within", { radius: radiusKm }),
@@ -952,7 +987,7 @@ export default function FarmerOrderMapPage() {
                 <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
                   <span className="px-2 text-xs font-medium text-slate-500">Radius</span>
                   {RADIUS_OPTIONS.map((distance) => (
-                    <Button key={distance} size="sm" variant={radiusKm === distance ? "default" : "ghost"} onClick={() => setRadiusKm(distance)}>
+                    <Button key={distance} size="sm" variant={mapFilterMode === "radius" && radiusKm === distance ? "default" : "ghost"} onClick={() => applyRadiusFilter(distance)}>
                       {distance} km
                     </Button>
                   ))}
@@ -968,6 +1003,9 @@ export default function FarmerOrderMapPage() {
               </Select>
               {selfDeliveryMethod === "radius" && (
                 <>
+                  <Button size="sm" variant={mapFilterMode === "all" ? "default" : "outline"} onClick={showAllMapOrders}>
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> All Orders
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Nearby
                   </Button>
