@@ -223,6 +223,10 @@ export default function FarmerOrderMapPage() {
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
+  const [routeStart, setRouteStart] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [routeStartText, setRouteStartText] = useState("");
+  const [routeStartSearchResults, setRouteStartSearchResults] = useState<any[]>([]);
+  const [routeStartSearching, setRouteStartSearching] = useState(false);
   const [routeDestination, setRouteDestination] = useState<{ lat: number; lng: number; label: string } | null>(null);
   const [routeDestinationText, setRouteDestinationText] = useState("");
   const [routeSearchResults, setRouteSearchResults] = useState<any[]>([]);
@@ -461,6 +465,46 @@ export default function FarmerOrderMapPage() {
     );
   };
 
+  const chooseRouteStart = (lat: number, lng: number, label: string) => {
+    setRouteStart({ lat, lng, label });
+    setRouteStartText(label);
+    setRouteStartSearchResults([]);
+  };
+
+  const useFarmAsRouteStart = () => {
+    if (!farmCoordinates) return toast.error("Your farm location is not available");
+    chooseRouteStart(farmCoordinates.lat, farmCoordinates.lng, farm?.address || farm?.name || "My Farm");
+  };
+
+  const useLiveLocationAsRouteStart = () => {
+    if (!liveLocation) {
+      requestLiveLocation();
+      toast("Getting your current location…", { icon: "📍" });
+      return;
+    }
+    chooseRouteStart(liveLocation.lat, liveLocation.lng, "My current location");
+  };
+
+  const searchRouteStart = async () => {
+    const query = routeStartText.trim();
+    if (!query) return toast.error("Enter a start location first");
+    setRouteStartSearching(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=${encodeURIComponent(query)}`,
+        { headers: { "Accept-Language": "en", "User-Agent": "agriconnect-farmer-route/1.0" } }
+      );
+      if (!response.ok) throw new Error("Start location search failed");
+      const results = await response.json();
+      setRouteStartSearchResults(Array.isArray(results) ? results : []);
+      if (!results?.length) toast.error("Start location not found. Try a more specific place or address.");
+    } catch (e: any) {
+      toast.error(e?.message || "Could not search the start location");
+    } finally {
+      setRouteStartSearching(false);
+    }
+  };
+
   const chooseRouteDestination = (lat: number, lng: number, label: string) => {
     setRouteDestination({ lat, lng, label });
     setRouteDestinationText(label);
@@ -490,8 +534,8 @@ export default function FarmerOrderMapPage() {
 
   const findOrdersAlongRoute = async () => {
     if (!routeDestination) return toast.error("Choose a destination first");
-    const origin = farmCoordinates || liveLocation;
-    if (!origin) return toast.error("Farm location or your current location is required");
+    const origin = routeStart || (farmCoordinates ? { ...farmCoordinates, label: farm?.address || farm?.name || "My Farm" } : liveLocation ? { ...liveLocation, label: "My current location" } : null);
+    if (!origin) return toast.error("Choose a start location or use your current location");
     setRouteLoading(true);
     try {
       const response = await fetch(
@@ -627,6 +671,17 @@ export default function FarmerOrderMapPage() {
 
   const mapMarkers = useMemo(() => {
     const markers: any[] = [];
+    if (routeStart && (!farmCoordinates || routeStart.lat !== farmCoordinates.lat || routeStart.lng !== farmCoordinates.lng)) {
+      markers.push({
+        id: "route-start",
+        lat: routeStart.lat,
+        lng: routeStart.lng,
+        title: `Route Start: ${routeStart.label}`,
+        info: `<strong>Route Start</strong><br/>${routeStart.label}`,
+        color: "#2563EB",
+        label: "S",
+      });
+    }
     if (farmCoordinates) {
       markers.push({
         id: "farm",
@@ -1246,12 +1301,59 @@ export default function FarmerOrderMapPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Destination</label>
-              <div className="mt-1 flex flex-wrap gap-2">
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <label className="text-xs font-semibold text-slate-700">Start location</label>
+              <p className="mt-0.5 text-[11px] text-slate-500">Choose where your route begins.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
                 <Input
-                  className="min-w-[240px] flex-1"
+                  className="min-w-[220px] flex-1 bg-white"
+                  value={routeStartText}
+                  onChange={(e) => setRouteStartText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      searchRouteStart();
+                    }
+                  }}
+                  placeholder="Search farm, village, town or address"
+                />
+                <Button variant="outline" onClick={searchRouteStart} disabled={routeStartSearching || !routeStartText.trim()}>
+                  {routeStartSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+                  <span className="ml-1.5">Search</span>
+                </Button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" variant={routeStart?.label === "My current location" ? "default" : "outline"} onClick={useLiveLocationAsRouteStart}>
+                  <Crosshair className="mr-1.5 h-3.5 w-3.5" /> Use My Location
+                </Button>
+                <Button size="sm" variant={routeStart?.label !== "My current location" && Boolean(farmCoordinates && routeStart?.lat === farmCoordinates.lat && routeStart?.lng === farmCoordinates.lng) ? "default" : "outline"} onClick={useFarmAsRouteStart} disabled={!farmCoordinates}>
+                  <Navigation className="mr-1.5 h-3.5 w-3.5" /> Use My Farm
+                </Button>
+              </div>
+              {routeStartSearchResults.length > 0 && (
+                <div className="mt-2 divide-y rounded-lg border bg-white">
+                  {routeStartSearchResults.map((result, index) => (
+                    <button
+                      key={`start-${result.place_id || index}`}
+                      type="button"
+                      className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
+                      onClick={() => chooseRouteStart(Number(result.lat), Number(result.lon), String(result.display_name || routeStartText))}
+                    >
+                      {result.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {routeStart && <div className="mt-2"><Badge variant="outline">Start: {routeStart.label}</Badge></div>}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              <label className="text-xs font-semibold text-slate-700">Destination</label>
+              <p className="mt-0.5 text-[11px] text-slate-500">Where you want the route to finish.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Input
+                  className="min-w-[220px] flex-1 bg-white"
                   value={routeDestinationText}
                   onChange={(e) => setRouteDestinationText(e.target.value)}
                   onKeyDown={(e) => {
@@ -1275,7 +1377,7 @@ export default function FarmerOrderMapPage() {
                 <div className="mt-2 divide-y rounded-lg border bg-white">
                   {routeSearchResults.map((result, index) => (
                     <button
-                      key={`${result.place_id || index}`}
+                      key={`destination-${result.place_id || index}`}
                       type="button"
                       className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50"
                       onClick={() => chooseRouteDestination(Number(result.lat), Number(result.lon), String(result.display_name || routeDestinationText))}
@@ -1285,15 +1387,17 @@ export default function FarmerOrderMapPage() {
                   ))}
                 </div>
               )}
-              {routeDestination && (
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <Badge variant="outline">Start: {farmCoordinates ? "My Farm" : "My Location"}</Badge>
-                  <Badge variant="success">Destination: {routeDestination.label}</Badge>
-                  {routeInfo && <Badge variant="secondary">{routeInfo.distanceKm} km · {routeInfo.durationMinutes} min</Badge>}
-                </div>
-              )}
+              {routeDestination && <div className="mt-2"><Badge variant="success">Destination: {routeDestination.label}</Badge></div>}
             </div>
-            <Button size="lg" className="self-end" onClick={findOrdersAlongRoute} disabled={!routeDestination || routeLoading}>
+          </div>
+          {routeDestination && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Badge variant="outline">Start: {routeStart?.label || (farmCoordinates ? "My Farm" : liveLocation ? "My Location" : "Not selected")}</Badge>
+              <Badge variant="success">Destination: {routeDestination.label}</Badge>
+              {routeInfo && <Badge variant="secondary">{routeInfo.distanceKm} km · {routeInfo.durationMinutes} min</Badge>}
+            </div>
+          )}
+          <Button size="lg" className="self-end" onClick={findOrdersAlongRoute} disabled={!routeDestination || routeLoading}>
               {routeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Navigation className="mr-2 h-4 w-4" />}
               Find Orders Along My Route
             </Button>
