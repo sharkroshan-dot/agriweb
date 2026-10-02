@@ -928,12 +928,6 @@ export default function FarmerOrdersPage() {
                               <div className="flex flex-col gap-2">
                                 {order.fulfillmentRouteSelected !== true || Number(order.fulfillmentRouteVersion || 0) !== 1 ? (
                                   <div className="space-y-2.5">
-                                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
-                                      <p className="text-xs font-semibold text-slate-900">Choose fulfillment</p>
-                                      <p className="mt-0.5 text-[11px] leading-4 text-slate-500">
-                                        Select who will prepare and fulfill this customer order.
-                                      </p>
-                                    </div>
                                     <div className="grid gap-2">
                                       <Button
                                         type="button"
