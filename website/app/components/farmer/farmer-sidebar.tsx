@@ -32,6 +32,7 @@ import {
   CloudSun,
   MessageSquare,
   PackagePlus,
+  PackageCheck,
   BadgePercent,
   BadgeCheck,
   Bot,
