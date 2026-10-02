@@ -761,7 +761,7 @@ export default function FarmerOrderMapPage() {
       return;
     }
     const points = Array.from(
-      new Map(
+      new globalThis.Map(
         selectedRouteOrders
           .map((stop) => getCoordinates(stop))
           .filter(Boolean)
@@ -788,7 +788,7 @@ export default function FarmerOrderMapPage() {
     selectedStop?.mapCoordinates || liveLocation || farmCoordinates || FALLBACK_CENTER;
 
   const locationGroups = useMemo(() => {
-    const groups = new Map<string, any[]>();
+    const groups = new globalThis.Map<string, any[]>();
     mapOrders.forEach((stop) => {
       const key = getLocationGroupKey(stop);
       if (!key) return;
