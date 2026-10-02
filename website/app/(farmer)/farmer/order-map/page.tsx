@@ -1841,65 +1841,94 @@ export default function FarmerOrderMapPage() {
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-2">
-                {selectedLocationGroup.orders.map((order) => {
-                  const orderId = getStopId(order);
-                  const checked = selectedRouteIds.includes(orderId);
-                  return (
-                    <button
-                      key={orderId}
-                      type="button"
-                      onClick={() => {
-                        setSelectedStopId(orderId);
-                        toggleSelectedOrder(orderId);
-                      }}
-                      className={`w-full rounded-lg border p-3 text-left transition ${
-                        checked ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white hover:bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${
-                          checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-500"
-                        }`}>
-                          {checked ? "✓" : ""}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-sm font-semibold">
-                              #{order.orderNumber || orderId} · {getCustomerDisplayName(order)}
-                            </p>
-                            {getStatusBadge(order)}
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">{formatAddress(order)}</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {order.quantityKg ?? order.quantity ?? 0} kg · {order.product || "Items"} · {formatPrice(order.total)}
-                          </p>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-                <div className="border-t pt-2 text-xs text-slate-600">
+              <CardContent className="space-y-3">
+                <div className="rounded-xl border border-blue-200 bg-white p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span>{selectedLocationGroup.meta?.sameCustomer ? "One physical customer stop" : "One physical delivery location"}</span>
-                    <span>{selectedLocationGroup.meta?.totalWeight ?? 0} kg · {formatPrice(selectedLocationGroup.meta?.totalValue ?? 0)} total</span>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900">
+                        {selectedLocationGroup.meta?.sameCustomer
+                          ? `📍 ${selectedLocationGroup.meta.customerName}`
+                          : "📍 Same Delivery Location"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {selectedLocationGroup.meta?.sameCustomer
+                          ? "Same customer · Same address"
+                          : `${selectedLocationGroup.meta?.customerNames?.length || selectedLocationGroup.orders.length} customers · ${selectedLocationGroup.orders.length} orders`}
+                      </p>
+                    </div>
+                    <Badge variant="secondary">1 physical stop</Badge>
                   </div>
-                  <p className="mt-1">Orders remain separate for selection, assignment, payment and status.</p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                    <Badge variant="outline">
+                      {selectedLocationGroup.orders.length} {selectedLocationGroup.meta?.sameProduct ? `${selectedLocationGroup.meta.productName} Orders` : "Orders"}
+                    </Badge>
+                    <Badge variant="outline">{selectedLocationGroup.meta?.totalWeight ?? 0} kg</Badge>
+                    <Badge variant="outline">{formatPrice(selectedLocationGroup.meta?.totalValue ?? 0)}</Badge>
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-500">
+                    The marker and route represent the physical location. Each order below remains a separate business record.
+                  </p>
                 </div>
-                <div className="flex items-center justify-between border-t pt-2 text-xs">
-                  <span className="font-semibold text-slate-700">
-                    Selected: {selectedLocationGroup.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
-                      setSelectedRouteIds((current) => current.filter((id) => !ids.includes(id)));
-                    }}
-                  >
-                    Clear This Location
-                  </Button>
+
+                <div className="space-y-2">
+                  {selectedLocationGroup.orders.map((order) => {
+                    const orderId = getStopId(order);
+                    const checked = selectedRouteIds.includes(orderId);
+                    return (
+                      <button
+                        key={orderId}
+                        type="button"
+                        onClick={() => {
+                          setSelectedStopId(orderId);
+                          toggleSelectedOrder(orderId);
+                        }}
+                        className={`w-full rounded-xl border p-3 text-left transition ${
+                          checked ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${
+                            checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-400"
+                          }`}>
+                            {checked ? "✓" : ""}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-sm font-semibold text-slate-900">#{order.orderNumber || orderId}</p>
+                              {getStatusBadge(order)}
+                            </div>
+                            <p className="mt-1 text-xs font-medium text-slate-700">{getCustomerDisplayName(order)}</p>
+                            <p className="mt-1 text-xs text-slate-600">{order.product || "Items"} · {order.quantityKg ?? order.quantity ?? 0} kg · {formatPrice(order.total)}</p>
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-800">
+                      Selected: {selectedLocationGroup.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length} / {selectedLocationGroup.orders.length}
+                    </span>
+                    <span className="text-slate-500">1 route stop</span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">Selecting an order does not create another route stop. Orders at this location are delivered during the same physical visit.</p>
+                </div>
+
+                <div className="flex flex-wrap gap-2 border-t pt-3">
+                  <Button size="sm" variant="outline" onClick={() => {
+                    const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
+                    setSelectedRouteIds(ids);
+                  }}>Select All Orders</Button>
+                  <Button size="sm" variant="ghost" onClick={() => {
+                    const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
+                    setSelectedRouteIds((current) => current.filter((id) => !ids.includes(id)));
+                  }}>Clear This Location</Button>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={!selectedLocationGroup.orders.some((order) => selectedRouteIds.includes(getStopId(order)))} onClick={() => {
+                    const selectedCount = selectedLocationGroup.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
+                    toast.success(`Selection confirmed: ${selectedCount} order${selectedCount === 1 ? "" : "s"} at this physical stop`);
+                  }}><CheckCircle className="mr-1.5 h-3.5 w-3.5" />Confirm Selection</Button>
                 </div>
               </CardContent>
             </Card>
@@ -1910,10 +1939,8 @@ export default function FarmerOrderMapPage() {
               <p className="mt-1 text-xs text-emerald-800">Filter selection does not assign orders. Choose a delivery action only when the selection is final.</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={!selectedRouteIds.length || deliverSelectedMutation.isPending}>
-                  <UserCheck className="mr-1.5 h-3.5 w-3.5" /> Farmer Self Delivery
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteIds.length || assignSelectedPartnerMutation.isPending}>
-                  <Truck className="mr-1.5 h-3.5 w-3.5" /> Delivery Partner
+                  {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="mr-1.5 h-3.5 w-3.5" />}
+                  Confirm Delivery Plan
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear Selection</Button>
               </div>
