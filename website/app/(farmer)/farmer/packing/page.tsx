@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { toast } from "sonner";
+import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -134,8 +135,9 @@ export default function FarmerPackingPage() {
     }
   };
 
-  const printLabel = () => {
-    window.print();
+  const printLabel = (order: any) => {
+    setSelectedOrder(order);
+    window.setTimeout(() => window.print(), 50);
   };
 
   if (ordersQuery.isLoading) {
@@ -254,7 +256,7 @@ export default function FarmerPackingPage() {
                     </Link>
                     <div className="flex flex-wrap gap-2">
                       {isPacked ? (
-                        <Button size="sm" variant="outline" onClick={printLabel}><Printer className="mr-1.5 h-4 w-4" /> Print Label</Button>
+                        <Button size="sm" variant="outline" onClick={() => printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Label</Button>
                       ) : (
                         <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { try { startPacking(order); } catch (e: any) { toast.error(e.message); } }}>
                           <Package className="mr-1.5 h-4 w-4" /> Start / Check Packing
@@ -318,7 +320,13 @@ export default function FarmerPackingPage() {
             <p className="text-sm">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `COD ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "PAID ONLINE"}</p>
             <p className="mt-3 text-xs font-bold">ITEMS</p>
             {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <p key={index} className="text-sm">{item.productName || "Product"} — {item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</p>)}
-            <div className="mt-5 flex justify-center"><QrCode className="h-24 w-24" /></div>
+            <div className="mt-5 flex justify-center">
+              <QRCodeSVG
+                value={selectedOrder ? String(selectedOrder.orderNumber || selectedOrder.id || selectedOrder._id || "") : ""}
+                size={96}
+                level="M"
+              />
+            </div>
             <p className="mt-2 text-center text-[10px]">Scan order ID: {selectedOrder?.orderNumber || ""}</p>
           </div>
         </div>
