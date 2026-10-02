@@ -76,21 +76,21 @@ async def apply_partner_route(
     warehouse_id: Optional[str] = None,
     hub_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Persist the physical logistics route after Farmer Dispatch.
+    """Persist the physical delivery-partner route after the Farmer Order Map
+    delivery decision.
 
     Farmer fulfillment:
-      dispatch -> nearby -> Local Hub -> Delivery Partner
-      dispatch -> long_distance -> Warehouse -> Local Hub -> Delivery Partner
+      packed -> nearby -> Dispatch -> Local Hub -> Delivery Partner
+      packed -> long_distance -> Dispatch -> Warehouse -> Local Hub -> Delivery Partner
 
-    Warehouse fulfillment keeps its warehouse-origin route.
-    This function is downstream of the authoritative Farmer Dispatch gate.
+    Self delivery does not use this partner-route function.
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
     if str(order.get("fulfillmentMethod") or "") == "farmer":
-        if str(order.get("fulfillmentStage") or "") != "dispatched":
-            raise ValueError("Farmer order must be dispatched before delivery routing.")
-        if str(order.get("orderStatus") or "") != "ready_for_delivery":
-            raise ValueError("Farmer order must be ready for delivery before delivery routing.")
+        if str(order.get("fulfillmentStage") or "") != "packed":
+            raise ValueError("Farmer order must be packed before delivery routing.")
+        if str(order.get("orderStatus") or "") != "processing":
+            raise ValueError("Farmer order must still be processing before delivery routing.")
 
     items = order.get("items") or []
     quantity = float(sum(float(i.get("quantity") or 0) for i in items))
@@ -171,12 +171,12 @@ async def apply_partner_route(
     update: Dict[str, Any] = {
         "deliveryPartnerRoute": mode,
         "deliveryDecision": mode,
-        "deliveryDispatchStatus": "dispatched",
-        "deliveryDispatchAt": order.get("dispatchedAt"),
+        "deliveryDispatchStatus": "pending",
+        "deliveryDispatchAt": None,
         "deliveryRouteSequence": (
-            ["dispatch", "local_hub", "delivery_partner", "customer"]
+            ["packed", "dispatch", "local_hub", "delivery_partner", "customer"]
             if mode == "nearby"
-            else ["dispatch", "warehouse", "local_hub", "delivery_partner", "customer"]
+            else ["packed", "dispatch", "warehouse", "local_hub", "delivery_partner", "customer"]
         ),
         "deliveryDecisionSource": "distance",
         "deliveryPartnerRouteSelectedAt": datetime.utcnow(),
