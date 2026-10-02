@@ -53,6 +53,7 @@ const navGroups = [
       { name: "Products", href: "/farmer/products", icon: Package },
       { name: "Restock & Inventory", href: "/farmer/restock", icon: PackagePlus },
       { name: "Orders", href: "/farmer/orders", icon: ShoppingCart },
+      { name: "Packing & Checking", href: "/farmer/packing", icon: PackageCheck },
       { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
       { name: "Customers", href: "/farmer/customers", icon: Users },
       { name: "Ratings & Reviews", href: "/farmer/reviews", icon: Star },
