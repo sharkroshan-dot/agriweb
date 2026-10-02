@@ -397,27 +397,34 @@ export default function FarmerOrdersPage() {
                 >
                   <Store className="mr-2 h-4 w-4" />Warehouse Fulfillment All
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  asChild
-                  className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-                >
-                  <Link href="/farmer/packing">
-                    <Package className="mr-2 h-4 w-4" />Open Packing
-                  </Link>
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  asChild
-                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
-                >
-                  <Link href="/farmer/order-map?delivery=required">
-                    <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
-                  </Link>
-                </Button>
+
 </div>
+
+              <div className="rounded-lg border bg-slate-50/70 p-2">
+                <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Quick Access</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    asChild
+                    className="border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                  >
+                    <Link href="/farmer/packing">
+                      <Package className="mr-2 h-4 w-4" />Open Packing
+                    </Link>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    asChild
+                    className="border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50 hover:text-indigo-800"
+                  >
+                    <Link href="/farmer/order-map?delivery=required">
+                      <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
+                    </Link>
+                  </Button>
+                </div>
+              </div>
 
               <p className="text-xs text-muted-foreground">
                 Use a stage button when you want to run only that stage for eligible orders. Fulfillment selection and delivery routing still require the individual order when a manual decision is needed.
