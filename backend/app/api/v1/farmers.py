@@ -2315,8 +2315,23 @@ async def accept_within_for_self_delivery(
             claimed_weight += weight
             est_minutes += leg_minutes
             claimed_ids.append(oid)
-            if order.get("orderStatus") in ("dispatched", "in_transit"):
-                await order_repository.restore_after_reclaim(oid, "ready_for_delivery")
+            dispatch_at = datetime.utcnow()
+            await order_repository.update(
+                {"_id": ObjectId(oid)},
+                {"$set": {
+                    "orderStatus": "ready_for_delivery",
+                    "deliveryResponsibility": "farmer",
+                    "fulfillmentStage": "dispatched",
+                    "dispatchedAt": dispatch_at,
+                    "dispatchReadyChecklistComplete": True,
+                    "deliveryDispatchStatus": "dispatched",
+                    "deliveryDispatchAt": dispatch_at,
+                    "deliveryPartnerRoute": "self_delivery",
+                    "deliveryRouteSequence": ["packed", "self_delivery", "dispatch", "farmer", "customer"],
+                    "partnerAssignmentOpen": False,
+                    "updatedAt": dispatch_at,
+                }}
+            )
             await delivery_assignment_repository.cancel_by_order_id(
                 oid, "Farmer accepted order for self-delivery"
             )
@@ -2956,11 +2971,27 @@ async def update_order_assignment(
                 order_id, "Farmer switched order to self-delivery"
             )
             await delivery_job_repository.cancel_by_order(order_id, "Farmer switched order to self-delivery")
-            await order_repository.update_order_field(order_id, "partnerAssignmentOpen", False)
+            dispatch_at = datetime.utcnow()
+            await order_repository.update(
+                {"_id": ObjectId(order_id)},
+                {"$set": {
+                    "orderStatus": "ready_for_delivery",
+                    "deliveryResponsibility": "farmer",
+                    "fulfillmentStage": "dispatched",
+                    "dispatchedAt": dispatch_at,
+                    "dispatchReadyChecklistComplete": True,
+                    "deliveryDispatchStatus": "dispatched",
+                    "deliveryDispatchAt": dispatch_at,
+                    "deliveryPartnerRoute": "self_delivery",
+                    "deliveryRouteSequence": ["packed", "self_delivery", "dispatch", "farmer", "customer"],
+                    "partnerAssignmentOpen": False,
+                    "updatedAt": dispatch_at,
+                }}
+            )
             try:
                 await NotificationService.send_custom_notification(
                     str(order.get("customerId")),
-                    f"Your order {order.get('orderNumber', '')} will be delivered directly by the farmer.",
+                    f"Your order {order.get('orderNumber', '')} has been dispatched for farmer self-delivery.",
                 )
             except Exception:
                 pass
