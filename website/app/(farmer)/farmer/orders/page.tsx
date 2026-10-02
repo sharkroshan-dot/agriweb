@@ -353,10 +353,62 @@ export default function FarmerOrdersPage() {
                   {bulkRunning ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
                   {bulkRunning ? "Processing Orders..." : "Overall Processing"}
                 </Button>
-                <span className="text-xs text-muted-foreground">Advances each eligible order to its next valid stage.</span>
+                <span className="text-xs text-muted-foreground">Advances each eligible order through the workflow.</span>
               </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning}
+                  onClick={() => handleBulkWorkflowAction("confirm")}
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />Confirm All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning}
+                  onClick={() => handleBulkWorkflowAction("process")}
+                >
+                  <Package className="mr-2 h-4 w-4" />Process All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning}
+                  onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}
+                >
+                  <UserCheck className="mr-2 h-4 w-4" />Farmer Fulfillment All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning}
+                  onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}
+                >
+                  <Store className="mr-2 h-4 w-4" />Warehouse Fulfillment All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning}
+                  onClick={() => handleBulkWorkflowAction("pack")}
+                >
+                  <Package className="mr-2 h-4 w-4" />Pack All
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={bulkRunning}
+                  onClick={() => handleBulkWorkflowAction("dispatch")}
+                >
+                  <Truck className="mr-2 h-4 w-4" />Dispatch All
+                </Button>
+              </div>
+
               <p className="text-xs text-muted-foreground">
-                Overall Processing works progressively: each order advances only as far as its current workflow allows. Manual decisions such as fulfillment selection and delivery routing remain on the individual order.
+                Use a stage button when you want to run only that stage for eligible orders. Fulfillment selection and delivery routing still require the individual order when a manual decision is needed.
               </p>
             </div>
           </div>
