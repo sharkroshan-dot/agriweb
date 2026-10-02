@@ -646,7 +646,7 @@ async def get_delivery_calendar(
     capacity = await _get_delivery_capacity(farmer_id)
     active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "dispatched", "deliveryResponsibility": "farmer"}
+        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
     )
     orders = orders or []
     farm = await _get_farm_origin(farmer_id)
@@ -742,7 +742,7 @@ async def get_smart_route(
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "dispatched", "deliveryResponsibility": "farmer"}
+        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
     )
     orders = orders or []
 
@@ -1354,7 +1354,7 @@ async def get_my_route(
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery", "ready_for_pickup"]
     orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "dispatched", "deliveryResponsibility": "farmer"}
+        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
     )
     orders = orders or []
 
@@ -2019,9 +2019,9 @@ async def get_my_delivery_map(
         orders_filter["createdAt"] = {"$gte": window_start}
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
-    # The Order Map is intentionally limited to the farmer's post-dispatch
-    # delivery stage. Warehouse-fulfilled and unprepared orders never appear
-    # as personal farmer route stops.
+    # The Order Map is the Farmer Fulfillment delivery-decision stage. Packed
+    # orders appear here before Dispatch; Dispatch happens only for the
+    # delivery-partner branch after distance classification.
     orders = [
         o for o in orders
         if o.get("deliveryType") == DeliveryType.DELIVERY.value
@@ -2517,7 +2517,7 @@ async def create_self_delivery_plan(
         "farmerId": ObjectId(farmer_id),
         "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "fulfillmentMethod": "farmer",
-        "fulfillmentStage": "dispatched",
+        "fulfillmentStage": "packed",
         "dispatchedAt": {"$ne": None},
         "deliveryType": {"$ne": DeliveryType.PICKUP.value},
         "deletedAt": None,
@@ -2672,7 +2672,7 @@ async def choose_delivery_partner_route(
         "farmerId": ObjectId(farmer_id),
         "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "fulfillmentMethod": "farmer",
-        "fulfillmentStage": "dispatched",
+        "fulfillmentStage": "packed",
         "deliveryType": {"$ne": DeliveryType.PICKUP.value},
         "deletedAt": None,
     }) or []
@@ -2770,7 +2770,7 @@ async def assign_outside_to_partners(
             "farmerId": ObjectId(farmer_id),
             "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
             "fulfillmentMethod": "farmer",
-            "fulfillmentStage": "dispatched",
+            "fulfillmentStage": "packed",
             "deletedAt": None,
         }
     )
@@ -2911,7 +2911,7 @@ async def update_order_assignment(
     body: AssignmentUpdateRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """Switch a single dispatched Farmer Fulfillment order between self-delivery and partner routing."""
+    """Switch a single packed Farmer Fulfillment order between self-delivery and partner routing."""
     _ensure_farmer(current_user)
     if body.mode not in ("self", "partner"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mode must be 'self' or 'partner'")
@@ -2934,9 +2934,8 @@ async def update_order_assignment(
                 detail="A delivery partner has already accepted this order and it cannot be switched back.",
             )
         if await order_repository.reclaim_for_self_delivery(order_id, farmer_id, _ACTIVE_DELIVERY_STATUSES):
-            # A dispatched farmer-fulfilled order is already prepared and ready
-            # for transport. Switching it to farmer delivery must not reopen
-            # fulfillment or move it backward to ready_for_delivery.
+            # A packed farmer-fulfilled order is already prepared for delivery.
+            # Self delivery does not require a Dispatch handoff.
             await delivery_assignment_repository.cancel_by_order_id(
                 order_id, "Farmer switched order to self-delivery"
             )
