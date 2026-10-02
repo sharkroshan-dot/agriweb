@@ -100,15 +100,13 @@ export function Map({
         const libs = await Promise.all([
           importLibrary("maps"),
           importLibrary("core"),
-          importLibrary("geocoding"),
           importLibrary("marker"),
-          importLibrary("routes"),
         ]);
-        const [maps, core, geocoding, marker, routes] = libs;
+        const [maps, core, marker] = libs;
 
         if (cancelled || !mapRef.current) return;
 
-        libsRef.current = { maps, core, geocoding, marker, routes };
+        libsRef.current = { maps, core, marker };
 
         const mapInstance = new maps.Map(mapRef.current, {
           center: { lat: center.lat, lng: center.lng },
@@ -219,7 +217,7 @@ export function Map({
     const libs = libsRef.current;
     if (!hasGoogleMapsKey || !mapReady || !mapInstance || !libs) return;
 
-    const { maps: _maps, core, geocoding, marker: markerLib, routes } = libs;
+    const { maps: _maps, core, marker: markerLib } = libs;
     let cancelled = false;
 
     const clearRouteLine = () => {
@@ -442,17 +440,8 @@ export function Map({
         attempt(0);
       };
 
-      const geocoder = new geocoding.Geocoder();
       grouped.forEach((items, address) => {
-        geocoder.geocode({ address }, (results: any, status: any) => {
-          if (cancelled) return;
-          if (status === geocoding.GeocoderStatus.OK && results && results[0]) {
-            const loc = results[0].geometry.location;
-            addResolved(address, loc.lat(), loc.lng());
-          } else {
-            geocodeWithNominatim(address, items);
-          }
-        });
+        geocodeWithNominatim(address, items);
       });
     }
 
@@ -594,21 +583,22 @@ export function Map({
   }, [userLocation, mapReady]);
 
   if (!hasGoogleMapsKey || mapLoadFailed) {
-    const bbox = `${center.lng - 0.08},${center.lat - 0.08},${center.lng + 0.08},${center.lat + 0.08}`;
-    const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${center.lat},${center.lng}`;
-
+    const fallbackMarkers = markers.filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lng))).map((m) => ({ id: String(m.id), lat: Number(m.lat), lng: Number(m.lng), title: String(m.title || ""), label: String(m.label || ""), color: String(m.color || "#10B981"), info: String(m.info || "") }));
+    const fallbackRoute = route.filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
+    const fallbackCenter = { lat: Number(center.lat), lng: Number(center.lng) };
+    const fallbackCircle = circle ? { lat: Number(circle.center.lat), lng: Number(circle.center.lng), radiusKm: Number(circle.radiusKm || 0) } : null;
+    const fallbackUser = userLocation ? { lat: Number(userLocation.lat), lng: Number(userLocation.lng) } : null;
+    const leafletDocument = "<!doctype html>\n<html><head><meta charset=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>\n<link rel=\"stylesheet\" href=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.css\"/>\n<style>html,body,#map{height:100%;margin:0}body{font-family:Arial,sans-serif}.leaflet-control-attribution{font-size:9px}.pin{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}.pin span{transform:rotate(45deg);color:#fff;font-weight:700;font-size:11px}</style></head>\n<body><div id=\"map\"></div><script src=\"https://unpkg.com/leaflet@1.9.4/dist/leaflet.js\"><\\/script><script>\nconst center=__CENTER__;const markers=__MARKERS__;const route=__ROUTE__;const circle=__CIRCLE__;const user=__USER__;\nconst map=L.map('map',{zoomControl:true}).setView([center.lat,center.lng],12);\nL.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);\nconst bounds=[];\nfunction addPoint(m){const icon=L.divIcon({className:'',html:'<div class=\"pin\" style=\"background:'+m.color+'\"><span>'+m.label+'</span></div>',iconSize:[28,28],iconAnchor:[14,27],popupAnchor:[0,-26]});const marker=L.marker([m.lat,m.lng],{icon}).addTo(map);marker.bindPopup('<strong>'+m.title.replace(/</g,'&lt;')+'</strong><br><small>'+m.info.replace(/</g,'&lt;')+'</small>');marker.on('click',()=>parent.postMessage({type:'agri-map-marker',id:m.id},'*'));bounds.push([m.lat,m.lng]);}\nmarkers.forEach(addPoint);\nif(user){L.circleMarker([user.lat,user.lng],{radius:9,color:'#fff',weight:3,fillColor:'#2563eb',fillOpacity:1}).addTo(map).bindTooltip('Your location');bounds.push([user.lat,user.lng]);}\nif(circle&&circle.radiusKm>0){L.circle([circle.lat,circle.lng],{radius:circle.radiusKm*1000,color:'#6366f1',weight:2,fillOpacity:.08}).addTo(map);bounds.push([circle.lat,circle.lng]);}\nif(route.length>1)L.polyline(route.map(p=>[p.lat,p.lng]),{color:'#2563eb',weight:5}).addTo(map);\nif(bounds.length>1)map.fitBounds(bounds,{padding:[30,30]});\nmap.on('click',e=>parent.postMessage({type:'agri-map-click',lat:e.latlng.lat,lng:e.latlng.lng},'*'));\n<\\/script></body></html>"
+      .replace("__CENTER__", JSON.stringify(fallbackCenter))
+      .replace("__MARKERS__", JSON.stringify(fallbackMarkers))
+      .replace("__ROUTE__", JSON.stringify(fallbackRoute))
+      .replace("__CIRCLE__", JSON.stringify(fallbackCircle))
+      .replace("__USER__", JSON.stringify(fallbackUser));
     return (
-      <div
-        className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 ${className}`}
-        style={{ height: typeof height === "number" ? `${height}px` : height }}
-      >
-        <iframe title="Nearby marketplace map" src={embedUrl} className="h-full w-full border-0" />
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-900/70 to-transparent p-4 text-sm text-white">
-          <p className="font-semibold">Map preview</p>
-          <p className="text-xs text-slate-200">
-            Google Maps is unavailable, so this OpenStreetMap preview is shown instead.
-            {circle && circle.radiusKm > 0 ? ` Delivery radius: ${circle.radiusKm} km.` : ""}
-          </p>
+      <div className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 ${className}`} style={{ height: typeof height === "number" ? `${height}px` : height }}>
+        <iframe title="Farmer delivery map" srcDoc={leafletDocument} className="h-full w-full border-0" sandbox="allow-scripts allow-same-origin" />
+        <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-white/95 px-3 py-2 shadow-sm">
+          <p className="text-xs font-semibold text-slate-800">OpenStreetMap</p><p className="text-[10px] text-slate-500">Interactive delivery map</p>
         </div>
       </div>
     );
