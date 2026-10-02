@@ -2024,12 +2024,23 @@ async def get_my_delivery_map(
     # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
+    # A farmer-packed customer delivery becomes ready_for_delivery in the
+    # order state machine. Older/newer records may also carry an explicit
+    # packed fulfillment stage, so accept both representations.
+    packed_farmer_statuses = {"ready_for_delivery", "packed"}
+    packed_farmer_stages = {"packed", "packing_complete", "ready_for_delivery", "ready_for_dispatch"}
     orders = [
         o for o in orders
         if o.get("deliveryType") == DeliveryType.DELIVERY.value
-        and str(o.get("fulfillmentMethod") or "").lower() == "farmer"
-        and str(o.get("fulfillmentStage") or "").lower() == "packed"
-        and bool(o.get("packingComplete"))
+        and (
+            str(o.get("fulfillmentSource") or "").lower() == "farmer"
+            or str(o.get("fulfillmentMethod") or "").lower() == "farmer"
+        )
+        and (
+            str(o.get("orderStatus") or "").lower() in packed_farmer_statuses
+            or str(o.get("fulfillmentStage") or "").lower() in packed_farmer_stages
+            or bool(o.get("packingComplete"))
+        )
     ]
 
     # Sweep expired open jobs (open -> no_partner_found) and index the rest by
