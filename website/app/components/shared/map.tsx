@@ -91,6 +91,14 @@ export function Map({
     let cancelled = false;
     setMapLoadFailed(false);
 
+    // Google can initialize the map object successfully and then reject map
+    // tiles because the key is invalid, restricted, or billing/API access is
+    // unavailable. Switch to the OpenStreetMap fallback in that case too.
+    const previousAuthFailure = (window as any).gm_authFailure;
+    (window as any).gm_authFailure = () => {
+      setMapLoadFailed(true);
+    };
+
     const initMap = async () => {
       try {
         if (!optionsSet) {
@@ -182,6 +190,9 @@ export function Map({
 
     return () => {
       cancelled = true;
+      if ((window as any).gm_authFailure && (window as any).gm_authFailure !== previousAuthFailure) {
+        (window as any).gm_authFailure = previousAuthFailure;
+      }
       markersRef.current.forEach((m) => m.setMap(null));
       markersRef.current = [];
       if (rendererRef.current) {
