@@ -155,7 +155,7 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "pack") => {
+  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment") => {
     try {
       const response = await api.post("/orders/farmer/bulk-advance", { action });
       const result = response?.data || response;
@@ -166,7 +166,6 @@ export default function FarmerOrdersPage() {
         process: "processing started",
         farmer_fulfillment: "set to Farmer Fulfillment",
         warehouse_fulfillment: "set to Warehouse Fulfillment",
-        pack: "packed",
       };
       toast.success(
         processed
@@ -185,62 +184,14 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const finalizeFarmerPacking = async (order: any) => {
-    const orderId = order.id || order._id;
-    const items = Array.isArray(order.items) ? order.items : [];
-    const quantities: Record<string, string> = {};
-    items.forEach((item: any, index: number) => {
-      quantities[`${String(item.productId)}:${String(item.variantId || "")}:${index}`] = String(item.quantity ?? 0);
-    });
-
-    const rows = items.map((item: any, index: number) => ({
-      item,
-      key: `${String(item.productId)}:${String(item.variantId || "")}:${index}`,
-    }));
-
-    const packedItems = rows.map(({ item, key }) => {
-      const raw = window.prompt(
-        `${item.productName || "Product"} — ordered: ${item.quantity}. Enter actual quantity packed:`,
-        quantities[key],
-      );
-      if (raw === null) throw new Error("Packing cancelled");
-      const packed = Number(raw);
-      if (!Number.isFinite(packed) || packed < 0 || packed > Number(item.quantity)) {
-        throw new Error(`Invalid packed quantity for ${item.productName || "product"}`);
-      }
-      return {
-        productId: item.productId,
-        variantId: item.variantId || null,
-        packedQuantity: packed,
-      };
-    });
-
-    try {
-      const response = await api.post(`/orders/${orderId}/farmer-packing-finalize`, { items: packedItems });
-      const result = response?.data || response;
-      const shortage = Array.isArray(result?.shortageCancelledItems) ? result.shortageCancelledItems.length : 0;
-      toast.success(
-        shortage
-          ? `Packing complete. ${shortage} shortage line(s) cancelled; final payable amount updated.`
-          : "Packing complete. All ordered quantities are available.",
-      );
-      await refetch();
-    } catch (error: any) {
-      toast.error(error?.message || "Failed to finalize packing");
-    }
-  };
-
-  const updateFulfillmentStage = async (orderId: string, stage: "packed" | "dispatched") => {
+  const updateFulfillmentStage = async (orderId: string, stage: "dispatched") => {
     try {
       await api.put(`/orders/${orderId}/fulfillment-stage`, undefined, { params: { stage } });
-      toast.success(stage === "packed" ? "Order packed" : "Order dispatched");
+      toast.success("Order dispatched");
       await refetch();
-      if (stage === "dispatched") {
-        router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`);
-        return;
-      }
+      router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`);
     } catch (error: any) {
-      toast.error(error?.message || "Failed to update fulfillment stage");
+      toast.error(error?.message || "Failed to dispatch order");
     }
   };
 
