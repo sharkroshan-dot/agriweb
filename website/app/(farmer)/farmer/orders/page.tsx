@@ -423,7 +423,7 @@ export default function FarmerOrdersPage() {
                 <Badge variant="outline" className="border-emerald-200 bg-white">Farmer Order Map</Badge>
               </div>
               <p className="mt-2 text-[11px] text-emerald-800">
-                After packing, open the Farmer Order Map. Self-delivery goes directly to the customer; delivery-partner routes Dispatch first and then follow the nearby/long-distance path.
+                After packing, open the Farmer Order Map. Self-delivery follows Dispatch → Farmer → Customer; delivery-partner routes also Dispatch first and then follow the nearby/long-distance path.
               </p>
             </div>
           </div>
