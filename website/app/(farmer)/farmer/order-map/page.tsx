@@ -2456,33 +2456,12 @@ function OrderCard({
         </div>
       </button>
       {!readOnly && (
-        <div className="mt-2 flex items-center gap-2">
-          <Select
-            value={stop.assignment === "unassigned" ? "unassigned" : stop.assignment}
-            onValueChange={onSwitch}
-          >
-            <SelectTrigger className="h-8 w-full text-xs">
-              <SelectValue placeholder="Switch assignment" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="self">Self Delivery</SelectItem>
-              <SelectItem value="partner">Delivery Partner</SelectItem>
-              <SelectItem value="unassigned">
-                Unassigned
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelect();
-            }}
-          >
-            <Navigation className="mr-1 h-3.5 w-3.5" />
-            View
-          </Button>
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border bg-slate-50 p-2">
+          <button type="button" onClick={(e) => { e.stopPropagation(); onSelect(); }} className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+            <span className={`flex h-5 w-5 items-center justify-center rounded border ${selected ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white"}`}>{selected ? "✓" : ""}</span>
+            Select this order
+          </button>
+          {selected && <Badge className="bg-emerald-600 text-white">Selected</Badge>}
         </div>
       )}
     </div>
