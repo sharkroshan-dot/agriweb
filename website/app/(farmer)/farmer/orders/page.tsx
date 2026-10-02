@@ -284,7 +284,7 @@ export default function FarmerOrdersPage() {
     () => orderList.filter((order: any) => {
       const method = String(order?.fulfillmentMethod || "").toLowerCase();
       const stage = String(order?.fulfillmentStage || "").toLowerCase();
-      return method === "farmer" && (stage === "packed" || order?.packingComplete === true) && String(order?.orderStatus || "").toLowerCase() === "processing";
+      return method === "farmer" && stage === "packed" && order?.packingComplete === true && String(order?.orderStatus || "").toLowerCase() === "processing";
     }),
     [orderList],
   );
