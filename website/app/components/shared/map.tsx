@@ -74,6 +74,7 @@ export function Map({
   const rendererRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const locationButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fallbackFrameRef = useRef<HTMLIFrameElement | null>(null);
   const onMapClickRef = useRef(onMapClick);
   onMapClickRef.current = onMapClick;
   const drawRouteEnabledRef = useRef(drawRoute);
@@ -582,6 +583,23 @@ export function Map({
     drawRouteRef.current();
   }, [userLocation, mapReady]);
 
+  useEffect(() => {
+    if (hasGoogleMapsKey && !mapLoadFailed) return;
+    const handleFallbackMessage = (event: MessageEvent) => {
+      if (!fallbackFrameRef.current || event.source !== fallbackFrameRef.current.contentWindow) return;
+      const data = event.data;
+      if (!data || typeof data !== "object") return;
+      if (data.type === "agri-map-marker" && data.id != null) {
+        onMarkerClick?.(markers.find((m) => String(m.id) === String(data.id)));
+      }
+      if (data.type === "agri-map-click" && Number.isFinite(Number(data.lat)) && Number.isFinite(Number(data.lng))) {
+        onMapClick?.({ lat: Number(data.lat), lng: Number(data.lng) });
+      }
+    };
+    window.addEventListener("message", handleFallbackMessage);
+    return () => window.removeEventListener("message", handleFallbackMessage);
+  }, [hasGoogleMapsKey, mapLoadFailed, markers, onMarkerClick, onMapClick]);
+
   if (!hasGoogleMapsKey || mapLoadFailed) {
     const fallbackMarkers = markers.filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lng))).map((m) => ({ id: String(m.id), lat: Number(m.lat), lng: Number(m.lng), title: String(m.title || ""), label: String(m.label || ""), color: String(m.color || "#10B981"), info: String(m.info || "") }));
     const fallbackRoute = route.filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))).map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
@@ -596,7 +614,7 @@ export function Map({
       .replace("__USER__", JSON.stringify(fallbackUser));
     return (
       <div className={`relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 ${className}`} style={{ height: typeof height === "number" ? `${height}px` : height }}>
-        <iframe title="Farmer delivery map" srcDoc={leafletDocument} className="h-full w-full border-0" sandbox="allow-scripts allow-same-origin" />
+        <iframe ref={fallbackFrameRef} title="Farmer delivery map" srcDoc={leafletDocument} className="h-full w-full border-0" sandbox="allow-scripts allow-same-origin" />
         <div className="pointer-events-none absolute left-3 top-3 rounded-lg bg-white/95 px-3 py-2 shadow-sm">
           <p className="text-xs font-semibold text-slate-800">OpenStreetMap</p><p className="text-[10px] text-slate-500">Interactive delivery map</p>
         </div>
