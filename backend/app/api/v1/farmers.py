@@ -1936,7 +1936,7 @@ async def _map_order_payload(
         "readyForFarmerRoute": (
             delivery_type == DeliveryType.DELIVERY.value
             and fulfillment_method == "farmer"
-            and fulfillment_stage == "dispatched"
+            and fulfillment_stage == "packed"
             and not has_partner
             and str(order.get("deliveryResponsibility") or "") in ("", "farmer")
             and not is_delivered
