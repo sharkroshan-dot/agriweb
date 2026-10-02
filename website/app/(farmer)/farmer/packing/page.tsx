@@ -13,10 +13,8 @@ import {
   MapPin,
   Package,
   Printer,
-  QrCode,
   Truck,
   AlertTriangle,
-  ChevronRight,
 } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -65,8 +63,8 @@ export default function FarmerPackingPage() {
   const orders = useMemo(() => {
     return extractOrders(ordersQuery.data)
       .filter((order: any) => {
-        const method = String(order?.fulfillmentMethod || "").toLowerCase();
-        return method === "farmer";
+        const method = String(order?.fulfillmentMethod || order?.fulfillment_route || "").toLowerCase();
+        return method === "farmer" || method === "farm_direct";
       })
       .sort((a: any, b: any) => orderTime(b) - orderTime(a));
   }, [ordersQuery.data]);
