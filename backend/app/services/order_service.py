@@ -1434,7 +1434,7 @@ class OrderService:
                     # packing endpoint; never auto-claim the ordered quantity.
                     skipped.append({"orderId": oid, "orderNumber": order.get("orderNumber"), "reason": "Actual packed quantities require the packing form"})
                 elif action == "dispatch" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PACKED.value:
-                    updated = await OrderService.update_fulfillment_stage(oid, farmer_id, "farmer", FulfillmentStage.DISPATCHED)
+                    skipped.append({"orderId": oid, "orderNumber": order.get("orderNumber"), "reason": "Dispatch is selected in the Farmer Order Map after delivery decision"})
                 if updated:
                     processed.append({"orderId": oid, "orderNumber": order.get("orderNumber")})
                 else:
@@ -1493,16 +1493,10 @@ class OrderService:
                 elif reason is None and route == FulfillmentMethod.FARM_DIRECT.value:
                     if stage == FulfillmentStage.PENDING.value:
                         reason = "Actual packing quantities required"
-                    if reason is None and stage == FulfillmentStage.PACKED.value:
-                        updated = await OrderService.update_fulfillment_stage(
-                            oid, farmer_id, "farmer", FulfillmentStage.DISPATCHED
-                        )
-                        if updated:
-                            changed.append("dispatched")
-                        else:
-                            reason = "Could not dispatch order"
-                    elif reason is None and stage == FulfillmentStage.DISPATCHED.value:
-                        reason = "Delivery route decision required"
+                    elif stage == FulfillmentStage.PACKED.value:
+                        reason = "Open Farmer Order Map for distance and delivery decision"
+                    elif stage == FulfillmentStage.DISPATCHED.value:
+                        reason = "Delivery route already dispatched"
                 elif reason is None and route == FulfillmentMethod.WAREHOUSE.value:
                     warehouse_stage = str(order.get("warehouseFulfillmentStage") or "incoming")
                     if warehouse_stage in ("incoming", "ready_for_pickup"):
@@ -2163,7 +2157,7 @@ class OrderService:
         target = stage.value
         allowed = {
             FulfillmentStage.PENDING.value: {FulfillmentStage.PACKED.value},
-            FulfillmentStage.PACKED.value: {FulfillmentStage.DISPATCHED.value},
+            FulfillmentStage.PACKED.value: set(),
             FulfillmentStage.DISPATCHED.value: set(),
         }
         if target not in allowed.get(current, set()) or str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
@@ -2175,6 +2169,12 @@ class OrderService:
             # Packing must now be finalized with actual quantities through
             # finalize_farmer_packing(). Do not silently claim all quantities
             # were packed.
+            return None
+
+        # Farmer Dispatch is intentionally NOT a direct fulfillment-stage
+        # transition. It is created only after the Farmer Order Map makes the
+        # delivery decision and selects a partner route.
+        if target == FulfillmentStage.DISPATCHED.value:
             return None
 
         checklist = order.get("packingChecklist") or []
