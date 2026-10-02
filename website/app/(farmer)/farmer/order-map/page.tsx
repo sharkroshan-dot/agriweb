@@ -865,7 +865,7 @@ export default function FarmerOrderMapPage() {
   const assignableOutside = outsideUnassigned;
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-full space-y-5 bg-slate-50/40 pb-8">
       <DeliveryWorkflowNav current="order-map" />
       {mapLoadError && (
         <Card className="border-red-200 bg-red-50">
@@ -883,72 +883,84 @@ export default function FarmerOrderMapPage() {
         </Card>
       )}
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Farmer Fulfillment → Delivery</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Farmer Order Map</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            After Farmer Fulfillment packing and shortage handling, this page is opened automatically for delivery assignment. Select your start location, destination/route or radius, choose the orders you will personally deliver, and AgriConnect automatically routes the remaining orders to delivery partners.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {selfDeliveryMethod === "radius" && (
-            RADIUS_OPTIONS.map((distance) => (
-            <Button
-              key={distance}
-              size="sm"
-              variant={radiusKm === distance ? "default" : "outline"}
-              onClick={() => setRadiusKm(distance)}
-            >
-              {distance} km
-            </Button>
-          )))}
-          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-          {DELIVERED_WINDOWS.map((w) => (
-            <Button
-              key={w.value}
-              size="sm"
-              variant={deliveredWindow === w.value ? "default" : "outline"}
-              onClick={() => setDeliveredWindow(w.value)}
-            >
-              {w.label}
-            </Button>
-          ))}
-          <Button size="sm" variant={selfDeliveryMethod === "route" ? "default" : "outline"} onClick={() => selectSelfDeliveryMethod("route")}>
-            <Navigation className="mr-1.5 h-4 w-4" /> Route
-          </Button>
-          <Button size="sm" variant={selfDeliveryMethod === "radius" ? "default" : "outline"} onClick={() => selectSelfDeliveryMethod("radius")}>
-            <Crosshair className="mr-1.5 h-4 w-4" /> Radius
-          </Button>
-          {selfDeliveryMethod === "radius" && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
-                Select All Within Radius
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardContent className="p-4 sm:p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                  <Navigation className="mr-1.5 h-3.5 w-3.5" /> Delivery Planning
+                </Badge>
+                <Badge variant={realtimeConnected ? "success" : "outline"} className="gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${realtimeConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
+                  {realtimeConnected ? "Live updates" : "Connecting"}
+                </Badge>
+              </div>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                Plan delivery for packed Farmer Fulfillment orders. Choose the orders you will deliver, then route the remaining orders to delivery partners.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>
+                {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Crosshair className="mr-1.5 h-4 w-4" />}
+                {liveLocation ? "My Location" : "Locate Me"}
               </Button>
-              <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
-                {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Truck className="mr-1.5 h-4 w-4" />}
-                Create Self-Delivery Route
+              <Button size="sm" variant="outline" onClick={refreshAll} disabled={mapQuery.isFetching}>
+                {mapQuery.isFetching ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
+                Refresh
               </Button>
-            </>
-          )}
-          <Button size="sm" variant="outline" onClick={requestLiveLocation} disabled={locationLoading}>
-            {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Crosshair className="mr-1.5 h-4 w-4" />}
-            {liveLocation ? "Use My Location" : "Locate Me"}
-          </Button>
-          <Badge
-            variant={realtimeConnected ? "success" : "outline"}
-            className="h-8 gap-1.5 px-2.5"
-          >
-            <span className={`h-2 w-2 rounded-full ${realtimeConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
-            {realtimeConnected ? "Live" : "Connecting"}
-          </Badge>
-          <Button size="sm" variant="outline" onClick={refreshAll} disabled={mapQuery.isFetching}>
-            {mapQuery.isFetching ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-1.5 h-4 w-4" />}
-            Refresh
-          </Button>
-        </div>
-      </div>
+            </div>
+          </div>
 
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Delivery filter</p>
+              <p className="mt-0.5 text-xs text-slate-500">Set how nearby orders are measured and what completed orders you want to see.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
+                <span className="px-2 text-xs font-medium text-slate-500">Mode</span>
+                <Button size="sm" variant={selfDeliveryMethod === "radius" ? "default" : "ghost"} onClick={() => selectSelfDeliveryMethod("radius")}>
+                  <Crosshair className="mr-1.5 h-3.5 w-3.5" /> Radius
+                </Button>
+                <Button size="sm" variant={selfDeliveryMethod === "route" ? "default" : "ghost"} onClick={() => selectSelfDeliveryMethod("route")}>
+                  <Navigation className="mr-1.5 h-3.5 w-3.5" /> Route
+                </Button>
+              </div>
+              {selfDeliveryMethod === "radius" && (
+                <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
+                  <span className="px-2 text-xs font-medium text-slate-500">Radius</span>
+                  {RADIUS_OPTIONS.map((distance) => (
+                    <Button key={distance} size="sm" variant={radiusKm === distance ? "default" : "ghost"} onClick={() => setRadiusKm(distance)}>
+                      {distance} km
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <Select value={deliveredWindow} onValueChange={setDeliveredWindow}>
+                <SelectTrigger className="h-9 w-[120px] bg-white text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DELIVERED_WINDOWS.map((w) => <SelectItem key={w.value} value={w.value}>{w.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {selfDeliveryMethod === "radius" && (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(withinUnassigned.map((stop) => getStopId(stop)))} disabled={!withinUnassigned.length}>
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Nearby
+                  </Button>
+                  <Button size="sm" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
+                    {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Truck className="mr-1.5 h-3.5 w-3.5" />}
+                    Create Route
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       {(() => {
         const deferredOrders = allOrders.filter(
           (stop) =>
@@ -1003,13 +1015,16 @@ export default function FarmerOrderMapPage() {
         );
       })()}
 
-      <Card>
-        <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle>Order Overview</CardTitle>
-            <CardDescription>
-              Delivery radius {radiusKm} km measured from {liveLocation ? "your current location" : "the farm"} · {DELIVERED_WINDOWS.find((w) => w.value === deliveredWindow)?.label} window.
-            </CardDescription>
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">Delivery Overview</CardTitle>
+              <CardDescription>
+                {liveLocation ? "Distances are measured from your current location." : "Distances are measured from your farm."} · Showing {DELIVERED_WINDOWS.find((w) => w.value === deliveredWindow)?.label.toLowerCase()} completed orders.
+              </CardDescription>
+            </div>
+            <Badge variant="outline" className="w-fit">{pendingCount} orders on map</Badge>
           </div>
           {summary.deliveryProblem > 0 && (
             <Badge variant="destructive" className="gap-1.5">
@@ -1018,7 +1033,7 @@ export default function FarmerOrderMapPage() {
           )}
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-8 2xl:grid-cols-10">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
             <SummaryStat label="Total Orders" value={String(summary.totalOrders ?? 0)} />
             <SummaryStat label={`Within ${radiusKm} KM`} value={String(summary.withinRadius ?? 0)} tone="emerald" />
             <SummaryStat label={`Outside ${radiusKm} KM`} value={String(summary.outsideRadius ?? 0)} tone="orange" />
@@ -1367,22 +1382,24 @@ export default function FarmerOrderMapPage() {
       </Card>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.85fr)]">
-        <Card>
-          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(340px,0.8fr)]">
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b bg-white py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Delivery Order Locations</CardTitle>
               <CardDescription>
                 Green = self delivery · Blue = delivery partner · Yellow = pending assignment · Red = delivery problem · Black = delivered · Purple = farm
               </CardDescription>
             </div>
-            <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
               <span className="inline-block h-3 w-3 rounded-full" style={{ background: "#10B981" }} /> Self
               <span className="ml-2 inline-block h-3 w-3 rounded-full" style={{ background: "#3B82F6" }} /> Partner
               <span className="ml-2 inline-block h-3 w-3 rounded-full" style={{ background: "#F59E0B" }} /> Pending
               <span className="ml-2 inline-block h-3 w-3 rounded-full" style={{ background: "#EF4444" }} /> Problem
               <span className="ml-2 inline-block h-3 w-3 rounded-full" style={{ background: "#111827" }} /> Completed
               <span className="ml-2 inline-block h-3 w-3 rounded-full" style={{ background: "#8B5CF6" }} /> Farm
+            </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -1420,10 +1437,10 @@ export default function FarmerOrderMapPage() {
         </Card>
 
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Selected Order</CardTitle>
-              <CardDescription>Switch the assignment or take an action on this order.</CardDescription>
+          <Card className="xl:sticky xl:top-4 border-slate-200 shadow-sm">
+            <CardHeader className="border-b bg-white py-4">
+              <CardTitle className="text-base">Order Details</CardTitle>
+              <CardDescription>Review the selected customer order and choose its delivery method.</CardDescription>
             </CardHeader>
             <CardContent>
               {!selectedStop ? (
@@ -2177,7 +2194,7 @@ function OrderCard({
 }) {
   return (
     <div
-      className={`rounded-lg border p-3 transition ${
+      className={`rounded-xl border p-3.5 shadow-sm transition ${
         readOnly
           ? selected
             ? "border-slate-500 bg-slate-100"
