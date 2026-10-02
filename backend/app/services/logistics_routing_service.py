@@ -83,7 +83,8 @@ async def apply_partner_route(
       packed -> nearby -> Dispatch -> Local Hub -> Delivery Partner
       packed -> long_distance -> Dispatch -> Warehouse -> Local Hub -> Delivery Partner
 
-    Self delivery does not use this partner-route function.
+    Self delivery is dispatched separately by the Farmer Order Map:
+      packed -> self delivery -> Dispatch -> Farmer -> Customer.
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
     if str(order.get("fulfillmentMethod") or "") == "farmer":
