@@ -431,10 +431,22 @@ export default function FarmerOrderMapPage() {
   // different but valid workflow field combinations (for example processing +
   // packingComplete, or ready_for_delivery + selfDelivery). A second filter
   // was the reason only a few packed orders appeared on the map.
+  // The API returns only explicitly packed Farmer Fulfillment orders.
+  // Keep the client filter aligned with the Packing & Checking "Packed" tab:
+  // fulfillment stage packed OR the persisted packingComplete flag.
   const routeCandidates = useMemo(
     () =>
       allOrders.filter(
-        (stop) => !isDone(stop) && Boolean(getCoordinates(stop))
+        (stop) =>
+          !isDone(stop) &&
+          Boolean(getCoordinates(stop)) &&
+          ["farmer", "farm_direct"].includes(
+            String(stop?.fulfillmentMethod || stop?.fulfillment_route || "").toLowerCase()
+          ) &&
+          (
+            String(stop?.fulfillmentStage || "").toLowerCase() === "packed" ||
+            stop?.packingComplete === true
+          )
       ),
     [allOrders]
   );
