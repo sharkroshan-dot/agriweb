@@ -973,10 +973,12 @@ export default function FarmerOrdersPage() {
                                   <div className="space-y-2">
                                     {(!order.fulfillmentStage || order.fulfillmentStage === "pending") && (
                                       <div className="space-y-2">
-                                        <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => finalizeFarmerPacking(order)}>
-                                          <Package className="mr-2 h-4 w-4" />Finish Packing & Check Shortage
+                                        <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" asChild>
+                                          <Link href="/farmer/packing">
+                                            <Package className="mr-2 h-4 w-4" />Open Packing & Checking
+                                          </Link>
                                         </Button>
-                                        <p className="text-[11px] text-muted-foreground">After packing all products, enter the actual packed quantity. Any unavailable quantity is cancelled and the final amount is recalculated.</p>
+                                        <p className="text-[11px] text-muted-foreground">Check the order, enter actual quantities, resolve shortages, and prepare the delivery label in the packing workspace.</p>
                                       </div>
                                     )}
                                     {order.fulfillmentStage === "packed" && (
