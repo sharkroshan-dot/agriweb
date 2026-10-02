@@ -1183,7 +1183,7 @@ export default function FarmerOrderMapPage() {
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
-                    Farmer Self Delivery
+                    Confirm Delivery Plan
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteIds.length || assignSelectedPartnerMutation.isPending}>
                     <Truck className="mr-1.5 h-3.5 w-3.5" /> Delivery Partner
@@ -1260,6 +1260,52 @@ export default function FarmerOrderMapPage() {
         );
       })()}
 
+      <Card className="border-emerald-200 bg-white shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2">
+            <ListChecks className="h-5 w-5 text-emerald-600" />
+            Complete Farmer Fulfillment Delivery Workflow
+          </CardTitle>
+          <CardDescription>
+            Everything after Packing &amp; Checking is completed from this page. Orders stay separate even when several orders share one physical delivery stop.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-2 md:grid-cols-5">
+            {[
+              ["1", "Packed", "Packing & Checking complete"],
+              ["2", "Filter", "All / Radius / Route"],
+              ["3", "Select", "Select individual orders"],
+              ["4", "Confirm", "Self delivery selection"],
+              ["5", "Auto Route", "Remaining → Partner by distance"],
+            ].map(([step, title, detail], index) => (
+              <div key={step} className="relative rounded-xl border bg-slate-50 p-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">{step}</span>
+                  <p className="text-sm font-semibold text-slate-900">{title}</p>
+                </div>
+                <p className="mt-2 text-xs text-slate-600">{detail}</p>
+                {index < 4 && <span className="absolute -right-2 top-1/2 hidden text-slate-300 md:block">→</span>}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs">
+              <strong className="text-emerald-900">Farmer Self Delivery</strong>
+              <p className="mt-1 text-emerald-800">Selected orders → Dispatch → Farmer → Customer</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs">
+              <strong className="text-blue-900">Nearby Partner</strong>
+              <p className="mt-1 text-blue-800">Remaining orders → Dispatch → Local Hub → Delivery Partner → Customer</p>
+            </div>
+            <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs">
+              <strong className="text-violet-900">Long Distance</strong>
+              <p className="mt-1 text-violet-800">Remaining orders → Dispatch → Warehouse → Local Hub → Delivery Partner → Customer</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1301,7 +1347,7 @@ export default function FarmerOrderMapPage() {
               3. Delivery Decision
             </CardTitle>
             <CardDescription>
-              After you confirm Self Delivery, remaining packed orders follow the automatic distance decision: Nearby or Long Distance.
+              This page is the complete Farmer Fulfillment delivery-decision workspace: select your orders for self delivery, then confirm once. Every remaining packed order is automatically routed by distance.
             </CardDescription>
           </div>
           {deliveryInsight.highRisk > 0 && (
@@ -1521,7 +1567,7 @@ export default function FarmerOrderMapPage() {
             </Button>
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
-              Farmer Self Delivery
+              Confirm Delivery Plan
             </Button>
             <Button size="sm" variant="outline" onClick={() => setPartnerDecisionOpen(true)} disabled={!selectedRouteOrders.length || assignSelectedPartnerMutation.isPending}>
               <Truck className="mr-1.5 h-4 w-4" /> Delivery Partner
