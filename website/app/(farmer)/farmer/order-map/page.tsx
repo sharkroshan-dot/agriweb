@@ -141,6 +141,33 @@ const getLocationGroupKey = (stop: any) => {
   return `${coordinates.lat.toFixed(6)},${coordinates.lng.toFixed(6)}`;
 };
 
+// Customer/member identity is used only to describe grouped map stops.
+// Orders are never merged: every order keeps its own ID and selection state.
+const getCustomerIdentityKey = (stop: any) => {
+  const raw =
+    stop?.customerId ?? stop?.customer_id ??
+    stop?.memberId ?? stop?.member_id ??
+    stop?.buyerId ?? stop?.buyer_id ??
+    stop?.customer?.id ?? stop?.customer?.userId ?? stop?.customer?.user_id ??
+    stop?.member?.id ?? stop?.member?.userId ?? stop?.member?.user_id;
+  return raw == null || raw === "" ? "" : String(raw);
+};
+
+const getCustomerDisplayName = (stop: any) =>
+  String(stop?.buyerName ?? stop?.customerName ?? stop?.customer?.name ?? stop?.memberName ?? stop?.member?.name ?? "Customer");
+
+const getLocationGroupMeta = (orders: any[]) => {
+  const customerKeys = orders.map(getCustomerIdentityKey).filter(Boolean);
+  const sameCustomer = orders.length > 1 && customerKeys.length === orders.length && new Set(customerKeys).size === 1;
+  return {
+    sameCustomer,
+    customerName: sameCustomer ? getCustomerDisplayName(orders[0]) : "",
+    customerNames: Array.from(new Set(orders.map(getCustomerDisplayName).filter(Boolean))),
+    totalWeight: orders.reduce((sum, order) => sum + Number(order?.quantityKg ?? order?.quantity ?? 0), 0),
+    totalValue: orders.reduce((sum, order) => sum + Number(order?.total ?? 0), 0),
+  };
+};
+
 const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const R = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -480,6 +507,7 @@ export default function FarmerOrderMapPage() {
     );
     return {
       count: selectedRouteOrders.length,
+      physicalStops: new Set(selectedRouteOrders.map((stop) => getLocationGroupKey(stop)).filter(Boolean)).size || selectedRouteOrders.length,
       weight: Math.round(weight * 10) / 10,
       distance: Math.round(distance * 10) / 10,
       minutes: Math.round(minutes),
@@ -712,9 +740,17 @@ export default function FarmerOrderMapPage() {
       toast.error("Select at least one order for the route");
       return;
     }
-    const points = selectedRouteOrders
-      .map((stop) => getCoordinates(stop))
-      .filter(Boolean) as { lat: number; lng: number }[];
+    const points = Array.from(
+      new Map(
+        selectedRouteOrders
+          .map((stop) => getCoordinates(stop))
+          .filter(Boolean)
+          .map((point) => {
+            const p = point as { lat: number; lng: number };
+            return [`${p.lat.toFixed(6)},${p.lng.toFixed(6)}`, p] as const;
+          })
+      ).values()
+    ) as { lat: number; lng: number }[];
     const origin = farmCoordinates || liveLocation || points[0];
     const destination = routeDestination || points[points.length - 1];
     const waypoints = points.map((p) => `${p.lat},${p.lng}`).join("|");
@@ -740,7 +776,7 @@ export default function FarmerOrderMapPage() {
       current.push(stop);
       groups.set(key, current);
     });
-    return Array.from(groups.entries()).map(([key, orders]) => ({ key, orders }));
+    return Array.from(groups.entries()).map(([key, orders]) => ({ key, orders, meta: getLocationGroupMeta(orders) }));
   }, [mapOrders]);
 
   const selectedLocationGroup = useMemo(
@@ -812,11 +848,18 @@ export default function FarmerOrderMapPage() {
       }
 
       const selectedCount = group.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
+      const groupMeta = group.meta || getLocationGroupMeta(group.orders);
+      const customerLabel = groupMeta.sameCustomer
+        ? `${groupMeta.customerName} · ${group.orders.length} Orders`
+        : `${group.orders.length} Orders`;
+      const customerSummary = groupMeta.sameCustomer
+        ? `<strong>${groupMeta.customerName}</strong><br/><span>Same customer/member · same delivery address</span>`
+        : `<span>Customers: ${groupMeta.customerNames.join(", ") || "Multiple customers"}</span>`;
       const orderLines = group.orders
         .map((order) => {
           const id = getStopId(order);
           const checked = selectedRouteIds.includes(id);
-          return `${checked ? "✓" : "○"} #${order.orderNumber || id} · ${order.buyerName || "Customer"} · ${order.quantityKg ?? order.quantity ?? 0} kg`;
+          return `${checked ? "✓" : "○"} #${order.orderNumber || id} · ${getCustomerDisplayName(order)} · ${order.quantityKg ?? order.quantity ?? 0} kg`;
         })
         .join("<br/>");
 
@@ -824,8 +867,8 @@ export default function FarmerOrderMapPage() {
         id: `location-group:${group.key}`,
         lat: coordinates.lat,
         lng: coordinates.lng,
-        title: `${group.orders.length} orders at this location`,
-        info: `<strong>${group.orders.length} Orders at this location</strong><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>Click the marker to select individual orders.`,
+        title: customerLabel,
+        info: `<strong>${customerLabel}</strong><br/>${customerSummary}<br/>${formatAddress(first)}<br/><span>${group.orders.length} separate orders · ${groupMeta.totalWeight} kg · ${formatPrice(groupMeta.totalValue)}</span><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>Click the marker to select individual orders.`,
         color: selectedCount > 0 ? "#10B981" : "#2563EB",
         label: String(group.orders.length),
       });
@@ -1686,10 +1729,14 @@ export default function FarmerOrderMapPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle className="text-base">
-                      {selectedLocationGroup.orders.length} Orders at This Location
+                      {selectedLocationGroup.meta?.sameCustomer
+                        ? `${selectedLocationGroup.meta.customerName} · ${selectedLocationGroup.orders.length} Orders`
+                        : `${selectedLocationGroup.orders.length} Orders at This Location`}
                     </CardTitle>
                     <CardDescription>
-                      Same delivery location, separate orders. Select each order individually.
+                      {selectedLocationGroup.meta?.sameCustomer
+                        ? "Same customer/member and same delivery address. These remain separate orders and can be selected independently."
+                        : "Same delivery location, separate orders. Select each order individually."}
                     </CardDescription>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => setSelectedLocationGroupKey(null)}>
@@ -1722,7 +1769,7 @@ export default function FarmerOrderMapPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center justify-between gap-2">
                             <p className="truncate text-sm font-semibold">
-                              #{order.orderNumber || orderId} · {order.buyerName || "Customer"}
+                              #{order.orderNumber || orderId} · {getCustomerDisplayName(order)}
                             </p>
                             {getStatusBadge(order)}
                           </div>
@@ -1735,6 +1782,13 @@ export default function FarmerOrderMapPage() {
                     </button>
                   );
                 })}
+                <div className="border-t pt-2 text-xs text-slate-600">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{selectedLocationGroup.meta?.sameCustomer ? "One physical customer stop" : "One physical delivery location"}</span>
+                    <span>{selectedLocationGroup.meta?.totalWeight ?? 0} kg · {formatPrice(selectedLocationGroup.meta?.totalValue ?? 0)} total</span>
+                  </div>
+                  <p className="mt-1">Orders remain separate for selection, assignment, payment and status.</p>
+                </div>
                 <div className="flex items-center justify-between border-t pt-2 text-xs">
                   <span className="font-semibold text-slate-700">
                     Selected: {selectedLocationGroup.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length}
