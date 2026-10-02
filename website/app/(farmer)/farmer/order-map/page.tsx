@@ -966,7 +966,7 @@ export default function FarmerOrderMapPage() {
                 Automatic Delivery Routing
               </CardTitle>
               <CardDescription className="text-emerald-800">
-                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} completed Pack → Dispatch.
+                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} dispatched and ready for delivery routing.
                 Select the orders you will deliver yourself; every remaining order is automatically classified by distance:
                 ≤ {radiusKm} km → Nearby, &gt; {radiusKm} km → Long Distance.
               </CardDescription>
