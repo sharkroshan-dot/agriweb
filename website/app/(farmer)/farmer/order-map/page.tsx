@@ -133,6 +133,14 @@ const getCoordinates = (stop: any): { lat: number; lng: number } | null => {
   return isValidCoordinate(lat, lng) ? { lat, lng } : null;
 };
 
+// Orders with the same delivery coordinates are grouped only for map display.
+// Their order IDs remain independent so each order can be selected/assigned separately.
+const getLocationGroupKey = (stop: any) => {
+  const coordinates = getCoordinates(stop);
+  if (!coordinates) return "";
+  return `${coordinates.lat.toFixed(6)},${coordinates.lng.toFixed(6)}`;
+};
+
 const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const R = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -222,6 +230,7 @@ export default function FarmerOrderMapPage() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState(false);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
+  const [selectedLocationGroupKey, setSelectedLocationGroupKey] = useState<string | null>(null);
   // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
   const [routeStart, setRouteStart] = useState<{ lat: number; lng: number; label: string } | null>(null);
@@ -722,6 +731,23 @@ export default function FarmerOrderMapPage() {
   const mapCenter =
     selectedStop?.mapCoordinates || liveLocation || farmCoordinates || FALLBACK_CENTER;
 
+  const locationGroups = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    mapOrders.forEach((stop) => {
+      const key = getLocationGroupKey(stop);
+      if (!key) return;
+      const current = groups.get(key) || [];
+      current.push(stop);
+      groups.set(key, current);
+    });
+    return Array.from(groups.entries()).map(([key, orders]) => ({ key, orders }));
+  }, [mapOrders]);
+
+  const selectedLocationGroup = useMemo(
+    () => locationGroups.find((group) => group.key === selectedLocationGroupKey) || null,
+    [locationGroups, selectedLocationGroupKey]
+  );
+
   const mapMarkers = useMemo(() => {
     const markers: any[] = [];
     if (routeStart && (!farmCoordinates || routeStart.lat !== farmCoordinates.lat || routeStart.lng !== farmCoordinates.lng)) {
@@ -758,27 +784,55 @@ export default function FarmerOrderMapPage() {
         label: "F",
       });
     }
-    mapOrders.forEach((stop, index) => {
-      const c = stop.mapCoordinates;
-      if (!c) return;
-      const state = getDeliveryState(stop);
-      const isDelivered = state === "delivered";
-      const distText = stop.distance != null ? ` - ${stop.distance} km` : "";
-      const partnerText = state === "partner_assigned" && stop.deliveryPartnerName ? ` · ${stop.deliveryPartnerName}` : "";
-      const statusText = isDelivered ? "Delivered" : getStatus(stop).replace(/_/g, " ");
+
+    locationGroups.forEach((group, groupIndex) => {
+      const first = group.orders[0];
+      const coordinates = getCoordinates(first);
+      if (!coordinates) return;
+
+      if (group.orders.length === 1) {
+        const stop = first;
+        const state = getDeliveryState(stop);
+        const isDelivered = state === "delivered";
+        const distText = stop.distance != null ? ` - ${stop.distance} km` : "";
+        const partnerText = state === "partner_assigned" && stop.deliveryPartnerName ? ` · ${stop.deliveryPartnerName}` : "";
+        const statusText = isDelivered ? "Delivered" : getStatus(stop).replace(/_/g, " ");
+        const id = getStopId(stop);
+        markers.push({
+          id,
+          lat: coordinates.lat,
+          lng: coordinates.lng,
+          title: `${groupIndex + 1}. ${stop.buyerName || stop.orderNumber || "Delivery order"}`,
+          info: `<strong>${groupIndex + 1}. ${stop.buyerName || "Customer"}</strong><br/>${formatAddress(stop)}${distText}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText} · ${formatPrice(stop.total)}`,
+          address: formatAddress(stop),
+          color: selectedRouteIds.includes(id) ? "#10B981" : (DELIVERY_STATE_COLOR[state] || "#F59E0B"),
+          label: selectedRouteIds.includes(id) ? "✓" : String(groupIndex + 1),
+        });
+        return;
+      }
+
+      const selectedCount = group.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
+      const orderLines = group.orders
+        .map((order) => {
+          const id = getStopId(order);
+          const checked = selectedRouteIds.includes(id);
+          return `${checked ? "✓" : "○"} #${order.orderNumber || id} · ${order.buyerName || "Customer"} · ${order.quantityKg ?? order.quantity ?? 0} kg`;
+        })
+        .join("<br/>");
+
       markers.push({
-        id: getStopId(stop),
-        lat: c.lat,
-        lng: c.lng,
-        title: `${index + 1}. ${stop.buyerName || stop.orderNumber || "Delivery order"}`,
-        info: `<strong>${index + 1}. ${stop.buyerName || "Customer"}</strong><br/>${formatAddress(stop)}${distText}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText} · ${formatPrice(stop.total)}`,
-        address: formatAddress(stop),
-        color: selectedRouteIds.includes(getStopId(stop)) ? "#10B981" : (DELIVERY_STATE_COLOR[state] || "#F59E0B"),
-        label: selectedRouteIds.includes(getStopId(stop)) ? "✓" : String(index + 1),
+        id: `location-group:${group.key}`,
+        lat: coordinates.lat,
+        lng: coordinates.lng,
+        title: `${group.orders.length} orders at this location`,
+        info: `<strong>${group.orders.length} Orders at this location</strong><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>Click the marker to select individual orders.`,
+        color: selectedCount > 0 ? "#10B981" : "#2563EB",
+        label: String(group.orders.length),
       });
     });
+
     return markers;
-  }, [mapOrders, farm, farmCoordinates, routeStart, routeDestination, selectedRouteIds]);
+  }, [locationGroups, farm, farmCoordinates, routeStart, routeDestination, selectedRouteIds]);
 
   const acceptWithinMutation = useMutation({
     mutationFn: () => api.put("/farmers/me/delivery-map/accept-within", { radius: radiusKm }),
@@ -1596,7 +1650,17 @@ export default function FarmerOrderMapPage() {
                   height="560px"
                   circle={farmCoordinates ? { center: farmCoordinates, radiusKm } : undefined}
                   onMarkerClick={(marker) => {
-                    if (marker.id !== "farm") setSelectedStopId(String(marker.id));
+                    if (marker.id === "farm" || marker.id === "route-start" || marker.id === "route-destination") return;
+                    const markerId = String(marker.id);
+                    if (markerId.startsWith("location-group:")) {
+                      const groupKey = markerId.slice("location-group:".length);
+                      const group = locationGroups.find((item) => item.key === groupKey);
+                      setSelectedLocationGroupKey(groupKey);
+                      if (group?.orders?.length) setSelectedStopId(getStopId(group.orders[0]));
+                      return;
+                    }
+                    setSelectedLocationGroupKey(null);
+                    setSelectedStopId(markerId);
                   }}
                   onMapClick={(coords) => {
                     if (routePickMode) chooseRouteDestination(coords.lat, coords.lng, coords.lat.toFixed(5) + ", " + coords.lng.toFixed(5));
@@ -1616,6 +1680,79 @@ export default function FarmerOrderMapPage() {
         </Card>
 
         <div className="space-y-4">
+          {selectedLocationGroup && (
+            <Card className="border-blue-200 bg-blue-50/40 shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">
+                      {selectedLocationGroup.orders.length} Orders at This Location
+                    </CardTitle>
+                    <CardDescription>
+                      Same delivery location, separate orders. Select each order individually.
+                    </CardDescription>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedLocationGroupKey(null)}>
+                    Close
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {selectedLocationGroup.orders.map((order) => {
+                  const orderId = getStopId(order);
+                  const checked = selectedRouteIds.includes(orderId);
+                  return (
+                    <button
+                      key={orderId}
+                      type="button"
+                      onClick={() => {
+                        setSelectedStopId(orderId);
+                        toggleSelectedOrder(orderId);
+                      }}
+                      className={`w-full rounded-lg border p-3 text-left transition ${
+                        checked ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold ${
+                          checked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-slate-500"
+                        }`}>
+                          {checked ? "✓" : ""}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-sm font-semibold">
+                              #{order.orderNumber || orderId} · {order.buyerName || "Customer"}
+                            </p>
+                            {getStatusBadge(order)}
+                          </div>
+                          <p className="mt-1 text-xs text-muted-foreground">{formatAddress(order)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {order.quantityKg ?? order.quantity ?? 0} kg · {order.product || "Items"} · {formatPrice(order.total)}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+                <div className="flex items-center justify-between border-t pt-2 text-xs">
+                  <span className="font-semibold text-slate-700">
+                    Selected: {selectedLocationGroup.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
+                      setSelectedRouteIds((current) => current.filter((id) => !ids.includes(id)));
+                    }}
+                  >
+                    Clear This Location
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           <Card className="border-emerald-200 bg-emerald-50/30 shadow-sm">
             <CardContent className="p-4">
               <p className="text-sm font-semibold text-emerald-950">{selectedRouteIds.length} order{selectedRouteIds.length === 1 ? "" : "s"} selected</p>
