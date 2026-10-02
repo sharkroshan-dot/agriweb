@@ -720,7 +720,10 @@ class OrderRepository(BaseRepository):
                     "$set": {
                         "deliveryPartnerId": ObjectId(partner_id),
                         "deliveryPartnerName": "",
-                        "orderStatus": "dispatched",
+                        # Partner assignment is a routing decision, not the
+                        # physical dispatch itself. The routing service sets
+                        # ready_for_delivery only after the packed order has
+                        # been handed to the selected nearby/long-distance path.
                         "assignedAt": datetime.utcnow(),
                         "selfDelivery": False,
                         "partnerRequested": False,
