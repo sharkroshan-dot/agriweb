@@ -2028,10 +2028,8 @@ async def get_my_delivery_map(
         o for o in orders
         if o.get("deliveryType") == DeliveryType.DELIVERY.value
         and str(o.get("fulfillmentMethod") or "").lower() == "farmer"
-        and (
-            str(o.get("fulfillmentStage") or "").lower() == "packed"
-            or bool(o.get("packingComplete"))
-        )
+        and str(o.get("fulfillmentStage") or "").lower() == "packed"
+        and bool(o.get("packingComplete"))
     ]
 
     # Sweep expired open jobs (open -> no_partner_found) and index the rest by
