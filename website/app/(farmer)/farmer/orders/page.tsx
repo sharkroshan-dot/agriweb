@@ -304,39 +304,181 @@ export default function FarmerOrdersPage() {
     );
   }
 
+  const workflowStages = [
+    ["Farm Setup", "NOT STARTED"],
+    ["Crop Planning", "NOT STARTED"],
+    ["Growing", "NOT STARTED"],
+    ["Pre-orders", "NOT STARTED"],
+    ["Harvest", "NOT STARTED"],
+    ["Batch", "NOT STARTED"],
+    ["Quality", "NOT STARTED"],
+    ["Product", "NOT STARTED"],
+    ["Inventory", "NOT STARTED"],
+    ["Orders", "NOT STARTED"],
+    ["Delivery", "NOT STARTED"],
+    ["Earnings", "NOT STARTED"],
+  ];
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-emerald-600">Farmer workspace</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">Orders</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Process orders through fulfillment, then move completed Farmer Fulfillment orders into Packing & Checking and the Farmer Order Map.</p>
-        </div>
-        <div className="mb-3 flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm"><Package className="h-4 w-4" /></div>
+    <div className="space-y-5">
+      {/* Legacy farmer workspace status strip */}
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardContent className="p-3 sm:p-4">
+          <div className="mb-2 flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-900">Packing & Checking</p>
-              <p className="text-xs text-slate-600">Check all Farmer Fulfillment orders, record packed quantities, and prepare delivery labels.</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Farmer workflow</p>
+              <p className="text-xs text-slate-500">Your next action is based on the current backend state.</p>
             </div>
           </div>
-          <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
-            <Link href="/farmer/packing">Open Packing</Link>
-          </Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="bg-white px-3 py-1">
-              {orderList.length} orders · newest first
-            </Badge>
-            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700 px-3 py-1">
-              {packedFarmerOrders.length} packed Farmer Fulfillment
-            </Badge>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12">
+            {workflowStages.map(([title, state]) => (
+              <div key={title} className="min-h-[58px] rounded-lg border border-slate-200 bg-slate-50 px-2 py-2">
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 h-3 w-3 shrink-0 rounded-full border border-slate-400 bg-white" />
+                  <div className="min-w-0">
+                    <p className="truncate text-[11px] font-medium text-slate-800">{title}</p>
+                    <p className="mt-0.5 text-[8px] font-semibold tracking-wide text-slate-400">{state}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-          <Button variant="outline" size="icon" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="text-xs font-medium text-emerald-600">Farmer workspace</p>
+          <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Orders</h1>
+          <p className="mt-1 text-sm text-slate-500">Review customer demand, confirm available stock, and manage fulfillment.</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Card className="border-emerald-100 bg-emerald-50/60 shadow-none">
+            <CardContent className="flex items-center gap-3 px-3 py-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-emerald-700 shadow-sm">
+                <Package className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-900">Packing & Checking</p>
+                <p className="text-[10px] text-slate-600">Check all Farmer Fulfillment orders, record packed quantities, and prepare delivery labels.</p>
+              </div>
+              <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+                <Link href="/farmer/packing">Open Packing</Link>
+              </Button>
+            </CardContent>
+          </Card>
+          <Badge variant="outline" className="h-9 bg-white px-3 text-xs">
+            {orderList.length} orders · newest first
+          </Badge>
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => { refetch(); availabilityQuery.refetch(); }} aria-label="Refresh orders">
             <RefreshCw className="h-4 w-4"/>
           </Button>
         </div>
+      </div>
+
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardContent className="p-4 sm:p-5">
+          <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div>
+              <p className="text-base font-semibold text-slate-900">Order Workflow</p>
+              <p className="mt-1 max-w-2xl text-xs text-slate-500">
+                Complete one stage first; the next action appears automatically. Bulk actions advance only eligible orders by stage.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("confirm")}>
+                <CheckCircle className="mr-1.5 h-3.5 w-3.5" /> Confirm All
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("process")}>
+                <Package className="mr-1.5 h-3.5 w-3.5" /> Process All
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("farmer_fulfillment")}>
+                <UserCheck className="mr-1.5 h-3.5 w-3.5" /> Farmer Fulfillment All
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>
+                <Store className="mr-1.5 h-3.5 w-3.5" /> Warehouse Fulfillment All
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowDeliveryRoutes(true)}>
+                <Navigation className="mr-1.5 h-3.5 w-3.5" /> Delivery Routes
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowBulkSummary(true)}>
+                <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Bulk Summary
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/farmer/packing"><Package className="mr-1.5 h-3.5 w-3.5" /> Open Packing</Link>
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/farmer/order-map?delivery=required"><Navigation className="mr-1.5 h-3.5 w-3.5" /> Open Farmer Order Map</Link>
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-slate-600">
+            {["Pending → Confirmed", "Processing", "Choose Fulfillment"].map((step, index) => (
+              <div key={step} className="flex items-center gap-2">
+                <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1">{step}</span>
+                {index < 2 && <span className="text-slate-300">→</span>}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+            <p className="text-[11px] font-semibold text-emerald-900">Farmer Fulfillment branch</p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+              {["Farmer Packs Each Order", "Shortage Check", "Packed", "Farmer Order Map"].map((step, index) => (
+                <div key={step} className="flex items-center gap-1.5">
+                  <span className="rounded-full border border-emerald-200 bg-white px-2 py-1 text-emerald-900">{step}</span>
+                  {index < 3 && <span className="text-emerald-300">→</span>}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] text-emerald-800">
+              After packing, open the Farmer Order Map. Self-delivery follows Dispatch → Farmer → Customer; delivery-partner routes use the nearby/long-distance routing workflow.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
+        <Button
+          variant={showDeliveryRoutes ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowDeliveryRoutes(!showDeliveryRoutes)}
+        >
+          <Navigation className="mr-1.5 h-3.5 w-3.5" /> Delivery Routes
+        </Button>
+        <Button
+          variant={showBulkSummary ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowBulkSummary(!showBulkSummary)}
+        >
+          <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Bulk Summary
+        </Button>
+        <Button
+          variant={showMapView ? "default" : "outline"}
+          size="sm"
+          onClick={() => setShowMapView(!showMapView)}
+        >
+          <Navigation className="mr-1.5 h-3.5 w-3.5" /> Split by Location
+        </Button>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[180px] bg-white"><SelectValue placeholder="Filter by status"/></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Orders</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="confirmed">Confirmed</SelectItem>
+            <SelectItem value="processing">Processing</SelectItem>
+            <SelectItem value="ready_for_delivery">Ready for Delivery</SelectItem>
+            <SelectItem value="ready_for_pickup">Ready for Pickup</SelectItem>
+            <SelectItem value="dispatched">Dispatched</SelectItem>
+            <SelectItem value="in_transit">In Transit</SelectItem>
+            <SelectItem value="delivered">Delivered</SelectItem>
+            <SelectItem value="picked_up">Picked Up</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+            <SelectItem value="refunded">Refunded</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Dialog open={runAllConfirmOpen} onOpenChange={setRunAllConfirmOpen}>
