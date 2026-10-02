@@ -602,6 +602,28 @@ export default function FarmerOrderMapPage() {
     deliverSelectedMutation.mutate();
   };
 
+  const autoRouteRemainingMutation = useMutation({
+    mutationFn: () =>
+      api.post("/farmers/me/delivery-map/self-delivery-plan", {
+        method: selfDeliveryMethod,
+        orderIds: [],
+        radius: radiusKm,
+        destination: routeDestination
+          ? { lat: routeDestination.lat, lng: routeDestination.lng, label: routeDestination.label }
+          : null,
+      }),
+    onSuccess: (res: any) => {
+      const partnerCount = Number(res?.data?.partnerCount ?? 0);
+      const nearbyCount = Number(res?.data?.nearbyCount ?? 0);
+      const longDistanceCount = Number(res?.data?.longDistanceCount ?? 0);
+      toast.success(
+        `${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} routed automatically: ${nearbyCount} nearby · ${longDistanceCount} long distance`
+      );
+      refreshAll();
+    },
+    onError: (e: any) => toast.error(getApiError(e)),
+  });
+
   const continueToCalendar = () => {
     const ids = selectedRouteIds.length ? selectedRouteIds : selectedRouteOrders.map((stop) => getStopId(stop));
     if (!ids.length) {
@@ -939,13 +961,14 @@ export default function FarmerOrderMapPage() {
         return (
           <Card className="border-amber-200 bg-amber-50/60">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-amber-900">
+              <CardTitle className="flex items-center gap-2 text-emerald-900">
                 <Truck className="h-5 w-5" />
-                Delivery Decision Required
+                Automatic Delivery Routing
               </CardTitle>
-              <CardDescription className="text-amber-800">
-                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} completed Pack → Dispatch and now need a delivery decision.
-                Self delivery uses the radius/route planner; delivery-partner orders must choose Nearby or Long Distance.
+              <CardDescription className="text-emerald-800">
+                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} completed Pack → Dispatch.
+                Select the orders you will deliver yourself; every remaining order is automatically classified by distance:
+                ≤ {radiusKm} km → Nearby, &gt; {radiusKm} km → Long Distance.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -963,7 +986,7 @@ export default function FarmerOrderMapPage() {
                       onClick={() => document.getElementById("delivery-route-selection")?.scrollIntoView({ behavior: "smooth", block: "start" })}
                     >
                       <Navigation className="mr-1.5 h-4 w-4" />
-                      Choose Delivery Route
+                      Select Self Delivery
                     </Button>
                     <Button
                       size="sm"
@@ -1077,16 +1100,29 @@ export default function FarmerOrderMapPage() {
       </Card>
 
       <Card className="border-emerald-200 bg-emerald-50/30">
-        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-medium text-emerald-900">Automatic delivery-partner handoff</p>
+            <p className="font-medium text-emerald-900">Automatic distance-based delivery decision</p>
             <p className="text-xs text-emerald-800">
-              After you create the self-delivery route, every remaining dispatched order is automatically routed to the appropriate delivery-partner flow.
+              After self-delivery orders are selected, every remaining dispatched order is routed automatically.
+              The system calculates farm-to-customer distance: ≤ {radiusKm} km → Local Hub → Delivery Partner;
+              &gt; {radiusKm} km → Warehouse → Local Hub → Delivery Partner.
             </p>
           </div>
-          <Button size="sm" variant="outline" title="Edit delivery capacity" onClick={openCapacityEditor}>
-            <Settings2 className="mr-2 h-4 w-4" /> Delivery Capacity
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => autoRouteRemainingMutation.mutate()}
+              disabled={autoRouteRemainingMutation.isPending}
+            >
+              {autoRouteRemainingMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
+              Route All Remaining Automatically
+            </Button>
+            <Button size="sm" variant="outline" title="Edit delivery capacity" onClick={openCapacityEditor}>
+              <Settings2 className="mr-2 h-4 w-4" /> Delivery Capacity
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
