@@ -888,7 +888,7 @@ export default function FarmerOrderMapPage() {
           <p className="text-sm font-medium text-primary">Farmer Fulfillment → Delivery</p>
           <h1 className="text-3xl font-semibold tracking-tight">Farmer Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            After Farmer Fulfillment packing, shortage handling, and Dispatch, this page is opened automatically for delivery assignment. Select your start location, destination/route or radius, choose the orders you will personally deliver, and AgriConnect automatically routes the remaining orders to delivery partners.
+            After Farmer Fulfillment packing and shortage handling, this page is opened automatically for delivery assignment. Select your start location, destination/route or radius, choose the orders you will personally deliver, and AgriConnect automatically routes the remaining orders to delivery partners.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -966,7 +966,7 @@ export default function FarmerOrderMapPage() {
                 Automatic Delivery Routing
               </CardTitle>
               <CardDescription className="text-emerald-800">
-                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} dispatched and ready for delivery routing.
+                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} packed and ready for delivery decision.
                 Select the orders you will deliver yourself; every remaining order is automatically classified by distance:
                 ≤ {radiusKm} km → Nearby, &gt; {radiusKm} km → Long Distance.
               </CardDescription>
@@ -977,7 +977,7 @@ export default function FarmerOrderMapPage() {
                   <div>
                     <p className="font-semibold">#{stop.orderNumber || "Order"}</p>
                     <p className="text-xs text-muted-foreground">{formatAddress(stop)}</p>
-                    <Badge variant="outline" className="mt-1">Dispatched · Delivery not selected</Badge>
+                    <Badge variant="outline" className="mt-1">Packed · Delivery decision not selected</Badge>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -1104,9 +1104,10 @@ export default function FarmerOrderMapPage() {
           <div>
             <p className="font-medium text-emerald-900">Automatic distance-based delivery decision</p>
             <p className="text-xs text-emerald-800">
-              After self-delivery orders are selected, every remaining dispatched order is routed automatically.
-              The system calculates farm-to-customer distance: Dispatch → ≤ {radiusKm} km → Nearby → Local Hub → Delivery Partner;
-              Dispatch → &gt; {radiusKm} km → Long Distance → Warehouse → Local Hub → Delivery Partner.
+              After self-delivery orders are selected, every remaining packed order is routed automatically.
+              The system calculates farm-to-customer distance. Self delivery goes directly to the customer. Partner delivery follows:
+              ≤ {radiusKm} km → Dispatch → Nearby → Local Hub → Delivery Partner → Customer;
+              &gt; {radiusKm} km → Dispatch → Long Distance → Warehouse → Local Hub → Delivery Partner → Customer.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1238,7 +1239,7 @@ export default function FarmerOrderMapPage() {
               I'm Going This Way
             </CardTitle>
             <CardDescription>
-              Enter where you are going. AgriConnect calculates the road route from your farm/current location and finds eligible dispatched customer orders near that route.
+              Enter where you are going. AgriConnect calculates the road route from your farm/current location and finds eligible packed customer orders near that route.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -1572,7 +1573,7 @@ export default function FarmerOrderMapPage() {
                     </p>
                   </div>
                   <p className="mb-3 text-xs text-muted-foreground">
-                    Orders in this group are candidates for your self-delivery selection. After you finalize the selection, all remaining dispatched orders are routed automatically.
+                    Orders in this group are candidates for your self-delivery selection. After you finalize the selection, all remaining packed orders are routed automatically.
                   </p>
                   {withinUnassigned.length === 0 ? (
                     <p className="rounded-lg border border-dashed py-3 text-center text-sm text-muted-foreground">
