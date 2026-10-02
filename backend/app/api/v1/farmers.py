@@ -1214,6 +1214,7 @@ _ACTIVE_DELIVERY_STATUSES = [
     "pending",
     "confirmed",
     "processing",
+    "packed",
     "ready_for_delivery",
     "ready_for_pickup",
     "dispatched",
