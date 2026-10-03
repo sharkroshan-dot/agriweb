@@ -498,8 +498,6 @@ export default function FarmerOrderMapPage() {
       allOrders.filter(
         (stop) =>
           !isDone(stop) &&
-          String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" &&
-          String(stop?.fulfillmentStage || "").toLowerCase() === "packed" &&
           String(stop?.assignment || "unassigned").toLowerCase() === "unassigned" &&
           !stop?.deliveryPartnerId &&
           !stop?.partnerRequested &&
@@ -875,15 +873,25 @@ export default function FarmerOrderMapPage() {
         const partnerText = state === "partner_assigned" && stop.deliveryPartnerName ? ` · ${stop.deliveryPartnerName}` : "";
         const statusText = isDelivered ? "Delivered" : getStatus(stop).replace(/_/g, " ");
         const id = getStopId(stop);
+        const productName = getProductDisplayName(stop);
+        const customerName = getCustomerDisplayName(stop);
+        const markerLabel = productName && customerName && customerName !== "Customer"
+          ? `${customerName} · ${productName}`
+          : productName
+            ? `${productName} · 1 Order`
+            : customerName && customerName !== "Customer"
+              ? `${customerName} · 1 Order`
+              : "1 Order";
         markers.push({
           id,
           lat: coordinates.lat,
           lng: coordinates.lng,
-          title: `${groupIndex + 1}. ${stop.buyerName || stop.orderNumber || "Delivery order"}`,
-          info: `<strong>${groupIndex + 1}. ${stop.buyerName || "Customer"}</strong><br/>${formatAddress(stop)}${distText}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText} · ${formatPrice(stop.total)}`,
+          title: markerLabel,
+          displayLabel: markerLabel,
+          info: `<strong>${markerLabel}</strong><br/>${formatAddress(stop)}${distText}<br/>Order #${stop.orderNumber || id}<br/>${productName}<br/>${stop.quantityKg ?? stop.quantity ?? 0} kg · ${formatPrice(stop.total)}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText}<br/><em>1 business order · 1 physical stop</em>`,
           address: formatAddress(stop),
           color: selectedRouteIds.includes(id) ? "#10B981" : (DELIVERY_STATE_COLOR[state] || "#F59E0B"),
-          label: selectedRouteIds.includes(id) ? "✓" : String(groupIndex + 1),
+          label: selectedRouteIds.includes(id) ? "✓" : "1",
         });
         return;
       }
