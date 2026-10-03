@@ -907,15 +907,21 @@ export default function FarmerOrderMapPage() {
 
       const selectedCount = group.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
       const groupMeta = group.meta || getLocationGroupMeta(group.orders);
+      // Explain the physical-location grouping directly on the marker.
+      // Farmers should not need to understand technical grouping rules.
       const orderCount = group.orders.length;
-      const orderWord = orderCount === 1 ? "Order" : "Orders";
-      const customerLabel = groupMeta.sameCustomer && groupMeta.sameProduct
-        ? `${groupMeta.customerName} · ${orderCount} ${groupMeta.productName} ${orderWord}`
-        : groupMeta.sameCustomer
-          ? `${groupMeta.customerName} · ${orderCount} ${orderWord}`
-          : groupMeta.sameProduct
-            ? `${orderCount} ${groupMeta.productName} ${orderWord}`
-            : `${orderCount} ${orderWord}`;
+      const customerCount = groupMeta.customerNames.length;
+      const productCount = groupMeta.productNames.length;
+      const orderWord = orderCount === 1 ? "order" : "orders";
+      const customerWord = customerCount === 1 ? "customer" : "customers";
+      const productWord = productCount === 1 ? "product" : "products";
+      const markerLine1 = groupMeta.sameCustomer && groupMeta.customerName
+        ? groupMeta.customerName
+        : `${customerCount} ${customerWord}`;
+      const markerLine2 = groupMeta.sameProduct && groupMeta.productName
+        ? `${orderCount} ${groupMeta.productName} ${orderWord}`
+        : `${orderCount} ${orderWord} · ${productCount} ${productWord}`;
+      const customerLabel = `${markerLine1} · ${markerLine2}`;
       const customerSummary = groupMeta.sameCustomer
         ? `<strong>${groupMeta.customerName}</strong><br/><span>Same customer/member · same delivery address</span>`
         : `<span>Customers: ${groupMeta.customerNames.join(", ") || "Multiple customers"}</span>`;
@@ -936,6 +942,8 @@ export default function FarmerOrderMapPage() {
         lng: coordinates.lng,
         title: customerLabel,
         displayLabel: customerLabel,
+        displayLabelLine1: markerLine1,
+        displayLabelLine2: markerLine2,
         info: `<strong>${customerLabel}</strong><br/>${customerSummary}<br/>${productSummary}<br/>${formatAddress(first)}<br/><span>${group.orders.length} separate orders · ${groupMeta.totalWeight} kg · ${formatPrice(groupMeta.totalValue)}</span><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>One physical stop · click the marker to select individual orders.`,
         color: "#8B5CF6",
         label: "O",
