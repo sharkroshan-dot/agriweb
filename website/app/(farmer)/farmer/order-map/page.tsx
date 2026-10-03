@@ -500,9 +500,10 @@ export default function FarmerOrderMapPage() {
           !isDone(stop) &&
           String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" &&
           String(stop?.fulfillmentStage || "").toLowerCase() === "packed" &&
-          stop?.packingComplete === true &&
-          stop?.readyForFarmerRoute === true &&
-          String(stop?.assignment || "unassigned").toLowerCase() === "unassigned"
+          String(stop?.assignment || "unassigned").toLowerCase() === "unassigned" &&
+          !stop?.deliveryPartnerId &&
+          !stop?.partnerRequested &&
+          !stop?.selfDelivery
       ),
     [allOrders]
   );
