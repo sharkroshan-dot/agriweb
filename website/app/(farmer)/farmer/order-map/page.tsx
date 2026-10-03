@@ -1236,6 +1236,73 @@ export default function FarmerOrderMapPage() {
         </Card>
       )}
 
+      <Card id="delivery-route-selection" className="scroll-mt-20 border-emerald-200 bg-gradient-to-r from-emerald-50/60 to-violet-50/60">
+        <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-emerald-600" />
+              Delivery Insights
+            </CardTitle>
+            <CardDescription>
+              Review delivery signals before confirming your selected orders. Filtering never selects or assigns an order.
+            </CardDescription>
+          </div>
+          {deliveryInsight.highRisk > 0 && (
+            <Badge variant="destructive" className="gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" /> {deliveryInsight.highRisk} high risk
+            </Badge>
+          )}
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border bg-white p-3">
+              <p className="text-[11px] font-medium text-muted-foreground">Delivery Risk Split</p>
+              <div className="mt-2 flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                  <span className="text-sm font-semibold">{deliveryInsight.lowRisk ?? 0}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  <span className="text-sm font-semibold">{deliveryInsight.mediumRisk ?? 0}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                  <span className="text-sm font-semibold">{deliveryInsight.highRisk ?? 0}</span>
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{deliveryInsight.totalOrders ?? 0} active orders assessed</p>
+            </div>
+            <div className="rounded-lg border bg-white p-3">
+              <p className="text-[11px] font-medium text-muted-foreground">Community Delivery Opportunity</p>
+              {communityInsight.customerCount > 1 ? (
+                <>
+                  <p className="mt-1 text-sm font-semibold">
+                    {communityInsight.customerCount} customers · {communityInsight.totalWeight} KG
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Batch these orders into one delivery to save distance.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-1 text-sm text-muted-foreground">No batchable group detected yet.</p>
+              )}
+            </div>
+            <div className="rounded-lg border bg-white p-3">
+              <p className="text-[11px] font-medium text-muted-foreground">Recommended</p>
+              {deliveryInsight.highRisk > 0 ? (
+                <p className="mt-1 text-sm text-amber-700">
+                  Assign the {deliveryInsight.highRisk} high-risk order{deliveryInsight.highRisk > 1 ? "s" : ""} to a delivery partner, or deliver in an earlier slot.
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-emerald-700">No high-risk orders — proceed with current assignments.</p>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+
       <Card className="overflow-hidden border-slate-200 shadow-sm">
         <CardContent className="p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1399,72 +1466,6 @@ export default function FarmerOrderMapPage() {
           </CardContent>
         </Card>
       )}
-
-      <Card id="delivery-route-selection" className="scroll-mt-20 border-emerald-200 bg-gradient-to-r from-emerald-50/60 to-violet-50/60">
-        <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-emerald-600" />
-              Delivery Insights
-            </CardTitle>
-            <CardDescription>
-              Review delivery signals before confirming your selected orders. Filtering never selects or assigns an order.
-            </CardDescription>
-          </div>
-          {deliveryInsight.highRisk > 0 && (
-            <Badge variant="destructive" className="gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5" /> {deliveryInsight.highRisk} high risk
-            </Badge>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-lg border bg-white p-3">
-              <p className="text-[11px] font-medium text-muted-foreground">Delivery Risk Split</p>
-              <div className="mt-2 flex items-center gap-3">
-                <div className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-sm font-semibold">{deliveryInsight.lowRisk ?? 0}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
-                  <span className="text-sm font-semibold">{deliveryInsight.mediumRisk ?? 0}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
-                  <span className="text-sm font-semibold">{deliveryInsight.highRisk ?? 0}</span>
-                </div>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">{deliveryInsight.totalOrders ?? 0} active orders assessed</p>
-            </div>
-            <div className="rounded-lg border bg-white p-3">
-              <p className="text-[11px] font-medium text-muted-foreground">Community Delivery Opportunity</p>
-              {communityInsight.customerCount > 1 ? (
-                <>
-                  <p className="mt-1 text-sm font-semibold">
-                    {communityInsight.customerCount} customers · {communityInsight.totalWeight} KG
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Batch these orders into one delivery to save distance.
-                  </p>
-                </>
-              ) : (
-                <p className="mt-1 text-sm text-muted-foreground">No batchable group detected yet.</p>
-              )}
-            </div>
-            <div className="rounded-lg border bg-white p-3">
-              <p className="text-[11px] font-medium text-muted-foreground">Recommended</p>
-              {deliveryInsight.highRisk > 0 ? (
-                <p className="mt-1 text-sm text-amber-700">
-                  Assign the {deliveryInsight.highRisk} high-risk order{deliveryInsight.highRisk > 1 ? "s" : ""} to a delivery partner, or deliver in an earlier slot.
-                </p>
-              ) : (
-                <p className="mt-1 text-sm text-emerald-700">No high-risk orders — proceed with current assignments.</p>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
 
       {(activeJobs.length > 0 || stuckJobs.length > 0) && (
         <Card>
