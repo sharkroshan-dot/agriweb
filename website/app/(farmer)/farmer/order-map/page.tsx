@@ -278,7 +278,8 @@ export default function FarmerOrderMapPage() {
   const [locationError, setLocationError] = useState(false);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
   const [selectedLocationGroupKey, setSelectedLocationGroupKey] = useState<string | null>(null);
-  // Optional route-planning selection. This is UI-only and does not change order assignment or fulfillment state.
+  // Selection stays local until the farmer explicitly confirms it.
+  // Confirmed IDs are reused by Delivery Calendar -> Smart Route -> Route.
   const [selectedRouteIds, setSelectedRouteIds] = useState<string[]>([]);
   const [routeStart, setRouteStart] = useState<{ lat: number; lng: number; label: string } | null>(null);
   const [routeStartText, setRouteStartText] = useState("");
@@ -306,6 +307,7 @@ export default function FarmerOrderMapPage() {
   const [capacityEditorOpen, setCapacityEditorOpen] = useState(false);
   const [capacityDraft, setCapacityDraft] = useState({ maxOrders: "20", maxWeightKg: "100", maxRouteMinutes: "180" });
   const [lastPlanResult, setLastPlanResult] = useState<any>(null);
+  const [confirmedOrderIds, setConfirmedOrderIds] = useState<string[]>([]);
 
   const mapQuery = useQuery({
     queryKey: ["farmerDeliveryMap", radiusKm, deliveredWindow],
@@ -790,10 +792,12 @@ export default function FarmerOrderMapPage() {
     },
     onSuccess: (res: any) => {
       const result = res?.data || {};
-      const selfCount = Number(result.selfDeliveryCount ?? selectedRouteIds.length);
+      const confirmedIds = asArray(result.selfDeliveryOrderIds ?? selectedRouteIds).map((id) => String(id)).filter(Boolean);
+      const selfCount = Number(result.selfDeliveryCount ?? confirmedIds.length);
       const partnerCount = Number(result.partnerCount ?? 0);
       const nearbyCount = Number(result.nearbyCount ?? 0);
       const longDistanceCount = Number(result.longDistanceCount ?? 0);
+      setConfirmedOrderIds(confirmedIds);
       setLastPlanResult({ selfCount, partnerCount, nearbyCount, longDistanceCount, skipped: result.skipped || [] });
       toast.success(`Delivery plan confirmed: ${selfCount} self · ${nearbyCount} nearby partner · ${longDistanceCount} long-distance`);
       setSelectedRouteIds([]);
@@ -1297,7 +1301,7 @@ export default function FarmerOrderMapPage() {
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
-                    Confirm Selection & Process Remaining Orders
+                    Confirm Selection
                   </Button>
                 </>
               )}
@@ -1437,6 +1441,29 @@ export default function FarmerOrderMapPage() {
                 {lastPlanResult.skipped.length} order{lastPlanResult.skipped.length === 1 ? "" : "s"} could not be routed automatically. Review the order location or logistics resources and retry.
               </p>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {confirmedOrderIds.length > 0 && (
+        <Card className="border-blue-200 bg-blue-50/50 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-blue-950">
+              <CheckCircle className="h-5 w-5 text-emerald-600" />
+              Orders Confirmed
+            </CardTitle>
+            <CardDescription className="text-blue-800">
+              {confirmedOrderIds.length} confirmed order{confirmedOrderIds.length === 1 ? "" : "s"} are now available in the Delivery Calendar and Smart Route. Choose either path; both continue to the same Route page.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <Badge variant="success" className="gap-1.5"><CalendarDays className="h-3.5 w-3.5" />Delivery Calendar Updated</Badge>
+            <Button variant="outline" onClick={() => { window.location.href = `/farmer/delivery-calendar?orderIds=${encodeURIComponent(confirmedOrderIds.join(","))}`; }}>
+              <CalendarDays className="mr-1.5 h-4 w-4" />View Delivery Calendar
+            </Button>
+            <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { window.location.href = `/farmer/smart-route?orderIds=${encodeURIComponent(confirmedOrderIds.join(","))}`; }}>
+              <Sparkles className="mr-1.5 h-4 w-4" />Find Smart Route
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -1702,7 +1729,7 @@ export default function FarmerOrderMapPage() {
             </Button>
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
-              Confirm Selection & Process Remaining Orders
+              Confirm Selection
             </Button>
           </div>
         </CardHeader>
@@ -2042,10 +2069,7 @@ export default function FarmerOrderMapPage() {
                     const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
                     setSelectedRouteIds((current) => current.filter((id) => !ids.includes(id)));
                   }}>Clear This Location</Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={!selectedLocationGroup.orders.some((order) => selectedRouteIds.includes(getStopId(order)))} onClick={() => {
-                    const selectedCount = selectedLocationGroup.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
-                    toast.success(`Selection confirmed: ${selectedCount} order${selectedCount === 1 ? "" : "s"} at this physical stop`);
-                  }}><CheckCircle className="mr-1.5 h-3.5 w-3.5" />Confirm Selection</Button>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={!selectedLocationGroup.orders.some((order) => selectedRouteIds.includes(getStopId(order))) || deliverSelectedMutation.isPending} onClick={deliverSelected}><CheckCircle className="mr-1.5 h-3.5 w-3.5" />Confirm Selection</Button>
                 </div>
               </CardContent>
             </Card>
@@ -2057,7 +2081,7 @@ export default function FarmerOrderMapPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={!selectedRouteIds.length || deliverSelectedMutation.isPending}>
                   {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="mr-1.5 h-3.5 w-3.5" />}
-                  Confirm Selection & Process Remaining Orders
+                  Confirm Selection
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear Selection</Button>
               </div>
