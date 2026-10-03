@@ -1321,60 +1321,6 @@ export default function FarmerOrderMapPage() {
           </div>
         </CardContent>
       </Card>
-      {(() => {
-        const deferredOrders = packedOrders.filter(
-          (stop) =>
-            stop?.readyForFarmerRoute === true &&
-            !stop?.deliveryPartnerId &&
-            !stop?.selfDelivery &&
-            !stop?.deliveryResponsibility
-        );
-        if (!deferredOrders.length) return null;
-        return (
-          <Card className="border-amber-200 bg-amber-50/60">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-emerald-900">
-                <Truck className="h-5 w-5" />
-                Automatic Delivery Routing
-              </CardTitle>
-              <CardDescription className="text-emerald-800">
-                {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} packed and ready for delivery decision.
-                Select the orders you will deliver yourself. After confirmation, every remaining eligible order is automatically distance-classified and sent through the partner workflow:
-                ≤ {radiusKm} km → Nearby → Local Hub → Delivery Partner; &gt; {radiusKm} km → Warehouse → Local Hub → Delivery Partner.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {deferredOrders.map((stop) => (
-                <div key={getStopId(stop)} className="flex flex-col gap-3 rounded-lg border bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="font-semibold">#{stop.orderNumber || "Order"}</p>
-                    <p className="text-xs text-muted-foreground">{formatAddress(stop)}</p>
-                    <Badge variant="outline" className="mt-1">Packed · Delivery decision not selected</Badge>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => document.getElementById("delivery-route-selection")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                    >
-                      <Navigation className="mr-1.5 h-4 w-4" />
-                      Select Self Delivery
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setSelectedStopId(getStopId(stop))}
-                    >
-                      View Order
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        );
-      })()}
-
       <Card className="border-emerald-200 bg-white shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
