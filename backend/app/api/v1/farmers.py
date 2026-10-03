@@ -2225,7 +2225,7 @@ async def get_my_delivery_map(
     payloads = await asyncio.gather(*[
         _map_order_payload(
             order, farm, center, radius, customers=customers,
-            refresh_coords=False, job_info=jobs_by_order.get(str(order["_id"])),
+            refresh_coords=True, job_info=jobs_by_order.get(str(order["_id"])),
         )
         for order in orders
     ])
