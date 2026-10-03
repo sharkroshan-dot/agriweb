@@ -313,7 +313,7 @@ export default function FarmerRoutePage() {
   const [problemNote, setProblemNote] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["farmerRoute"],
+    queryKey: ["farmerRoute", workflowOrderIds],
     queryFn: () => api.get(`/farmers/me/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
     enabled: Boolean(accessToken),
   });
@@ -342,7 +342,7 @@ export default function FarmerRoutePage() {
   };
 
   const startMutation = useMutation({
-    mutationFn: () => api.put("/farmers/me/route/start"),
+    mutationFn: () => api.put(`/farmers/me/route/start${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
     onSuccess: () => {
       setStarted(true);
       toast.success("Route started! Stops are marked as self-delivery.");
@@ -508,13 +508,13 @@ export default function FarmerRoutePage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link href="/farmer/delivery-calendar">
+            <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
               <Calendar className="mr-2 h-4 w-4" />
               Delivery Calendar
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href="/farmer/smart-route">
+            <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
               <Sparkles className={cn("mr-2 h-4 w-4", completeMutation.isPending && "animate-pulse")} />
               Optimize with AI
             </Link>
@@ -535,10 +535,10 @@ export default function FarmerRoutePage() {
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button asChild>
-              <Link href="/farmer/delivery-calendar">View Delivery Calendar</Link>
+              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>View Delivery Calendar</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/farmer/smart-route">Smart Route</Link>
+              <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>Smart Route</Link>
             </Button>
           </div>
         </Card>
