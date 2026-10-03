@@ -466,18 +466,21 @@ export default function FarmerOrderMapPage() {
       ? { lat: Number(farm.lat), lng: Number(farm.lng) }
       : null;
 
-  const allOrders = useMemo(() => {
-    const active = [...within, ...outside, ...unlocated]
+  // Delivery selection starts from every packed Farmer Fulfillment order
+  // returned by the delivery-map endpoint. "withinRadius" and "outsideRadius"
+  // are backend reporting buckets, not initial UI filters. Both are merged
+  // here so the initial map always starts in "All" mode.
+  // Delivered orders are intentionally excluded from this delivery-planning
+  // workspace; they belong to tracking/history, not delivery selection.
+  const packedOrders = useMemo(() => {
+    return [...within, ...outside, ...unlocated]
+      .filter((stop) => !isDone(stop))
       .map((stop) => ({ ...stop, mapCoordinates: getCoordinates(stop) }))
       .sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
-    const done = delivered
-      .map((stop) => ({ ...stop, mapCoordinates: getCoordinates(stop) }))
-      .sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
-    return [...active, ...done];
-  }, [within, outside, unlocated, delivered]);
+  }, [within, outside, unlocated]);
 
   const selectedStop =
-    allOrders.find((stop) => getStopId(stop) === selectedStopId) || allOrders[0] || null;
+    packedOrders.find((stop) => getStopId(stop) === selectedStopId) || packedOrders[0] || null;
 
   // The delivery-map API is the single source of truth for packed Farmer
   // Fulfillment orders. It applies the same packed criteria as Packing &
@@ -495,7 +498,7 @@ export default function FarmerOrderMapPage() {
   // normal order/delivery tracking surfaces.
   const routeCandidates = useMemo(
     () =>
-      allOrders.filter(
+      packedOrders.filter(
         (stop) =>
           !isDone(stop) &&
           String(stop?.assignment || "unassigned").toLowerCase() === "unassigned" &&
@@ -503,7 +506,7 @@ export default function FarmerOrderMapPage() {
           !stop?.partnerRequested &&
           !stop?.selfDelivery
       ),
-    [allOrders]
+    [packedOrders]
   );
 
   // Initial state shows every packed Farmer Fulfillment order waiting for
