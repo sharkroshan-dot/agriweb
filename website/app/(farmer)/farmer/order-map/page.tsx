@@ -815,28 +815,6 @@ export default function FarmerOrderMapPage() {
     deliverSelectedMutation.mutate();
   };
 
-  const autoRouteRemainingMutation = useMutation({
-    mutationFn: () =>
-      api.post("/farmers/me/delivery-map/self-delivery-plan", {
-        method: selfDeliveryMethod,
-        orderIds: [],
-        radius: radiusKm,
-        destination: routeDestination
-          ? { lat: routeDestination.lat, lng: routeDestination.lng, label: routeDestination.label }
-          : null,
-      }),
-    onSuccess: (res: any) => {
-      const partnerCount = Number(res?.data?.partnerCount ?? 0);
-      const nearbyCount = Number(res?.data?.nearbyCount ?? 0);
-      const longDistanceCount = Number(res?.data?.longDistanceCount ?? 0);
-      toast.success(
-        `${partnerCount} remaining order${partnerCount === 1 ? "" : "s"} automatically assigned: ${nearbyCount} nearby · ${longDistanceCount} long distance`
-      );
-      refreshAll();
-    },
-    onError: (e: any) => toast.error(getApiError(e)),
-  });
-
   const continueToCalendar = () => {
     const ids = selectedRouteIds.length ? selectedRouteIds : selectedRouteOrders.map((stop) => getStopId(stop));
     if (!ids.length) {
