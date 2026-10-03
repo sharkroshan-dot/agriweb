@@ -399,9 +399,6 @@ export default function FarmerOrdersPage() {
               <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>
                 <Store className="mr-1.5 h-3.5 w-3.5" /> Warehouse Fulfillment All
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setShowDeliveryRoutes(true)}>
-                <Navigation className="mr-1.5 h-3.5 w-3.5" /> Delivery Routes
-              </Button>
               <Button size="sm" variant="outline" onClick={() => setShowBulkSummary(true)}>
                 <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Bulk Summary
               </Button>
@@ -441,13 +438,6 @@ export default function FarmerOrdersPage() {
       </Card>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
-        <Button
-          variant={showDeliveryRoutes ? "default" : "outline"}
-          size="sm"
-          onClick={() => setShowDeliveryRoutes(!showDeliveryRoutes)}
-        >
-          <Navigation className="mr-1.5 h-3.5 w-3.5" /> Delivery Routes
-        </Button>
         <Button
           variant={showBulkSummary ? "default" : "outline"}
           size="sm"
@@ -621,65 +611,6 @@ export default function FarmerOrdersPage() {
         </div>
 
 
-
-      {showDeliveryRoutes && (
-        <Card>
-          <CardContent className="p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Delivery Routes</h2>
-                <p className="text-sm text-gray-500">
-                  Use the Farmer Order Map for packed Farmer Fulfillment orders. Delivery assignment should happen only after Packing & Checking is complete.
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => setShowDeliveryRoutes(false)}>
-                <XCircle className="h-4 w-4" />
-              </Button>
-            </div>
-            {routesLoading ? (
-              <div className="h-32 animate-pulse rounded-lg bg-gray-100" />
-            ) : routesData?.data?.length === 0 || !routesData?.data ? (
-              <p className="text-sm text-gray-400">No pending delivery orders to route</p>
-            ) : (
-              <div className="space-y-4">
-                {routesData.data.map((route: any) => (
-                  <div key={route.routeName} className="rounded-lg border border-emerald-100 bg-emerald-50 p-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="flex items-center gap-2 font-medium text-emerald-900">
-                          <Navigation className="h-4 w-4" /> {route.routeName}
-                        </p>
-                        <p className="text-sm text-emerald-700">
-                          {route.orderCount} orders · {formatPrice(route.totalAmount)} total
-                        </p>
-                        <p className="text-xs text-emerald-600">
-                          From {formatDate(route.earliestDate)} to {formatDate(route.latestDate)}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => router.push("/farmer/order-map")}
-                      >
-                        <Navigation className="mr-1 h-3 w-3" /> Open Order Map
-                      </Button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {route.orders.map((o: any) => (
-                        <Badge key={o.orderId} variant="outline" className="border-emerald-200 bg-white text-xs">
-                          <Link href={`/farmer/orders/${o.orderId}`} className="text-emerald-700 hover:underline">
-                            {o.orderNumber}
-                          </Link>
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {showBulkSummary && (
         <Card>
