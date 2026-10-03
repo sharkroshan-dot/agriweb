@@ -1513,34 +1513,6 @@ export default function FarmerOrderMapPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-emerald-200 bg-emerald-50/30">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-medium text-emerald-900">Remaining Orders — Automatic Delivery Routing</p>
-            <p className="text-xs text-emerald-800">
-              After you confirm the self-delivery selection, every remaining packed order is routed automatically.
-              The system calculates farm-to-customer distance. Self delivery follows Dispatch → Farmer → Customer. Partner delivery follows:
-              ≤ {radiusKm} km → Dispatch → Nearby → Local Hub → Delivery Partner → Customer;
-              &gt; {radiusKm} km → Dispatch → Long Distance → Warehouse → Local Hub → Delivery Partner → Customer.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => autoRouteRemainingMutation.mutate()}
-              disabled={autoRouteRemainingMutation.isPending}
-            >
-              {autoRouteRemainingMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-              Retry Automatic Routing
-            </Button>
-            <Button size="sm" variant="outline" title="Edit delivery capacity" onClick={openCapacityEditor}>
-              <Settings2 className="mr-2 h-4 w-4" /> Delivery Capacity
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
       {(activeJobs.length > 0 || stuckJobs.length > 0) && (
         <Card>
           <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
