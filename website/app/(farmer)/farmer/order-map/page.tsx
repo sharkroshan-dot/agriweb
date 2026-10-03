@@ -872,8 +872,8 @@ export default function FarmerOrderMapPage() {
         const stop = first;
         const state = getDeliveryState(stop);
         const isDelivered = state === "delivered";
-        const distText = stop.distance != null ? \` - \${stop.distance} km\` : "";
-        const partnerText = state === "partner_assigned" && stop.deliveryPartnerName ? \` · \${stop.deliveryPartnerName}\` : "";
+        const distText = stop.distance != null ? ` - ${stop.distance} km` : "";
+        const partnerText = state === "partner_assigned" && stop.deliveryPartnerName ? ` · ${stop.deliveryPartnerName}` : "";
         const statusText = isDelivered ? "Delivered" : getStatus(stop).replace(/_/g, " ");
         const id = getStopId(stop);
         const productName = getProductDisplayName(stop);
@@ -884,11 +884,11 @@ export default function FarmerOrderMapPage() {
         // old purple "O" packed-order marker.
         const markerLabel =
           customerName && customerName !== "Customer" && productName && productName !== "Items"
-            ? \`\${customerName} · 1 \${productName} Order\`
+            ? `${customerName} · 1 ${productName} Order`
             : productName && productName !== "Items"
-              ? \`1 \${productName} Order\`
+              ? `1 ${productName} Order`
               : customerName && customerName !== "Customer"
-                ? \`\${customerName} · 1 Order\`
+                ? `${customerName} · 1 Order`
                 : "1 Order";
 
         markers.push({
@@ -897,7 +897,7 @@ export default function FarmerOrderMapPage() {
           lng: coordinates.lng,
           title: markerLabel,
           displayLabel: markerLabel,
-          info: \`<strong>📍 \${markerLabel}</strong><br/>\${formatAddress(stop)}\${distText}<br/>Order #\${stop.orderNumber || id}<br/>\${productName}<br/>\${stop.quantityKg ?? stop.quantity ?? 0} kg · \${formatPrice(stop.total)}<br/>\${DELIVERY_STATE_LABEL[state] || state}\${partnerText}<br/>\${statusText}<br/><em>1 business order · 1 physical stop</em>\`,
+          info: `<strong>📍 ${markerLabel}</strong><br/>${formatAddress(stop)}${distText}<br/>Order #${stop.orderNumber || id}<br/>${productName}<br/>${stop.quantityKg ?? stop.quantity ?? 0} kg · ${formatPrice(stop.total)}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText}<br/><em>1 business order · 1 physical stop</em>`,
           address: formatAddress(stop),
           color: "#8B5CF6",
           label: "O",
