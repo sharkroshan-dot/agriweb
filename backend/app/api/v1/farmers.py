@@ -648,9 +648,10 @@ async def get_delivery_calendar(
     farmer_id = str(current_user["_id"])
     capacity = await _get_delivery_capacity(farmer_id)
     active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    calendar_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer"}
+    if workflow_ids: calendar_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(calendar_query)
     orders = orders or []
     farm = await _get_farm_origin(farmer_id)
 
@@ -744,9 +745,10 @@ async def get_smart_route(
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    smart_route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer"}
+    if workflow_ids: smart_route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(smart_route_query)
     orders = orders or []
 
     raw_stops = []
@@ -1251,6 +1253,18 @@ _ROUTE_COMPLETABLE_STATUSES = ("ready_for_delivery", "ready_for_pickup")
 _DELIVERED_WINDOWS = ("today", "week", "month", "year", "all")
 
 
+def _parse_workflow_order_ids(value: Optional[str]) -> list[ObjectId]:
+    ids: list[ObjectId] = []
+    if not value:
+        return ids
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw: continue
+        try: ids.append(ObjectId(raw))
+        except Exception: continue
+    return ids
+
+
 def _delivered_window_start(window: str, now: datetime) -> Optional[datetime]:
     """Start of the delivered-history window, or None when 'all'."""
     if window == "today":
@@ -1383,9 +1397,10 @@ async def get_my_route(
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery", "ready_for_pickup"]
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer"}
+    if workflow_ids: route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(route_query)
     orders = orders or []
 
     farm = await _get_farm_origin(farmer_id)
@@ -1453,14 +1468,18 @@ async def get_my_route(
 
 
 @router.put("/me/route/start")
-async def start_my_route(current_user: dict = Depends(get_current_user)):
-    """Mark all delivery orders as self-delivery so the farmer can complete them."""
+async def start_my_route(
+    orderIds: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Mark the current route's delivery orders as self-delivery."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery"]
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    start_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None}
+    if workflow_ids: start_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(start_query)
     updated = 0
     for order in orders or []:
         if order.get("deliveryType") == "delivery" and not order.get("selfDelivery"):
