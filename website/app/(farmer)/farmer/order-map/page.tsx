@@ -907,13 +907,15 @@ export default function FarmerOrderMapPage() {
 
       const selectedCount = group.orders.filter((order) => selectedRouteIds.includes(getStopId(order))).length;
       const groupMeta = group.meta || getLocationGroupMeta(group.orders);
+      const orderCount = group.orders.length;
+      const orderWord = orderCount === 1 ? "Order" : "Orders";
       const customerLabel = groupMeta.sameCustomer && groupMeta.sameProduct
-        ? `${groupMeta.customerName} · ${group.orders.length} ${groupMeta.productName} Orders`
-        : groupMeta.sameProduct
-          ? `${group.orders.length} ${groupMeta.productName} Orders`
-          : groupMeta.sameCustomer
-            ? `${groupMeta.customerName} · ${group.orders.length} Orders`
-            : `${group.orders.length} Orders`;
+        ? `${groupMeta.customerName} · ${orderCount} ${groupMeta.productName} ${orderWord}`
+        : groupMeta.sameCustomer
+          ? `${groupMeta.customerName} · ${orderCount} ${orderWord}`
+          : groupMeta.sameProduct
+            ? `${orderCount} ${groupMeta.productName} ${orderWord}`
+            : `${orderCount} ${orderWord}`;
       const customerSummary = groupMeta.sameCustomer
         ? `<strong>${groupMeta.customerName}</strong><br/><span>Same customer/member · same delivery address</span>`
         : `<span>Customers: ${groupMeta.customerNames.join(", ") || "Multiple customers"}</span>`;
