@@ -237,7 +237,23 @@ export default function FarmerPackingPage() {
           )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-emerald-950">Packing is preparation only</p>
+            <p className="mt-1 text-xs text-emerald-800">
+              After Confirm Packed, the order becomes Ready for Delivery. Select orders, group physical stops, calculate distance, and choose Self Delivery or the delivery-partner route only in the Farmer Order Map.
+            </p>
+          </div>
+          <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+            <Link href="/farmer/order-map?delivery=required">
+              <Truck className="mr-2 h-4 w-4" /> Open Farmer Order Map
+            </Link>
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
           <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Farmer Orders</p><p className="mt-1 text-2xl font-bold">{total}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-slate-500">To Pack</p><p className="mt-1 text-2xl font-bold text-amber-600">{toPack.length}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Packed</p><p className="mt-1 text-2xl font-bold text-emerald-600">{packed.length}</p></CardContent></Card>
