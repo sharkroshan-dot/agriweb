@@ -512,6 +512,71 @@ export default function FarmerOrderMapPage() {
   // Initial state shows every packed Farmer Fulfillment order waiting for
   // delivery selection. Radius and Route only filter the visible set; they
   // never assign orders.
+  // The two delivery boxes always represent the CURRENT delivery scope.
+  // Radius mode: inside = packed orders within the selected radius, outside = packed orders beyond it.
+  // Route mode: inside = packed orders matched to the selected start/end route, outside = all other packed orders.
+  // The inside box is the only box where the farmer can select self-delivery orders.
+  const deliveryScopeLists = useMemo(() => {
+    const candidates = routeCandidates;
+    if (mapFilterMode === "route") {
+      const insideIds = new Set(routeMatches.map((stop) => getStopId(stop)));
+      const inside = candidates.filter((stop) => insideIds.has(getStopId(stop)));
+      const outside = candidates.filter((stop) => !insideIds.has(getStopId(stop)));
+      return {
+        inside,
+        outside,
+        insideLabel: "Along Selected Route",
+        outsideLabel: "Outside Selected Route",
+        insideDescription: "Packed orders along your selected start → end route. Select the orders you will deliver yourself.",
+        outsideDescription: "Packed orders outside the selected route. These orders are processed automatically after you confirm the selected delivery orders.",
+      };
+    }
+
+    const center = farmCoordinates || liveLocation;
+    if (!center) {
+      return {
+        inside: candidates,
+        outside: [],
+        insideLabel: `Within ${radiusKm} km`,
+        outsideLabel: `Outside ${radiusKm} km`,
+        insideDescription: "Packed orders in the selected radius. Select the orders you will deliver yourself.",
+        outsideDescription: "Packed orders outside the selected radius are processed automatically after confirmation.",
+      };
+    }
+
+    const inside: any[] = [];
+    const outside: any[] = [];
+    for (const stop of candidates) {
+      const coordinates = getCoordinates(stop);
+      if (!coordinates) {
+        outside.push(stop);
+        continue;
+      }
+      const distance = haversineKm(center, coordinates);
+      if (distance <= radiusKm) inside.push(stop);
+      else outside.push(stop);
+    }
+    return {
+      inside,
+      outside,
+      insideLabel: `Within ${radiusKm} km`,
+      outsideLabel: `Outside ${radiusKm} km`,
+      insideDescription: `Packed orders within ${radiusKm} km. Select the orders you will deliver yourself.`,
+      outsideDescription: `Packed orders outside ${radiusKm} km. These orders are processed automatically through the distance-based workflow after confirmation.`,
+    };
+  }, [routeCandidates, mapFilterMode, routeMatches, farmCoordinates, liveLocation, radiusKm]);
+
+  const deliveryInsideOrders = deliveryScopeLists.inside;
+  const deliveryOutsideOrders = deliveryScopeLists.outside;
+  const deliveryInsideIds = useMemo(
+    () => new Set(deliveryInsideOrders.map((stop) => getStopId(stop))),
+    [deliveryInsideOrders]
+  );
+  const deliveryOutsideIds = useMemo(
+    () => new Set(deliveryOutsideOrders.map((stop) => getStopId(stop))),
+    [deliveryOutsideOrders]
+  );
+
   const mapOrders = useMemo(() => {
     if (mapFilterMode === "radius") {
       const center = farmCoordinates || liveLocation;
@@ -1396,8 +1461,8 @@ export default function FarmerOrderMapPage() {
         <CardContent>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
             <SummaryStat label="Total Orders" value={String(summary.totalOrders ?? 0)} />
-            <SummaryStat label={`Within ${radiusKm} KM`} value={String(summary.withinRadius ?? 0)} tone="emerald" />
-            <SummaryStat label={`Outside ${radiusKm} KM`} value={String(summary.outsideRadius ?? 0)} tone="orange" />
+            <SummaryStat label={deliveryScopeLists.insideLabel} value={String(deliveryInsideOrders.length)} tone="emerald" />
+            <SummaryStat label={deliveryScopeLists.outsideLabel} value={String(deliveryOutsideOrders.length)} tone="orange" />
             <SummaryStat label="Self Delivery" value={String(summary.selfDelivery ?? 0)} tone="emerald" />
             <SummaryStat label="Partner Assigned" value={String(summary.partnerAssigned ?? 0)} tone="blue" />
             <SummaryStat label="Unassigned" value={String(summary.unassigned ?? 0)} tone="amber" />
@@ -2148,131 +2213,89 @@ export default function FarmerOrderMapPage() {
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="border-emerald-200">
           <CardHeader>
             <CardTitle className="text-emerald-700">
-              Within {radiusKm} km <span className="text-muted-foreground">({within.length})</span>
+              {deliveryScopeLists.insideLabel} <span className="text-muted-foreground">({deliveryInsideOrders.length})</span>
             </CardTitle>
-            <CardDescription>Orders near your farm - good candidates for self delivery.</CardDescription>
+            <CardDescription>{deliveryScopeLists.insideDescription}</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
-            {within.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No orders within {radiusKm} km.</p>
+            {deliveryInsideOrders.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                No packed orders {mapFilterMode === "route" ? "were found along this route." : `within ${radiusKm} km.`}
+              </p>
             ) : (
               <>
-                <div>
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-emerald-700">
-                      Ready for Self Delivery ({withinUnassigned.length})
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-emerald-800">
+                      Select Orders for Self Delivery
                     </p>
+                    <Badge variant="success">
+                      {deliveryInsideOrders.filter((stop) => selectedRouteIds.includes(getStopId(stop))).length} selected
+                    </Badge>
                   </div>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    Orders in this group are candidates for your self-delivery selection. After you finalize the selection, all remaining packed orders are routed automatically.
+                  <p className="mt-1 text-xs text-emerald-700">
+                    Selection is manual. Radius/Route only changes which packed orders appear in this box.
                   </p>
-                  {withinUnassigned.length === 0 ? (
-                    <p className="rounded-lg border border-dashed py-3 text-center text-sm text-muted-foreground">
-                      All within-radius orders are already assigned.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {withinUnassigned.map((stop, index) => (
-                        <OrderCard
-                          key={getStopId(stop)}
-                          stop={stop}
-                          index={index + 1}
-                          selected={selectedRouteIds.includes(getStopId(stop))}
-                          onSelect={() => setSelectedStopId(getStopId(stop))}
-                          onSwitch={(v) => onSwitchSelect(stop, v)}
-                          deliverySelected={selectedRouteIds.includes(getStopId(stop))}
-                          onToggleDelivery={() => toggleSelectedOrder(getStopId(stop))}
-                        />
-                      ))}
-                    </div>
-                  )}
                 </div>
-                {withinAssigned.length > 0 && (
-                  <div>
-                    <p className="mb-3 text-sm font-semibold text-slate-500">
-                      Already Assigned ({withinAssigned.length})
-                    </p>
-                    <div className="space-y-3">
-                      {withinAssigned.map((stop, index) => (
-                        <OrderCard
-                          key={getStopId(stop)}
-                          stop={stop}
-                          index={index + 1}
-                          selected={selectedRouteIds.includes(getStopId(stop))}
-                          onSelect={() => setSelectedStopId(getStopId(stop))}
-                          onSwitch={(v) => onSwitchSelect(stop, v)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div className="space-y-3">
+                  {deliveryInsideOrders.map((stop, index) => (
+                    <OrderCard
+                      key={getStopId(stop)}
+                      stop={stop}
+                      index={index + 1}
+                      selected={selectedRouteIds.includes(getStopId(stop))}
+                      onSelect={() => setSelectedStopId(getStopId(stop))}
+                      onSwitch={(v) => onSwitchSelect(stop, v)}
+                      deliverySelected={selectedRouteIds.includes(getStopId(stop))}
+                      onToggleDelivery={() => toggleSelectedOrder(getStopId(stop))}
+                    />
+                  ))}
+                </div>
               </>
             )}
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-orange-200">
           <CardHeader>
             <CardTitle className="text-orange-700">
-              Outside {radiusKm} km <span className="text-muted-foreground">({outside.length})</span>
+              {deliveryScopeLists.outsideLabel} <span className="text-muted-foreground">({deliveryOutsideOrders.length})</span>
             </CardTitle>
-            <CardDescription>Orders outside the selected radius are automatically routed through the long-distance logistics flow after you finalize self-delivery selection.</CardDescription>
+            <CardDescription>{deliveryScopeLists.outsideDescription}</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
-            {outside.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">All orders are within {radiusKm} km.</p>
+            {deliveryOutsideOrders.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {mapFilterMode === "route" ? "All packed orders are along the selected route." : `All packed orders are within ${radiusKm} km.`}
+              </p>
             ) : (
               <>
-                <div>
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-700">
-                      <AlertTriangle className="h-4 w-4" /> Needs Partner Assignment ({outsideUnassigned.length})
-                    </p>
-                  </div>
-                  <p className="mb-3 text-xs text-muted-foreground">
-                    These orders are not selected for self delivery. The system automatically calculates distance and sends them through Nearby or Long Distance partner routing.
+                <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+                  <p className="text-sm font-semibold text-orange-800">
+                    Automatic Processing ({deliveryOutsideOrders.length})
                   </p>
-                  {outsideUnassigned.length === 0 ? (
-                    <p className="rounded-lg border border-dashed py-3 text-center text-sm text-muted-foreground">
-                      All outside orders are already assigned to self or a partner.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {outsideUnassigned.map((stop, index) => (
-                        <OrderCard
-                          key={getStopId(stop)}
-                          stop={stop}
-                          index={index + 1}
-                          selected={selectedRouteIds.includes(getStopId(stop))}
-                          onSelect={() => setSelectedStopId(getStopId(stop))}
-                          onSwitch={(v) => onSwitchSelect(stop, v)}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  <p className="mt-1 text-xs text-orange-700">
+                    Do not select these orders for self delivery. After confirmation, the system processes them automatically:
+                    {mapFilterMode === "route"
+                      ? " outside selected route → distance decision → Nearby/Long Distance workflow."
+                      : ` outside ${radiusKm} km → Long Distance workflow through Warehouse → Local Hub → Delivery Partner.`}
+                  </p>
                 </div>
-                {outsideAssigned.length > 0 && (
-                  <div>
-                    <p className="mb-3 text-sm font-semibold text-slate-500">
-                      Already Assigned ({outsideAssigned.length})
-                    </p>
-                    <div className="space-y-3">
-                      {outsideAssigned.map((stop, index) => (
-                        <OrderCard
-                          key={getStopId(stop)}
-                          stop={stop}
-                          index={index + 1}
-                          selected={selectedRouteIds.includes(getStopId(stop))}
-                          onSelect={() => setSelectedStopId(getStopId(stop))}
-                          onSwitch={(v) => onSwitchSelect(stop, v)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div className="space-y-3">
+                  {deliveryOutsideOrders.map((stop, index) => (
+                    <OrderCard
+                      key={getStopId(stop)}
+                      stop={stop}
+                      index={index + 1}
+                      selected={false}
+                      onSelect={() => setSelectedStopId(getStopId(stop))}
+                      onSwitch={(v) => onSwitchSelect(stop, v)}
+                    />
+                  ))}
+                </div>
               </>
             )}
           </CardContent>
