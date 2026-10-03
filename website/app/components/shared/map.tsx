@@ -358,14 +358,19 @@ export function Map({
         // Full order details remain in the farmer panel after clicking.
         // Use the familiar 📍 map-pin glyph requested by the farmer.
         // Keep the label above it, but do not draw a custom triangle/circle pin.
-        const displayText = label.length > 34 ? label.slice(0, 32) + "…" : label;
-        const width = Math.min(260, Math.max(132, displayText.length * 6.4 + 28));
-        const height = 70;
+        const markerParts = label.split(" · ");
+        const displayLine1 = markerParts.shift() || label;
+        const displayLine2 = markerParts.join(" · ");
+        const line1 = displayLine1.length > 28 ? displayLine1.slice(0, 26) + "…" : displayLine1;
+        const line2 = displayLine2.length > 32 ? displayLine2.slice(0, 30) + "…" : displayLine2;
+        const width = Math.min(270, Math.max(150, Math.max(line1.length, line2.length) * 6.2 + 28));
+        const height = line2 ? 88 : 70;
         const textX = width / 2;
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-          <rect x="3" y="3" width="${width - 6}" height="28" rx="8" fill="#ffffff" fill-opacity="0.97" stroke="#cbd5e1" stroke-width="1.5"/>
-          <text x="${textX}" y="21" text-anchor="middle" fill="#0f172a" font-family="Arial,sans-serif" font-size="12" font-weight="700">${escapeSvg(displayText)}</text>
-          <text x="${textX}" y="59" text-anchor="middle" font-family="Arial,sans-serif" font-size="25">📍</text>
+          <rect x="3" y="3" width="${width - 6}" height="${line2 ? 48 : 28}" rx="8" fill="#ffffff" fill-opacity="0.97" stroke="#cbd5e1" stroke-width="1.5"/>
+          <text x="${textX}" y="21" text-anchor="middle" fill="#0f172a" font-family="Arial,sans-serif" font-size="12" font-weight="700">${escapeSvg(line1)}</text>
+          ${line2 ? `<text x="${textX}" y="41" text-anchor="middle" fill="#475569" font-family="Arial,sans-serif" font-size="11" font-weight="600">${escapeSvg(line2)}</text>` : ""}
+          <text x="${textX}" y="${line2 ? 78 : 59}" text-anchor="middle" font-family="Arial,sans-serif" font-size="25">📍</text>
         </svg>`;
         markerOptions.icon = {
           url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
