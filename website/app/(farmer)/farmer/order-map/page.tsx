@@ -1174,7 +1174,7 @@ export default function FarmerOrderMapPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                All eligible packed Farmer Fulfillment orders appear initially. Radius and Route only filter visible orders. The farmer must explicitly select orders and then choose Self Delivery or Delivery Partner.
+                All eligible packed Farmer Fulfillment orders appear initially. Select the orders you will deliver yourself. After you confirm, every remaining order is automatically distance-routed to the Nearby or Long Distance partner workflow.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -1232,7 +1232,7 @@ export default function FarmerOrderMapPage() {
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
-                    Confirm Delivery Plan
+                    Confirm Selection & Start Routing
                   </Button>
                 </>
               )}
@@ -1417,7 +1417,7 @@ export default function FarmerOrderMapPage() {
               3. Delivery Decision
             </CardTitle>
             <CardDescription>
-              This page is the complete Farmer Fulfillment delivery-decision workspace: select your orders for self delivery, then confirm once. Every remaining packed order is automatically routed by distance.
+              This page is the complete Farmer Fulfillment delivery workspace. Select the orders you will deliver yourself, then confirm once. The system automatically processes every remaining packed order by physical distance.
             </CardDescription>
           </div>
           {deliveryInsight.highRisk > 0 && (
@@ -1478,9 +1478,9 @@ export default function FarmerOrderMapPage() {
       <Card className="border-emerald-200 bg-emerald-50/30">
         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-medium text-emerald-900">Automatic distance-based delivery decision</p>
+            <p className="font-medium text-emerald-900">Remaining Orders — Automatic Delivery Routing</p>
             <p className="text-xs text-emerald-800">
-              After self-delivery orders are selected, every remaining packed order is routed automatically.
+              After you confirm the self-delivery selection, every remaining packed order is routed automatically.
               The system calculates farm-to-customer distance. Self delivery follows Dispatch → Farmer → Customer. Partner delivery follows:
               ≤ {radiusKm} km → Dispatch → Nearby → Local Hub → Delivery Partner → Customer;
               &gt; {radiusKm} km → Dispatch → Long Distance → Warehouse → Local Hub → Delivery Partner → Customer.
@@ -1637,7 +1637,7 @@ export default function FarmerOrderMapPage() {
             </Button>
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
-              Confirm Delivery Plan
+              Confirm Selection & Start Routing
             </Button>
           </div>
         </CardHeader>
@@ -1992,7 +1992,7 @@ export default function FarmerOrderMapPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={!selectedRouteIds.length || deliverSelectedMutation.isPending}>
                   {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="mr-1.5 h-3.5 w-3.5" />}
-                  Confirm Delivery Plan
+                  Confirm Selection & Start Routing
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear Selection</Button>
               </div>
@@ -2001,7 +2001,7 @@ export default function FarmerOrderMapPage() {
           <Card className="xl:sticky xl:top-4 border-slate-200 shadow-sm">
             <CardHeader className="border-b bg-white py-4">
               <CardTitle className="text-base">Order Details</CardTitle>
-              <CardDescription>Review the selected customer order and choose its delivery method.</CardDescription>
+              <CardDescription>Review the order. Select it for Farmer Self Delivery if you will deliver it yourself.</CardDescription>
             </CardHeader>
             <CardContent>
               {!selectedStop ? (
@@ -2059,23 +2059,12 @@ export default function FarmerOrderMapPage() {
                           </Button>
                         </div>
                       </div>
-                      <div>
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">Assignment</p>
-                      <Select
-                        value={selectedStop.assignment === "unassigned" ? "unassigned" : selectedStop.assignment}
-                        onValueChange={(v) => onSwitchSelect(selectedStop, v)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Choose assignment" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="self">Self Delivery</SelectItem>
-                          <SelectItem value="partner">Delivery Partner</SelectItem>
-                          <SelectItem value="unassigned">
-                            Unassigned
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                        <p className="text-xs font-semibold text-emerald-900">Delivery workflow</p>
+                        <p className="mt-1 text-[11px] leading-5 text-emerald-800">
+                          If you select this order, it will go through Farmer Self Delivery after you confirm the selection.
+                          Orders you do not select are automatically processed by distance and sent through the Nearby or Long Distance delivery-partner workflow.
+                        </p>
                       </div>
                     </>
                   )}
@@ -2153,7 +2142,7 @@ export default function FarmerOrderMapPage() {
           <div className="grid gap-4 lg:grid-cols-3">
             <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. FILTER</p><p className="mt-1 text-sm font-semibold text-slate-900">Radius / Route only filters orders</p><p className="mt-1 text-xs text-slate-600">10 KM shows eligible packed orders inside 10 KM. Nothing is assigned.</p></div>
             <div><p className="text-xs font-bold uppercase tracking-wide text-emerald-700">2. SELECT ORDERS</p><p className="mt-1 text-sm font-semibold text-slate-900">Farmer explicitly selects orders</p><p className="mt-1 text-xs text-slate-600">Select individual orders or Select All Visible. Selected map markers turn green.</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-wide text-blue-700">3. DELIVERY DECISION</p><p className="mt-1 text-sm font-semibold text-slate-900">Self Delivery or Delivery Partner</p><p className="mt-1 text-xs text-slate-600">Only selected orders enter the chosen delivery workflow.</p></div>
+            <div><p className="text-xs font-bold uppercase tracking-wide text-blue-700">3. CONFIRM &amp; ROUTE</p><p className="mt-1 text-sm font-semibold text-slate-900">Selected → Farmer · Remaining → Automatic</p><p className="mt-1 text-xs text-slate-600">Selected orders go Farmer → Customer. Every remaining order is automatically distance-calculated and routed to Nearby or Long Distance fulfillment.</p></div>
           </div>
         </CardContent>
       </Card>
