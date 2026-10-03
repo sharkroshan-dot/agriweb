@@ -488,13 +488,28 @@ export default function FarmerOrderMapPage() {
   // Keep located and unlocated orders together for the workflow/list. Only
   // located orders can become map markers; unlocated orders are shown in the
   // Unlocated section with the reason instead of being silently discarded.
+  // The Order Map is the only delivery-selection workspace.
+  // Only packed Farmer Fulfillment orders that are still awaiting a delivery
+  // decision are selectable here. Once the farmer confirms the plan, the
+  // assigned order leaves the selection map and remains visible through the
+  // normal order/delivery tracking surfaces.
   const routeCandidates = useMemo(
-    () => allOrders.filter((stop) => !isDone(stop)),
+    () =>
+      allOrders.filter(
+        (stop) =>
+          !isDone(stop) &&
+          String(stop?.fulfillmentMethod || "").toLowerCase() === "farmer" &&
+          String(stop?.fulfillmentStage || "").toLowerCase() === "packed" &&
+          stop?.packingComplete === true &&
+          stop?.readyForFarmerRoute === true &&
+          String(stop?.assignment || "unassigned").toLowerCase() === "unassigned"
+      ),
     [allOrders]
   );
 
-  // Initial state shows every eligible packed Farmer Fulfillment order.
-  // Radius and Route only filter the visible set; they never assign orders.
+  // Initial state shows every packed Farmer Fulfillment order waiting for
+  // delivery selection. Radius and Route only filter the visible set; they
+  // never assign orders.
   const mapOrders = useMemo(() => {
     if (mapFilterMode === "radius") {
       const center = farmCoordinates || liveLocation;
