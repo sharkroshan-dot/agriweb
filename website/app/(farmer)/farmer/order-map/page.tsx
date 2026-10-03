@@ -1120,7 +1120,7 @@ export default function FarmerOrderMapPage() {
 
   const isLoading = mapQuery.isLoading;
   const mapLoadError = mapQuery.isError ? getApiError(mapQuery.error) : "";
-  const pendingCount = allOrders.length;
+  const pendingCount = packedOrders.length;
   const assignableOutside = outsideUnassigned;
 
   return (
@@ -1236,7 +1236,7 @@ export default function FarmerOrderMapPage() {
         </CardContent>
       </Card>
       {(() => {
-        const deferredOrders = allOrders.filter(
+        const deferredOrders = packedOrders.filter(
           (stop) =>
             stop?.readyForFarmerRoute === true &&
             !stop?.deliveryPartnerId &&
@@ -1833,7 +1833,7 @@ export default function FarmerOrderMapPage() {
                     if (routePickMode) chooseRouteDestination(coords.lat, coords.lng, coords.lat.toFixed(5) + ", " + coords.lng.toFixed(5));
                   }}
                 />
-                {allOrders.length === 0 && (
+                {packedOrders.length === 0 && (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
                     <div className="rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-center shadow-lg backdrop-blur">
                       <p className="text-sm font-semibold text-slate-800">No orders to route yet</p>
