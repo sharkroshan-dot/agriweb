@@ -181,6 +181,14 @@ async def apply_partner_route(
         ),
         "deliveryDecisionSource": "distance",
         "deliveryPartnerRouteSelectedAt": datetime.utcnow(),
+        "deliveryResponsibility": "delivery_partner",
+        "deliveryDecisionStatus": (
+            "partner_pending"
+            if mode == "nearby"
+            else "warehouse_transfer_pending"
+        ),
+        "partnerAssignmentOpen": mode == "nearby",
+        "partnerRequested": False,
         "nearbyFulfillmentRequired": route_requires_hub,
         "nearbyFulfillmentType": "local_hub" if route_requires_hub else None,
         "nearbyFulfillmentLocationId": hub.get("_id") if route_requires_hub and hub else None,

@@ -873,7 +873,22 @@ class OrderService:
             if fulfillment_method == FulfillmentMethod.FARM_DIRECT.value and new_status in (
                 OrderStatus.READY_FOR_DELIVERY, OrderStatus.DISPATCHED,
             ):
-                return None
+                # Farmer Fulfillment can reach delivery only through the
+                # Farmer Order Map. Packing alone is not a dispatch decision.
+                # The map writes the distance decision and the selected
+                # self-delivery/partner route before moving the order onward.
+                packed = (
+                    str(order.get("fulfillmentStage") or "").lower() == FulfillmentStage.PACKED.value
+                    and bool(order.get("packingComplete"))
+                )
+                delivery_decision = str(order.get("deliveryDecision") or "").lower()
+                has_route_decision = delivery_decision in {"self_delivery", "nearby", "long_distance"}
+                has_delivery_owner = bool(order.get("selfDelivery") or order.get("deliveryPartnerId"))
+                if not (packed and has_route_decision and has_delivery_owner):
+                    return None
+                # A farmer cannot manually bypass the map into dispatched.
+                if new_status == OrderStatus.DISPATCHED:
+                    return None
 
         # Additional validation for customer cancellation
         if role == "customer" and new_status == OrderStatus.CANCELLED:
@@ -1875,7 +1890,6 @@ class OrderService:
         updated_items = []
         cancelled_items = []
         cancelled_value = 0.0
-        unresolved = False
 
         for item in items:
             key = (str(item.get("productId")), str(item.get("variantId") or ""))
@@ -1899,8 +1913,15 @@ class OrderService:
                 "resolutionStatus": "resolved",
             })
 
+            # Persist the physical packed quantity for every surviving line.
+            # This keeps the packing audit, customer-facing order, label and
+            # delivery map consistent with what was actually placed in the parcel.
+            item_copy["packedQuantity"] = actual
+            item_copy["actualPackedQuantity"] = actual
+            item_copy["quantity"] = actual
+            item_copy["totalPrice"] = actual * unit_price
+
             if shortage > 0:
-                unresolved = False
                 cancelled_value += shortage * unit_price
                 cancelled_items.append({
                     "productId": key[0],
@@ -1912,8 +1933,6 @@ class OrderService:
                     "reason": "Farmer packing shortage",
                     "cancelledAt": datetime.utcnow(),
                 })
-                item_copy["quantity"] = actual
-                item_copy["totalPrice"] = actual * unit_price
 
             if actual > 0:
                 updated_items.append(item_copy)
