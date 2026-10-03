@@ -2163,17 +2163,16 @@ async def get_my_delivery_map(
         and not bool(o.get("selfDelivery"))
     ]
 
-    # Sweep expired open jobs (open -> no_partner_found) and index the rest by
-    # orderId so each map marker can report its marketplace job state.
+    # Index delivery jobs without re-reading every order from MongoDB. The
+    # delivery-map request can contain many packed orders, so the old N+1
+    # order lookup made this endpoint slow enough to hit the frontend timeout.
     await delivery_job_repository.sweep_expired(farmer_id)
     farmer_jobs = await delivery_job_repository.get_jobs_by_farmer(farmer_id)
     jobs_by_order = {}
-    order_ids = {str(o["_id"]) for o in orders}
+    orders_by_id = {str(o["_id"]): o for o in orders}
     for j in (farmer_jobs or []):
         jid, oid = str(j["_id"]), str(j.get("orderId"))
-        if oid not in order_ids:
-            continue
-        order = await order_repository.get_by_id(oid)
+        order = orders_by_id.get(oid)
         if not order:
             continue
         o_status = order.get("orderStatus")
@@ -2208,21 +2207,25 @@ async def get_my_delivery_map(
         except Exception:
             logger.warning("Failed to resolve delivery-map customer details", exc_info=True)
 
-    delivered_payloads = []
-    for order in delivered_orders:
-        payload = await _map_order_payload(order, farm, center, radius, customers=customers)
+    # Resolve map payloads concurrently. Address geocoding is the expensive
+    # part of this endpoint; doing it sequentially caused timeouts when several
+    # packed orders had older checkout addresses without saved coordinates.
+    delivered_payloads = await asyncio.gather(*[
+        _map_order_payload(order, farm, center, radius, customers=customers)
+        for order in delivered_orders
+    ])
+    for payload in delivered_payloads:
         payload["isDelivered"] = True
-        delivered_payloads.append(payload)
     delivered_payloads.sort(key=lambda p: (p["distance"] or 0))
     _annotate_physical_stops(delivered_payloads)
 
-    payloads = []
-    for order in orders:
-        payload = await _map_order_payload(
+    payloads = await asyncio.gather(*[
+        _map_order_payload(
             order, farm, center, radius, customers=customers,
-            refresh_coords=True, job_info=jobs_by_order.get(str(order["_id"])),
+            refresh_coords=False, job_info=jobs_by_order.get(str(order["_id"])),
         )
-        payloads.append(payload)
+        for order in orders
+    ])
     _annotate_physical_stops(payloads)
 
     within = [p for p in payloads if p["inRadius"]]
