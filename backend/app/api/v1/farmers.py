@@ -1725,7 +1725,7 @@ class AssignOutsideRequest(BaseModel):
 class SelfDeliveryPlanRequest(BaseModel):
     method: str = Field(..., pattern="^(route|radius)$")
     orderIds: list[str] = Field(default_factory=list, max_length=500)
-    radius: int = Field(10, ge=1, le=200)
+    radius: float = Field(10, ge=1, le=200)
     destination: Optional[dict] = None
 
 
@@ -2852,6 +2852,13 @@ async def create_self_delivery_plan(
             skipped_partner.append({"orderId": oid, "reason": str(exc)})
 
     partner_count = len(partner_results)
+    automatic_order_ids = [str(item["orderId"]) for item in partner_results]
+    automatic_nearby_ids = [
+        str(item["orderId"]) for item in partner_results if item.get("route") == "nearby"
+    ]
+    automatic_long_distance_ids = [
+        str(item["orderId"]) for item in partner_results if item.get("route") == "long_distance"
+    ]
     _notify_delivery_map(
         farmer_id,
         "delivery.plan.finalized",
@@ -2870,6 +2877,9 @@ async def create_self_delivery_plan(
             "partnerCount": partner_count,
             "nearbyCount": nearby_count,
             "longDistanceCount": long_distance_count,
+            "automaticOrderIds": automatic_order_ids,
+            "automaticNearbyOrderIds": automatic_nearby_ids,
+            "automaticLongDistanceOrderIds": automatic_long_distance_ids,
             "partnerResults": partner_results,
             "skipped": skipped_partner,
             "remainingOrderIds": [str(o["_id"]) for o in remaining],
