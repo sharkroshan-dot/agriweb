@@ -35,6 +35,8 @@ import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
 
 const RADIUS_OPTIONS = [2, 5, 10, 20, 50] as const;
+const MIN_RADIUS_KM = 1;
+const MAX_RADIUS_KM = 500;
 const FALLBACK_CENTER = { lat: 11.1271, lng: 78.6569 };
 
 // Map markers follow the delivery state of each order:
@@ -632,11 +634,27 @@ export default function FarmerOrderMapPage() {
   };
 
   const applyRadiusFilter = (distance: number) => {
-    setRadiusKm(distance);
+    const nextRadius = Number(distance);
+    if (!Number.isFinite(nextRadius) || nextRadius < MIN_RADIUS_KM || nextRadius > MAX_RADIUS_KM) {
+      toast.error(`Enter a radius between ${MIN_RADIUS_KM} and ${MAX_RADIUS_KM} km`);
+      return;
+    }
+    setRadiusKm(Math.round(nextRadius * 10) / 10);
     setMapFilterMode("radius");
     setSelectedRouteIds([]);
     setSelectedStopId(null);
-    toast.success(`Showing orders within ${distance} km of the farm`);
+    toast.success(`Showing orders within ${Math.round(nextRadius * 10) / 10} km of the farm`);
+  };
+
+  const handleManualRadiusChange = (value: string) => {
+    if (value === "") return;
+    const nextRadius = Number(value);
+    if (!Number.isFinite(nextRadius)) return;
+    setRadiusKm(nextRadius);
+  };
+
+  const applyManualRadius = () => {
+    applyRadiusFilter(radiusKm);
   };
 
   const showAllMapOrders = () => {
@@ -1252,13 +1270,49 @@ export default function FarmerOrderMapPage() {
                 </Button>
               </div>
               {selfDeliveryMethod === "radius" && (
-                <div className="flex items-center gap-1 rounded-lg border bg-white p-1">
-                  <span className="px-2 text-xs font-medium text-slate-500">Radius</span>
-                  {RADIUS_OPTIONS.map((distance) => (
-                    <Button key={distance} size="sm" variant={mapFilterMode === "radius" && radiusKm === distance ? "default" : "ghost"} onClick={() => applyRadiusFilter(distance)}>
-                      {distance} km
-                    </Button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-white p-2">
+                  <span className="px-1 text-xs font-semibold text-slate-600">Radius</span>
+                  <div className="flex items-center">
+                    <Input
+                      type="number"
+                      min={MIN_RADIUS_KM}
+                      max={MAX_RADIUS_KM}
+                      step="0.1"
+                      inputMode="decimal"
+                      value={radiusKm}
+                      onChange={(e) => handleManualRadiusChange(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          applyManualRadius();
+                        }
+                      }}
+                      className="h-9 w-24 bg-white text-sm"
+                      aria-label="Delivery radius in kilometers"
+                    />
+                    <span className="px-2 text-xs font-medium text-slate-500">km</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={applyManualRadius}
+                    disabled={!Number.isFinite(radiusKm) || radiusKm < MIN_RADIUS_KM || radiusKm > MAX_RADIUS_KM}
+                  >
+                    Apply
+                  </Button>
+                  <div className="hidden h-5 w-px bg-slate-200 sm:block" />
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="mr-1 text-[11px] text-slate-400">Quick:</span>
+                    {RADIUS_OPTIONS.map((distance) => (
+                      <Button
+                        key={distance}
+                        size="sm"
+                        variant={mapFilterMode === "radius" && radiusKm === distance ? "default" : "ghost"}
+                        onClick={() => applyRadiusFilter(distance)}
+                      >
+                        {distance}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               )}
               <Select value={deliveredWindow} onValueChange={setDeliveredWindow}>
