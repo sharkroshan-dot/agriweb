@@ -1243,7 +1243,7 @@ export default function FarmerOrderMapPage() {
               </div>
               <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Farmer Order Map</h1>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                All eligible packed Farmer Fulfillment orders appear initially. Select the orders you will deliver yourself. After you confirm, every remaining order is automatically distance-routed to the Nearby or Long Distance partner workflow.
+                Filter packed orders, select the orders you will deliver yourself, then confirm. Filtering never assigns an order.
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
@@ -1307,66 +1307,8 @@ export default function FarmerOrderMapPage() {
               )}
             </div>
           </div>
-          <div className="mt-3 flex flex-col gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-blue-900">
-              <span className="font-semibold">{selectedRouteIds.length} selected</span> for delivery.
-              <span className="ml-1 text-blue-700">Radius and Route only filter the candidates. Nothing is assigned until you choose a delivery action.</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!mapOrders.length}>
-                <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Visible
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear</Button>
-            </div>
-          </div>
         </CardContent>
       </Card>
-      <Card className="border-emerald-200 bg-white shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2">
-            <ListChecks className="h-5 w-5 text-emerald-600" />
-            Complete Farmer Fulfillment Delivery Workflow
-          </CardTitle>
-          <CardDescription>
-            Everything after Packing &amp; Checking is completed from this page. Orders stay separate even when several orders share one physical delivery stop.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-2 md:grid-cols-5">
-            {[
-              ["1", "Packed", "Packing & Checking complete"],
-              ["2", "Filter", "All / Radius / Route"],
-              ["3", "Select", "Select individual orders"],
-              ["4", "Confirm", "Self delivery selection"],
-              ["5", "Auto Route", "Remaining → Partner by distance"],
-            ].map(([step, title, detail], index) => (
-              <div key={step} className="relative rounded-xl border bg-slate-50 p-3">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">{step}</span>
-                  <p className="text-sm font-semibold text-slate-900">{title}</p>
-                </div>
-                <p className="mt-2 text-xs text-slate-600">{detail}</p>
-                {index < 4 && <span className="absolute -right-2 top-1/2 hidden text-slate-300 md:block">→</span>}
-              </div>
-            ))}
-          </div>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs">
-              <strong className="text-emerald-900">Farmer Self Delivery</strong>
-              <p className="mt-1 text-emerald-800">Selected orders → Dispatch → Farmer → Customer</p>
-            </div>
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs">
-              <strong className="text-blue-900">Nearby Partner</strong>
-              <p className="mt-1 text-blue-800">Remaining orders → Dispatch → Local Hub → Delivery Partner → Customer</p>
-            </div>
-            <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 text-xs">
-              <strong className="text-violet-900">Long Distance</strong>
-              <p className="mt-1 text-violet-800">Remaining orders → Dispatch → Warehouse → Local Hub → Delivery Partner → Customer</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {lastPlanResult && (
         <Card className="border-emerald-200 bg-emerald-50/60">
           <CardHeader className="pb-3">
@@ -1414,48 +1356,15 @@ export default function FarmerOrderMapPage() {
         </Card>
       )}
 
-      <Card className="border-slate-200 shadow-sm">
-        <CardHeader className="pb-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <CardTitle className="text-base">Delivery Overview</CardTitle>
-              <CardDescription>
-                {liveLocation ? "Distances are measured from your current location." : "Distances are measured from your farm."} · Showing {DELIVERED_WINDOWS.find((w) => w.value === deliveredWindow)?.label.toLowerCase()} completed orders.
-              </CardDescription>
-            </div>
-            <Badge variant="outline" className="w-fit">{pendingCount} orders on map</Badge>
-          </div>
-          {summary.deliveryProblem > 0 && (
-            <Badge variant="destructive" className="gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5" /> {summary.deliveryProblem} delivery problem{summary.deliveryProblem > 1 ? "s" : ""}
-            </Badge>
-          )}
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-10">
-            <SummaryStat label="Total Orders" value={String(summary.totalOrders ?? 0)} />
-            <SummaryStat label={deliveryScopeLists.insideLabel} value={String(deliveryInsideOrders.length)} tone="emerald" />
-            <SummaryStat label={deliveryScopeLists.outsideLabel} value={String(deliveryOutsideOrders.length)} tone="orange" />
-            <SummaryStat label="Self Delivery" value={String(summary.selfDelivery ?? 0)} tone="emerald" />
-            <SummaryStat label="Partner Assigned" value={String(summary.partnerAssigned ?? 0)} tone="blue" />
-            <SummaryStat label="Unassigned" value={String(summary.unassigned ?? 0)} tone="amber" />
-            <SummaryStat label="Delivered" value={String(summary.delivered ?? 0)} />
-            <SummaryStat label="Order Value" value={formatPrice(summary.totalValue ?? 0)} tone="emerald" />
-            <SummaryStat label="Product Weight" value={`${summary.totalWeight ?? 0} KG`} tone="amber" />
-            <SummaryStat label="Est. Distance" value={`${summary.estimatedDistance ?? 0} KM`} tone="violet" />
-          </div>
-        </CardContent>
-      </Card>
-
       <Card id="delivery-route-selection" className="scroll-mt-20 border-emerald-200 bg-gradient-to-r from-emerald-50/60 to-violet-50/60">
         <CardHeader className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-emerald-600" />
-              3. Delivery Decision
+              Delivery Insights
             </CardTitle>
             <CardDescription>
-              This page is the complete Farmer Fulfillment delivery workspace. Select the orders you will deliver yourself, then confirm once. The system automatically processes every remaining packed order by physical distance.
+              Review delivery signals before confirming your selected orders. Filtering never selects or assigns an order.
             </CardDescription>
           </div>
           {deliveryInsight.highRisk > 0 && (
@@ -2106,16 +2015,6 @@ export default function FarmerOrderMapPage() {
 
         </div>
       </div>
-
-      <Card className="border-indigo-200 bg-indigo-50/40 shadow-sm">
-        <CardContent className="p-4 sm:p-5">
-          <div className="grid gap-4 lg:grid-cols-3">
-            <div><p className="text-xs font-bold uppercase tracking-wide text-indigo-700">1. FILTER</p><p className="mt-1 text-sm font-semibold text-slate-900">Radius / Route only filters orders</p><p className="mt-1 text-xs text-slate-600">10 KM shows eligible packed orders inside 10 KM. Nothing is assigned.</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-wide text-emerald-700">2. SELECT ORDERS</p><p className="mt-1 text-sm font-semibold text-slate-900">Farmer explicitly selects orders</p><p className="mt-1 text-xs text-slate-600">Select individual orders or Select All Visible. Selected map markers turn green.</p></div>
-            <div><p className="text-xs font-bold uppercase tracking-wide text-blue-700">3. CONFIRM &amp; ROUTE</p><p className="mt-1 text-sm font-semibold text-slate-900">Selected → Farmer · Remaining → Automatic</p><p className="mt-1 text-xs text-slate-600">Selected orders go Farmer → Customer. Every remaining order is automatically distance-calculated and routed to Nearby or Long Distance fulfillment.</p></div>
-          </div>
-        </CardContent>
-      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="border-emerald-200">
