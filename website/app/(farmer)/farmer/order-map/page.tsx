@@ -1794,9 +1794,17 @@ export default function FarmerOrderMapPage() {
           <CardHeader className="border-b bg-white py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle>Delivery Order Locations</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                Delivery Order Locations
+                <Badge variant="outline">{mapOrders.length} orders</Badge>
+                <Badge variant="outline">{locationGroups.length} physical stops</Badge>
+              </CardTitle>
               <CardDescription>
-                Green = self delivery · Blue = delivery partner · Yellow = pending assignment · Red = delivery problem · Black = delivered · Purple = farm
+                {mapFilterMode === "all"
+                  ? "All packed orders are displayed. Choose Radius or Route only when you want to filter them."
+                  : mapFilterMode === "radius"
+                    ? `Showing packed orders within ${radiusKm} km. Radius is a filter only.`
+                    : "Showing packed orders along the selected route. Route is a filter only."}
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -1822,7 +1830,7 @@ export default function FarmerOrderMapPage() {
                   trackUserLocation
                   userLocation={liveLocation}
                   height="560px"
-                  circle={farmCoordinates ? { center: farmCoordinates, radiusKm } : undefined}
+                  circle={mapFilterMode === "radius" && farmCoordinates ? { center: farmCoordinates, radiusKm } : undefined}
                   onMarkerClick={(marker) => {
                     if (marker.id === "farm" || marker.id === "route-start" || marker.id === "route-destination") return;
                     const markerId = String(marker.id);
