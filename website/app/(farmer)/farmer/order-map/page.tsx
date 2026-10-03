@@ -889,7 +889,7 @@ export default function FarmerOrderMapPage() {
           title: markerLabel,
           info: `<strong>${markerLabel}</strong><br/>${formatAddress(stop)}${distText}<br/>Order #${stop.orderNumber || id}<br/>${productName}<br/>${stop.quantityKg ?? stop.quantity ?? 0} kg · ${formatPrice(stop.total)}<br/>${DELIVERY_STATE_LABEL[state] || state}${partnerText}<br/>${statusText}<br/><em>1 business order · 1 physical stop</em>`,
           address: formatAddress(stop),
-          color: selectedRouteIds.includes(id) ? "#10B981" : (DELIVERY_STATE_COLOR[state] || "#F59E0B"),
+          color: "#8B5CF6",
           label: "O",
         });
         return;
@@ -924,7 +924,7 @@ export default function FarmerOrderMapPage() {
         lng: coordinates.lng,
         title: customerLabel,
         info: `<strong>${customerLabel}</strong><br/>${customerSummary}<br/>${productSummary}<br/>${formatAddress(first)}<br/><span>${group.orders.length} separate orders · ${groupMeta.totalWeight} kg · ${formatPrice(groupMeta.totalValue)}</span><br/>${orderLines}<br/><em>${selectedCount} selected</em><br/>One physical stop · click the marker to select individual orders.`,
-        color: selectedCount > 0 ? "#10B981" : "#2563EB",
+        color: "#8B5CF6",
         label: "O",
       });
     });
