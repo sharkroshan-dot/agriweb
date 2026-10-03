@@ -815,9 +815,21 @@ export default function FarmerOrderMapPage() {
       const partnerCount = Number(result.partnerCount ?? 0);
       const nearbyCount = Number(result.nearbyCount ?? 0);
       const longDistanceCount = Number(result.longDistanceCount ?? 0);
+      const automaticOrderIds = asArray(result.automaticOrderIds).map((id) => String(id)).filter(Boolean);
+      const automaticNearbyOrderIds = asArray(result.automaticNearbyOrderIds).map((id) => String(id)).filter(Boolean);
+      const automaticLongDistanceOrderIds = asArray(result.automaticLongDistanceOrderIds).map((id) => String(id)).filter(Boolean);
       setConfirmedOrderIds(confirmedIds);
-      setLastPlanResult({ selfCount, partnerCount, nearbyCount, longDistanceCount, skipped: result.skipped || [] });
-      toast.success(`Delivery plan confirmed: ${selfCount} self · ${nearbyCount} nearby partner · ${longDistanceCount} long-distance`);
+      setLastPlanResult({
+        selfCount,
+        partnerCount,
+        nearbyCount,
+        longDistanceCount,
+        automaticCount: automaticOrderIds.length || partnerCount,
+        automaticNearbyCount: automaticNearbyOrderIds.length || nearbyCount,
+        automaticLongDistanceCount: automaticLongDistanceOrderIds.length || longDistanceCount,
+        skipped: result.skipped || [],
+      });
+      toast.success(`Delivery plan confirmed: ${selfCount} self · ${nearbyCount} nearby partner · ${longDistanceCount} warehouse route`);
       setSelectedRouteIds([]);
       refreshAll();
     },
@@ -1352,9 +1364,9 @@ export default function FarmerOrderMapPage() {
           <CardContent>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <SummaryStat label="Self Delivery" value={String(lastPlanResult.selfCount)} tone="emerald" />
-              <SummaryStat label="Partner Route" value={String(lastPlanResult.partnerCount)} tone="blue" />
-              <SummaryStat label="Nearby" value={String(lastPlanResult.nearbyCount)} tone="blue" />
-              <SummaryStat label="Long Distance" value={String(lastPlanResult.longDistanceCount)} tone="violet" />
+              <SummaryStat label="Auto Processed" value={String(lastPlanResult.automaticCount ?? lastPlanResult.partnerCount)} tone="blue" />
+              <SummaryStat label="Nearby → Partner" value={String(lastPlanResult.automaticNearbyCount ?? lastPlanResult.nearbyCount)} tone="blue" />
+              <SummaryStat label="Long Distance → Warehouse" value={String(lastPlanResult.automaticLongDistanceCount ?? lastPlanResult.longDistanceCount)} tone="violet" />
             </div>
             {lastPlanResult.skipped?.length > 0 && (
               <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
