@@ -2158,7 +2158,6 @@ async def get_my_delivery_map(
         and str(o.get("orderStatus") or o.get("status") or "").lower() != "cancelled"
         and not bool(o.get("packingCancelled"))
         and str(o.get("fulfillmentStage") or "").lower() == "packed"
-        and bool(o.get("packingComplete"))
         and not bool(o.get("deliveryPartnerId"))
         and not bool(o.get("partnerRequested"))
         and not bool(o.get("selfDelivery"))
