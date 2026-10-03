@@ -1232,7 +1232,7 @@ export default function FarmerOrderMapPage() {
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
-                    Confirm Selection & Start Routing
+                    Confirm Selection & Process Remaining Orders
                   </Button>
                 </>
               )}
@@ -1270,8 +1270,8 @@ export default function FarmerOrderMapPage() {
               </CardTitle>
               <CardDescription className="text-emerald-800">
                 {deferredOrders.length} farmer-fulfilled order{deferredOrders.length === 1 ? "" : "s"} packed and ready for delivery decision.
-                Select the orders you will deliver yourself; every remaining order is automatically assigned to a delivery partner and classified by distance:
-                ≤ {radiusKm} km → Nearby, &gt; {radiusKm} km → Long Distance.
+                Select the orders you will deliver yourself. After confirmation, every remaining eligible order is automatically distance-classified and sent through the partner workflow:
+                ≤ {radiusKm} km → Nearby → Local Hub → Delivery Partner; &gt; {radiusKm} km → Warehouse → Local Hub → Delivery Partner.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -1357,7 +1357,7 @@ export default function FarmerOrderMapPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-emerald-900">Delivery Plan Confirmed</CardTitle>
             <CardDescription className="text-emerald-800">
-              The selected orders were assigned to Farmer Self Delivery. Every remaining packed order was processed by the distance decision.
+              The selected orders were assigned to Farmer Self Delivery. Every remaining packed order was automatically processed through the distance decision and delivery-partner workflow.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1637,7 +1637,7 @@ export default function FarmerOrderMapPage() {
             </Button>
             <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
-              Confirm Selection & Start Routing
+              Confirm Selection & Process Remaining Orders
             </Button>
           </div>
         </CardHeader>
@@ -1992,7 +1992,7 @@ export default function FarmerOrderMapPage() {
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={!selectedRouteIds.length || deliverSelectedMutation.isPending}>
                   {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="mr-1.5 h-3.5 w-3.5" />}
-                  Confirm Selection & Start Routing
+                  Confirm Selection & Process Remaining Orders
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>Clear Selection</Button>
               </div>
