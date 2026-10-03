@@ -2162,43 +2162,6 @@ export default function FarmerOrderMapPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Available Partners</CardTitle>
-              <CardDescription>
-                {availablePartners.length > 0
-                  ? `${availablePartners.length} verified partner(s) ready to accept outside deliveries.`
-                  : "No verified partners available right now."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-h-[320px] space-y-3 overflow-y-auto">
-              {availablePartners.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">No partners available.</p>
-              ) : (
-                availablePartners.map((p) => (
-                  <div key={p.id} className="rounded-lg border p-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-sm font-semibold">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {p.vehicleType} · {p.vehicleNumber}
-                        </p>
-                      </div>
-                      <Badge variant="success">Available</Badge>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Star className="h-3 w-3 text-amber-500" /> {p.rating ?? 0}
-                      </span>
-                      <span>{p.activeLoad ?? 0} active</span>
-                      {p.distanceKm != null && <span>{p.distanceKm} km away</span>}
-                      {p.capacity != null && <span>capacity {p.capacity} kg</span>}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
 
