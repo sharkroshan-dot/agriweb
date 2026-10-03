@@ -2157,10 +2157,11 @@ async def get_my_delivery_map(
         in ("farmer", "farm_direct")
         and str(o.get("orderStatus") or o.get("status") or "").lower() != "cancelled"
         and not bool(o.get("packingCancelled"))
-        and (
-            str(o.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
-            or bool(o.get("packingComplete"))
-        )
+        and str(o.get("fulfillmentStage") or "").lower() == "packed"
+        and bool(o.get("packingComplete"))
+        and not bool(o.get("deliveryPartnerId"))
+        and not bool(o.get("partnerRequested"))
+        and not bool(o.get("selfDelivery"))
     ]
 
     # Sweep expired open jobs (open -> no_partner_found) and index the rest by
@@ -2675,7 +2676,9 @@ async def create_self_delivery_plan(
         "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "fulfillmentMethod": "farmer",
         "fulfillmentStage": "packed",
+        "packingComplete": True,
         "deliveryType": {"$ne": DeliveryType.PICKUP.value},
+        "deliveryResponsibility": {"$in": [None, "", "farmer"]},
         "deletedAt": None,
     }) or []
 
