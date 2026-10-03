@@ -344,19 +344,20 @@ export function Map({
         title: marker.title || "",
       };
       if (marker.displayLabel) {
-        const lines = String(marker.displayLabel).split("\n").slice(0, 2);
-        const line1 = lines[0] || "";
-        const line2 = lines[1] || "";
+        // Grouped delivery markers use a simple label above a small location
+        // pin. The label is the visual summary; clicking it still opens the
+        // full order details in the page panel.
+        const label = String(marker.displayLabel).replace(/\s+/g, " ").trim();
         const escapeSvg = (value: string) =>
           value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        const width = Math.min(300, Math.max(150, Math.max(line1.length, line2.length) * 7.2 + 42));
-        const height = line2 ? 54 : 36;
+        const width = Math.min(320, Math.max(150, label.length * 7 + 34));
+        const height = 58;
+        const fill = marker.color || "#2563EB";
         const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-          <rect x="1" y="1" width="${width - 2}" height="${height - 9}" rx="12" fill="${marker.color || "#2563EB"}" stroke="#fff" stroke-width="2"/>
-          <circle cx="16" cy="18" r="5" fill="#fff"/>
-          <path d="M11 22 L16 30 L21 22" fill="${marker.color || "#2563EB"}" stroke="#fff" stroke-width="1"/>
-          <text x="28" y="${line2 ? 20 : 22}" fill="#fff" font-family="Arial,sans-serif" font-size="12" font-weight="700">${escapeSvg(line1)}</text>
-          ${line2 ? `<text x="28" y="40" fill="#fff" font-family="Arial,sans-serif" font-size="11" font-weight="600">${escapeSvg(line2)}</text>` : ""}
+          <rect x="2" y="2" width="${width - 4}" height="34" rx="10" fill="#ffffff" stroke="${fill}" stroke-width="2"/>
+          <text x="16" y="24" fill="#0f172a" font-family="Arial,sans-serif" font-size="12" font-weight="700">📍 ${escapeSvg(label)}</text>
+          <path d="M${width / 2 - 7} 35 L${width / 2} 55 L${width / 2 + 7} 35 Z" fill="${fill}" stroke="#ffffff" stroke-width="2"/>
+          <circle cx="${width / 2}" cy="43" r="4" fill="#ffffff"/>
         </svg>`;
         markerOptions.icon = {
           url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
