@@ -228,6 +228,36 @@ async def update_stock(
     stock["id"] = str(stock["_id"])
     return stock
 
+@router.get("/recommended")
+async def get_recommended_warehouse(
+    lat: float = Query(...),
+    lng: float = Query(...),
+    quantity: float = Query(0, ge=0),
+    storageType: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") not in ("farmer", "admin"):
+        raise HTTPException(status_code=403, detail="Only farmers and admins can request warehouse recommendations")
+    warehouse = await WarehouseService.find_best_warehouse(
+        {"type": "Point", "coordinates": [lng, lat]},
+        required_capacity=quantity,
+        storage_type=storageType,
+    )
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="No suitable warehouse is available near this location")
+    return {"success": True, "data": {
+        "id": str(warehouse["_id"]),
+        "name": warehouse.get("name"),
+        "address": warehouse.get("address") or {},
+        "distanceKm": warehouse.get("selectionDistanceKm"),
+        "availableCapacity": warehouse.get("availableCapacity"),
+        "totalCapacity": warehouse.get("totalCapacity", 0),
+        "usedCapacity": warehouse.get("usedCapacity", 0),
+        "serviceAreas": warehouse.get("serviceAreas") or [],
+        "supportedStorageTypes": warehouse.get("supportedStorageTypes") or [],
+        "selectionReason": warehouse.get("selectionReason"),
+    }}
+
 class CollectionTeamAssignment(BaseModel):
     teamId: str = Field(..., min_length=1, max_length=100)
 
