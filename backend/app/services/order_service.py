@@ -967,6 +967,13 @@ class OrderService:
             ]:
                 return None
         
+        # Customer hand-off verification is mandatory before a delivery order
+        # can transition to Delivered. This applies to farmer self-delivery and
+        # delivery-partner fulfillment alike; pickup orders use their own code flow.
+        if new_status == OrderStatus.DELIVERED and order.get("deliveryType") == DeliveryType.DELIVERY.value:
+            if not order.get("deliveryVerificationVerifiedAt"):
+                return None
+
         # Validate self-delivery transition
         self_delivery = order.get("selfDelivery", False)
         if new_status == OrderStatus.DELIVERED and current_status == OrderStatus.READY_FOR_DELIVERY:
