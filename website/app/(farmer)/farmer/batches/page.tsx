@@ -79,10 +79,11 @@ export default function FarmerBatchesPage() {
     harvestDate: "",
     qualityGrade: "Premium",
     storageType: "normal",
-    shelfLifeDays: "",
+    shelfLifeDays: "3",
     notes: "",
   });
   const [converting, setConverting] = useState<{ batchId: string; productId: string } | null>(null);
+  const storageShelfLifeDefaults: Record<string, number> = { normal: 3, refrigerated: 5, cold_storage: 7, frozen: 30 };
 
   const { data: batchesData, isLoading } = useQuery({
     queryKey: ["farmerBatches"],
@@ -111,7 +112,7 @@ export default function FarmerBatchesPage() {
       setShowForm(false);
       setSelectedProductId("");
       setSelectedHarvestId("");
-      setForm({ cropName: "", quantityKg: "", harvestDate: "", qualityGrade: "Premium", storageType: "normal", shelfLifeDays: "", notes: "" });
+      setForm({ cropName: "", quantityKg: "", harvestDate: "", qualityGrade: "Premium", storageType: "normal", shelfLifeDays: "3", notes: "" });
       toast.success("Batch created with a new lot number!");
     },
     onError: (err: any) => toast.error(err?.message || "Failed to create batch"),
@@ -230,7 +231,7 @@ export default function FarmerBatchesPage() {
         <div>
           <h1 className="text-2xl font-bold">Batches &amp; Traceability</h1>
           <p className="text-gray-500">
-            Create traceable harvest lots, protect freshness, and send every batch through independent quality inspection before listing.
+            Create traceable harvest lots, record the actual shelf life for each harvested batch, and send every batch through independent quality inspection before listing. Delivery deadlines and priority are calculated automatically.
           </p>
         </div>
         <Button onClick={() => setShowForm((v) => !v)}>
@@ -299,7 +300,7 @@ export default function FarmerBatchesPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Storage type</label>
-                <Select value={form.storageType} onValueChange={(v) => setForm({ ...form, storageType: v })}>
+                <Select value={form.storageType} onValueChange={(v) => setForm({ ...form, storageType: v, shelfLifeDays: String(storageShelfLifeDefaults[v] ?? 3) })}>
                   <SelectContent>
                     {STORAGE_OPTIONS.map((o) => (
                       <SelectItem key={o.value} value={o.value}>
@@ -310,8 +311,9 @@ export default function FarmerBatchesPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-medium text-gray-500">Shelf life (days, optional)</label>
-                <Input type="number" min="1" max="90" value={form.shelfLifeDays} onChange={(e) => setForm({ ...form, shelfLifeDays: e.target.value })} placeholder="auto by storage type" />
+                <label className="text-xs font-medium text-gray-500">Actual shelf life (days)</label>
+                <Input type="number" min="1" max="90" value={form.shelfLifeDays} onChange={(e) => setForm({ ...form, shelfLifeDays: e.target.value })} />
+                <p className="text-xs text-muted-foreground">Default: {storageShelfLifeDefaults[form.storageType] ?? 3} days for this storage type. Confirm or adjust the actual batch shelf life.</p>
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-gray-500">Notes</label>
