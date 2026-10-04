@@ -135,6 +135,12 @@ export default function NewDeliverySchedulePage() {
                       <Package className="h-3 w-3" />
                       {order.items?.length ?? 0} item{order.items?.length === 1 ? "" : "s"} · {formatPrice(order.totalAmount)}
                     </p>
+                    {(order.deliveryDeadline || order.safeDeliveryDate) && (
+                      <p className="mt-1 text-xs font-medium text-amber-700">
+                        Latest safe delivery: {new Date(order.deliveryDeadline || order.safeDeliveryDate).toLocaleDateString("en-IN")}
+                        {order.deliveryHoursRemaining != null ? " · " + Math.round(Number(order.deliveryHoursRemaining)) + "h left" : ""}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
