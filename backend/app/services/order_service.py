@@ -1694,7 +1694,12 @@ class OrderService:
 
         if fm == FulfillmentMethod.WAREHOUSE.value:
             try:
+                # Create one collection job per product/batch line. The farmer's
+                # explicit Ready for Pickup action later changes these shipments
+                # from scheduled -> ready_for_pickup; the warehouse never infers
+                # readiness from orderStatus alone.
                 from app.repositories.incoming_stock_repository import incoming_stock_repository
+                from app.services.warehouse_collection_service import ensure_collection_job
                 existing = await incoming_stock_repository.get_by_warehouse_id(
                     str(update["warehouseId"]), status=None, skip=0, limit=1000
                 )
@@ -1706,7 +1711,7 @@ class OrderService:
                     key = (str(order["_id"]), str(item.get("productId")), str(item.get("variantId") or ""))
                     if key in existing_keys:
                         continue
-                    await incoming_stock_repository.create_incoming({
+                    incoming_id = await incoming_stock_repository.create_incoming({
                         "warehouseId": update["warehouseId"],
                         "productId": ObjectId(item["productId"]),
                         "variantId": ObjectId(item["variantId"]) if item.get("variantId") else None,
@@ -1720,9 +1725,15 @@ class OrderService:
                         "storageType": "ambient",
                         "packingRequired": True,
                         "sourceMode": "warehouse_fulfillment",
+                        "readyForPickup": False,
                     })
+                    incoming_doc = await incoming_stock_repository.get_by_id(incoming_id) if incoming_id else None
+                    if incoming_doc:
+                        # The job exists in scheduled state; it becomes visible
+                        # as actionable Ready for Pickup only after farmer confirmation.
+                        await ensure_collection_job(incoming_doc, "bulk_harvest", "warehouse_fulfillment")
             except Exception:
-                logger.exception("Failed to create warehouse incoming work for order %s", order_id)
+                logger.exception("Failed to create warehouse collection work for order %s", order_id)
 
         return await order_repository.get_by_id(order_id)
 
