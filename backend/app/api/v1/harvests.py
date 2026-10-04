@@ -282,6 +282,8 @@ async def _build_preorder_route(
 
 class HarvestPlanCreate(BaseModel):
     cropName: str
+    masterCropId: Optional[str] = None
+    farmerCropId: Optional[str] = None
     expectedHarvestDate: datetime
     expectedQuantityKg: float
     preOrderPricePerKg: Optional[float] = None
@@ -310,13 +312,39 @@ async def create_harvest_plan(
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can create harvest plans")
 
+    master_crop = None
+    farmer_crop = None
+    if data.farmerCropId or data.masterCropId:
+        from app.api.v1.master_crops import farmer_crop_repo, master_repo
+        if data.farmerCropId:
+            try:
+                farmer_crop = await farmer_crop_repo.find_one({"_id": ObjectId(data.farmerCropId), "farmerId": ObjectId(current_user["_id"]), "deletedAt": None})
+            except Exception:
+                farmer_crop = None
+            if not farmer_crop:
+                raise HTTPException(status_code=404, detail="Farmer crop not found")
+            master_crop = await master_repo.find_one({"_id": farmer_crop["masterCropId"], "deletedAt": None, "isActive": True})
+        else:
+            try:
+                master_crop = await master_repo.find_one({"_id": ObjectId(data.masterCropId), "deletedAt": None, "isActive": True})
+            except Exception:
+                master_crop = None
+        if not master_crop:
+            raise HTTPException(status_code=404, detail="Master crop not found")
+
     expected_date = _to_naive_utc(data.expectedHarvestDate)
     if expected_date is None or expected_date < datetime.utcnow():
         raise HTTPException(status_code=400, detail="Expected harvest date must be in the future")
 
     plan = {
         "farmerId": ObjectId(current_user["_id"]),
-        "cropName": data.cropName.strip(),
+        "cropName": (farmer_crop or {}).get("name") or (master_crop or {}).get("name") or data.cropName.strip(),
+        "masterCropId": (farmer_crop or {}).get("masterCropId") or (ObjectId(data.masterCropId) if data.masterCropId else None),
+        "masterCropName": (master_crop or {}).get("name"),
+        "farmerCropId": ObjectId(data.farmerCropId) if data.farmerCropId else None,
+        "defaultShelfLifeDays": (farmer_crop or {}).get("defaultShelfLifeDays") or (master_crop or {}).get("defaultShelfLifeDays"),
+        "storageShelfLifeDays": (farmer_crop or {}).get("storageShelfLifeDays") or (master_crop or {}).get("storageShelfLifeDays", {}),
+        "safeDeliveryBufferHours": (farmer_crop or {}).get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours", 24),
         "expectedHarvestDate": expected_date,
         "expectedQuantityKg": data.expectedQuantityKg,
         "preOrderPricePerKg": data.preOrderPricePerKg,
@@ -342,6 +370,8 @@ async def create_harvest_plan(
         "actualQuantityKg": None,
         "finalRatePerKg": None,
         "harvestedAt": None,
+        "safeDeliveryDate": None,
+        "safeDeliveryBufferHours": (farmer_crop or {}).get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours", 24),
     }
 
     plan_id = await harvest_plan_repo.create(plan)
