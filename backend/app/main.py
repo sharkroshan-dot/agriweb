@@ -87,6 +87,8 @@ async def lifespan(app: FastAPI):
         await MongoDB.connect()
         await RedisClient.connect()
         await seed_categories()
+        from app.api.v1.master_crops import seed_master_crops
+        await seed_master_crops()
         from app.repositories.audit_log_repository import audit_log_repository
         await audit_log_repository.ensure_ttl_index()
         expiry_task = asyncio.create_task(reservation_expiry_loop())
@@ -287,6 +289,8 @@ from app.api.v1 import bulk_orders
 app.include_router(bulk_orders.router, prefix="/api/v1/bulk-orders", tags=["Bulk Orders"])
 from app.api.v1 import batches
 app.include_router(batches.router, prefix="/api/v1/batches", tags=["Batches"])
+from app.api.v1 import master_crops
+app.include_router(master_crops.router, prefix="/api/v1/master-crops", tags=["Master Crops"])
 from app.api.v1 import subscriptions
 app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["Subscriptions"])
 from app.api.v1 import refunds
