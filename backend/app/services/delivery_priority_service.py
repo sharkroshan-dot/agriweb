@@ -51,13 +51,22 @@ def _priority(hours_remaining: float) -> tuple[int, str]:
 
 
 async def _batch_for_item(item: dict) -> Optional[dict]:
+    batches = MongoDB.get_collection("batches")
     batch_id = item.get("batchId") or item.get("batch_id")
     oid = _as_oid(batch_id)
-    if not oid:
-        return None
-    return await MongoDB.get_collection("batches").find_one(
-        {"_id": oid, "deletedAt": None}
-    )
+    if oid:
+        found = await batches.find_one({"_id": oid, "deletedAt": None})
+        if found:
+            return found
+    product_id = _as_oid(item.get("productId"))
+    if product_id:
+        found = await batches.find_one(
+            {"productId": product_id, "deletedAt": None, "status": {"$ne": "cancelled"}},
+            sort=[("createdAt", -1)],
+        )
+        if found:
+            return found
+    return None
 
 
 async def calculate_order_delivery_priority(
