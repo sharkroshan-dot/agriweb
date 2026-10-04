@@ -501,9 +501,9 @@ export default function DeliveryDeliveriesPage() {
       toast.error("A delivery assignment is required before completion.");
       return;
     }
-    const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer.");
-    if (!otp) return;
-    if (!/^\\d{6}$/.test(otp.trim())) {
+    const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer. If you already scanned the customer QR, leave this blank.");
+    if (otp === null) return;
+    if (otp.trim() && !/^\\d{6}$/.test(otp.trim())) {
       toast.error("Enter the customer's 6-digit delivery OTP.");
       return;
     }
