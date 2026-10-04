@@ -4,7 +4,7 @@ import { useState, useMemo, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Package, MapPin, Clock, CreditCard, ChevronDown, ChevronUp, CheckCircle, Star, RefreshCw, Phone, Truck, X, MessageCircle, Navigation, Receipt, AlertTriangle, ImagePlus, ArrowUpLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Package, MapPin, Clock, CreditCard, ChevronDown, ChevronUp, CheckCircle, Star, RefreshCw, Phone, Truck, X, MessageCircle, Navigation, Receipt, AlertTriangle, ImagePlus, ArrowUpLeft, Loader2, QrCode } from "lucide-react";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
@@ -76,6 +76,23 @@ export default function OrderDetailPage() {
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const evidenceFileInputRef = useRef<HTMLInputElement>(null);
   const [reviews, setReviews] = useState<Record<string, { rating: number; comment: string; loading?: boolean; submitted?: boolean; error?: string }>>({});
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationBusy, setVerificationBusy] = useState(false);
+
+  const verifyDeliveryHandoff = async (method: "otp" | "qr", value: string) => {
+    if (!value || verificationBusy) return;
+    setVerificationBusy(true);
+    try {
+      await api.post("/orders/" + orderId + "/delivery-verification", method === "otp" ? { code: value, method } : { token: value, method });
+      toast.success("Delivery hand-off verified. The delivery partner can now complete the order.");
+      await Promise.all([refetchOrder(), refetchTracking()]);
+      setVerificationCode("");
+    } catch (e: any) {
+      toast.error(e?.message || "Invalid delivery verification");
+    } finally {
+      setVerificationBusy(false);
+    }
+  };
 
   const updateReview = (productId: string, patch: Partial<{ rating: number; comment: string; error?: string }>) => {
     setReviews((prev) => ({
@@ -235,6 +252,7 @@ export default function OrderDetailPage() {
       deliveryType: o.deliveryType || "delivery",
       requestedDeliveryDate: o.requestedDeliveryDate,
       deliveryTimeSlot: o.deliveryTimeSlot,
+      deliveryVerification: o.deliveryVerification || null,
       isBulkOrder: o.isBulkOrder || false,
       tracking: (o.statusHistory || []).map((h: any) => ({
         status: (h.status || "").toLowerCase(),
@@ -1073,6 +1091,33 @@ export default function OrderDetailPage() {
               </CardContent>
             </Card>
           )}
+
+            {order.deliveryType === "delivery" && order.deliveryVerification && !order.deliveryVerification.verified && order.status !== "delivered" && (
+              <Card className="border-emerald-200 bg-emerald-50/30">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2"><QrCode className="h-5 w-5 text-emerald-700" /> Delivery hand-off verification</CardTitle>
+                  <CardDescription>Show the OTP or QR code to the farmer/delivery partner when your order reaches you.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl border bg-white p-4 text-center">
+                      <p className="text-xs text-muted-foreground">6-digit delivery OTP</p>
+                      <p className="mt-2 text-3xl font-bold tracking-[0.35em]">{order.deliveryVerification.otp || "—"}</p>
+                    </div>
+                    {order.deliveryVerification.qrToken && (
+                      <div className="flex flex-col items-center rounded-xl border bg-white p-4">
+                        <p className="mb-2 text-xs text-muted-foreground">Scan QR at hand-off</p>
+                        <div className="rounded-lg border bg-white p-2"><QRCodeSVG value={order.deliveryVerification.qrToken} size={150} level="M" /></div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-lg border bg-white p-3">
+                    <p className="text-sm font-medium">Verification status: Waiting for hand-off</p>
+                    <p className="mt-1 text-xs text-muted-foreground">The farmer or delivery partner must verify the code/QR before marking the order Delivered.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>
