@@ -44,6 +44,8 @@ BATCH_CANCELLED = "cancelled"
 
 class BatchCreate(BaseModel):
     cropName: str
+    masterCropId: Optional[str] = None
+    farmerCropId: Optional[str] = None
     quantityKg: float = Field(gt=0)
     harvestDate: Optional[datetime] = None
     qualityGrade: Optional[str] = None
@@ -200,6 +202,14 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
             detail=f"This harvest already has batch {existing_batch.get('lotNumber')}. One harvest event can create only one batch.",
         )
 
+    master_crop = None
+    if harvest_plan.get("masterCropId"):
+        master_crop = await BaseRepository("master_crops").find_one({"_id": harvest_plan["masterCropId"], "deletedAt": None})
+    if not master_crop and data.masterCropId:
+        try: master_crop = await BaseRepository("master_crops").find_one({"_id": ObjectId(data.masterCropId), "deletedAt": None})
+        except Exception: master_crop = None
+    if not master_crop:
+        raise HTTPException(status_code=400, detail="A harvest batch requires a valid master crop")
     actual_qty = float(harvest_plan.get("actualQuantityKg") or 0)
     if actual_qty <= 0:
         raise HTTPException(status_code=400, detail="Actual harvested quantity is missing from the harvest record")
@@ -207,7 +217,8 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=400, detail=f"Batch quantity must match the actual harvested quantity ({actual_qty:g} kg)")
 
     storage = data.storageType if data.storageType in STORAGE_TYPES else "normal"
-    shelf = data.shelfLifeDays or DEFAULT_SHELF_LIFE_DAYS.get(storage, 3)
+    storage_defaults = (master_crop or {}).get("storageShelfLifeDays", {})
+    shelf = data.shelfLifeDays or storage_defaults.get(storage) or (master_crop or {}).get("defaultShelfLifeDays") or DEFAULT_SHELF_LIFE_DAYS.get(storage, 3)
     harvest = _to_naive_utc(harvest_plan.get("harvestedAt")) or datetime.utcnow()
     lot_number = await _next_lot_number()
 
@@ -215,6 +226,8 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "farmerId": ObjectId(current_user["_id"]),
         "lotNumber": lot_number,
         "cropName": harvest_plan.get("cropName"),
+        "masterCropId": harvest_plan.get("masterCropId") or (master_crop or {}).get("_id"),
+        "masterCropName": harvest_plan.get("masterCropName") or (master_crop or {}).get("name"),
         "quantityKg": actual_qty,
         "remainingKg": actual_qty,
         "harvestDate": harvest,
@@ -222,6 +235,8 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "storageType": storage,
         "shelfLifeDays": shelf,
         "expiresAt": harvest + timedelta(days=shelf),
+        "safeDeliveryBufferHours": int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24),
+        "safeDeliveryDate": harvest + timedelta(days=shelf) - timedelta(hours=int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24)),
         "productId": product_id,
         "sourceHarvestPlanId": harvest_plan_id,
         "qualityStatus": "pending_inspection",
