@@ -29,6 +29,9 @@ class MasterCropCreate(BaseModel):
     category: Optional[str] = None
     defaultShelfLifeDays: int = Field(ge=1, le=365)
     storageShelfLifeDays: dict[str, int] = Field(default_factory=dict)
+    defaultStorageType: str = "normal"
+    defaultStorageTemperature: Optional[str] = None
+    handlingInstructions: Optional[str] = None
     safeDeliveryBufferHours: int = Field(ge=0, le=168, default=24)
     isActive: bool = True
 
@@ -37,6 +40,9 @@ class MasterCropUpdate(BaseModel):
     category: Optional[str] = None
     defaultShelfLifeDays: Optional[int] = Field(None, ge=1, le=365)
     storageShelfLifeDays: Optional[dict[str, int]] = None
+    defaultStorageType: Optional[str] = None
+    defaultStorageTemperature: Optional[str] = None
+    handlingInstructions: Optional[str] = None
     safeDeliveryBufferHours: Optional[int] = Field(None, ge=0, le=168)
     isActive: Optional[bool] = None
 
@@ -80,6 +86,7 @@ async def seed_master_crops():
                 "normal": days, "refrigerated": max(days + 2, days),
                 "cold_storage": max(days + 5, days), "frozen": max(days + 27, days)
             },
+            "defaultStorageType": "normal", "defaultStorageTemperature": None, "handlingInstructions": "Handle carefully and avoid crushing.",
             "safeDeliveryBufferHours": 24 if days >= 3 else 12,
             "isActive": True, "createdAt": now, "updatedAt": now, "deletedAt": None,
         })
