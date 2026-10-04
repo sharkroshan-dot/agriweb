@@ -418,12 +418,8 @@ export default function DeliveryDeliveriesPage() {
       .sort((a: any, b: any) => a.distanceFromPartnerKm - b.distanceFromPartnerKm)[0] || null;
   }, [deliveries, partnerLocation, geocodedOrders]);
   const prioritizedDeliveries = useMemo(() => sortByDeliveryPriority(deliveries), [deliveries]);
-  /* legacy requested-date sorting intentionally replaced by delivery deadline priority */
-  const legacyPrioritizedDeliveries = useMemo(() => [...deliveries].sort((a: any, b: any) => {
-    const aDate = a.requestedDeliveryDate ? new Date(a.requestedDeliveryDate).getTime() : Number.MAX_SAFE_INTEGER;
-    const bDate = b.requestedDeliveryDate ? new Date(b.requestedDeliveryDate).getTime() : Number.MAX_SAFE_INTEGER;
-    return aDate - bDate;
-  }), [deliveries]);
+
+
 
   const freshnessLabel = (delivery: any) => {
     if (!delivery.requestedDeliveryDate) return null;
