@@ -878,9 +878,18 @@ export default function FarmerOrdersPage() {
                               </Badge>
                             )}
                             {order.fulfillmentMethod === "warehouse" && (
-                              <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
-                                <Store className="mr-1 h-3 w-3" />Warehouse Fulfillment
-                              </Badge>
+                              <>
+                                <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
+                                  <Store className="mr-1 h-3 w-3" />Warehouse Fulfillment
+                                </Badge>
+                                {order.warehouse?.name && (
+                                  <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
+                                    <MapPin className="mr-1 h-3 w-3" />
+                                    {order.warehouse.name}
+                                    {Number.isFinite(Number(order.warehouse.distanceKm)) ? " · " + Number(order.warehouse.distanceKm).toFixed(1) + " km" : ""}
+                                  </Badge>
+                                )}
+                              </>
                             )}
                             {status === "processing" && order.fulfillmentRouteSelected !== true && (
                               <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
