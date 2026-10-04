@@ -29,7 +29,7 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         "packingVerified": incoming.get("packingRequired") is False or bool(incoming.get("packingVerified")),
         "readyForPickup": True,
         "pickupLocation": incoming.get("pickupLocation") or incoming.get("farmLocation") or {},
-        "status": COLLECTION_READY,
+        "status": COLLECTION_READY if incoming.get("readyForPickup") else "scheduled",
         "readyAt": incoming.get("readyForPickupAt") or datetime.utcnow(),
     })
     return await warehouse_collection_repository.get_by_id(job_id) if job_id else None
