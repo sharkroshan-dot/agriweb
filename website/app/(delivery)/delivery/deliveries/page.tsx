@@ -493,34 +493,27 @@ export default function DeliveryDeliveriesPage() {
   };
 
   const handleMarkDelivered = async (delivery: any) => {
-    const orderId = getOrderId(delivery);
     const assignmentId = getAssignmentId(delivery);
+    if (!assignmentId) {
+      toast.error("A delivery assignment is required before completion.");
+      return;
+    }
+    const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer.");
+    if (!otp) return;
+    if (!/^\\d{6}$/.test(otp.trim())) {
+      toast.error("Enter the customer's 6-digit delivery OTP.");
+      return;
+    }
     try {
-      const res = await api.put(`/orders/${orderId}/status`, { status: "delivered" });
+      const res = await api.put("/delivery/assignments/" + assignmentId + "/deliver", { otp: otp.trim() });
       if (res?.success) {
-        toast.success("Order delivered!");
+        toast.success("Delivery verified and completed!");
         void refetchDeliveries();
       } else {
-        if (assignmentId) {
-          await api.put(`/delivery/assignments/${assignmentId}/complete`);
-          toast.success("Delivery completed!");
-        } else {
-          toast.error(res?.detail || "Failed to mark delivered");
-        }
-        void refetchDeliveries();
+        toast.error(res?.detail || "Invalid delivery OTP");
       }
     } catch (err: any) {
-      if (assignmentId) {
-        try {
-          await api.put(`/delivery/assignments/${assignmentId}/complete`);
-          toast.success("Delivery completed!");
-          void refetchDeliveries();
-          return;
-        } catch {
-          // Surface the original status update error below.
-        }
-      }
-      toast.error(err?.message || "Failed to mark delivered");
+      toast.error(err?.message || "Invalid delivery OTP or delivery status");
     }
   };
 
