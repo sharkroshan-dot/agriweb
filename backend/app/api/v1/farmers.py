@@ -1433,6 +1433,10 @@ async def get_my_route(
     total_quantity = 0
     for order in orders:
         oid = str(order["_id"])
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh route freshness priority for order %s", oid, exc_info=True)
         delivery_type = order.get("deliveryType", "delivery")
         addr = order.get("deliveryAddress", {}) or {}
         items = order.get("items", []) or []
@@ -1475,6 +1479,13 @@ async def get_my_route(
             "distance": round(dist, 2),
             "total": float(order.get("totalAmount", 0) or 0),
             "customerPhone": order.get("customerPhone", ""),
+            "priority": int(order.get("priority", 1) or 1),
+            "priorityLabel": order.get("priorityLabel") or "normal",
+            "priorityReason": order.get("priorityReason") or "",
+            "deliveryDeadline": order.get("deliveryDeadline"),
+            "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+            "freshnessDeadline": order.get("freshnessDeadline"),
+            "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
     stops.sort(key=lambda s: s["distance"])
