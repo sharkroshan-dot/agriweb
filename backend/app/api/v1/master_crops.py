@@ -154,6 +154,9 @@ async def create_farmer_crop(data: FarmerCropCreate, current_user: dict = Depend
         "variety": data.variety, "fieldName": data.fieldName, "areaAcres": data.areaAcres,
         "notes": data.notes, "defaultShelfLifeDays": master["defaultShelfLifeDays"],
         "storageShelfLifeDays": master.get("storageShelfLifeDays", {}),
+        "defaultStorageType": master.get("defaultStorageType", "normal"),
+        "defaultStorageTemperature": master.get("defaultStorageTemperature"),
+        "handlingInstructions": master.get("handlingInstructions"),
         "safeDeliveryBufferHours": master.get("safeDeliveryBufferHours", 24),
         "isActive": True, "createdAt": now, "updatedAt": now, "deletedAt": None,
     }
