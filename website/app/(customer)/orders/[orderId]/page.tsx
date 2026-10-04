@@ -15,6 +15,7 @@ import { api } from "../../../lib/api/client";
 import { useCartStore } from "../../../lib/store/cart-store";
 import toast from "react-hot-toast";
 import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
+import { QRCodeSVG } from "qrcode.react";
 
 const statusColors: Record<string, string> = {
   pending: "border-yellow-200 bg-yellow-50 text-yellow-700",
