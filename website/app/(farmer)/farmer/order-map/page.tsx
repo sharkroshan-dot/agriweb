@@ -115,10 +115,17 @@ const isDone = (stop: any) => ["delivered", "picked_up"].includes(getStatus(stop
 
 const priorityBadge = (stop: any) => {
   const v = Number(stop?.priority ?? 1);
-  if (v >= 3) return <Badge variant="destructive" className="text-[10px]">Critical</Badge>;
-  if (v === 2) return <Badge variant="warning" className="text-[10px]">High priority</Badge>;
-  if (v <= 0) return <Badge variant="outline" className="text-[10px] text-emerald-600">Low</Badge>;
-  return null;
+  if (v >= 3) return <Badge variant="destructive" className="text-[10px]">Urgent</Badge>;
+  if (v === 2) return <Badge variant="warning" className="text-[10px]">High</Badge>;
+  return <Badge variant="outline" className="text-[10px] text-emerald-700">Normal</Badge>;
+};
+
+const formatDeadline = (value: any) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 };
 
 const isPickup = (stop: any) => String(stop?.deliveryType || "").toLowerCase() === "pickup";
@@ -2690,6 +2697,11 @@ function OrderCard({
             <p className="mt-1 text-xs text-muted-foreground">
               {stop.quantity} · {stop.product || "Items"} · {formatPrice(stop.total)}
               {stop.distance != null ? ` · ${stop.distance} km` : ""}
+            </p>
+            <p className={`mt-1 text-xs font-medium ${Number(stop?.priority ?? 1) >= 3 ? "text-red-600" : Number(stop?.priority ?? 1) === 2 ? "text-amber-700" : "text-emerald-700"}`}>
+              {Number(stop?.deliveryHoursRemaining ?? 0) > 0
+                ? `Deliver by ${formatDeadline(stop?.deliveryDeadline)} · ${Math.round(Number(stop.deliveryHoursRemaining))}h left`
+                : "Delivery deadline reached"}
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-2">
