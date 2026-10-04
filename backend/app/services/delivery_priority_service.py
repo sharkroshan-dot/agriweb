@@ -107,7 +107,7 @@ async def calculate_order_delivery_priority(
         batch_id = str(batch.get("_id"))
         batch_ids.append(batch_id)
         harvest = _naive_utc(batch.get("harvestDate") or batch.get("harvestedAt"))
-        expires = _naive_utc(batch.get("expiresAt"))
+        expires = _naive_utc(batch.get("safeDeliveryDate") or batch.get("expiresAt"))
         shelf = batch.get("shelfLifeDays")
 
         if harvest:
@@ -133,7 +133,7 @@ async def calculate_order_delivery_priority(
     )
     priority, priority_label = _priority(hours_remaining)
 
-    freshness_source = "batch" if freshness_deadline else "business_window"
+    freshness_source = "batch_safe_delivery" if freshness_deadline else "business_window"
     deadline_passed = effective_deadline <= now
 
     snapshot: Dict[str, Any] = {
@@ -141,6 +141,7 @@ async def calculate_order_delivery_priority(
         "deliveryDeadlineSource": freshness_source,
         "businessDeliveryDeadline": business_deadline,
         "freshnessDeadline": freshness_deadline,
+        "safeDeliveryDate": freshness_deadline,
         "deliveryWindowDays": MAX_DELIVERY_WINDOW_DAYS,
         "deliveryHoursRemaining": round(hours_remaining, 1),
         "priority": priority,
