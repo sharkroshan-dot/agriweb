@@ -774,6 +774,7 @@ export default function DeliveryDeliveriesPage() {
                       {delivery.items.map((i: any) => i.productName).join(", ")}
                     </p>
                   )}
+                  <DeliveryPriorityBadge delivery={delivery} />
                   {freshnessLabel(delivery) && (
                     <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${freshnessLabel(delivery)?.isToday ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
                       {freshnessLabel(delivery)?.isToday ? <Zap className="h-3.5 w-3.5" /> : <CalendarClock className="h-3.5 w-3.5" />}
