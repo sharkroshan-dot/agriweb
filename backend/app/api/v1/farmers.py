@@ -44,6 +44,7 @@ from app.repositories.delivery_job_repository import (
 )
 from app.services.farmer_settings_service import farmer_settings_service
 from app.services.logistics_routing_service import apply_partner_route
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 from app.ai.models.route_optimization import route_optimization_model
 from collections import Counter
 import math
@@ -1894,6 +1895,10 @@ async def _map_order_payload(
     coordinates are replaced with the true location.
     """
     oid = str(order["_id"])
+    try:
+        await calculate_order_delivery_priority(order, persist=True)
+    except Exception:
+        logger.warning("Could not refresh freshness priority for order %s", oid, exc_info=True)
     delivery_type = order.get("deliveryType", "delivery")
     addr = order.get("deliveryAddress", {}) or {}
     items = order.get("items", []) or []
@@ -2071,6 +2076,15 @@ async def _map_order_payload(
         "paymentMethod": payment_method,
         "isCOD": payment_method == "cash",
         "priority": int(order.get("priority", 0) or 0),
+        "priorityLabel": order.get("priorityLabel") or "normal",
+        "priorityReason": order.get("priorityReason") or "",
+        "deliveryDeadline": order.get("deliveryDeadline"),
+        "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+        "deliveryWindowDays": order.get("deliveryWindowDays", 4),
+        "freshnessDeadline": order.get("freshnessDeadline"),
+        "harvestDate": order.get("harvestDate"),
+        "shelfLifeDays": order.get("shelfLifeDays"),
+        "deadlinePassed": bool(order.get("deadlinePassed")),
         "selfDelivery": bool(order.get("selfDelivery")),
         "deliveryPartnerId": str(order["deliveryPartnerId"]) if has_partner else None,
         "deliveryPartnerName": order.get("deliveryPartnerName") or "",
