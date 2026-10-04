@@ -20,6 +20,7 @@ from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
 import httpx
+import secrets
 import logging
 
 logger = logging.getLogger(__name__)
@@ -766,6 +767,46 @@ class OrderService:
                 user = await UserService.get_user_by_id(changed_by)
                 if user:
                     entry["changedByName"] = f"{user.get('firstName', '')} {user.get('lastName', '')}"
+
+        # Customer delivery hand-off verification is issued once the order is ready
+        # for delivery. The customer sees the 6-digit OTP and a QR containing an
+        # opaque verification token; farmers/delivery partners never receive the
+        # secret in their order payload and must obtain it from the customer.
+        if (
+            order.get("deliveryType") == DeliveryType.DELIVERY.value
+            and order.get("orderStatus") in (
+                OrderStatus.READY_FOR_DELIVERY.value,
+                OrderStatus.DISPATCHED.value,
+                OrderStatus.IN_TRANSIT.value,
+            )
+            and not order.get("deliveryVerificationCode")
+        ):
+            from app.core.security import SecurityService
+            code = SecurityService.generate_otp(6)
+            token = secrets.token_urlsafe(32)
+            issued_at = datetime.utcnow()
+            try:
+                await order_repository.update(
+                    {"_id": order["_id"]},
+                    {
+                        "deliveryVerificationCode": code,
+                        "deliveryVerificationToken": token,
+                        "deliveryVerificationIssuedAt": issued_at,
+                        "deliveryVerificationVerifiedAt": None,
+                        "deliveryVerificationMethod": None,
+                        "updatedAt": issued_at,
+                    },
+                )
+                order["deliveryVerificationCode"] = code
+                order["deliveryVerificationToken"] = token
+                order["deliveryVerificationIssuedAt"] = issued_at
+            except Exception:
+                logger.warning("Failed to issue delivery verification credentials for order %s", order_id)
+
+        # Delivery verification credentials are customer/admin secrets.
+        if role not in ("customer", "admin"):
+            order.pop("deliveryVerificationCode", None)
+            order.pop("deliveryVerificationToken", None)
 
         # The pickup verification code is shown to the CUSTOMER so they can
         # present it at the farm. Farmers must enter it themselves to confirm
@@ -2595,6 +2636,24 @@ class OrderService:
             tracking["eta"] = format_eta_minutes(distance * 2)
 
         tracking["deliveryLocation"] = destination if (destination and destination.get("coordinates")) else None
+        # Customer-facing delivery hand-off state. Never expose the OTP/token
+        # to delivery partners through the live tracking endpoint.
+        if role in ("customer", "admin") and order.get("deliveryType") == DeliveryType.DELIVERY.value:
+            tracking["deliveryVerification"] = {
+                "required": order.get("orderStatus") not in (OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value),
+                "verified": bool(order.get("deliveryVerificationVerifiedAt")),
+                "verifiedAt": order.get("deliveryVerificationVerifiedAt"),
+                "method": order.get("deliveryVerificationMethod"),
+                "otp": order.get("deliveryVerificationCode"),
+                "qrToken": order.get("deliveryVerificationToken"),
+            }
+        else:
+            tracking["deliveryVerification"] = {
+                "required": order.get("orderStatus") not in (OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value),
+                "verified": bool(order.get("deliveryVerificationVerifiedAt")),
+                "verifiedAt": order.get("deliveryVerificationVerifiedAt"),
+                "method": order.get("deliveryVerificationMethod"),
+            }
         tracking["lastUpdated"] = tracking.get("locationUpdatedAt") or order.get("updatedAt")
 
         return tracking
