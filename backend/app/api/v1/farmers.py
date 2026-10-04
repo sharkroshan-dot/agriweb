@@ -1644,6 +1644,16 @@ async def update_route_stop_status(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Delivery stops can only be marked delivered",
             )
+        # Refresh freshness/deadline priority immediately before the final farmer hand-off.
+        try:
+            refreshed_priority = await calculate_order_delivery_priority(order, persist=True)
+            order.update(refreshed_priority)
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {"priorityLastCheckedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            )
+        except Exception:
+            logger.warning("Could not refresh delivery stop priority for order %s", order_id, exc_info=True)
         if not order.get("selfDelivery"):
             await order_repository.update_order_field(order_id, "selfDelivery", True)
         updated = await OrderService.update_order_status(
