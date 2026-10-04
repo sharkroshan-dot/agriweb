@@ -12,6 +12,7 @@ from app.schemas.delivery import (
     RouteOptimizationRequest
 )
 from app.services.notification_service import NotificationService
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 from app.services.payment_service import PaymentService
 import logging
 
@@ -243,6 +244,9 @@ class DeliveryService:
         
         order = await order_repository.get_by_id(str(assignment["orderId"]))
         if order:
+            order = await calculate_order_delivery_priority(order, persist=True)
+            await delivery_assignment_repository.update_status(assignment_id, assignment.get("status"), {"priority": order.get("priority", 1), "priorityLabel": order.get("priorityLabel", "Normal"), "deliveryDeadline": order.get("deliveryDeadline"), "deliveryHoursRemaining": order.get("deliveryHoursRemaining")})
+        if order:
             await NotificationService.send_order_in_transit(
                 str(order["customerId"]),
                 str(assignment["orderId"]) 
@@ -270,8 +274,20 @@ class DeliveryService:
         if not order:
             return None
         
-        if len(otp) != 4 or not otp.isdigit():
+        # Recalculate freshness/deadline priority immediately before the final hand-off.
+        order = await calculate_order_delivery_priority(order, persist=True)
+        expected_otp = str(order.get("deliveryVerificationCode") or "")
+        if not expected_otp or str(otp).strip() != expected_otp:
             return None
+        await order_repository.update(
+            {"_id": order["_id"]},
+            {
+                "deliveryVerificationVerifiedAt": datetime.utcnow(),
+                "deliveryVerificationMethod": "otp",
+                "deliveryVerificationVerifiedBy": partner_id,
+                "updatedAt": datetime.utcnow(),
+            },
+        )
         
         success = await delivery_assignment_repository.update_status(
             assignment_id,
@@ -431,6 +447,11 @@ class DeliveryService:
             return None
 
         order_id = str(assignment["orderId"])
+        order = await order_repository.get_by_id(order_id)
+        if not order or not order.get("deliveryVerificationVerifiedAt"):
+            return None
+        order = await calculate_order_delivery_priority(order, persist=True)
+        await order_repository.update_order_field(order_id, "deliveryPriorityAtCompletion", datetime.utcnow())
         await order_repository.update_order_status(
             order_id,
             "delivered",
