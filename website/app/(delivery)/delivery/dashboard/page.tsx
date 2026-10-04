@@ -43,6 +43,7 @@ import { api } from "../../../lib/api/client";
 import { formatPrice, formatTime } from "../../../lib/utils";
 import toast from "react-hot-toast";
 import { Map as LiveRouteMap } from "../../../components/shared/map";
+import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
 
 const MapUnavailable = ({ deliveries }: { deliveries: any[] }) => (
   <div className="flex h-[400px] w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
@@ -122,7 +123,7 @@ export default function DeliveryDashboardPage() {
     }
   }, [stats?.data]);
 
-  const deliveryList = deliveries?.data?.deliveries || [];
+  const deliveryList = useMemo(() => sortByDeliveryPriority(deliveries?.data?.deliveries || []), [deliveries?.data?.deliveries]);
   const completedCount = deliveryList.filter((d: any) => d.status === "delivered").length;
   const totalEarnings = stats?.data?.totalEarnings || 0;
   const averageRating = stats?.data?.averageRating || 0;
