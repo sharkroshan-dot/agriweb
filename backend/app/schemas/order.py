@@ -160,6 +160,7 @@ class OrderResponse(BaseModel):
     pickupCode: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
     deliveryTimeSlot: Optional[str] = None
+    deliveryVerification: Optional[Dict[str, Any]] = None
     farmAddress: Optional[str] = None
     pickupInstructions: Optional[str] = None
     isBulkOrder: bool = False
@@ -188,6 +189,7 @@ class OrderTrackingResponse(BaseModel):
     route: Optional[List[Dict[str, float]]] = None
     statusHistory: List[Dict[str, Any]]
     locationUpdatedAt: Optional[datetime] = None
+    deliveryVerification: Optional[Dict[str, Any]] = None
     lastUpdated: Optional[datetime] = None
 
 class OrderSummaryResponse(BaseModel):
