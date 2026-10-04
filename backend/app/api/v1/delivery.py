@@ -578,6 +578,16 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
             oid = str(a["orderId"])
             seen.add(oid)
             a["id"] = str(a["_id"])
+            order = await order_repository.get_by_id(str(a["orderId"]))
+            if order:
+                priority_order = await calculate_order_delivery_priority(order, persist=True)
+                a["priority"] = int(priority_order.get("priority", 1) or 1)
+                a["priorityLabel"] = priority_order.get("priorityLabel") or "Normal"
+                a["priorityReason"] = priority_order.get("priorityReason")
+                a["deliveryDeadline"] = priority_order.get("deliveryDeadline")
+                a["deliveryHoursRemaining"] = priority_order.get("deliveryHoursRemaining")
+                a["freshnessDeadline"] = priority_order.get("freshnessDeadline")
+                a["deadlinePassed"] = bool(priority_order.get("deadlinePassed", False))
             result.append(a)
         orders = await order_repository.get_by_delivery_partner(key)
         for o in orders:
