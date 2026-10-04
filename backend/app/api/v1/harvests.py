@@ -314,6 +314,8 @@ async def create_harvest_plan(
 
     master_crop = None
     farmer_crop = None
+    if not data.masterCropId and not data.farmerCropId:
+        raise HTTPException(status_code=400, detail="Select a Master Crop or Farmer Crop before creating a harvest plan")
     if data.farmerCropId or data.masterCropId:
         from app.api.v1.master_crops import farmer_crop_repo, master_repo
         if data.farmerCropId:
