@@ -1046,13 +1046,50 @@ export default function FarmerOrdersPage() {
                                   <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
                                     <div>
                                       <strong>Warehouse fulfillment</strong>
-                                      <p className="mt-1">Bulk harvest/product is sent to the warehouse. The warehouse then allocates stock to this individual order and packs this order separately.</p>
+                                      <p className="mt-1">Bulk harvest/product is sent to the assigned warehouse. The warehouse handles receiving, quality checks, allocation, and customer-order packing.</p>
                                     </div>
+
+                                    <div className="rounded-lg border border-blue-200 bg-white p-3">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">Current Status</p>
+                                      <p className="mt-1 font-semibold text-blue-950">
+                                        {(() => {
+                                          const stage = String(order.warehouseFulfillmentStage || "incoming").toLowerCase();
+                                          const labels: Record<string, string> = {
+                                            incoming: "Warehouse Fulfillment Selected",
+                                            pickup_requested: "Product Ready · Pickup Requested",
+                                            collection_team_assigned: "Collection Team Assigned",
+                                            collection_en_route: "Collection Team En Route",
+                                            collection_arrived: "Collection Team Arrived at Farm",
+                                            collected: "Collected from Farm",
+                                            collection_departed: "Departed Farm",
+                                            received: "Warehouse Received",
+                                            stored: "Stock Stored",
+                                            ready_for_packing: "Warehouse Processing",
+                                            packing_team_assigned: "Warehouse Processing",
+                                            packing: "Warehouse Processing",
+                                            packed: "Warehouse Processing",
+                                            ready_for_dispatch: "Ready for Dispatch",
+                                            delivery_decision: "Ready for Dispatch",
+                                            dispatched: "Warehouse Dispatched",
+                                          };
+                                          return labels[stage] || "Warehouse Processing";
+                                        })()}
+                                      </p>
+                                    </div>
+
                                     {!order.warehouseCollectionStatus && (
                                       <Button size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700" onClick={() => markWarehouseReadyForPickup(orderId)}>
                                         <Package className="mr-2 h-4 w-4" />Product Ready for Warehouse Pickup
                                       </Button>
                                     )}
+
+                                    {order.warehouseCollectionStatus && (
+                                      <p className="text-[11px] text-blue-700">
+                                        The warehouse collection team will handle pickup and the remaining warehouse operations.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
                                     <div className="grid gap-1.5 sm:grid-cols-2">
                                       {[
                                         ["incoming", "Warehouse Fulfillment Selected"],
