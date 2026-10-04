@@ -245,7 +245,10 @@ class DeliveryService:
         order = await order_repository.get_by_id(str(assignment["orderId"]))
         if order:
             order = await calculate_order_delivery_priority(order, persist=True)
-            await delivery_assignment_repository.update_status(assignment_id, assignment.get("status"), {"priority": order.get("priority", 1), "priorityLabel": order.get("priorityLabel", "Normal"), "deliveryDeadline": order.get("deliveryDeadline"), "deliveryHoursRemaining": order.get("deliveryHoursRemaining")})
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {"priority": order.get("priority", 1), "priorityLabel": order.get("priorityLabel", "Normal"), "deliveryDeadline": order.get("deliveryDeadline"), "deliveryHoursRemaining": order.get("deliveryHoursRemaining"), "priorityLastCheckedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            )
         if order:
             await NotificationService.send_order_in_transit(
                 str(order["customerId"]),
