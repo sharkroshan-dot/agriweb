@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 import { useState, useRef, useMemo, useEffect } from "react";
+import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
 
 const distanceBetweenKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const radians = Math.PI / 180;
@@ -351,7 +352,9 @@ export default function DeliveryDeliveriesPage() {
       const key = getOrderId(delivery);
       if (key && !merged.has(key)) merged.set(key, delivery);
     });
-    return [...merged.values()].sort((a: any, b: any) => {
+    return sortByDeliveryPriority([...merged.values()]).sort((a: any, b: any) => {
+      const pa = Number(a?.priority ?? 1); const pb = Number(b?.priority ?? 1);
+      if (pa !== pb) return pb - pa;
       const aDistance = Number(a.distanceFromPartnerKm ?? Number.MAX_SAFE_INTEGER);
       const bDistance = Number(b.distanceFromPartnerKm ?? Number.MAX_SAFE_INTEGER);
       return aDistance - bDistance;
@@ -414,7 +417,9 @@ export default function DeliveryDeliveriesPage() {
       .filter(Boolean)
       .sort((a: any, b: any) => a.distanceFromPartnerKm - b.distanceFromPartnerKm)[0] || null;
   }, [deliveries, partnerLocation, geocodedOrders]);
-  const prioritizedDeliveries = useMemo(() => [...deliveries].sort((a: any, b: any) => {
+  const prioritizedDeliveries = useMemo(() => sortByDeliveryPriority(deliveries), [deliveries]);
+  /* legacy requested-date sorting intentionally replaced by delivery deadline priority */
+  const legacyPrioritizedDeliveries = useMemo(() => [...deliveries].sort((a: any, b: any) => {
     const aDate = a.requestedDeliveryDate ? new Date(a.requestedDeliveryDate).getTime() : Number.MAX_SAFE_INTEGER;
     const bDate = b.requestedDeliveryDate ? new Date(b.requestedDeliveryDate).getTime() : Number.MAX_SAFE_INTEGER;
     return aDate - bDate;
