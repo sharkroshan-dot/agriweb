@@ -175,7 +175,7 @@ class DeliveryService:
         assignment_id: str,
         partner_id: str
     ) -> Optional[Dict[str, Any]]:
-        """Accept delivery assignment and move it to in-transit."""
+        """Accept the assignment only. Pickup is the transition to in-transit."""
         assignment = await delivery_assignment_repository.get_by_id(assignment_id)
         if not assignment:
             return None
@@ -185,7 +185,7 @@ class DeliveryService:
         
         success = await delivery_assignment_repository.update_status(
             assignment_id,
-            DeliveryStatus.IN_TRANSIT
+            DeliveryStatus.ACCEPTED
         )
         
         if not success:
@@ -199,7 +199,7 @@ class DeliveryService:
         
         await order_repository.update_order_status(
             str(assignment["orderId"]),
-            "in_transit",
+            "accepted",
             partner_id,
             "Delivery accepted by partner"
         )
