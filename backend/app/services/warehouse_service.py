@@ -39,6 +39,31 @@ class WarehouseService:
         return await warehouse_repository.get_by_manager(manager_id)
 
     @staticmethod
+    async def find_best_warehouse(
+        location: Dict[str, Any],
+        required_capacity: float = 0,
+        storage_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Select the nearest suitable warehouse instead of using a district mapping."""
+        if not isinstance(location, dict):
+            return None
+        coordinates = location.get("coordinates")
+        if isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+            lng, lat = float(coordinates[0]), float(coordinates[1])
+        else:
+            lat = location.get("lat", location.get("latitude"))
+            lng = location.get("lng", location.get("lon", location.get("longitude")))
+            if lat is None or lng is None:
+                return None
+            lat, lng = float(lat), float(lng)
+        return await warehouse_repository.find_best_warehouse(
+            lat=lat,
+            lng=lng,
+            required_capacity=float(required_capacity or 0),
+            storage_type=storage_type,
+        )
+
+    @staticmethod
     async def update_warehouse(
         warehouse_id: str,
         data: WarehouseUpdate
