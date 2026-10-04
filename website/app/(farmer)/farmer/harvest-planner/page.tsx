@@ -753,19 +753,19 @@ export default function FarmerHarvestPlannerPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-xs font-medium text-gray-500">Crop source *</label>
+                <Select value={selectedFarmerCropId ? `farmer:${selectedFarmerCropId}` : selectedMasterCropId ? `master:${selectedMasterCropId}` : ""} onValueChange={(v) => v.startsWith("farmer:") ? chooseFarmerCrop(v.replace("farmer:", "")) : (setSelectedMasterCropId(v.replace("master:", "")), setSelectedFarmerCropId(""), setForm((f) => ({ ...f, cropName: masterCrops.find((x: any) => String(x.id) === v.replace("master:", ""))?.name || "" })))}>
+                  <SelectTrigger><SelectValue placeholder="Select Master Crop / Farmer Crop" /></SelectTrigger>
+                  <SelectContent>
+                    {farmerCrops.map((crop: any) => <SelectItem key={`farmer-${crop.id}`} value={`farmer:${crop.id}`}>My Crop: {crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
+                    {masterCrops.map((crop: any) => <SelectItem key={`master-${crop.id}`} value={`master:${crop.id}`}>Master: {crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {selectedCrop && <p className="text-xs text-emerald-700">Default shelf life: {selectedCrop.defaultShelfLifeDays} days · Safe delivery buffer: {selectedCrop.safeDeliveryBufferHours ?? 24} hours</p>}
+              </div>
               <div className="space-y-1">
-                <div className="space-y-2 sm:col-span-2">
-            <label className="text-xs font-medium text-gray-500">Crop source *</label>
-            <Select value={selectedFarmerCropId ? `farmer:${selectedFarmerCropId}` : selectedMasterCropId ? `master:${selectedMasterCropId}` : ""} onValueChange={(v) => v.startsWith("farmer:") ? chooseFarmerCrop(v.replace("farmer:", "")) : (setSelectedMasterCropId(v.replace("master:", "")), setSelectedFarmerCropId(""), setForm((f) => ({ ...f, cropName: masterCrops.find((x: any) => String(x.id) === v.replace("master:", ""))?.name || "" })))}>
-              <SelectTrigger><SelectValue placeholder="Select Master Crop / Farmer Crop" /></SelectTrigger>
-              <SelectContent>
-                {farmerCrops.map((crop: any) => <SelectItem key={`farmer-${crop.id}`} value={`farmer:${crop.id}`}>My Crop: {crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
-                {masterCrops.map((crop: any) => <SelectItem key={`master-${crop.id}`} value={`master:${crop.id}`}>Master: {crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
-              </SelectContent>
-            </Select>
-            {selectedCrop && <p className="text-xs text-emerald-700">Default shelf life: {selectedCrop.defaultShelfLifeDays} days · Safe delivery buffer: {selectedCrop.safeDeliveryBufferHours ?? 24} hours</p>}
-          </div>
-          <label className="text-xs font-medium text-gray-500">Crop name *</label>
+                <label className="text-xs font-medium text-gray-500">Crop name *</label>
                 <Input
                   value={form.cropName}
                   onChange={(e) => setForm({ ...form, cropName: e.target.value })}
