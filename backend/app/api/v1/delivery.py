@@ -40,6 +40,7 @@ from app.services.delivery_job_service import (
 )
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 import logging
 
 logger = logging.getLogger(__name__)
@@ -227,6 +228,14 @@ async def _enrich_assignment(assignment: dict) -> dict:
     assignment["customerName"] = order.get("customerName") or "Customer"
     assignment["earnings"] = order.get("deliveryCharge", 0)
     assignment["status"] = assignment.get("status") or order.get("orderStatus")
+    priority_order = await calculate_order_delivery_priority(order, persist=True)
+    assignment["priority"] = int(priority_order.get("priority", 1) or 1)
+    assignment["priorityLabel"] = priority_order.get("priorityLabel") or "Normal"
+    assignment["priorityReason"] = priority_order.get("priorityReason")
+    assignment["deliveryDeadline"] = priority_order.get("deliveryDeadline")
+    assignment["deliveryHoursRemaining"] = priority_order.get("deliveryHoursRemaining")
+    assignment["freshnessDeadline"] = priority_order.get("freshnessDeadline")
+    assignment["deadlinePassed"] = bool(priority_order.get("deadlinePassed", False))
     assignment["orderId"] = oid
     customer = None
     if order.get("customerId"):
@@ -2696,8 +2705,9 @@ async def get_my_delivery_jobs(
     accepted_list = []
     for job in accepted_jobs or []:
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
+    accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
 
-    open_list.sort(key=lambda j: (j.get("distanceFromPartner") if j.get("distanceFromPartner") is not None else 1e9))
+    open_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31", j.get("distanceFromPartner") if j.get("distanceFromPartner") is not None else 1e9))
 
     return {
         "success": True,
@@ -2806,7 +2816,10 @@ async def accept_delivery_job(
                 "deliveryPartnerId": ObjectId(partner_id),
                 "farmerId": ObjectId(farmer_id) if farmer_id else None,
                 "status": DeliveryStatus.IN_TRANSIT,
-                "priority": 1,
+                "priority": int(order.get("priority", 1) or 1),
+                "priorityLabel": order.get("priorityLabel") or "Normal",
+                "deliveryDeadline": order.get("deliveryDeadline"),
+                "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
                 "source": "job_marketplace",
                 "assignee": "partner",
                 "assignmentMethod": "self_service",
