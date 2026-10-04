@@ -1559,9 +1559,34 @@ async def start_my_route(
     orders = await order_repository.find_many(start_query)
     updated = 0
     for order in orders or []:
-        if order.get("deliveryType") == "delivery" and not order.get("selfDelivery"):
-            if await order_repository.update_order_field(str(order["_id"]), "selfDelivery", True):
-                updated += 1
+        if order.get("deliveryType") != "delivery":
+            continue
+        if str(order.get("deliveryDecision") or "").lower() != "self_delivery":
+            continue
+        # Route start is the actual dispatch point. Confirmation only reserves
+        # the order for farmer self-delivery and does not dispatch it.
+        now = datetime.utcnow()
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh route-start priority for order %s", order.get("_id"), exc_info=True)
+        ok = await order_repository.update(
+            {"_id": order["_id"]},
+            {
+                "selfDelivery": True,
+                "orderStatus": "ready_for_delivery",
+                "fulfillmentStage": "dispatched",
+                "dispatchedAt": now,
+                "dispatchReadyChecklistComplete": True,
+                "deliveryDispatchStatus": "dispatched",
+                "deliveryDispatchAt": now,
+                "deliveryDecisionStatus": "route_started",
+                "deliveryRouteStartedAt": now,
+                "updatedAt": now,
+            },
+        )
+        if ok:
+            updated += 1
     return {"success": True, "data": {"updatedStops": updated}, "message": "Route started"}
 
 
@@ -2859,17 +2884,16 @@ async def create_self_delivery_plan(
             {
                 "orderStatus": "ready_for_delivery",
                 "deliveryResponsibility": "farmer",
-                "fulfillmentStage": "dispatched",
-                "dispatchedAt": dispatch_at,
-                "dispatchReadyChecklistComplete": True,
-                "deliveryDispatchStatus": "dispatched",
-                "deliveryDispatchAt": dispatch_at,
+                "fulfillmentStage": "packed",
+                "deliveryDispatchStatus": "pending_route_start",
                 "deliveryPartnerRoute": "self_delivery",
                 "deliveryDecision": "self_delivery",
                 "deliveryDecisionStatus": "confirmed_self",
                 "deliveryDecisionCompletedAt": dispatch_at,
-                "deliveryRouteSequence": ["packed", "self_delivery", "dispatch", "farmer", "customer"],
+                "deliveryRouteSequence": ["packed", "self_delivery_confirmed", "delivery_calendar", "smart_route", "route", "dispatch", "farmer", "customer"],
                 "partnerAssignmentOpen": False,
+                "selfDelivery": False,
+                "deliveryVerificationPlanned": True,
                 "updatedAt": dispatch_at,
             },
         )
