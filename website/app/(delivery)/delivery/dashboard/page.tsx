@@ -964,6 +964,7 @@ export default function DeliveryDashboardPage() {
                       >
                         {statusLabel(delivery.status)}
                       </Badge>
+                      <DeliveryPriorityBadge delivery={delivery} compact />
                       {paymentBadge(delivery.paymentMethod) && (
                         <Badge variant="outline" className={paymentBadge(delivery.paymentMethod)?.cod ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "border-blue-200 text-blue-700"}>
                           {paymentBadge(delivery.paymentMethod)?.label}
