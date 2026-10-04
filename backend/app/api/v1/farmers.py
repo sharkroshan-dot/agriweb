@@ -796,6 +796,7 @@ async def get_smart_route(
             "deliveryDeadline": order.get("deliveryDeadline"),
             "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
             "freshnessDeadline": order.get("freshnessDeadline"),
+            "safeDeliveryDate": order.get("safeDeliveryDate") or order.get("freshnessDeadline"),
             "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
@@ -862,6 +863,7 @@ async def get_smart_route(
 class DeliverySlotUpdateRequest(BaseModel):
     day: str
     timeSlot: str
+    deliveryDate: Optional[str] = None
 
 
 @router.put("/me/orders/{order_id}/delivery-slot")
@@ -893,6 +895,32 @@ async def update_order_delivery_slot(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"timeSlot must be one of {', '.join(_CALENDAR_SLOT_ORDER)}",
         )
+
+    try:
+        await calculate_order_delivery_priority(order, persist=True)
+    except Exception:
+        pass
+
+    deadline = order.get("deliveryDeadline")
+    requested_date = None
+    if body.deliveryDate:
+        try:
+            requested_date = datetime.fromisoformat(body.deliveryDate.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="deliveryDate must be ISO format YYYY-MM-DD")
+    elif deadline:
+        weekday_index = _CALENDAR_DAYS.index(day)
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        days_ahead = (weekday_index - today.weekday()) % 7
+        requested_date = today + timedelta(days=days_ahead)
+
+    if deadline and requested_date:
+        deadline_dt = deadline.replace(tzinfo=None) if getattr(deadline, "tzinfo", None) else deadline
+        if requested_date.date() > deadline_dt.date():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot schedule this order for {requested_date.date().isoformat()}. Delivery deadline is {deadline_dt.date().isoformat()}.",
+            )
 
     ok = await order_repository.update_order_field(order_id, "deliveryDay", day)
     ok = await order_repository.update_order_field(order_id, "deliveryTimeSlot", time_slot) and ok
@@ -1086,7 +1114,9 @@ def _optimize_stops_ai(origin: dict, stops: list) -> tuple[list, str]:
         return ordered + unlocated, label
     except Exception as e:
         logger.warning(f"AI smart-route optimization failed, falling back to nearest-neighbour: {e}")
-        return _optimize_stops(origin, stops), fallback_label
+        fallback = _optimize_stops(origin, stops)
+        fallback = sorted(fallback, key=lambda s: (-int(s.get("priority", 1) or 1), s.get("deliveryDeadline") or datetime.max))
+        return fallback, fallback_label
 
 
 def _assign_stop_distances(origin: dict, stops: list) -> None:
