@@ -25,6 +25,8 @@ const emptyForm = {
   longitude: "",
   totalCapacity: "",
   coldStorageCapacity: "",
+  serviceAreas: "",
+  supportedStorageTypes: "",
 };
 
 const emptyPrefs = {
@@ -79,6 +81,8 @@ export default function WarehouseSettingsPage() {
       longitude: warehouse.location?.coordinates?.[0] ? String(warehouse.location.coordinates[0]) : warehouse.location?.longitude ? String(warehouse.location.longitude) : "",
       totalCapacity: String(warehouse.totalCapacity ?? ""),
       coldStorageCapacity: String(warehouse.coldStorageCapacity ?? ""),
+      serviceAreas: (warehouse.serviceAreas || []).join(", "),
+      supportedStorageTypes: (warehouse.supportedStorageTypes || []).join(", "),
     });
   }, [warehouse]);
 
@@ -154,6 +158,8 @@ export default function WarehouseSettingsPage() {
         },
         totalCapacity: Number(form.totalCapacity || 0),
         coldStorageCapacity: Number(form.coldStorageCapacity || 0),
+        serviceAreas: form.serviceAreas.split(",").map((v) => v.trim()).filter(Boolean),
+        supportedStorageTypes: form.supportedStorageTypes.split(",").map((v) => v.trim().toLowerCase()).filter(Boolean),
       });
 
       await api.put("/settings/mine", {
@@ -233,6 +239,18 @@ export default function WarehouseSettingsPage() {
                   <label className="text-sm font-medium">Cold Storage Capacity</label>
                   <Input type="number" min="0" step="0.01" value={form.coldStorageCapacity} onChange={(event) => updateForm("coldStorageCapacity", event.target.value)} className="mt-1" />
                   <p className="mt-1 text-xs text-muted-foreground">Used quantity is calculated automatically from cold-storage records.</p>
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-medium">Service Areas</label>
+                  <Input value={form.serviceAreas} onChange={(event) => updateForm("serviceAreas", event.target.value)} className="mt-1" placeholder="Coimbatore, Tiruppur, Erode" />
+                  <p className="mt-1 text-xs text-muted-foreground">Comma-separated districts/areas this warehouse can serve. This is not a fixed one-district assignment.</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Supported Storage Types</label>
+                  <Input value={form.supportedStorageTypes} onChange={(event) => updateForm("supportedStorageTypes", event.target.value)} className="mt-1" placeholder="ambient, chilled, frozen" />
+                  <p className="mt-1 text-xs text-muted-foreground">Leave empty to accept all storage types.</p>
                 </div>
               </div>
               <div className="rounded-lg border bg-muted/30 p-3 text-sm">
