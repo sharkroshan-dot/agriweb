@@ -178,6 +178,46 @@ class WarehouseRepository(BaseRepository):
             logger.error(f"Error getting nearby warehouses: {str(e)}")
             return []
 
+    async def find_best_warehouse(
+        self,
+        lat: float,
+        lng: float,
+        required_capacity: float = 0,
+        storage_type: Optional[str] = None,
+        radius_km: int = 200,
+        limit: int = 10,
+    ) -> Optional[Dict[str, Any]]:
+        """Select the nearest active warehouse with capacity and storage compatibility."""
+        candidates = await self.get_nearby_warehouses(lat, lng, radius_km, limit=limit)
+        eligible = []
+        requested_storage = (storage_type or "").strip().lower()
+        from math import radians, sin, cos, asin, sqrt
+        for warehouse in candidates:
+            total = float(warehouse.get("totalCapacity", 0) or 0)
+            used = float(warehouse.get("usedCapacity", 0) or 0)
+            free = max(0.0, total - used)
+            supported = [str(x).strip().lower() for x in (warehouse.get("supportedStorageTypes") or [])]
+            storage_ok = not requested_storage or not supported or requested_storage in supported
+            if free + 1e-9 < float(required_capacity or 0) or not storage_ok:
+                continue
+            location = warehouse.get("location") or {}
+            coords = location.get("coordinates") if isinstance(location, dict) else None
+            if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+                continue
+            lon2, lat2 = float(coords[0]), float(coords[1])
+            dlon, dlat = radians(lon2 - lng), radians(lat2 - lat)
+            a = sin(dlat / 2) ** 2 + cos(radians(lat)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+            distance_km = 6371.0088 * 2 * asin(sqrt(a))
+            eligible.append((distance_km, warehouse, free))
+        if not eligible:
+            return None
+        eligible.sort(key=lambda x: (x[0], -x[2], str(x[1].get("name", ""))))
+        distance_km, warehouse, free = eligible[0]
+        warehouse["selectionDistanceKm"] = round(distance_km, 1)
+        warehouse["availableCapacity"] = round(free, 2)
+        warehouse["selectionReason"] = "Nearest suitable warehouse with available capacity"
+        return warehouse
+
     async def get_warehouse_stats(self, warehouse_id: str) -> Dict[str, Any]:
         warehouse = await self.get_by_id(warehouse_id)
         if not warehouse:
