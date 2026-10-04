@@ -1054,7 +1054,11 @@ def _optimize_stops_ai(origin: dict, stops: list) -> tuple[list, str]:
     origin_lat, origin_lng = origin.get("lat"), origin.get("lng")
 
     if origin_lat is None or len(located) < 2:
-        return _optimize_stops(origin, stops), fallback_label
+        fallback = _optimize_stops(origin, stops)
+        return sorted(
+            fallback,
+            key=lambda s: (-int(s.get("priority", 1) or 1), s.get("deliveryDeadline") or datetime.max),
+        ), fallback_label
 
     by_order_id = {s["orderId"]: s for s in located}
     try:
@@ -1070,6 +1074,15 @@ def _optimize_stops_ai(origin: dict, stops: list) -> tuple[list, str]:
         # Keep any located stop the model dropped (defensive) in naive order.
         ordered += [s for s in located if s["orderId"] not in set(ordered_ids)]
         label = _SMART_ROUTE_ALGORITHM_LABELS.get(result.get("algorithm"), fallback_label)
+        # Freshness/deadline priority always outranks pure distance optimization.
+        # Keep urgent/high orders ahead of normal orders, while preserving the
+        # optimizer's distance ordering inside each priority group.
+        def priority_key(stop: dict):
+            priority = int(stop.get("priority", 1) or 1)
+            deadline = stop.get("deliveryDeadline")
+            deadline_value = deadline.timestamp() if isinstance(deadline, datetime) else float("inf")
+            return (-priority, deadline_value)
+        ordered = sorted(ordered, key=priority_key)
         return ordered + unlocated, label
     except Exception as e:
         logger.warning(f"AI smart-route optimization failed, falling back to nearest-neighbour: {e}")
