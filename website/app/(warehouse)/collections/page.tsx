@@ -161,6 +161,7 @@ export default function WarehouseCollectionsPage() {
                       </div>
                       <CardTitle className="mt-2 text-base">{job.productName || job.productId || "Farm Product"}</CardTitle>
                       <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || job.farmerId || "—"} {job.orderId ? <>· Order #{String(job.orderId).slice(-8)}</> : ""}</p>
+                      {job.batchId && <p className="mt-1 text-xs text-muted-foreground">Batch: {String(job.batchId).slice(-12)}</p>}
                     </div>
                     <div className="rounded-xl border bg-white px-4 py-3 text-right"><p className="text-xs text-muted-foreground">Quantity</p><p className="text-lg font-bold">{job.quantity || 0} kg</p><p className="text-xs text-muted-foreground">{job.packageCount || 1} package(s)</p></div>
                   </div>
@@ -182,10 +183,13 @@ export default function WarehouseCollectionsPage() {
                   </div>
 
                   <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm"><p className="font-medium">{isPackedTransfer ? "Already-packed customer orders" : "Bulk warehouse fulfillment stock"}</p><p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Collect the packages as-is. Do not create a warehouse packing task." : "Collect the bulk product. Packing happens later per customer order inside the warehouse."}</p></div>
+                    <div className="text-sm">
+                      <p className="font-medium">{isPackedTransfer ? "Already-packed customer order" : "Bulk warehouse fulfillment stock"}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Packing Verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse Packing Required: No" : "Packing Required: Yes · Farmer Verification: " + (job.packingVerified ? "Complete" : "Pending")}</p>
+                    </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
                       {job.status === "ready_for_pickup" && <div className="flex gap-2"><Input className="w-full sm:w-40" placeholder="Team name / ID" value={teamDraft[job.id] || ""} onChange={e => setTeamDraft({...teamDraft, [job.id]: e.target.value})} /><Button onClick={() => assign(job)}>Assign Team</Button></div>}
-                      {NEXT[job.status] && <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
+                      {NEXT[job.status] && <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
                     </div>
                   </div>
                 </CardContent>
