@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, List
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 from bson import ObjectId
 from datetime import datetime
 from app.repositories.order_repository import order_repository
@@ -410,6 +411,12 @@ class OrderService:
                 "productName": product["name"],
                 "quantity": item.quantity,
                 "unitPrice": effective_unit_price,
+                "batchId": str(product.get("batchId")) if product.get("batchId") else None,
+                "harvestedAt": product.get("harvestedAt"),
+                "harvestDate": product.get("harvestDate"),
+                "expectedShelfLifeHours": product.get("expectedShelfLifeHours"),
+                "expiryDate": product.get("expiryDate"),
+                "expiresAt": product.get("expiresAt"),
                 "originalUnitPrice": base_unit_price,
                 "totalPrice": item_total,
                 "attributes": product.get("attributes", {}),
@@ -627,6 +634,16 @@ class OrderService:
             total_amount,
             data.paymentMethod
         )
+
+        # Calculate and persist the initial freshness/deadline snapshot. The
+        # same service is refreshed again when the order becomes PACKED so the
+        # delivery workflow always uses current batch freshness.
+        try:
+            created_order = await order_repository.get_by_id(order_id)
+            if created_order:
+                await calculate_order_delivery_priority(created_order, persist=True)
+        except Exception:
+            logger.exception("Failed to calculate initial delivery priority for order %s", order_id)
         
         await NotificationService.send_new_order_notification(
             farmer_id,
