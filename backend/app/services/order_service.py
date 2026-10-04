@@ -296,6 +296,7 @@ class OrderService:
         subtotal = 0
         farmer_id = None
         warehouse_id = None
+        warehouse_selection = None
         fulfillment_method = (
             data.fulfillmentMethod.value
             if hasattr(data.fulfillmentMethod, "value")
@@ -363,9 +364,32 @@ class OrderService:
                 )
             farmer_id = product_farmer_id
             if fulfillment_method == FulfillmentMethod.WAREHOUSE.value:
-                warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
-                if not warehouse_id:
-                    raise OrderCreationError('Warehouse fulfillment was selected, but no warehouse is configured for this farmer.')
+                # Select the nearest suitable warehouse from the farm location.
+                origin = await _resolve_tracking_origin({
+                    "farmerId": farmer_id,
+                    "items": [{
+                        "productId": str(item.productId),
+                        "farmAddress": product.get("farmAddress") or "",
+                        "farmCity": product.get("farmCity") or "",
+                        "farmState": product.get("farmState") or "",
+                        "farmPincode": product.get("farmPincode") or "",
+                    }],
+                })
+                storage_type = product.get("storageType") or product.get("storage_type") or (product.get("attributes") or {}).get("storageType")
+                from app.services.warehouse_service import WarehouseService
+                selected = await WarehouseService.find_best_warehouse(
+                    origin, required_capacity=float(item.quantity or 0), storage_type=storage_type
+                ) if origin else None
+                if not selected:
+                    raise OrderCreationError("Warehouse fulfillment was selected, but no suitable nearby warehouse has enough capacity and compatible storage.")
+                warehouse_id = str(selected["_id"])
+                warehouse_selection = {
+                    "warehouseId": warehouse_id,
+                    "warehouseName": selected.get("name"),
+                    "distanceKm": selected.get("selectionDistanceKm"),
+                    "availableCapacity": selected.get("availableCapacity"),
+                    "reason": selected.get("selectionReason"),
+                }
             
             min_bulk = product.get("minBulkQty", 0)
             bulk_price = product.get("bulkPrice")
@@ -527,6 +551,7 @@ class OrderService:
             "preorderId": ObjectId(data.preorderId) if data.preorderId else None,
             "farmerId": ObjectId(farmer_id),
             "warehouseId": ObjectId(warehouse_id) if fulfillment_method == FulfillmentMethod.WAREHOUSE.value and warehouse_id else None,
+            "warehouseSelection": warehouse_selection,
             "fulfillmentMethod": fulfillment_method,
             "fulfillmentStage": FulfillmentStage.PENDING.value,
             "fulfillmentRouteSelected": False,
