@@ -23,6 +23,7 @@ import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
 const STATUS = [
+  ["scheduled", "Waiting for Farmer"],
   ["ready_for_pickup", "Ready for Pickup"],
   ["team_assigned", "Team Assigned"],
   ["en_route", "En Route"],
@@ -67,6 +68,7 @@ export default function WarehouseCollectionsPage() {
     return {
       total: source.length,
       ready: source.filter((x: any) => x.status === "ready_for_pickup").length,
+      waiting: source.filter((x: any) => x.status === "scheduled").length,
       active: source.filter((x: any) => !["ready_for_pickup", "arrived_warehouse"].includes(x.status)).length,
       warehouse: source.filter((x: any) => x.status === "arrived_warehouse").length,
     };
@@ -112,7 +114,7 @@ export default function WarehouseCollectionsPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
           ["Total Jobs", counts.total, Package],
           ["Ready for Pickup", counts.ready, Clock3],
