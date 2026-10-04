@@ -438,8 +438,24 @@ export default function FarmerRoutePage() {
     if (!startMutation.isPending) startMutation.mutate();
   };
 
-  const handleComplete = (stop: Stop) => {
-    if (!completeMutation.isPending) completeMutation.mutate(stop);
+  const handleComplete = async (stop: Stop) => {
+    if (completeMutation.isPending) return;
+    if (stop.deliveryType !== "pickup") {
+      const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer.");
+      if (!otp) return;
+      if (!/^\\d{6}$/.test(otp.trim())) {
+        toast.error("Enter the customer's 6-digit delivery OTP.");
+        return;
+      }
+      try {
+        await api.post("/orders/" + stop.orderId + "/delivery-verification", { code: otp.trim(), method: "otp" });
+        toast.success("Customer hand-off verified.");
+      } catch (e: any) {
+        toast.error(e?.message || "Invalid delivery OTP");
+        return;
+      }
+    }
+    completeMutation.mutate(stop);
   };
 
   const toggleTracking = () => {
