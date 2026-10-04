@@ -2057,7 +2057,7 @@ async def accept_available_order(
     else:
         assignment_id = str(assignment["_id"])
 
-    success = await delivery_assignment_repository.update_status(assignment_id, DeliveryStatus.IN_TRANSIT)
+    success = await delivery_assignment_repository.update_status(assignment_id, DeliveryStatus.ACCEPTED)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to accept order")
 
@@ -2065,7 +2065,7 @@ async def accept_available_order(
         {"_id": ObjectId(order_id)},
         {
             "deliveryPartnerId": ObjectId(partner_id),
-            "orderStatus": "in_transit",
+            "orderStatus": "accepted",
             "assignedAt": order.get("assignedAt") or datetime.utcnow(),
             "acceptedAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
