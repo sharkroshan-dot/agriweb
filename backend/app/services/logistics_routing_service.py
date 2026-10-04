@@ -262,6 +262,13 @@ async def apply_partner_route(
                     "orderId": order["_id"],
                     "quantity": int(item.get("quantity", 0) or 0),
                     "quantityReceived": 0,
+                    # Farmer Fulfillment long-distance transfer is already packed.
+                    "warehouseTransferType": "packed_order_transfer",
+                    "packingRequired": False,
+                    "warehousePackingRequired": False,
+                    "transferReadyForPickup": True,
+                    "warehouseTransferReadyForPickup": True,
+                    "warehouseTransferReadyAt": datetime.utcnow(),
                     "expectedDate": datetime.utcnow(),
                     "status": "in_transit",
                     "packingRequired": False,
