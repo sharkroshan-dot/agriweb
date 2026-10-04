@@ -568,6 +568,7 @@ export default function DeliveryRoutePage() {
                         {index < currentStop ? <Badge variant="success">Done</Badge> : index === currentStop && isNavigating ? <Badge variant="warning">Current</Badge> : <Badge variant="outline">Pending</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground">{stop.address || "Delivery address"}</p>
+                      <div className="mt-2"><DeliveryPriorityBadge delivery={stop} compact /></div>
                       <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1"><Clock className="h-3 w-3" />ETA: {stop.eta || "Pending"}</span>
                         {stop.distanceFromStartKm != null && (
