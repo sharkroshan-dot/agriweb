@@ -1777,6 +1777,16 @@ class OrderService:
                 {"_id": incoming["_id"]},
                 {"status": "ready_for_pickup", "readyForPickupAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
             )
+            # Promote the existing warehouse collection job only after the
+            # farmer has explicitly confirmed that the shipment is ready.
+            from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+            collection_job = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
+            if collection_job:
+                await warehouse_collection_repository.update_job(str(collection_job["_id"]), {
+                    "status": "ready_for_pickup",
+                    "readyForPickup": True,
+                    "readyAt": datetime.utcnow(),
+                })
             refreshed = await incoming_stock_repository.get_by_id(str(incoming["_id"]))
             if refreshed:
                 await ensure_collection_job(refreshed, "bulk_harvest", "warehouse_fulfillment")
