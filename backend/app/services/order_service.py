@@ -731,6 +731,23 @@ class OrderService:
                 "phone": farmer.get("phone")
             }
         
+        if order.get("warehouseId"):
+            try:
+                from app.repositories.warehouse_repository import warehouse_repository
+                warehouse = await warehouse_repository.get_by_id(str(order["warehouseId"]))
+                if warehouse:
+                    selection = order.get("warehouseSelection") or {}
+                    order["warehouse"] = {
+                        "id": str(warehouse["_id"]),
+                        "name": warehouse.get("name"),
+                        "address": warehouse.get("address") or {},
+                        "distanceKm": selection.get("distanceKm"),
+                        "availableCapacity": selection.get("availableCapacity"),
+                        "selectionReason": selection.get("reason"),
+                    }
+            except Exception:
+                logger.warning("Failed to resolve warehouse details for order %s", order_id)
+
         # Get delivery partner if assigned
         if order.get("deliveryPartnerId"):
             partner = None
