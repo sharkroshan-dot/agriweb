@@ -47,6 +47,13 @@ export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [teamDraft, setTeamDraft] = useState<Record<string, string>>({});
+  const { data: warehouseData } = useQuery({
+    queryKey: ["warehouseCollectionsIdentity"],
+    queryFn: () => api.get("/warehouse/me"),
+    staleTime: 60000,
+  });
+  const warehouseName = warehouseData?.name || "Warehouse";
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["warehouseCollectionsPage"],
     queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
@@ -107,6 +114,10 @@ export default function WarehouseCollectionsPage() {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="mb-2 flex items-center gap-2 text-sm text-emerald-100"><Truck className="h-4 w-4" /> Farm logistics control center</div>
+            <div className="flex items-center gap-2">
+              <Warehouse className="h-5 w-5" />
+              <span className="text-sm font-semibold text-emerald-100">{warehouseName}</span>
+            </div>
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Farm Collection</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50">One queue for every farm pickup. Bulk harvest goes into warehouse fulfillment; already-packed long-distance orders pass through the warehouse without repacking.</p>
           </div>
@@ -158,7 +169,7 @@ export default function WarehouseCollectionsPage() {
                   <div className="mb-5 grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Pickup</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><MapPin className="h-3.5 w-3.5 text-emerald-600" /> Farm location</p></div>
                     <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Collection Team</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><UserRound className="h-3.5 w-3.5 text-emerald-600" /> {job.collectionTeamId || "Not assigned"}</p></div>
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Next destination</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><Warehouse className="h-3.5 w-3.5 text-emerald-600" /> Warehouse</p></div>
+                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Next destination</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><Warehouse className="h-3.5 w-3.5 text-emerald-600" /> {warehouseName}</p></div>
                   </div>
 
                   <div className="mb-5 overflow-x-auto pb-2">
