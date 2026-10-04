@@ -26,9 +26,11 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         "collectionType": collection_type,
         "sourceMode": source_mode,
         "packingRequired": bool(incoming.get("packingRequired", True)),
+        "packingVerified": incoming.get("packingRequired") is False or bool(incoming.get("packingVerified")),
+        "readyForPickup": True,
         "pickupLocation": incoming.get("pickupLocation") or incoming.get("farmLocation") or {},
         "status": COLLECTION_READY,
-        "readyAt": datetime.utcnow(),
+        "readyAt": incoming.get("readyForPickupAt") or datetime.utcnow(),
     })
     return await warehouse_collection_repository.get_by_id(job_id) if job_id else None
 
@@ -40,4 +42,8 @@ def serialize_collection(job: Dict[str, Any]) -> Dict[str, Any]:
             result["id" if key == "_id" else key] = str(result[key])
     if result.get("_id") is not None:
         result["id"] = str(result["_id"])
+    result["readyForPickup"] = result.get("status") == COLLECTION_READY or bool(result.get("readyForPickup"))
+    result["packingVerified"] = bool(result.get("packingVerified"))
+    result["isPackedTransfer"] = result.get("collectionType") == "packed_orders_transfer"
+    result["isBulkHarvest"] = result.get("collectionType") == "bulk_harvest"
     return result
