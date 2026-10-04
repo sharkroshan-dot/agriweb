@@ -100,7 +100,7 @@ async def create_master_crop(data: MasterCropCreate, current_user: dict = Depend
     if await master_repo.find_one({"slug": slug, "deletedAt": None}):
         raise HTTPException(status_code=409, detail="Master crop already exists")
     now = datetime.utcnow()
-    doc = data.model_dump()
+    doc = data.dict()
     doc.update({"name": data.name.strip(), "slug": slug, "createdAt": now, "updatedAt": now, "deletedAt": None})
     doc["storageShelfLifeDays"] = {**({"normal": data.defaultShelfLifeDays}), **data.storageShelfLifeDays}
     oid = await master_repo.create(doc)
@@ -115,7 +115,7 @@ async def update_master_crop(crop_id: str, data: MasterCropUpdate, current_user:
     except Exception: raise HTTPException(status_code=400, detail="Invalid master crop id")
     existing = await master_repo.find_one({"_id": oid, "deletedAt": None})
     if not existing: raise HTTPException(status_code=404, detail="Master crop not found")
-    updates = data.model_dump(exclude_unset=True)
+    updates = data.dict(exclude_unset=True)
     if "name" in updates:
         updates["name"] = updates["name"].strip()
         updates["slug"] = _slug(updates["name"])
