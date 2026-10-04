@@ -217,8 +217,7 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=400, detail=f"Batch quantity must match the actual harvested quantity ({actual_qty:g} kg)")
 
     storage = data.storageType if data.storageType in STORAGE_TYPES else "normal"
-    storage_defaults = (master_crop or {}).get("storageShelfLifeDays", {})
-    shelf = data.shelfLifeDays or storage_defaults.get(storage) or (master_crop or {}).get("defaultShelfLifeDays") or DEFAULT_SHELF_LIFE_DAYS.get(storage, 3)
+    shelf = effective_shelf_life_days(master_crop, storage, data.shelfLifeDays)
     harvest = _to_naive_utc(harvest_plan.get("harvestedAt")) or datetime.utcnow()
     lot_number = await _next_lot_number()
 
@@ -234,9 +233,9 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "qualityGrade": data.qualityGrade,
         "storageType": storage,
         "shelfLifeDays": shelf,
-        "expiresAt": harvest + timedelta(days=shelf),
+        "expiresAt": expiry_date(harvest, shelf),
         "safeDeliveryBufferHours": int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24),
-        "safeDeliveryDate": harvest + timedelta(days=shelf) - timedelta(hours=int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24)),
+        "safeDeliveryDate": safe_delivery_date(harvest, shelf, int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24)),
         "productId": product_id,
         "sourceHarvestPlanId": harvest_plan_id,
         "qualityStatus": "pending_inspection",
