@@ -663,6 +663,10 @@ async def get_delivery_calendar(
     partner_total = 0
     for order in orders:
         oid = str(order["_id"])
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh calendar freshness priority for order %s", oid, exc_info=True)
         is_partnered = bool(order.get("deliveryPartnerId"))
         day = order.get("deliveryDay") or order.get("createdAt", datetime.utcnow()).strftime("%A")
         time_slot = order.get("deliveryTimeSlot") or "Morning"
@@ -691,6 +695,13 @@ async def get_delivery_calendar(
                 "deliveryType": order.get("deliveryType", "delivery"),
                 "assignment": "partner" if is_partnered else "self",
                 "isCOD": str(order.get("paymentMethod", "") or "").lower() == "cash",
+                "priority": int(order.get("priority", 1) or 1),
+                "priorityLabel": order.get("priorityLabel") or "normal",
+                "priorityReason": order.get("priorityReason") or "",
+                "deliveryDeadline": order.get("deliveryDeadline"),
+                "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+                "freshnessDeadline": order.get("freshnessDeadline"),
+                "shelfLifeDays": order.get("shelfLifeDays"),
             }
             groups.setdefault((day, time_slot), []).append(delivery)
 
@@ -756,6 +767,10 @@ async def get_smart_route(
     for order in orders:
         if order.get("deliveryPartnerId") or order.get("partnerRequested"):
             continue
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh smart-route freshness priority for order %s", order.get("_id"), exc_info=True)
         oid = str(order["_id"])
         addr = order.get("deliveryAddress", {}) or {}
         order_items = order.get("items", []) or []
@@ -774,7 +789,14 @@ async def get_smart_route(
             "items": [{"name": i.get("productName", i.get("name", "Item")), "quantity": i.get("quantity", 1)} for i in order_items],
             "total": float(order.get("totalAmount", 0) or 0),
             "deliveryCharge": float(order.get("deliveryCharge", 0) or 0),
-            "deliveryWindow": f"{order.get('deliveryTimeSlot', 'Morning')} ({order.get('deliveryDay', 'Today')})"
+            "deliveryWindow": f"{order.get('deliveryTimeSlot', 'Morning')} ({order.get('deliveryDay', 'Today')})",
+            "priority": int(order.get("priority", 1) or 1),
+            "priorityLabel": order.get("priorityLabel") or "normal",
+            "priorityReason": order.get("priorityReason") or "",
+            "deliveryDeadline": order.get("deliveryDeadline"),
+            "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+            "freshnessDeadline": order.get("freshnessDeadline"),
+            "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
     # Compare naive (as recorded) ordering vs optimized ordering
