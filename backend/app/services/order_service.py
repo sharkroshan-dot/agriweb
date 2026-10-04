@@ -911,6 +911,25 @@ class OrderService:
         
         orders, total = await order_repository.get_orders_by_filters(filter_params)
         
+        if orders:
+            from app.repositories.warehouse_repository import warehouse_repository
+            for order in orders:
+                if order.get("warehouseId"):
+                    try:
+                        warehouse = await warehouse_repository.get_by_id(str(order["warehouseId"]))
+                        if warehouse:
+                            selection = order.get("warehouseSelection") or {}
+                            order["warehouse"] = {
+                                "id": str(warehouse["_id"]),
+                                "name": warehouse.get("name"),
+                                "address": warehouse.get("address") or {},
+                                "distanceKm": selection.get("distanceKm"),
+                                "availableCapacity": selection.get("availableCapacity"),
+                                "selectionReason": selection.get("reason"),
+                            }
+                    except Exception:
+                        logger.warning("Failed to resolve warehouse for order list item")
+
         # Convert all ObjectId instances to strings for JSON serialization
         orders = _convert_objectids(orders)
         
