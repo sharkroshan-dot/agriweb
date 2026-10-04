@@ -279,18 +279,19 @@ class DeliveryService:
         
         # Recalculate freshness/deadline priority immediately before the final hand-off.
         order = await calculate_order_delivery_priority(order, persist=True)
-        expected_otp = str(order.get("deliveryVerificationCode") or "")
-        if not expected_otp or str(otp).strip() != expected_otp:
-            return None
-        await order_repository.update(
-            {"_id": order["_id"]},
-            {
-                "deliveryVerificationVerifiedAt": datetime.utcnow(),
-                "deliveryVerificationMethod": "otp",
-                "deliveryVerificationVerifiedBy": partner_id,
-                "updatedAt": datetime.utcnow(),
-            },
-        )
+        if not order.get("deliveryVerificationVerifiedAt"):
+            expected_otp = str(order.get("deliveryVerificationCode") or "")
+            if not expected_otp or str(otp or "").strip() != expected_otp:
+                return None
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {
+                    "deliveryVerificationVerifiedAt": datetime.utcnow(),
+                    "deliveryVerificationMethod": "otp",
+                    "deliveryVerificationVerifiedBy": partner_id,
+                    "updatedAt": datetime.utcnow(),
+                },
+            )
         
         success = await delivery_assignment_repository.update_status(
             assignment_id,
