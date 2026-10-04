@@ -21,6 +21,7 @@ from typing import Any, Dict, Optional
 from bson import ObjectId
 
 from app.database.mongodb import MongoDB
+from app.services.delivery_deadline_service import effective_delivery_deadline
 
 MAX_DELIVERY_WINDOW_DAYS = 4
 URGENT_HOURS = 24
@@ -142,6 +143,7 @@ async def calculate_order_delivery_priority(
         "businessDeliveryDeadline": business_deadline,
         "freshnessDeadline": freshness_deadline,
         "safeDeliveryDate": freshness_deadline,
+        "customerRequestedDate": _naive_utc(order.get("customerRequestedDate") or order.get("requestedDeliveryDate")),
         "deliveryWindowDays": MAX_DELIVERY_WINDOW_DAYS,
         "deliveryHoursRemaining": round(hours_remaining, 1),
         "priority": priority,
