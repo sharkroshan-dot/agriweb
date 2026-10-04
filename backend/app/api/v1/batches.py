@@ -433,6 +433,8 @@ async def trace_batch(lot_number: str):
         "storageType": batch.get("storageType"),
         "shelfLifeDays": batch.get("shelfLifeDays"),
         "expiresAt": batch.get("expiresAt"),
+        "safeDeliveryDate": batch.get("safeDeliveryDate"),
+        "masterCropId": str(batch.get("masterCropId")) if batch.get("masterCropId") else None,
         "listed": batch.get("status") == BATCH_LISTED,
         "freshness": _freshness(batch),
         "traceUrl": f"/trace/{batch.get('lotNumber', '')}",
