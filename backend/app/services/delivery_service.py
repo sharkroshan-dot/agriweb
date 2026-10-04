@@ -437,6 +437,13 @@ class DeliveryService:
         if str(assignment["deliveryPartnerId"]) != partner_id:
             return None
 
+        order_id = str(assignment["orderId"])
+        order = await order_repository.get_by_id(order_id)
+        if not order or not order.get("deliveryVerificationVerifiedAt"):
+            return None
+        order = await calculate_order_delivery_priority(order, persist=True)
+        await order_repository.update_order_field(order_id, "deliveryPriorityAtCompletion", datetime.utcnow())
+
         success = await delivery_assignment_repository.update_status(
             assignment_id,
             DeliveryStatus.DELIVERED,
@@ -448,13 +455,6 @@ class DeliveryService:
         )
         if not success:
             return None
-
-        order_id = str(assignment["orderId"])
-        order = await order_repository.get_by_id(order_id)
-        if not order or not order.get("deliveryVerificationVerifiedAt"):
-            return None
-        order = await calculate_order_delivery_priority(order, persist=True)
-        await order_repository.update_order_field(order_id, "deliveryPriorityAtCompletion", datetime.utcnow())
         await order_repository.update_order_status(
             order_id,
             "delivered",
