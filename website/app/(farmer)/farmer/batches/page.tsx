@@ -37,6 +37,8 @@ interface Batch {
   storageType?: string;
   shelfLifeDays?: number;
   expiresAt?: string;
+  safeDeliveryDate?: string;
+  masterCropId?: string;
   status: string;
   productId?: string;
   sourceHarvestPlanId?: string;
@@ -374,7 +376,7 @@ export default function FarmerBatchesPage() {
                     )}
                   </div>
                   <div className="text-xs text-slate-400">
-                    Harvested {formatDate(batch.harvestDate)} · Shelf life {batch.shelfLifeDays ?? "—"} days
+                    Harvested {formatDate(batch.harvestDate)} · Shelf life {batch.shelfLifeDays ?? "—"} days · Safe delivery by {batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "—"}
                   </div>
                 </div>
                 <div className="flex items-start justify-end gap-2">
