@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle, Share2, Camera, Loader2, CalendarClock, Zap, Phone, MessageSquare, Navigation } from "lucide-react";
+import { CheckCircle, Share2, Camera, Loader2, CalendarClock, Zap, Phone, MessageSquare, Navigation, QrCode } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -91,6 +91,9 @@ export default function DeliveryDeliveriesPage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [qrScanOrderId, setQrScanOrderId] = useState<string | null>(null);
+  const qrScannerRef = useRef<any>(null);
+  const [qrScanError, setQrScanError] = useState<string | null>(null);
   const [nearbyRadius, setNearbyRadius] = useState(10);
   const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -517,6 +520,49 @@ export default function DeliveryDeliveriesPage() {
     }
   };
 
+  const startQrVerification = async (orderId: string) => {
+    setQrScanOrderId(orderId);
+    setQrScanError(null);
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const scanner = new Html5Qrcode("delivery-qr-reader");
+      qrScannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        async (decodedText: string) => {
+          try {
+            await scanner.stop();
+          } catch {}
+          qrScannerRef.current = null;
+          try {
+            const res = await api.post("/orders/" + orderId + "/delivery-verification", { token: decodedText, method: "qr" });
+            if (res?.success) {
+              toast.success("Customer QR verified. Delivery can now be completed.");
+              setQrScanOrderId(null);
+              void refetchDeliveries();
+            } else {
+              setQrScanError(res?.detail || "Invalid customer QR");
+            }
+          } catch (e: any) {
+            setQrScanError(e?.message || "Invalid customer QR");
+          }
+        },
+        () => undefined,
+      );
+    } catch (e: any) {
+      setQrScanError(e?.message || "Camera access failed");
+    }
+  };
+
+  const stopQrVerification = async () => {
+    try {
+      if (qrScannerRef.current) await qrScannerRef.current.stop();
+    } catch {}
+    qrScannerRef.current = null;
+    setQrScanOrderId(null);
+  };
+
   const handlePodUpload = async (assignmentId: string, file: File) => {
     if (!file) return;
     setUploadingId(assignmentId);
@@ -786,6 +832,11 @@ export default function DeliveryDeliveriesPage() {
                       <CheckCircle className="mr-1.5 h-4 w-4" />Mark Delivered
                     </Button>
                   )}
+                  {delivery.status !== "delivered" && getAssignmentId(delivery) && (
+                    <Button size="sm" variant="outline" onClick={() => startQrVerification(getOrderId(delivery))}>
+                      <QrCode className="mr-1.5 h-4 w-4" />Scan QR
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={() => handleShare(delivery.orderId || delivery.id)}>
                     <Share2 className="mr-1.5 h-4 w-4" />Share
                   </Button>
@@ -824,5 +875,21 @@ export default function DeliveryDeliveriesPage() {
         </CardContent>
       </Card>
     </div>
+      {qrScanOrderId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">Scan customer delivery QR</p>
+                <p className="text-xs text-muted-foreground">Point the camera at the QR shown on the customer's order.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={stopQrVerification}>Close</Button>
+            </div>
+            <div id="delivery-qr-reader" className="mt-4 overflow-hidden rounded-xl border bg-black" />
+            {qrScanError && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{qrScanError}</p>}
+            <p className="mt-3 text-xs text-muted-foreground">After verification, use the delivery OTP or complete the delivery from the delivery workflow.</p>
+          </div>
+        </div>
+      )}
   );
 }
