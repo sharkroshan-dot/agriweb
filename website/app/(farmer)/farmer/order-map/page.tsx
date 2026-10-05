@@ -304,9 +304,7 @@ export default function FarmerOrderMapPage() {
   const [routeInfo, setRouteInfo] = useState<{ distanceKm: number; durationMinutes: number } | null>(null);
   const [routeMatches, setRouteMatches] = useState<any[]>([]);
 
-  const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
   const [assignMode, setAssignMode] = useState<"marketplace" | "manual" | "ai">("marketplace");
-  const [selectedPartnerId, setSelectedPartnerId] = useState<string>("auto");
   const [manualPartnerIds, setManualPartnerIds] = useState<Record<string, string>>({});
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [capacityEditorOpen, setCapacityEditorOpen] = useState(false);
@@ -1422,16 +1420,6 @@ export default function FarmerOrderMapPage() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     {isStuck && (
                       <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={switchMutation.isPending}
-                          onClick={() =>
-                            switchMutation.mutate({ orderId: job.orderId, mode: "self" })
-                          }
-                        >
-                          <CheckCircle className="mr-1 h-3.5 w-3.5" /> Self Deliver
-                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
