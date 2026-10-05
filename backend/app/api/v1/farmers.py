@@ -2308,6 +2308,7 @@ async def get_my_delivery_map(
         and not bool(o.get("deliveryPartnerId"))
         and not bool(o.get("partnerRequested"))
         and not bool(o.get("selfDelivery"))
+        and str(o.get("deliveryDecision") or "").lower() not in ("nearby", "long_distance")
     ]
 
     # Index delivery jobs without re-reading every order from MongoDB. The
@@ -2928,7 +2929,7 @@ async def create_self_delivery_plan(
                 "deliveryDecisionCompletedAt": dispatch_at,
                 "deliveryRouteSequence": ["packed", "self_delivery_confirmed", "delivery_calendar", "smart_route", "route", "dispatch", "farmer", "customer"],
                 "partnerAssignmentOpen": False,
-                "selfDelivery": False,
+                "selfDelivery": True,
                 "deliveryVerificationPlanned": True,
                 "updatedAt": dispatch_at,
             },
