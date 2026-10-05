@@ -305,11 +305,7 @@ export default function FarmerOrderMapPage() {
   const [routeMatches, setRouteMatches] = useState<any[]>([]);
 
   const [acceptDialogOpen, setAcceptDialogOpen] = useState(false);
-  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
-  const [partnerDecisionOpen, setPartnerDecisionOpen] = useState(false);
   const [assignMode, setAssignMode] = useState<"marketplace" | "manual" | "ai">("marketplace");
-  const [selfSwitchTarget, setSelfSwitchTarget] = useState<any>(null);
-  const [partnerPickerTarget, setPartnerPickerTarget] = useState<any>(null);
   const [selectedPartnerId, setSelectedPartnerId] = useState<string>("auto");
   const [manualPartnerIds, setManualPartnerIds] = useState<Record<string, string>>({});
   const [realtimeConnected, setRealtimeConnected] = useState(false);
@@ -1037,23 +1033,6 @@ export default function FarmerOrderMapPage() {
     return markers;
   }, [locationGroups, farm, farmCoordinates, routeStart, routeDestination, selectedRouteIds]);
 
-  const acceptWithinMutation = useMutation({
-    mutationFn: () => api.put("/farmers/me/delivery-map/accept-within", { radius: radiusKm }),
-    onSuccess: (res: any) => {
-      toast.success(res?.message || `Orders accepted for self-delivery within ${radiusKm} km`);
-      const over = Number(res?.data?.overCapacity ?? 0);
-      if (over > 0) {
-        toast(
-          `${over} order${over > 1 ? "s" : ""} exceeded your capacity and stayed unassigned — use "Open for Partners" to send them to the marketplace.`,
-          { icon: "🚚", duration: 6000 }
-        );
-      }
-      setAcceptDialogOpen(false);
-      refreshAll();
-    },
-    onError: (e: any) => toast.error(getApiError(e)),
-  });
-
   const saveCapacityMutation = useMutation({
     mutationFn: (payload: { maxOrders: number; maxWeightKg: number; maxRouteMinutes: number }) =>
       api.put("/farmers/me/delivery-capacity", payload),
@@ -1095,67 +1074,6 @@ export default function FarmerOrderMapPage() {
     onError: (e: any) => toast.error(getApiError(e)),
   });
 
-  const partnerRouteMutation = useMutation({
-    mutationFn: ({ route, orderIds }: { route: "nearby" | "long_distance"; orderIds: string[] }) =>
-      api.post("/farmers/me/delivery-map/partner-route", { route, orderIds, radius: radiusKm }),
-    onSuccess: (res: any) => {
-      toast.success(res?.message || "Delivery partner route selected");
-      refreshAll();
-    },
-    onError: (e: any) => toast.error(getApiError(e)),
-  });
-
-  const assignSelectedPartnerMutation = useMutation({
-    mutationFn: async () => {
-      const orderIds = selectedRouteIds;
-      const [nearby, longDistance] = await Promise.all([
-        api.post("/farmers/me/delivery-map/partner-route", { route: "nearby", orderIds, radius: radiusKm }),
-        api.post("/farmers/me/delivery-map/partner-route", { route: "long_distance", orderIds, radius: radiusKm }),
-      ]);
-      return { nearby, longDistance };
-    },
-    onSuccess: (res: any) => {
-      const nearbyCount = Number(res?.nearby?.data?.processed ?? 0);
-      const longCount = Number(res?.longDistance?.data?.processed ?? 0);
-      toast.success((nearbyCount + longCount) + " selected order" + (nearbyCount + longCount === 1 ? "" : "s") + " routed to delivery partners");
-      setPartnerDecisionOpen(false);
-      setSelectedRouteIds([]);
-      refreshAll();
-    },
-    onError: (e: any) => toast.error(getApiError(e)),
-  });
-  const assignOutsideMutation = useMutation({
-    mutationFn: ({ mode, partnerIds }: { mode: "marketplace" | "manual" | "ai"; partnerIds?: Record<string, string> }) =>
-      api.post("/farmers/me/delivery-map/assign-outside", { radius: radiusKm, mode, partnerIds }),
-    onSuccess: (res: any) => {
-      if (res?.data?.mode === "marketplace") {
-        toast.success(res?.message || `Orders posted for all delivery partners to accept`);
-      } else {
-        toast.success(res?.message || "Orders assigned to delivery partners");
-      }
-      setAssignDialogOpen(false);
-      setManualPartnerIds({});
-      refreshAll();
-    },
-    onError: (e: any) => toast.error(getApiError(e)),
-  });
-
-  const switchMutation = useMutation({
-    mutationFn: ({ orderId, mode, partnerId }: { orderId: string; mode: string; partnerId?: string }) =>
-      api.put(`/farmers/me/delivery-map/orders/${orderId}/assignment`, { mode, partnerId }),
-    onSuccess: (res: any) => {
-      toast.success(res?.message || "Order assignment updated");
-      setSelfSwitchTarget(null);
-      setPartnerPickerTarget(null);
-      refreshAll();
-    },
-    onError: (e: any) => {
-      toast.error(getApiError(e));
-      setSelfSwitchTarget(null);
-      setPartnerPickerTarget(null);
-    },
-  });
-
   const completeMutation = useMutation({
     mutationFn: (stop: any) =>
       api.put(`/farmers/me/route/${getStopId(stop)}/status`, {
@@ -1193,30 +1111,6 @@ export default function FarmerOrderMapPage() {
       return;
     }
     window.location.href = `tel:${phone.replace(/[^\d+]/g, "")}`;
-  };
-
-  const onSwitchSelect = (order: any, value: string) => {
-    if (value === "self") {
-      setSelfSwitchTarget(order);
-    } else if (value === "partner") {
-      setSelectedPartnerId("auto");
-      setPartnerPickerTarget(order);
-    }
-  };
-
-  const confirmSwitchToSelf = () => {
-    if (selfSwitchTarget) {
-      switchMutation.mutate({ orderId: getStopId(selfSwitchTarget), mode: "self" });
-    }
-  };
-
-  const confirmAssignPartner = () => {
-    if (!partnerPickerTarget) return;
-    switchMutation.mutate({
-      orderId: getStopId(partnerPickerTarget),
-      mode: "partner",
-      partnerId: selectedPartnerId === "auto" ? undefined : selectedPartnerId,
-    });
   };
 
   const isLoading = mapQuery.isLoading;
@@ -2215,87 +2109,12 @@ export default function FarmerOrderMapPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={acceptDialogOpen} onOpenChange={(v) => !v && setAcceptDialogOpen(false)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Accept {Math.min(capacityStats.fitsCount, withinUnassigned.length)} nearby orders for Self Delivery?</DialogTitle>
-            <DialogDescription>
-              {capacityStats.fitsCount === withinUnassigned.length ? (
-                <>
-                  All {withinUnassigned.length} unassigned order{withinUnassigned.length === 1 ? "" : "s"} within {radiusKm} km fit your delivery
-                  capacity. They appear in your Route, Delivery Calendar and Smart Route immediately.
-                </>
-              ) : (
-                <>
-                  Your capacity fits {capacityStats.fitsCount} of {withinUnassigned.length} unassigned orders (nearest
-                  first). The remaining {capacityStats.overCapacity} stay unassigned — open them for partners afterwards.
-                </>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Orders</p>
-              <p className="text-xl font-bold">
-                {Math.min(capacityStats.fitsCount, withinUnassigned.length)}
-                <span className="text-xs font-normal text-muted-foreground"> /{capacityStats.maxOrders}</span>
-              </p>
-            </div>
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Weight</p>
-              <p className="text-xl font-bold">
-                {capacityStats.fitsWeight}
-                <span className="text-xs font-normal text-muted-foreground"> /{capacityStats.maxWeightKg} kg</span>
-              </p>
-            </div>
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Est. route time</p>
-              <p className="text-xl font-bold">
-                {Math.floor(capacityStats.fitsMinutes / 60)}h {capacityStats.fitsMinutes % 60}m
-                <span className="text-xs font-normal text-muted-foreground"> /{capacityStats.maxRouteMinutes}m</span>
-              </p>
-            </div>
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Order value</p>
-              <p className="text-xl font-bold">{formatPrice(withinActionStats.value)}</p>
-            </div>
-          </div>
-          {capacityStats.overCapacity > 0 && (
-            <p className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              {capacityStats.overCapacity} order{capacityStats.overCapacity > 1 ? "s" : ""} exceed your capacity. After
-              accepting, use “Open Outside Orders for Partners” (or jobs → Reopen) to send them to the marketplace.
-            </p>
-          )}
-          <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-            <p className="flex items-center justify-between gap-2 text-muted-foreground">
-              <span>Capacity limits</span>
-              <button type="button" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline" onClick={openCapacityEditor}>
-                <Settings2 className="h-3.5 w-3.5" /> Edit
-              </button>
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Nearest orders are claimed first until any limit is reached.
-            </p>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setAcceptDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="success" onClick={() => acceptWithinMutation.mutate()} disabled={acceptWithinMutation.isPending}>
-              {acceptWithinMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-              Yes, Accept {Math.min(capacityStats.fitsCount, withinUnassigned.length)}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={capacityEditorOpen} onOpenChange={(v) => !v && setCapacityEditorOpen(false)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delivery Capacity</DialogTitle>
             <DialogDescription>
-              Bulk self-delivery acceptance stops at these limits. Used by the Order Map and profitability estimates.
+              Used as the farmer delivery capacity reference for route planning and profitability estimates.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -2344,176 +2163,6 @@ export default function FarmerOrderMapPage() {
             >
               {saveCapacityMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings2 className="mr-2 h-4 w-4" />}
               Save Capacity
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={partnerDecisionOpen} onOpenChange={(v) => !v && setPartnerDecisionOpen(false)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign selected orders to Delivery Partner?</DialogTitle>
-            <DialogDescription>
-              {selectedRouteIds.length} selected order{selectedRouteIds.length === 1 ? "" : "s"} will be routed by distance. Nearby orders use the Local Hub flow; long-distance orders use Warehouse → Local Hub before Delivery Partner.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-xl border bg-slate-50 p-4 text-sm">
-            <div className="flex justify-between"><span>Selected orders</span><strong>{selectedRouteIds.length}</strong></div>
-            <p className="mt-2 text-xs text-slate-600">Orders merely visible because of the radius filter remain unassigned.</p>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setPartnerDecisionOpen(false)}>Cancel</Button>
-            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => assignSelectedPartnerMutation.mutate()} disabled={assignSelectedPartnerMutation.isPending || !selectedRouteIds.length}>
-              {assignSelectedPartnerMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-              Confirm Delivery Partner
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={assignDialogOpen} onOpenChange={(v) => !v && setAssignDialogOpen(false)} wide>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign long-distance orders to delivery partners</DialogTitle>
-            <DialogDescription>
-              {outsideActionStats.count} unassigned order{outsideActionStats.count === 1 ? "" : "s"} are outside {radiusKm} km.
-              Choose how they should be handled. Nothing is assigned until you confirm.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Orders</p>
-              <p className="text-xl font-bold">{outsideActionStats.count}</p>
-            </div>
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Total value</p>
-              <p className="text-xl font-bold">{formatPrice(outsideActionStats.value)}</p>
-            </div>
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Total weight</p>
-              <p className="text-xl font-bold">{outsideActionStats.weight} KG</p>
-            </div>
-            <div className="rounded-lg border bg-slate-50 p-3 text-center">
-              <p className="text-xs text-muted-foreground">Estimated distance</p>
-              <p className="text-xl font-bold">{outsideActionStats.distance.toFixed(1)} KM</p>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={() => setAssignMode("marketplace")}
-              className={`w-full rounded-lg border p-3 text-left transition ${assignMode === "marketplace" ? "border-primary bg-primary/5" : "bg-white hover:bg-slate-50"}`}
-            >
-              <div className="flex items-center gap-2">
-                <Truck className="h-4 w-4 text-primary" />
-                <p className="font-semibold">Post to All Delivery Partners (recommended)</p>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                These orders are shown to every eligible delivery partner. The first partner to accept wins -
-                once accepted the order moves to in-transit and other partners can no longer take it, so two or
-                more partners can never accept the same order.
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAssignMode("ai")}
-              className={`w-full rounded-lg border p-3 text-left transition ${assignMode === "ai" ? "border-primary bg-primary/5" : "bg-white hover:bg-slate-50"}`}
-            >
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <p className="font-semibold">AI Auto Assign</p>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Scores each partner by rating, remaining capacity, workload, time slot and proximity to balance the
-                deliveries automatically.
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setAssignMode("manual")}
-              className={`w-full rounded-lg border p-3 text-left transition ${assignMode === "manual" ? "border-primary bg-primary/5" : "bg-white hover:bg-slate-50"}`}
-            >
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-primary" />
-                <p className="font-semibold">Manual Assignment</p>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Pick a partner for every order yourself. Fine-tune any order later from the map.
-              </p>
-            </button>
-          </div>
-
-          {assignMode === "manual" && (
-            <div className="max-h-[300px] space-y-2 overflow-y-auto rounded-lg border p-3">
-              {assignableOutside.length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">
-                  All outside orders are already assigned.
-                </p>
-              ) : (
-                assignableOutside.map((order) => {
-                  const oid = getStopId(order);
-                  const partnerId = manualPartnerIds[oid] || "auto";
-                  return (
-                    <div key={oid} className="flex flex-col gap-2 rounded-md border bg-white p-2.5 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          #{order.orderNumber || "Order"} · {order.buyerName || "Customer"}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {order.distance != null ? `${order.distance} km` : "—"} · {order.quantityKg ?? 0} kg · {formatPrice(order.total)}
-                        </p>
-                      </div>
-                      <Select
-                        value={partnerId}
-                        onValueChange={(v) =>
-                          setManualPartnerIds((prev) => ({ ...prev, [oid]: v === "auto" ? "auto" : v }))
-                        }
-                      >
-                        <SelectTrigger className="h-8 w-full sm:w-52">
-                          <SelectValue placeholder="Choose partner" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Auto - best available</SelectItem>
-                          {availablePartners.map((p) => (
-                            <SelectItem key={p.id} value={p.id}>
-                              {p.name} ({p.rating}★ · {p.activeLoad ?? 0} active)
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-
-          {availablePartners.length === 0 && assignMode !== "marketplace" && (
-            <p className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              <AlertTriangle className="h-4 w-4" /> No verified partners are available right now. Posting to all
-              partners still works - jobs stay open for any partner to accept.
-            </p>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setAssignDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() =>
-                assignOutsideMutation.mutate(
-                  assignMode === "manual"
-                    ? { mode: "manual", partnerIds: manualPartnerIds }
-                    : { mode: assignMode }
-                )
-              }
-              disabled={assignOutsideMutation.isPending || assignableOutside.length === 0}
-            >
-              {assignOutsideMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-              {assignMode === "marketplace"
-                ? `Post ${assignableOutside.length} Orders to All Partners`
-                : `Assign ${assignableOutside.length} Orders`}
             </Button>
           </div>
         </DialogContent>
