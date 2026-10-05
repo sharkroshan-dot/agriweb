@@ -18,6 +18,13 @@ class IncomingStockRepository(BaseRepository):
         incoming_data["status"] = "scheduled"
         return await self.create(incoming_data)
 
+    async def get_by_route(self, route_id: str) -> List[Dict[str, Any]]:
+        try:
+            return await self.find_many({"pickupRouteId": ObjectId(route_id), "deletedAt": None}, skip=0, limit=500, sort=[("createdAt", 1)])
+        except Exception as e:
+            logger.error(f"Error getting incoming stock by pickup route: {str(e)}")
+            return []
+
     async def get_by_id(self, incoming_id: str) -> Optional[Dict[str, Any]]:
         try:
             obj_id = ObjectId(incoming_id)
