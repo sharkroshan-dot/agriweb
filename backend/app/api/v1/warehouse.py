@@ -416,6 +416,7 @@ async def create_pickup_routes(
                     float(first_stop_point[1]) if len(first_stop_point) > 1 else 0.0,
                     float(first_stop_point[0]) if first_stop_point else 0.0,
                     float(group.get("totalQuantity") or 0),
+                    job_type="warehouse_pickup",
                 )
                 job_doc = build_warehouse_pickup_job(route_doc, warehouse, [p["id"] for p in eligible])
                 job_id = await delivery_job_repository.create_job(job_doc)
