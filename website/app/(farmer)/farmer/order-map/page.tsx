@@ -1307,7 +1307,7 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!withinUnassigned.length}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select All Visible
                   </Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteIds.length}>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !routeCandidates.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
                     Confirm Selection
                   </Button>
@@ -1486,7 +1486,7 @@ export default function FarmerOrderMapPage() {
               <Navigation className="mr-1.5 h-4 w-4" />
               Preview Route
             </Button>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !selectedRouteOrders.length}>
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !routeCandidates.length || !routeDestination}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
               Confirm Selection
             </Button>
