@@ -312,10 +312,51 @@ class WarehouseService:
             return None
         if str(incoming.get("status")) != "received" or str(incoming.get("qualityCheck")) != "passed":
             return None
+        if incoming.get("inventoryPostedAt"):
+            return await incoming_stock_repository.get_by_id(incoming_id)
+
+        # Store is the single point where physically received stock becomes
+        # warehouse inventory. This keeps Receive and Store auditable and
+        # prevents double-counting if the operator retries the action.
+        usable = float(incoming.get("usableQuantity") or 0)
+        if usable <= 0:
+            return None
+        warehouse = await warehouse_repository.get_by_id(warehouse_id)
+        if not warehouse:
+            return None
+        await warehouse_repository.sync_capacity_usage(warehouse_id)
+        warehouse = await warehouse_repository.get_by_id(warehouse_id)
+        current_used = float(warehouse.get("usedCapacity", 0) or 0)
+        total_capacity = float(warehouse.get("totalCapacity", 0) or 0)
+        if total_capacity > 0 and current_used + usable > total_capacity:
+            return None
+        stock_filter = {
+            "warehouseId": ObjectId(warehouse_id),
+            "productId": ObjectId(str(incoming["productId"])),
+            "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
+            "deletedAt": None,
+        }
+        existing_stock = await warehouse_stock_repository.find_one(stock_filter)
+        stock_data = {
+            "warehouseId": ObjectId(warehouse_id),
+            "productId": ObjectId(str(incoming["productId"])),
+            "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
+            "quantity": int(usable),
+            "batchNumber": incoming.get("batchNumber"),
+            "storageType": incoming.get("storageType", "ambient"),
+        }
+        if existing_stock:
+            await warehouse_stock_repository.update_stock(
+                str(existing_stock["_id"]),
+                {"quantity": int(existing_stock.get("quantity", 0)) + int(usable)},
+            )
+        else:
+            if not await warehouse_stock_repository.create_stock(stock_data):
+                return None
 
         updated = await incoming_stock_repository.update(
             {"_id": incoming["_id"]},
-            {"status": "stored", "storedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            {"status": "stored", "storedAt": datetime.utcnow(), "inventoryPostedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
         )
         if not updated:
             return None
