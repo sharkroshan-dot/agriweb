@@ -664,19 +664,25 @@ export default function FarmerOrderMapPage() {
     setSelectedStopId(null);
   };
 
+  // Farmer Self Delivery is an explicit choice for ONE order only.
+  // Once an order is selected, every other packed order remains automatic,
+  // even when it is inside the same radius/route.
   const toggleSelectedOrder = (orderId: string) => {
-    setSelectedRouteIds((current) =>
-      current.includes(orderId) ? current.filter((id) => id !== orderId) : [...current, orderId]
-    );
+    setSelectedRouteIds((current) => {
+      if (current.includes(orderId)) return [];
+      if (current.length > 0) {
+        toast("Only one order can be selected for Farmer Self Delivery. All other orders will be processed automatically.", { icon: "⚡" });
+        return current;
+      }
+      return [orderId];
+    });
   };
 
   const selectVisibleOrdersForSelfDelivery = () => {
-    const eligible = mapOrders
-      .filter((stop) => !isDone(stop) && stop?.assignment === "unassigned")
-      .map((stop) => getStopId(stop))
-      .filter(Boolean);
-    setSelectedRouteIds(eligible);
-    toast.success(eligible.length + " order" + (eligible.length === 1 ? "" : "s") + " selected for self delivery");
+    const first = mapOrders.find((stop) => !isDone(stop) && stop?.assignment === "unassigned");
+    if (!first) return;
+    toggleSelectedOrder(getStopId(first));
+    toast.success("One order selected for Farmer Self Delivery. All other orders will be automatic.");
   };
 
   const toggleRouteOrder = toggleSelectedOrder;
@@ -1304,8 +1310,8 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant={mapFilterMode === "all" ? "default" : "outline"} onClick={showAllMapOrders}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> All Orders
                   </Button>
-                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!withinUnassigned.length}>
-                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select All Visible
+                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!withinUnassigned.length || selectedRouteIds.length > 0}>
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select One Visible
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !routeCandidates.length}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
@@ -1471,8 +1477,11 @@ export default function FarmerOrderMapPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             {routeMatches.length > 0 && (
-              <Button size="sm" variant="outline" onClick={() => setSelectedRouteIds(routeMatches.map((stop) => getStopId(stop)))}>
-                Select All Route Orders
+              <Button size="sm" variant="outline" onClick={() => {
+                const first = routeMatches[0];
+                if (first) toggleSelectedOrder(getStopId(first));
+              }} disabled={selectedRouteIds.length > 0}>
+                Select One Route Order
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>
@@ -1622,7 +1631,7 @@ export default function FarmerOrderMapPage() {
                     type="button"
                     onClick={() => {
                       setSelectedStopId(id);
-                      toggleRouteOrder(id);
+                      if (!selectedRouteIds.length || selectedRouteIds.includes(id)) toggleRouteOrder(id);
                     }}
                     className={`rounded-lg border p-3 text-left transition ${checked ? "border-blue-500 bg-blue-50" : "bg-white hover:bg-slate-50"}`}
                   >
@@ -1783,7 +1792,7 @@ export default function FarmerOrderMapPage() {
                         type="button"
                         onClick={() => {
                           setSelectedStopId(orderId);
-                          toggleSelectedOrder(orderId);
+                          if (!selectedRouteIds.length || selectedRouteIds.includes(orderId)) toggleSelectedOrder(orderId);
                         }}
                         className={`w-full rounded-xl border p-3 text-left transition ${
                           checked ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
@@ -1816,14 +1825,14 @@ export default function FarmerOrderMapPage() {
                     </span>
                     <span className="text-slate-500">1 route stop</span>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">Selecting an order does not create another route stop. Orders at this location are delivered during the same physical visit.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Only the selected order is Farmer Self Delivery. All other orders at this location are automatic.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-t pt-3">
-                  <Button size="sm" variant="outline" onClick={() => {
-                    const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
-                    setSelectedRouteIds(ids);
-                  }}>Select All Orders</Button>
+                  <Button size="sm" variant="outline" disabled={selectedRouteIds.length > 0} onClick={() => {
+                    const first = selectedLocationGroup.orders[0];
+                    if (first) toggleSelectedOrder(getStopId(first));
+                  }}>Select One Order</Button>
                   <Button size="sm" variant="ghost" onClick={() => {
                     const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
                     setSelectedRouteIds((current) => current.filter((id) => !ids.includes(id)));
@@ -1849,7 +1858,7 @@ export default function FarmerOrderMapPage() {
           <Card className="xl:sticky xl:top-4 border-slate-200 shadow-sm">
             <CardHeader className="border-b bg-white py-4">
               <CardTitle className="text-base">Order Details</CardTitle>
-              <CardDescription>Review the order. Select it for Farmer Self Delivery if you will deliver it yourself.</CardDescription>
+              <CardDescription>Review the order. Select this order for Farmer Self Delivery; every other order is automatic.</CardDescription>
             </CardHeader>
             <CardContent>
               {!selectedStop ? (
@@ -1901,7 +1910,10 @@ export default function FarmerOrderMapPage() {
                           <Button
                             size="sm"
                             variant={selectedRouteIds.includes(getStopId(selectedStop)) ? "default" : "outline"}
-                            onClick={() => toggleSelectedOrder(getStopId(selectedStop))}
+                            onClick={() => {
+                              const id = getStopId(selectedStop);
+                              if (!selectedRouteIds.length || selectedRouteIds.includes(id)) toggleSelectedOrder(id);
+                            }}
                           >
                             {selectedRouteIds.includes(getStopId(selectedStop)) ? "Selected for Self Delivery" : "Select for Self Delivery"}
                           </Button>
@@ -1966,14 +1978,14 @@ export default function FarmerOrderMapPage() {
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-emerald-800">
-                      Select Orders for Self Delivery
+                      Select One Order for Self Delivery
                     </p>
                     <Badge variant="success">
                       {deliveryInsideOrders.filter((stop) => selectedRouteIds.includes(getStopId(stop))).length} selected
                     </Badge>
                   </div>
                   <p className="mt-1 text-xs text-emerald-700">
-                    Selection is manual. Radius/Route only changes which packed orders appear in this box.
+                    Select at most one order for Farmer Self Delivery. Every other packed order is automatically processed, even if it is within the same radius or route.
                   </p>
                 </div>
                 <div className="space-y-3">
@@ -1986,6 +1998,7 @@ export default function FarmerOrderMapPage() {
                       onSelect={() => setSelectedStopId(getStopId(stop))}
                       deliverySelected={selectedRouteIds.includes(getStopId(stop))}
                       onToggleDelivery={() => toggleSelectedOrder(getStopId(stop))}
+                      
                     />
                   ))}
                 </div>
