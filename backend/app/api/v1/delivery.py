@@ -3110,6 +3110,18 @@ async def accept_delivery_job(
             status_code=400,
             detail="Your vehicle capacity cannot fit this job. Complete or drop other deliveries first.",
         )
+    if job.get("jobType") == "warehouse_pickup" and not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
+        raise HTTPException(
+            status_code=400,
+            detail="Your vehicle type cannot safely carry this warehouse pickup route.",
+        )
+    if job.get("jobType") == "warehouse_pickup":
+        eligible_ids = {str(x) for x in (job.get("eligiblePartnerIds") or [])}
+        if eligible_ids and partner_id not in eligible_ids:
+            raise HTTPException(
+                status_code=403,
+                detail="This warehouse pickup job is not currently eligible for your vehicle and route profile.",
+            )
 
     if not await delivery_job_repository.claim_job(job_id, partner_id):
         raise HTTPException(status_code=409, detail="Another partner claimed this job first")
