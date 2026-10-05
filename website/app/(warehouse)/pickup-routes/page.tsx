@@ -95,13 +95,21 @@ export default function PickupRoutesPage() {
                 <div>
                   <p className="flex items-center gap-2 text-sm font-semibold">
                     {r.deliveryPartnerId ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Users className="h-4 w-4 text-amber-600" />}
-                    {r.deliveryPartnerId ? "Route accepted by a pickup partner" : "Waiting for pickup partner acceptance"}
+                    {r.deliveryPartnerId ? "Route Accepted" : "Waiting for pickup partner acceptance"}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    {r.deliveryPartnerId
-                      ? "This route is closed to all other pickup partners."
-                      : "All approved pickup partners can see and accept this route. First acceptance wins."}
-                  </p>
+                  {r.deliveryPartnerId ? (
+                    <div className="mt-2 space-y-1 text-sm">
+                      <p><span className="font-medium">Accepted by:</span> {r.deliveryPartnerName || "Pickup Partner"}</p>
+                      <p className="text-muted-foreground">
+                        🚚 {r.deliveryPartnerVehicleType || "Vehicle not specified"} · {r.deliveryPartnerVehicleNumber || "Vehicle number not specified"}
+                      </p>
+                      <p className="text-xs font-medium text-emerald-700">This route is now assigned exclusively to this pickup partner.</p>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      All approved pickup partners can see and accept this route. First acceptance wins.
+                    </p>
+                  )}
                 </div>
                 <Badge variant={r.deliveryPartnerId ? "default" : "outline"}>
                   {r.deliveryPartnerId ? "Assigned" : "Open Offer"}
