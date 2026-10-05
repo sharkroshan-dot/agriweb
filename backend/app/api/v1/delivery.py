@@ -28,6 +28,7 @@ from app.repositories.warehouse_repository import warehouse_repository
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+from app.services.warehouse_service import WarehouseService
 from app.services.warehouse_pickup_route_service import serialize_route, enrich_route_assignment
 from app.repositories.wallet_repository import wallet_repository, wallet_transaction_repository
 from app.repositories.withdrawal_repository import withdrawal_repository
@@ -2641,6 +2642,8 @@ async def update_my_pickup_route_status(
         update["completedAt"] = datetime.utcnow()
     if route_status == "returned_to_warehouse":
         update["returnedAt"] = datetime.utcnow()
+        # The physical return creates warehouse Incoming Stock records. The
+        # warehouse must explicitly Receive -> Quality Check -> Store.
     if collectionId:
         job = await warehouse_collection_repository.get_by_id(collectionId)
         if not job or str(job.get("pickupRouteId")) != route_id or str(job.get("collectionTeamId")) != str(profile["_id"]):
@@ -2663,6 +2666,21 @@ async def update_my_pickup_route_status(
                         stop["actualQuantity"] = actualQuantity
             update["stops"] = route.get("stops") or []
     await warehouse_pickup_route_repository.update_route(route_id, update)
+    if route_status == "returned_to_warehouse":
+        incoming_rows = await WarehouseService.create_pickup_route_incoming(route_id)
+        warehouse = await warehouse_repository.get_by_id(str(route.get("warehouseId")))
+        if warehouse:
+            manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
+            if manager_id:
+                try:
+                    await NotificationService.send_custom_notification(
+                        manager_id,
+                        f"Pickup route {route.get('routeNumber', route_id)} has arrived at the warehouse. {len(incoming_rows)} incoming stock record(s) are ready for Receive -> Quality Check -> Store.",
+                        title="Pickup Route Arrived at Warehouse",
+                        data={"type": "warehouse_pickup_arrived", "routeId": route_id, "incomingCount": len(incoming_rows)},
+                    )
+                except Exception:
+                    pass
     return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": f"Pickup route {route_status.replace('_', ' ')}"}
 
 
