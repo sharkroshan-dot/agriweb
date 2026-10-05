@@ -25,6 +25,9 @@ from app.repositories.warehouse_packing_repository import warehouse_packing_repo
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 from app.services.warehouse_collection_service import serialize_collection
+from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
+from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
+from app.services.warehouse_pickup_route_service import build_smart_routes, serialize_route, assign_route
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationPriority
 import logging
@@ -257,6 +260,153 @@ async def get_recommended_warehouse(
         "supportedStorageTypes": warehouse.get("supportedStorageTypes") or [],
         "selectionReason": warehouse.get("selectionReason"),
     }}
+
+class PickupTeamApplicationRequest(BaseModel):
+    vehicleType: str = Field(..., min_length=1)
+    vehicleNumber: str = Field(..., min_length=1)
+    vehicleModel: Optional[str] = None
+    vehicleYear: Optional[int] = None
+    capacity: Optional[float] = Field(None, ge=0)
+    fuelType: Optional[str] = None
+    licenseDetails: Optional[Dict[str, Any]] = None
+    verificationDetails: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+
+class PickupRouteCreateRequest(BaseModel):
+    collectionIds: List[str] = Field(default_factory=list)
+    maxStops: int = Field(8, ge=1, le=30)
+    maxWeightKg: float = Field(0, ge=0)
+
+
+class PickupRouteAssignRequest(BaseModel):
+    deliveryPartnerId: str = Field(..., min_length=1)
+
+
+@router.get("/me/pickup-team/applications")
+async def get_pickup_team_applications(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can manage pickup teams")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    apps = await warehouse_pickup_team_repository.get_applications(str(warehouse["_id"]), status_filter)
+    for item in apps:
+        item["id"] = str(item["_id"])
+        item["deliveryPartnerId"] = str(item["deliveryPartnerId"])
+    return {"success": True, "data": {"applications": apps}}
+
+
+@router.put("/me/pickup-team/applications/{application_id}")
+async def review_pickup_team_application(
+    application_id: str,
+    decision: str = Query(..., pattern="^(approve|reject)$"),
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can review pickup team applications")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    apps = await warehouse_pickup_team_repository.get_applications(str(warehouse["_id"]), "pending")
+    app = next((x for x in apps if str(x["_id"]) == application_id), None)
+    if not app:
+        raise HTTPException(status_code=404, detail="Pickup team application not found")
+    now = datetime.utcnow()
+    update = {
+        "status": "approved" if decision == "approve" else "rejected",
+        "reviewedAt": now,
+        "reviewedBy": ObjectId(str(current_user["_id"])),
+    }
+    if decision == "approve":
+        update["approvedAt"] = now
+    await warehouse_pickup_team_repository.update_application(application_id, update)
+    return {"success": True, "message": "Pickup team member approved" if decision == "approve" else "Application rejected"}
+
+
+@router.get("/me/pickup-team/members")
+async def get_pickup_team_members(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access pickup team")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    members = await warehouse_pickup_team_repository.get_approved_members(str(warehouse["_id"]))
+    return {"success": True, "data": {"members": [{**x, "id": str(x["_id"]), "deliveryPartnerId": str(x["deliveryPartnerId"])} for x in members]}}
+
+
+@router.post("/me/pickup-routes")
+async def create_pickup_routes(
+    data: PickupRouteCreateRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can create pickup routes")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), "ready_for_pickup")
+    if data.collectionIds:
+        selected = set(data.collectionIds)
+        jobs = [j for j in jobs if str(j["_id"]) in selected]
+    if not jobs:
+        raise HTTPException(status_code=400, detail="No ready-for-pickup farms are available")
+    route_groups = await build_smart_routes(warehouse, jobs, data.maxStops, data.maxWeightKg)
+    created = []
+    route_date = datetime.utcnow().strftime("%Y-%m-%d")
+    for group in route_groups:
+        route_id = await warehouse_pickup_route_repository.create_route({
+            "warehouseId": warehouse["_id"],
+            "routeDate": route_date,
+            "status": "planned",
+            "routeNumber": f"PR-{datetime.utcnow().strftime('%Y%m%d')}-{len(created)+1:02d}",
+            "stops": group["stops"],
+            "totalStops": group["totalStops"],
+            "totalQuantity": group["totalQuantity"],
+            "createdBy": ObjectId(str(current_user["_id"])),
+        })
+        if route_id:
+            created.append(serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)))
+    return {"success": True, "data": {"routes": created}, "message": f"{len(created)} pickup route(s) created"}
+
+
+@router.get("/me/pickup-routes")
+async def get_pickup_routes(
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can view pickup routes")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]), date or datetime.utcnow().strftime("%Y-%m-%d"))
+    return {"success": True, "data": {"routes": [serialize_route(x) for x in routes]}}
+
+
+@router.put("/me/pickup-routes/{route_id}/assign")
+async def assign_pickup_route(
+    route_id: str,
+    data: PickupRouteAssignRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign pickup routes")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    route = await warehouse_pickup_route_repository.get_by_id(route_id)
+    if not warehouse or not route or str(route.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Pickup route not found")
+    membership = await warehouse_pickup_team_repository.get_membership(str(warehouse["_id"]), data.deliveryPartnerId)
+    if not membership:
+        raise HTTPException(status_code=400, detail="This delivery partner is not an approved pickup team member")
+    membership["deliveryPartnerUserId"] = str(membership.get("userId") or membership.get("deliveryPartnerUserId"))
+    route["assignedBy"] = ObjectId(str(current_user["_id"]))
+    updated = await assign_route(route, membership)
+    return {"success": True, "data": serialize_route(updated), "message": "Pickup route assigned to approved team member"}
+
 
 class CollectionTeamAssignment(BaseModel):
     teamId: str = Field(..., min_length=1, max_length=100)
