@@ -148,11 +148,29 @@ async def partner_commitment(partner_id: str) -> Tuple[int, float]:
     return count, weight
 
 
+# Hard physical limits used for warehouse-pickup eligibility.
+VEHICLE_TYPE_CAPACITY_KG = {
+    "bike": 25.0, "scooter": 25.0,
+    "auto": 150.0, "three_wheeler": 150.0, "e_rickshaw": 150.0,
+    "tata_ace": 750.0, "ace": 750.0,
+    "mini_truck": 1000.0, "mini-truck": 1000.0,
+    "van": 500.0, "car": 100.0, "truck": 2000.0,
+}
+
+def vehicle_type_capacity_kg(vehicle_type: Optional[str]) -> Optional[float]:
+    key = str(vehicle_type or "").strip().lower().replace(" ", "_")
+    return VEHICLE_TYPE_CAPACITY_KG.get(key)
+
+def passes_vehicle_type(partner: dict, job_weight: float) -> bool:
+    limit = vehicle_type_capacity_kg(partner.get("vehicleType"))
+    return limit is not None and float(job_weight or 0) <= limit + 1e-9
+
 def passes_capacity(partner: dict, committed_weight: float, job_weight: float) -> bool:
     cap = partner.get("capacity")
     if cap is None:
         return True
     return float(cap) - committed_weight >= job_weight - 1e-9
+
 
 
 async def eligible_partners_for_job(
