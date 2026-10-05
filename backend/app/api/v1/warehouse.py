@@ -411,9 +411,10 @@ async def create_pickup_routes(
                 # verification and remaining vehicle capacity.
                 await warehouse_pickup_route_repository.update_route(route_id, {"assignmentMode": "delivery_marketplace"})
                 warehouse_point = (warehouse.get("location") or {}).get("coordinates") or [0, 0]
+                first_stop_point = ((group.get("stops") or [{}])[0].get("pickupLocation") or {}).get("coordinates") or warehouse_point
                 eligible = await eligible_partners_for_job(
-                    float(warehouse_point[1]) if len(warehouse_point) > 1 else 0.0,
-                    float(warehouse_point[0]) if warehouse_point else 0.0,
+                    float(first_stop_point[1]) if len(first_stop_point) > 1 else 0.0,
+                    float(first_stop_point[0]) if first_stop_point else 0.0,
                     float(group.get("totalQuantity") or 0),
                 )
                 job_doc = build_warehouse_pickup_job(route_doc, warehouse, [p["id"] for p in eligible])
