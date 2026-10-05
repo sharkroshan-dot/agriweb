@@ -125,7 +125,6 @@ export default function FarmerHarvestPlannerPage() {
   const [batchShelfLifeDays, setBatchShelfLifeDays] = useState("");
   const [batchNotes, setBatchNotes] = useState("");
   const [routes, setRoutes] = useState<Record<string, any>>({});
-  const [selectedMasterCropId, setSelectedMasterCropId] = useState("");
 
   const [form, setForm] = useState({
     cropName: "",
@@ -141,13 +140,6 @@ export default function FarmerHarvestPlannerPage() {
     preOrderEnabled: true,
     notes: "",
   });
-
-  const { data: cropCatalogData } = useQuery({
-    queryKey: ["masterCrops"],
-    queryFn: () => api.get("/master-crops"),
-  });
-
-  const masterCrops = cropCatalogData?.data?.crops || [];
 
   const { data: plansData, isLoading } = useQuery({
     queryKey: ["farmerHarvestPlans"],
@@ -174,7 +166,6 @@ export default function FarmerHarvestPlannerPage() {
       setShowForm(false);
       setAiResult(null);
       setLocation(null);
-      setSelectedMasterCropId("");
       setForm({
         cropName: "",
         fieldName: "",
@@ -309,7 +300,6 @@ export default function FarmerHarvestPlannerPage() {
       )
     : null;
 
-  const selectedCrop = masterCrops.find((c: any) => String(c.id) === selectedMasterCropId);
   const askAi = () => {
     if (!form.cropName.trim() || !form.plantingDate) {
       toast.error("Enter a crop name and planting date to ask AI");
@@ -736,16 +726,7 @@ export default function FarmerHarvestPlannerPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2 sm:col-span-2">
-                <label className="text-xs font-medium text-gray-500">Crop source *</label>
-                <Select value={selectedMasterCropId ? `master:${selectedMasterCropId}` : ""} onValueChange={(v) => (setSelectedMasterCropId(v.replace("master:", "")), setForm((f) => ({ ...f, cropName: masterCrops.find((x: any) => String(x.id) === v.replace("master:", ""))?.name || f.cropName })))}>
-                  <SelectTrigger><SelectValue placeholder="Select a crop from the catalog" /></SelectTrigger>
-                  <SelectContent>
-                    {masterCrops.map((crop: any) => <SelectItem key={`master-${crop.id}`} value={`master:${crop.id}`}>{crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
-                  </SelectContent>
-                </Select>
-                {selectedCrop && <p className="text-xs text-emerald-700">Default shelf life: {selectedCrop.defaultShelfLifeDays} days · Safe delivery buffer: {selectedCrop.safeDeliveryBufferHours ?? 24} hours</p>}
-              </div>
+
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Crop name *</label>
                 <Input
@@ -895,7 +876,6 @@ export default function FarmerHarvestPlannerPage() {
                 disabled={!form.cropName || !form.plantingDate || createMutation.isPending}
                 onClick={() =>
                   createMutation.mutate({
-      masterCropId: selectedMasterCropId || undefined,
                     cropName: form.cropName,
                     fieldName: form.fieldName || null,
                     areaAcres: Number(form.areaAcres),
