@@ -77,6 +77,8 @@ async def build_smart_routes(
                 "collectionId": str(chosen["_id"]),
                 "orderId": str(chosen["orderId"]) if chosen.get("orderId") else None,
                 "farmerId": str(chosen["farmerId"]) if chosen.get("farmerId") else None,
+                "productId": str(chosen["productId"]) if chosen.get("productId") else None,
+                "variantId": str(chosen["variantId"]) if chosen.get("variantId") else None,
                 "farmerName": chosen.get("farmerName") or "Farmer",
                 "productName": chosen.get("productName") or "Farm Product",
                 "quantity": float(chosen.get("quantity") or 0),
