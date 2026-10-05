@@ -297,6 +297,13 @@ async def get_pickup_team_applications(
     for item in apps:
         item["id"] = str(item["_id"])
         item["deliveryPartnerId"] = str(item["deliveryPartnerId"])
+        try:
+            user = await UserService.get_user_by_id(str(item.get("userId") or item["deliveryPartnerId"]))
+            if user:
+                item["name"] = (f"{user.get('firstName','')} {user.get('lastName','')}").strip() or user.get("name") or "Delivery Partner"
+                item["phone"] = user.get("phone")
+        except Exception:
+            item["name"] = "Delivery Partner"
     return {"success": True, "data": {"applications": apps}}
 
 
@@ -335,7 +342,18 @@ async def get_pickup_team_members(current_user: dict = Depends(get_current_user)
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     members = await warehouse_pickup_team_repository.get_approved_members(str(warehouse["_id"]))
-    return {"success": True, "data": {"members": [{**x, "id": str(x["_id"]), "deliveryPartnerId": str(x["deliveryPartnerId"])} for x in members]}}
+    result = []
+    for x in members:
+        item = {**x, "id": str(x["_id"]), "deliveryPartnerId": str(x["deliveryPartnerId"])}
+        try:
+            user = await UserService.get_user_by_id(str(x.get("userId") or x["deliveryPartnerId"]))
+            if user:
+                item["name"] = (f"{user.get('firstName','')} {user.get('lastName','')}").strip() or user.get("name") or "Delivery Partner"
+                item["phone"] = user.get("phone")
+        except Exception:
+            item["name"] = "Delivery Partner"
+        result.append(item)
+    return {"success": True, "data": {"members": result}}
 
 
 @router.post("/me/pickup-routes")
