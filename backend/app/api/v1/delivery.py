@@ -2988,6 +2988,8 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
+        if job.get("jobType", "customer_delivery") != "customer_delivery":
+            continue
         coords = (job.get("pickupLocation") or {}).get("coordinates")
         dist = None
         if coords and len(coords) >= 2:
@@ -2997,6 +2999,8 @@ async def get_my_delivery_jobs(
     accepted_jobs = await delivery_job_repository.get_jobs_for_partner(partner_id)
     accepted_list = []
     for job in accepted_jobs or []:
+        if job.get("jobType", "customer_delivery") != "customer_delivery":
+            continue
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
     accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
 
