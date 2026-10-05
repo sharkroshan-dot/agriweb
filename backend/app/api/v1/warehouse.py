@@ -19,7 +19,7 @@ from app.schemas.warehouse import (
 from app.services.warehouse_service import WarehouseService
 from app.services.user_service import UserService
 from app.services.logistics_routing_service import apply_partner_route
-from app.services.delivery_job_service import build_job_document, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
+from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
@@ -389,11 +389,48 @@ async def create_pickup_routes(
         })
         if route_id:
             route_doc = await warehouse_pickup_route_repository.get_by_id(route_id)
-            created.append(serialize_route(route_doc))
-            # Broadcast the offer to every approved pickup partner. The first
-            # partner to accept atomically claims the route.
             members = await warehouse_pickup_team_repository.get_approved_members(str(warehouse["_id"]))
-            for member in members:
+            if members:
+                # Approved pickup partners get the exclusive first-accept route offer.
+                await warehouse_pickup_route_repository.update_route(route_id, {"assignmentMode": "pickup_partner"})
+                for member in members:
+                    try:
+                        user_id = str(member.get("userId") or "")
+                        if user_id:
+                            await NotificationService.send_custom_notification(
+                                user_id,
+                                f"Pickup route {route_doc.get('routeNumber', route_id)} is available. Accept it to claim this route.",
+                                title="New Warehouse Pickup Route",
+                                data={"type": "warehouse_pickup_offer", "routeId": route_id},
+                            )
+                    except Exception:
+                        logger.exception("Failed to notify pickup partner about route offer")
+            else:
+                # No approved pickup partner: publish the same route as a normal
+                # delivery marketplace job. Eligibility is based on availability,
+                # verification and remaining vehicle capacity.
+                await warehouse_pickup_route_repository.update_route(route_id, {"assignmentMode": "delivery_marketplace"})
+                warehouse_point = (warehouse.get("location") or {}).get("coordinates") or [0, 0]
+                eligible = await eligible_partners_for_job(
+                    float(warehouse_point[1]) if len(warehouse_point) > 1 else 0.0,
+                    float(warehouse_point[0]) if warehouse_point else 0.0,
+                    float(group.get("totalQuantity") or 0),
+                )
+                job_doc = build_warehouse_pickup_job(route_doc, warehouse, [p["id"] for p in eligible])
+                job_id = await delivery_job_repository.create_job(job_doc)
+                if job_id:
+                    for partner in eligible:
+                        try:
+                            if partner.get("userId"):
+                                await NotificationService.send_custom_notification(
+                                    str(partner["userId"]),
+                                    f"Warehouse pickup job {route_doc.get('routeNumber', route_id)} is available: {group.get('totalStops', 0)} farms, {group.get('totalQuantity', 0)} kg.",
+                                    title="New Warehouse Pickup Job",
+                                    data={"type": "warehouse_pickup_job", "jobId": job_id, "routeId": route_id},
+                                )
+                        except Exception:
+                            logger.exception("Failed to notify delivery partner about warehouse pickup job")
+            created.append(serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)))
                 try:
                     user_id = str(member.get("userId") or "")
                     if user_id:
