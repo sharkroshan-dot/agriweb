@@ -126,7 +126,6 @@ export default function FarmerHarvestPlannerPage() {
   const [batchNotes, setBatchNotes] = useState("");
   const [routes, setRoutes] = useState<Record<string, any>>({});
   const [selectedMasterCropId, setSelectedMasterCropId] = useState("");
-  const [selectedFarmerCropId, setSelectedFarmerCropId] = useState("");
 
   const [form, setForm] = useState({
     cropName: "",
@@ -148,13 +147,7 @@ export default function FarmerHarvestPlannerPage() {
     queryFn: () => api.get("/master-crops"),
   });
 
-  const { data: farmerCropsData } = useQuery({
-    queryKey: ["farmerCrops"],
-    queryFn: () => api.get("/master-crops/farmer"),
-  });
-
   const masterCrops = cropCatalogData?.data?.crops || [];
-  const farmerCrops = farmerCropsData?.data?.crops || [];
 
   const { data: plansData, isLoading } = useQuery({
     queryKey: ["farmerHarvestPlans"],
@@ -182,7 +175,6 @@ export default function FarmerHarvestPlannerPage() {
       setAiResult(null);
       setLocation(null);
       setSelectedMasterCropId("");
-      setSelectedFarmerCropId("");
       setForm({
         cropName: "",
         fieldName: "",
@@ -317,16 +309,7 @@ export default function FarmerHarvestPlannerPage() {
       )
     : null;
 
-  const selectedCrop = farmerCrops.find((c: any) => String(c.id) === selectedFarmerCropId) || masterCrops.find((c: any) => String(c.id) === selectedMasterCropId);
-  const chooseFarmerCrop = (id: string) => {
-    setSelectedFarmerCropId(id);
-    const crop = farmerCrops.find((c: any) => String(c.id) === id);
-    if (crop) {
-      setSelectedMasterCropId(String(crop.masterCropId || ""));
-      setForm((f) => ({ ...f, cropName: crop.name || crop.masterCropName || "" }));
-    }
-  };
-
+  const selectedCrop = masterCrops.find((c: any) => String(c.id) === selectedMasterCropId);
   const askAi = () => {
     if (!form.cropName.trim() || !form.plantingDate) {
       toast.error("Enter a crop name and planting date to ask AI");
@@ -755,11 +738,10 @@ export default function FarmerHarvestPlannerPage() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
                 <label className="text-xs font-medium text-gray-500">Crop source *</label>
-                <Select value={selectedFarmerCropId ? `farmer:${selectedFarmerCropId}` : selectedMasterCropId ? `master:${selectedMasterCropId}` : ""} onValueChange={(v) => v.startsWith("farmer:") ? chooseFarmerCrop(v.replace("farmer:", "")) : (setSelectedMasterCropId(v.replace("master:", "")), setSelectedFarmerCropId(""), setForm((f) => ({ ...f, cropName: masterCrops.find((x: any) => String(x.id) === v.replace("master:", ""))?.name || "" })))}>
-                  <SelectTrigger><SelectValue placeholder="Select Master Crop / Farmer Crop" /></SelectTrigger>
+                <Select value={selectedMasterCropId ? `master:${selectedMasterCropId}` : ""} onValueChange={(v) => (setSelectedMasterCropId(v.replace("master:", "")), setForm((f) => ({ ...f, cropName: masterCrops.find((x: any) => String(x.id) === v.replace("master:", ""))?.name || f.cropName })))}>
+                  <SelectTrigger><SelectValue placeholder="Select a crop from the catalog" /></SelectTrigger>
                   <SelectContent>
-                    {farmerCrops.map((crop: any) => <SelectItem key={`farmer-${crop.id}`} value={`farmer:${crop.id}`}>My Crop: {crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
-                    {masterCrops.map((crop: any) => <SelectItem key={`master-${crop.id}`} value={`master:${crop.id}`}>Master: {crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
+                    {masterCrops.map((crop: any) => <SelectItem key={`master-${crop.id}`} value={`master:${crop.id}`}>{crop.name} · {crop.defaultShelfLifeDays} days</SelectItem>)}
                   </SelectContent>
                 </Select>
                 {selectedCrop && <p className="text-xs text-emerald-700">Default shelf life: {selectedCrop.defaultShelfLifeDays} days · Safe delivery buffer: {selectedCrop.safeDeliveryBufferHours ?? 24} hours</p>}
@@ -914,7 +896,6 @@ export default function FarmerHarvestPlannerPage() {
                 onClick={() =>
                   createMutation.mutate({
       masterCropId: selectedMasterCropId || undefined,
-      farmerCropId: selectedFarmerCropId || undefined,
                     cropName: form.cropName,
                     fieldName: form.fieldName || null,
                     areaAcres: Number(form.areaAcres),
