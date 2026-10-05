@@ -277,42 +277,44 @@ def build_warehouse_pickup_job(
     warehouse: dict,
     eligible_partner_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Build one normal delivery-marketplace job for an entire pickup route."""
+    """Build one delivery-marketplace job for an entire multi-farm route."""
     stops = route.get("stops") or []
     total_weight = float(route.get("totalQuantity") or sum(float(s.get("quantity") or 0) for s in stops))
     warehouse_loc = warehouse.get("location") or {}
-    coords = warehouse_loc.get("coordinates") or [0, 0]
+    warehouse_coords = warehouse_loc.get("coordinates") or [0, 0]
+    first_coords = ((stops[0].get("pickupLocation") or {}).get("coordinates") or warehouse_coords) if stops else warehouse_coords
+
+    route_distance = 0.0
+    previous = first_coords
+    for stop in stops[1:]:
+        coords = (stop.get("pickupLocation") or {}).get("coordinates")
+        if coords and len(coords) >= 2:
+            route_distance += _haversine_km(float(previous[1]), float(previous[0]), float(coords[1]), float(coords[0]))
+            previous = coords
+    if stops and previous != warehouse_coords:
+        route_distance += _haversine_km(float(previous[1]), float(previous[0]), float(warehouse_coords[1]), float(warehouse_coords[0]))
+
     return {
         "jobType": "warehouse_pickup",
         "routeId": route["_id"],
         "orderId": ObjectId(str(stops[0]["orderId"])) if stops and stops[0].get("orderId") else None,
         "farmerId": ObjectId(str(stops[0]["farmerId"])) if stops and stops[0].get("farmerId") else None,
         "orderNumber": route.get("routeNumber", ""),
-        "pickupLocation": {
-            "type": "Point",
-            "coordinates": [float(coords[0]), float(coords[1])],
-        },
-        "pickupName": "Farm pickup route",
+        "pickupLocation": {"type": "Point", "coordinates": [float(first_coords[0]), float(first_coords[1])]},
+        "pickupName": stops[0].get("farmerName") if stops else "Farm pickup route",
         "pickupAddress": "",
-        "deliveryLocation": {
-            "type": "Point",
-            "coordinates": [float(coords[0]), float(coords[1])],
-        },
+        "deliveryLocation": {"type": "Point", "coordinates": [float(warehouse_coords[0]), float(warehouse_coords[1])]},
         "deliveryArea": (warehouse.get("address") or {}).get("city") or "",
         "deliveryCity": (warehouse.get("address") or {}).get("city") or "",
         "deliveryAddress": (warehouse.get("address") or {}).get("addressLine1") or (warehouse.get("address") or {}).get("address") or "",
         "customerName": warehouse.get("name") or "Warehouse",
         "customerPhone": "",
-        "distanceKm": 0,
+        "distanceKm": round(route_distance, 2),
         "weightKg": total_weight,
-        "earnings": round(max(30, total_weight * 2), 2),
+        "earnings": round(max(30, total_weight * 2 + route_distance), 2),
         "productSummary": f"{len(stops)} farm stops",
         "items": [
-            {
-                "name": s.get("productName") or "Farm Product",
-                "quantity": s.get("quantity", 0),
-                "farmName": s.get("farmerName") or "Farm",
-            }
+            {"name": s.get("productName") or "Farm Product", "quantity": s.get("quantity", 0), "farmName": s.get("farmerName") or "Farm"}
             for s in stops
         ],
         "farmStops": stops,
@@ -325,7 +327,6 @@ def build_warehouse_pickup_job(
         "notificationSent": False,
         "version": 1,
     }
-
 
 def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] = None, reveal: bool = False) -> dict:
     """Privacy-safe job payload for the partner dashboard.
