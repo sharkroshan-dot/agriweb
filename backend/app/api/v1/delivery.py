@@ -3152,7 +3152,9 @@ async def accept_delivery_job(
             vehicle_number=profile.get("vehicleNumber"),
         )
         if not claimed_route:
-            await delivery_job_repository.release_job(job_id)
+            # The route claim is the authoritative atomic winner. Do not reopen
+            # the marketplace job after another partner has already claimed it.
+            await delivery_job_repository.mark_no_partner_found(job_id)
             raise HTTPException(status_code=409, detail="Another partner claimed this pickup route first")
 
         for stop in claimed_route.get("stops") or []:
