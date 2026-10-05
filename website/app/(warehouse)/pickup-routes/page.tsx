@@ -26,7 +26,7 @@ export default function PickupRoutesPage() {
   const createRoutes = async () => {
     try {
       await api.post("/warehouse/me/pickup-routes", { maxStops: 8, maxWeightKg: 0 });
-      toast.success("Pickup route offer(s) sent to all approved pickup partners");
+      toast.success("Pickup route(s) created. Approved partners will receive offers; otherwise eligible delivery partners can pick them up.");
       await routesQ.refetch();
     } catch (e: any) {
       toast.error(e?.message || "No ready farms available");
@@ -77,7 +77,7 @@ export default function PickupRoutesPage() {
               </div>
             </CardHeader>
             <CardContent className="p-5">
-              {r.status === "arrived_warehouse" && (
+              {r.status === "returned_to_warehouse" && (
                 <div className="mb-4 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="flex items-center gap-2 font-semibold text-blue-900"><PackageCheck className="h-4 w-4" />Ready for Warehouse Receiving</p>
