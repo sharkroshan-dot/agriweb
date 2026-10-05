@@ -43,6 +43,9 @@ from app.services.delivery_job_service import (
     build_job_document,
     eligible_partners_for_job,
     JOB_DEFAULT_EXPIRY_MINUTES,
+    passes_vehicle_type,
+    passes_capacity,
+    partner_commitment,
 )
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
@@ -2520,6 +2523,12 @@ async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_cu
     partner_name = partner_name or profile.get("name") or "Pickup Partner"
     vehicle_type = str(profile.get("vehicleType") or "")
     vehicle_number = str(profile.get("vehicleNumber") or "")
+    route_weight = float(route.get("totalQuantity") or sum(float(s.get("quantity") or 0) for s in route.get("stops") or []))
+    if not passes_vehicle_type({**profile, "vehicleType": vehicle_type}, route_weight):
+        raise HTTPException(status_code=400, detail=f"Your {vehicle_type or 'vehicle'} cannot carry this {route_weight:g} kg pickup route.")
+    active_count, committed_weight = await partner_commitment(partner_id)
+    if not passes_capacity(profile, committed_weight, route_weight):
+        raise HTTPException(status_code=400, detail="Your remaining vehicle capacity is not sufficient for this pickup route.")
 
     claimed = await warehouse_pickup_route_repository.claim_route(
         route_id,
