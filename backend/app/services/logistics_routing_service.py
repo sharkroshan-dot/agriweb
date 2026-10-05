@@ -141,15 +141,19 @@ async def apply_partner_route(
 
     if warehouse_route and mode == "nearby":
         hub = None
-    elif warehouse_route and mode == "long_distance" and not hub:
-        raise ValueError("No active local hub with available capacity was found for this shipment.")
+
+    # Resource availability must not cancel the Farmer Order Map decision.
+    # The route decision is automatic and should be persisted even when the
+    # selected warehouse/hub is temporarily unavailable or has insufficient
+    # capacity. The downstream handoff remains pending until the resource is
+    # available; the farmer must not be asked to re-select the order.
+    resource_pending = False
+    if warehouse_route and mode == "long_distance" and not hub:
+        resource_pending = True
     elif not warehouse_route and mode == "nearby" and not hub:
-        raise ValueError("No active local hub with available capacity was found for this shipment.")
-    elif not warehouse_route and mode == "long_distance":
-        if not warehouse:
-            raise ValueError("No warehouse is available for this long-distance farmer route.")
-        if not hub:
-            raise ValueError("No active local hub with available capacity was found for this shipment.")
+        resource_pending = True
+    elif not warehouse_route and mode == "long_distance" and (not warehouse or not hub):
+        resource_pending = True
 
     pickup = None
     if mode == "nearby" and warehouse:
@@ -193,11 +197,15 @@ async def apply_partner_route(
         "deliveryPartnerRouteSelectedAt": datetime.utcnow(),
         "deliveryResponsibility": "delivery_partner",
         "deliveryDecisionStatus": (
-            "partner_pending"
+            "hub_handoff_pending"
+            if resource_pending and mode == "nearby"
+            else "warehouse_transfer_pending"
+            if resource_pending and mode == "long_distance"
+            else "partner_pending"
             if mode == "nearby"
             else "warehouse_transfer_pending"
         ),
-        "partnerAssignmentOpen": mode == "nearby",
+        "partnerAssignmentOpen": mode == "nearby" and not resource_pending,
         "partnerRequested": False,
         "nearbyFulfillmentRequired": route_requires_hub,
         "nearbyFulfillmentType": "local_hub" if route_requires_hub else None,
