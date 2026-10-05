@@ -30,7 +30,11 @@ class DeliveryJobRepository(BaseRepository):
         super().__init__("delivery_jobs")
 
     async def create_job(self, job_data: Dict[str, Any]) -> Optional[str]:
-        """Insert (or replace the row for) a job for an order."""
+        """Insert or replace a delivery marketplace job.
+
+        Order jobs are keyed by orderId; warehouse-pickup jobs are keyed by
+        routeId because one pickup route can contain multiple farm orders.
+        """
         now = datetime.utcnow()
         job_data.setdefault("openedAt", now)
         job_data.setdefault("expiresAt", now + timedelta(hours=2))
@@ -39,14 +43,13 @@ class DeliveryJobRepository(BaseRepository):
         job_data.setdefault("updatedAt", now)
         job_data["deletedAt"] = None
         try:
-            await self.collection.update_one(
-                {"orderId": ObjectId(job_data["orderId"]), "deletedAt": None},
-                {"$set": job_data},
-                upsert=True,
-            )
-            existing = await self.collection.find_one(
-                {"orderId": ObjectId(job_data["orderId"]), "deletedAt": None}
-            )
+            job_type = job_data.get("jobType", "customer_delivery")
+            if job_type == "warehouse_pickup" and job_data.get("routeId"):
+                key = {"routeId": ObjectId(str(job_data["routeId"])), "jobType": job_type, "deletedAt": None}
+            else:
+                key = {"orderId": ObjectId(str(job_data["orderId"])), "jobType": job_type, "deletedAt": None}
+            await self.collection.update_one(key, {"$set": job_data}, upsert=True)
+            existing = await self.collection.find_one(key)
             return str(existing["_id"]) if existing else None
         except Exception as e:
             logger.error(f"Error upserting delivery job: {str(e)}")
