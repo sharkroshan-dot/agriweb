@@ -178,6 +178,7 @@ async def eligible_partners_for_job(
     pickup_lng: float,
     job_weight: float,
     partners: Optional[List[dict]] = None,
+    job_type: str = "customer_delivery",
 ) -> List[dict]:
     """Filter partners to those eligible for a job and rank them.
 
@@ -196,7 +197,7 @@ async def eligible_partners_for_job(
         count, committed = await partner_commitment(p["id"])
         if count >= PARTNER_MAX_ACTIVE_JOBS:
             continue
-        if not passes_vehicle_type(p, job_weight):
+        if job_type == "warehouse_pickup" and not passes_vehicle_type(p, job_weight):
             continue
         if not passes_capacity(p, committed, job_weight):
             continue
