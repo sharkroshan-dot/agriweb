@@ -838,11 +838,9 @@ export default function FarmerOrderMapPage() {
   });
 
   const deliverSelected = () => {
-    const ids = selectedRouteIds;
-    if (!ids.length) {
-      toast.error(selfDeliveryMethod === "route" ? "Select at least one order along your route" : `Select at least one order within ${radiusKm} km`);
-      return;
-    }
+    // Confirming the plan is the single delivery decision point. The farmer
+    // may select zero or more orders for self delivery; every unselected
+    // eligible packed order is automatically routed by distance.
     deliverSelectedMutation.mutate();
   };
 
