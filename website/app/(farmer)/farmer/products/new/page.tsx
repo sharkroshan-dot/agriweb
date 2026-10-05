@@ -91,6 +91,7 @@ export default function AddProductPage() {
     setFormData((prev) => ({
       ...prev,
       name,
+      cropName: prev.cropName || name,
       slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
       price: price || prev.price,
       quantity: quantity || prev.quantity,
