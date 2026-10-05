@@ -431,17 +431,6 @@ async def create_pickup_routes(
                         except Exception:
                             logger.exception("Failed to notify delivery partner about warehouse pickup job")
             created.append(serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)))
-                try:
-                    user_id = str(member.get("userId") or "")
-                    if user_id:
-                        await NotificationService.send_custom_notification(
-                            user_id,
-                            f"Pickup route {route_doc.get('routeNumber', route_id)} is available. Accept it to claim this route.",
-                            title="New Warehouse Pickup Route",
-                            data={"type": "warehouse_pickup_offer", "routeId": route_id},
-                        )
-                except Exception:
-                    logger.exception("Failed to notify pickup partner about route offer")
     return {"success": True, "data": {"routes": created}, "message": f"{len(created)} pickup route(s) created"}
 
 
