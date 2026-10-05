@@ -337,7 +337,9 @@ def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] 
     """
     return {
         "id": str(job["_id"]),
-        "orderId": str(job["orderId"]),
+        "jobType": job.get("jobType", "customer_delivery"),
+        "routeId": str(job["routeId"]) if job.get("routeId") else None,
+        "orderId": str(job["orderId"]) if job.get("orderId") else None,
         "orderNumber": job.get("orderNumber", ""),
         "status": job.get("status"),
         "orderStatus": job.get("orderStatus", "pending"),
@@ -365,6 +367,12 @@ def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] 
         "deliveryDay": job.get("deliveryDay"),
         "productSummary": job.get("productSummary", "Farm produce"),
         "items": job.get("items", []),
+        "farmStops": job.get("farmStops", []),
+        "warehouseId": str(job["warehouseId"]) if job.get("warehouseId") else None,
+        "warehouseName": job.get("warehouseName"),
+        "routeNumber": job.get("routeNumber"),
+        "totalStops": job.get("totalStops"),
+        "totalQuantity": job.get("totalQuantity"),
         "expiresAt": job.get("expiresAt"),
         "accepted": job.get("status") == JOB_ACCEPTED,
     }
