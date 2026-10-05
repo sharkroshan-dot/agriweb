@@ -2486,6 +2486,31 @@ async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=409, detail="This pickup route was already accepted by another pickup partner")
     claimed["assignedBy"] = claimed.get("assignedBy") or ObjectId(str(profile["_id"]))
     await assign_route(claimed, {**membership, "deliveryPartnerUserId": str(membership.get("userId") or current_user["_id"])})
+
+    # Tell the warehouse and every other approved partner that the offer is closed.
+    warehouse = await warehouse_repository.find_one({"_id": ObjectId(str(claimed["warehouseId"])), "deletedAt": None})
+    if warehouse:
+        manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
+        if manager_id:
+            await NotificationService.send_custom_notification(
+                manager_id,
+                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by a pickup partner.",
+                title="Pickup Route Accepted",
+                data={"type": "warehouse_pickup_route_claimed", "routeId": route_id, "deliveryPartnerId": str(profile["_id"])},
+            )
+    members = await warehouse_pickup_team_repository.get_approved_members(str(claimed["warehouseId"]))
+    for member in members:
+        member_partner_id = str(member.get("deliveryPartnerId") or "")
+        if member_partner_id == str(profile["_id"]):
+            continue
+        user_id = str(member.get("userId") or "")
+        if user_id:
+            await NotificationService.send_custom_notification(
+                user_id,
+                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by another pickup partner and is no longer available.",
+                title="Pickup Route Closed",
+                data={"type": "warehouse_pickup_route_closed", "routeId": route_id},
+            )
     return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route accepted successfully"}
 
 
