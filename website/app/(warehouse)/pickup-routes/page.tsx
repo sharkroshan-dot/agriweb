@@ -104,7 +104,11 @@ export default function PickupRoutesPage() {
                 <div>
                   <p className="flex items-center gap-2 text-sm font-semibold">
                     {r.deliveryPartnerId ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Users className="h-4 w-4 text-amber-600" />}
-                    {r.deliveryPartnerId ? "Route Accepted" : "Waiting for pickup partner acceptance"}
+                    {r.deliveryPartnerId
+                      ? "Route Accepted"
+                      : r.assignmentMode === "delivery_marketplace"
+                        ? "Open to Delivery Partners"
+                        : "Waiting for Pickup Partner Acceptance"}
                   </p>
                   {r.deliveryPartnerId ? (
                     <div className="mt-2 space-y-1 text-sm">
@@ -116,12 +120,14 @@ export default function PickupRoutesPage() {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      All approved pickup partners can see and accept this route. First acceptance wins.
+                      {r.assignmentMode === "delivery_marketplace"
+                        ? "No approved pickup partner is available. Eligible delivery partners can accept this route based on vehicle capacity and availability."
+                        : "All approved pickup partners can see and accept this route. First acceptance wins."}
                     </p>
                   )}
                 </div>
                 <Badge variant={r.deliveryPartnerId ? "default" : "outline"}>
-                  {r.deliveryPartnerId ? "Assigned" : "Open Offer"}
+                  {r.deliveryPartnerId ? "Assigned" : r.assignmentMode === "delivery_marketplace" ? "Delivery Marketplace" : "Open Offer"}
                 </Badge>
               </div>
             </CardContent>
