@@ -125,5 +125,39 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
     return await warehouse_pickup_route_repository.get_by_id(route_id)
 
 
+async def enrich_route_assignment(route: Dict[str, Any]) -> Dict[str, Any]:
+    """Add stable winner identity/vehicle data for every eligible partner."""
+    result = dict(route)
+    partner_id = result.get("deliveryPartnerId")
+    if partner_id:
+        partner = None
+        try:
+            from app.repositories.delivery_repository import delivery_repository
+            partner = await delivery_repository.get_by_id(str(partner_id))
+        except Exception:
+            partner = None
+        if partner:
+            result["deliveryPartnerVehicleType"] = (
+                result.get("deliveryPartnerVehicleType")
+                or partner.get("vehicleType")
+            )
+            result["deliveryPartnerVehicleNumber"] = (
+                result.get("deliveryPartnerVehicleNumber")
+                or partner.get("vehicleNumber")
+            )
+            if not result.get("deliveryPartnerName"):
+                try:
+                    from app.services.user_service import UserService
+                    user = await UserService.get_user_by_id(str(partner.get("userId")))
+                    if user:
+                        result["deliveryPartnerName"] = (
+                            f"{user.get('firstName', '')} {user.get('lastName', '')}".strip()
+                            or user.get("name")
+                        )
+                except Exception:
+                    pass
+    return result
+
+
 def serialize_route(route: Dict[str, Any]) -> Dict[str, Any]:
     return _serialize_route(route)
