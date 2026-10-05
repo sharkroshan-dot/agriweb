@@ -2830,20 +2830,32 @@ async def create_self_delivery_plan(
         "farmerId": ObjectId(farmer_id),
         "deletedAt": None,
     }) or []
-    orders = [
-        order for order in orders
-        if str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower()
-        in ("farmer", "farm_direct")
-        and str(order.get("orderStatus") or order.get("status") or "").lower() != "cancelled"
-        and not bool(order.get("packingCancelled"))
-        and (
-            str(order.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
+    eligible_orders = []
+    for order in orders:
+        fulfillment_method = str(
+            order.get("fulfillmentMethod") or order.get("fulfillment_route") or ""
+        ).lower()
+        order_status = str(
+            order.get("orderStatus") or order.get("status") or ""
+        ).lower()
+        fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+
+        is_packed = (
+            fulfillment_stage in ("packed", "dispatched")
             or bool(order.get("packingComplete"))
         )
-        and not bool(order.get("deliveryPartnerId"))
-        and not bool(order.get("partnerRequested"))
-        and not bool(order.get("selfDelivery"))
-    )
+        if (
+            fulfillment_method in ("farmer", "farm_direct")
+            and order_status != "cancelled"
+            and not bool(order.get("packingCancelled"))
+            and is_packed
+            and not bool(order.get("deliveryPartnerId"))
+            and not bool(order.get("partnerRequested"))
+            and not bool(order.get("selfDelivery"))
+        ):
+            eligible_orders.append(order)
+
+    orders = eligible_orders
 
     if body.method == "route" and not body.destination:
         raise HTTPException(
