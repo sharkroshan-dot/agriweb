@@ -46,7 +46,6 @@ const label = (value: string) => STATUS.find(([key]) => key === value)?.[1] || v
 export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [teamDraft, setTeamDraft] = useState<Record<string, string>>({});
   const { data: warehouseData } = useQuery({
     queryKey: ["warehouseCollectionsIdentity"],
     queryFn: () => api.get("/warehouse/me"),
@@ -80,21 +79,6 @@ export default function WarehouseCollectionsPage() {
       warehouse: source.filter((x: any) => x.status === "arrived_warehouse").length,
     };
   }, [data]);
-
-  const assign = async (job: any) => {
-    const teamId = (teamDraft[job.id] || "").trim();
-    if (!teamId) {
-      toast.error("Enter a collection team name or ID");
-      return;
-    }
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/assign`, { teamId });
-      toast.success("Collection team assigned");
-      await refetch();
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to assign collection team");
-    }
-  };
 
   const advance = async (job: any) => {
     const next = NEXT[job.status];
@@ -188,7 +172,7 @@ export default function WarehouseCollectionsPage() {
                       <p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Packing Verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse Packing Required: No" : "Packing Required: Yes · Farmer Verification: " + (job.packingVerified ? "Complete" : "Pending")}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      {job.status === "ready_for_pickup" && <div className="flex gap-2"><Input className="w-full sm:w-40" placeholder="Team name / ID" value={teamDraft[job.id] || ""} onChange={e => setTeamDraft({...teamDraft, [job.id]: e.target.value})} /><Button onClick={() => assign(job)}>Assign Team</Button></div>}
+                      {job.status === "ready_for_pickup" && <Button onClick={() => window.location.href="/warehouse/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
                       {NEXT[job.status] && <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
                     </div>
                   </div>
