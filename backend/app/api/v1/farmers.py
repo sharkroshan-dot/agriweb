@@ -2820,16 +2820,30 @@ async def create_self_delivery_plan(
     if farm.get("lat") is None or farm.get("lng") is None:
         raise HTTPException(status_code=400, detail="Farm location is not set")
 
+    # Keep this eligibility query aligned with GET /me/delivery-map.
+    # Packed Farmer Fulfillment orders can remain in a processing/packing
+    # status while they are waiting for the delivery decision. The old query
+    # required _ACTIVE_DELIVERY_STATUSES and deliveryResponsibility="farmer",
+    # which caused the map to show orders that this endpoint then silently
+    # ignored, producing "0 self / 0 partner" after Confirm Selection.
     orders = await order_repository.find_many({
         "farmerId": ObjectId(farmer_id),
-        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
-        "fulfillmentMethod": "farmer",
-        "fulfillmentStage": "packed",
-        "packingComplete": True,
-        "deliveryType": {"$ne": DeliveryType.PICKUP.value},
-        "deliveryResponsibility": {"$in": [None, "", "farmer"]},
         "deletedAt": None,
     }) or []
+    orders = [
+        order for order in orders
+        if str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower()
+        in ("farmer", "farm_direct")
+        and str(order.get("orderStatus") or order.get("status") or "").lower() != "cancelled"
+        and not bool(order.get("packingCancelled"))
+        and (
+            str(order.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
+            or bool(order.get("packingComplete"))
+        )
+        and not bool(order.get("deliveryPartnerId"))
+        and not bool(order.get("partnerRequested"))
+        and not bool(order.get("selfDelivery"))
+    )
 
     if body.method == "route" and not body.destination:
         raise HTTPException(
