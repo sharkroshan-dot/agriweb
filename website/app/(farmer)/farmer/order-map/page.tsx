@@ -1999,9 +1999,9 @@ export default function FarmerOrderMapPage() {
         <Card className="border-orange-200">
           <CardHeader>
             <CardTitle className="text-orange-700">
-              {deliveryScopeLists.outsideLabel} <span className="text-muted-foreground">({deliveryOutsideOrders.length})</span>
+              Automatic Processing
             </CardTitle>
-            <CardDescription>{deliveryScopeLists.outsideDescription}</CardDescription>
+            <CardDescription>Every order not selected for Farmer Self Delivery is processed automatically after confirmation.</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
             {deliveryOutsideOrders.length === 0 && selectedRouteIds.length === routeCandidates.length ? (
