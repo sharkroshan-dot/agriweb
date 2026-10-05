@@ -1998,7 +1998,6 @@ export default function FarmerOrderMapPage() {
                       index={index + 1}
                       selected={selectedRouteIds.includes(getStopId(stop))}
                       onSelect={() => setSelectedStopId(getStopId(stop))}
-                      onSwitch={(v) => onSwitchSelect(stop, v)}
                       deliverySelected={selectedRouteIds.includes(getStopId(stop))}
                       onToggleDelivery={() => toggleSelectedOrder(getStopId(stop))}
                     />
@@ -2042,7 +2041,6 @@ export default function FarmerOrderMapPage() {
                       index={index + 1}
                       selected={false}
                       onSelect={() => setSelectedStopId(getStopId(stop))}
-                      onSwitch={(v) => onSwitchSelect(stop, v)}
                     />
                   ))}
                 </div>
@@ -2066,7 +2064,6 @@ export default function FarmerOrderMapPage() {
                 index={index + 1}
                 selected={false}
                 onSelect={() => {}}
-                onSwitch={(v) => onSwitchSelect(stop, v)}
               />
             ))}
           </CardContent>
@@ -2101,7 +2098,6 @@ export default function FarmerOrderMapPage() {
                 index={index + 1}
                 selected={selectedRouteIds.includes(getStopId(stop))}
                 onSelect={() => setSelectedStopId(getStopId(stop))}
-                onSwitch={(v) => onSwitchSelect(stop, v)}
                 readOnly
               />
             ))
@@ -2168,83 +2164,6 @@ export default function FarmerOrderMapPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!selfSwitchTarget} onOpenChange={(v) => !v && setSelfSwitchTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Switch to self delivery</DialogTitle>
-            <DialogDescription>
-              Take order #{selfSwitchTarget?.orderNumber || ""} for your own delivery? It will leave the partner queue
-              and appear in your Route immediately.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-lg border bg-slate-50 p-3 text-sm">
-            <p>
-              <strong>{selfSwitchTarget?.buyerName || "Customer"}</strong> · {formatAddress(selfSwitchTarget)} ·{" "}
-              {formatPrice(selfSwitchTarget?.total)}
-            </p>
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setSelfSwitchTarget(null)}>
-              Cancel
-            </Button>
-            <Button variant="success" onClick={confirmSwitchToSelf} disabled={switchMutation.isPending}>
-              {switchMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}
-              Yes, Deliver Myself
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!partnerPickerTarget} onOpenChange={(v) => !v && setPartnerPickerTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign to delivery partner</DialogTitle>
-            <DialogDescription>
-              Choose a partner for order #{partnerPickerTarget?.orderNumber || ""} or let the system pick the best match.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[360px] space-y-2 overflow-y-auto">
-            <button
-              type="button"
-              onClick={() => setSelectedPartnerId("auto")}
-              className={`w-full rounded-lg border p-3 text-left transition ${selectedPartnerId === "auto" ? "border-primary bg-primary/5" : "bg-white hover:bg-slate-50"}`}
-            >
-              <p className="text-sm font-semibold">Auto - best available partner</p>
-              <p className="text-xs text-muted-foreground">Nearest / least-loaded verified partner.</p>
-            </button>
-            {availablePartners.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setSelectedPartnerId(p.id)}
-                className={`w-full rounded-lg border p-3 text-left transition ${selectedPartnerId === p.id ? "border-primary bg-primary/5" : "bg-white hover:bg-slate-50"}`}
-              >
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">{p.name}</p>
-                  <Badge variant="success">Available</Badge>
-                </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {p.vehicleType} · {p.rating}★ · {p.activeLoad ?? 0} active{p.distanceKm != null ? ` · ${p.distanceKm} km` : ""}
-                </p>
-              </button>
-            ))}
-            {availablePartners.length === 0 && (
-              <p className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                <AlertTriangle className="h-4 w-4" /> No verified partners are available right now.
-              </p>
-            )}
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setPartnerPickerTarget(null)}>
-              Cancel
-            </Button>
-            <Button onClick={confirmAssignPartner} disabled={switchMutation.isPending || availablePartners.length === 0}>
-              {switchMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Truck className="mr-2 h-4 w-4" />}
-              Assign
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -2310,7 +2229,6 @@ function OrderCard({
   index,
   selected,
   onSelect,
-  onSwitch,
   deliverySelected = false,
   onToggleDelivery,
   readOnly = false,
@@ -2319,7 +2237,6 @@ function OrderCard({
   index: number;
   selected: boolean;
   onSelect: () => void;
-  onSwitch: (value: string) => void;
   deliverySelected?: boolean;
   onToggleDelivery?: () => void;
   readOnly?: boolean;
