@@ -2975,8 +2975,10 @@ async def create_self_delivery_plan(
             # local hub, then delivery partner. The partner job is opened only
             # when the physical handoff is ready.
             job = None
+            resource_pending = bool((route_result or {}).get("resourcePending"))
             if partner_route == "nearby":
-                job = await _open_job_for_order(refreshed, farm, farmer_id)
+                if not resource_pending:
+                    job = await _open_job_for_order(refreshed, farm, farmer_id)
                 nearby_count += 1
             else:
                 long_distance_count += 1
