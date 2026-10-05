@@ -2865,6 +2865,14 @@ async def create_self_delivery_plan(
         )
 
     selected_ids = {str(x) for x in body.orderIds}
+    # Farmer Self Delivery is intentionally limited to one explicit order.
+    # Every other eligible packed order, including orders inside the same
+    # radius/route, must continue through automatic distance-based processing.
+    if len(selected_ids) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Select only one order for Farmer Self Delivery. All other orders are processed automatically.",
+        )
     # Empty selection is valid: all eligible packed orders can be sent through
     # automatic distance-based delivery-partner routing.
     selected = []
