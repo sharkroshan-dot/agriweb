@@ -3012,6 +3012,39 @@ async def get_my_delivery_jobs(
     }
 
 
+
+@router.get("/me/pickup-jobs")
+async def get_my_warehouse_pickup_jobs(
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lng: Optional[float] = Query(None, ge=-180, le=180),
+    radius: int = Query(100, ge=5, le=200),
+    current_user: dict = Depends(get_current_user),
+):
+    """Dedicated warehouse-pickup marketplace for delivery partners."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can access warehouse pickup jobs")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    point = {"lat": lat, "lng": lng} if lat is not None and lng is not None else _partner_current_point(profile)
+    if not point:
+        raise HTTPException(status_code=400, detail="Current location is not set. Share your location to see pickup jobs.")
+    jobs = await delivery_job_repository.find_open_jobs_near(point["lng"], point["lat"], radius, limit=100)
+    open_jobs = []
+    for job in jobs or []:
+        if job.get("jobType") != "warehouse_pickup":
+            continue
+        if job.get("eligiblePartnerIds") and str(profile["_id"]) not in {str(x) for x in job["eligiblePartnerIds"]}:
+            continue
+        coords = (job.get("pickupLocation") or {}).get("coordinates") or []
+        dist = _haversine_km(point["lat"], point["lng"], coords[1], coords[0]) if len(coords) >= 2 else None
+        open_jobs.append(serialize_job_for_partner(job, distance_from_partner=dist, reveal=False))
+    accepted = [
+        serialize_job_for_partner(job, reveal=True)
+        for job in await delivery_job_repository.get_jobs_for_partner(str(profile["_id"]))
+        if job.get("jobType") == "warehouse_pickup"
+    ]
+    return {"success": True, "data": {"openJobs": open_jobs, "acceptedJobs": accepted, "radius": radius}}
+
+
 @router.post("/jobs/{job_id}/accept")
 async def accept_delivery_job(
     job_id: str,
