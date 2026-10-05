@@ -196,6 +196,8 @@ async def eligible_partners_for_job(
         count, committed = await partner_commitment(p["id"])
         if count >= PARTNER_MAX_ACTIVE_JOBS:
             continue
+        if not passes_vehicle_type(p, job_weight):
+            continue
         if not passes_capacity(p, committed, job_weight):
             continue
         eligible.append({
