@@ -75,6 +75,7 @@ async def build_smart_routes(
             p = _point(chosen.get("pickupLocation"))
             selected.append({
                 "collectionId": str(chosen["_id"]),
+                "incomingStockId": str(chosen["incomingStockId"]) if chosen.get("incomingStockId") else None,
                 "orderId": str(chosen["orderId"]) if chosen.get("orderId") else None,
                 "farmerId": str(chosen["farmerId"]) if chosen.get("farmerId") else None,
                 "productId": str(chosen["productId"]) if chosen.get("productId") else None,
