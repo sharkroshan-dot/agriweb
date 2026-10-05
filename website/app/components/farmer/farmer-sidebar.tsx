@@ -58,7 +58,6 @@ const navGroups = [
       { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
       { name: "Customers", href: "/farmer/customers", icon: Users },
       { name: "Ratings & Reviews", href: "/farmer/reviews", icon: Star },
-      { name: "My Crops", href: "/farmer/crops", icon: Sprout },
       { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
