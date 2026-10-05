@@ -18,6 +18,8 @@ import {
   Star,
   RefreshCcw,
   MessageSquare,
+  Route,
+  Warehouse,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -62,6 +64,8 @@ export function DeliverySidebar() {
         { name: "Messages", href: "/delivery/messages", icon: MessageSquare },
         { name: "Order Map", href: "/delivery/order-map", icon: Map },
         { name: "Live Route", href: "/delivery/route", icon: MapPin },
+        { name: "Warehouse Pickup", href: "/delivery/pickup-team", icon: Warehouse },
+        { name: "Pickup Routes", href: "/delivery/pickup-routes", icon: Route },
         { name: "Auto-Reassignment", href: "/delivery/reassignments", icon: RefreshCcw },
         { name: "History", href: "/delivery/history", icon: History },
         { name: "My Ratings", href: "/delivery/ratings", icon: Star },
