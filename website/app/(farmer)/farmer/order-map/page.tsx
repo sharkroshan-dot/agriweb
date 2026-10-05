@@ -2004,7 +2004,7 @@ export default function FarmerOrderMapPage() {
             <CardDescription>{deliveryScopeLists.outsideDescription}</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
-            {deliveryOutsideOrders.length === 0 ? (
+            {deliveryOutsideOrders.length === 0 && selectedRouteIds.length === routeCandidates.length ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
                 {mapFilterMode === "route" ? "All packed orders are along the selected route." : `All packed orders are within ${radiusKm} km.`}
               </p>
@@ -2018,7 +2018,7 @@ export default function FarmerOrderMapPage() {
                     Automatic Processing
                   </h3>
                   <p className="mt-2 text-sm font-medium text-orange-800">
-                    {deliveryOutsideOrders.length} remaining packed order{deliveryOutsideOrders.length === 1 ? "" : "s"} will be processed automatically.
+                    {Math.max(0, routeCandidates.length - selectedRouteIds.length)} remaining packed order{Math.max(0, routeCandidates.length - selectedRouteIds.length) === 1 ? "" : "s"} will be processed automatically.
                   </p>
                   <p className="mt-2 text-xs leading-5 text-orange-700">
                     After you click <strong>Confirm Selection</strong>, you do not need to select these orders or give any additional permission.
