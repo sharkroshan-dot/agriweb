@@ -2875,6 +2875,16 @@ async def create_self_delivery_plan(
         )
     # Empty selection is valid: all eligible packed orders can be sent through
     # automatic distance-based delivery-partner routing.
+    # Load customer profile addresses as a fallback for older checkout records
+    # that do not contain delivery coordinates.
+    customer_ids = {str(o.get("customerId")) for o in orders if o.get("customerId")}
+    customer_profiles = {}
+    if customer_ids:
+        try:
+            for customer in (await user_repository.get_by_ids(list(customer_ids))) or []:
+                customer_profiles[str(customer["_id"])] = customer
+        except Exception:
+            logger.warning("Could not load customer addresses for automatic routing", exc_info=True)
     selected = []
     remaining = []
     invalid_selected = []
@@ -2968,12 +2978,40 @@ async def create_self_delivery_plan(
         oid = str(order["_id"])
         addr = order.get("deliveryAddress") or {}
         lat, lng = await _stop_coords(addr, oid)
-        if lat is None:
-            skipped_partner.append({"orderId": oid, "reason": "Customer location unavailable"})
-            continue
 
-        distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
-        partner_route = "nearby" if distance_km <= body.radius else "long_distance"
+        # Older orders may have the real address only on the customer profile.
+        if lat is None or lng is None:
+            customer = customer_profiles.get(str(order.get("customerId"))) or {}
+            for candidate in (
+                customer.get("deliveryAddress"),
+                customer.get("shippingAddress"),
+                customer.get("address"),
+                customer.get("location"),
+            ):
+                if isinstance(candidate, dict):
+                    lat, lng = await _stop_coords(candidate, oid)
+                if lat is not None and lng is not None:
+                    break
+
+        stored_distance = order.get("deliveryDistanceFromFarmKm")
+        try:
+            fallback_distance = float(stored_distance) if stored_distance is not None else None
+        except (TypeError, ValueError):
+            fallback_distance = None
+
+        if lat is not None and lng is not None:
+            distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
+            partner_route = "nearby" if distance_km <= body.radius else "long_distance"
+        elif fallback_distance is not None:
+            distance_km = fallback_distance
+            partner_route = "nearby" if distance_km <= body.radius else "long_distance"
+        else:
+            # Do not stop the farmer's confirmed plan because an old order
+            # lacks coordinates. Put it into the conservative long-distance
+            # automatic handoff; the logistics resource remains pending until
+            # a valid warehouse/location is available.
+            distance_km = None
+            partner_route = "long_distance"
 
         try:
             route_result = await apply_partner_route(order, partner_route, body.radius)
@@ -2994,7 +3032,7 @@ async def create_self_delivery_plan(
 
             partner_results.append({
                 "orderId": oid,
-                "distanceKm": round(distance_km, 2),
+                "distanceKm": round(distance_km, 2) if distance_km is not None else None,
                 "route": partner_route,
                 "deliveryJob": job,
                 "deliveryDecisionStatus": "partner_pending" if partner_route == "nearby" else "warehouse_transfer_pending",
