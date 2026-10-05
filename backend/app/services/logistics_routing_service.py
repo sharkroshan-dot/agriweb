@@ -303,4 +303,5 @@ async def apply_partner_route(
         "hub": {"id": str(hub["_id"]), "name": hub.get("name")} if hub else None,
         "logisticsMode": update["logisticsMode"],
         "transferStatus": update["transferStatus"],
+        "resourcePending": resource_pending,
     }
