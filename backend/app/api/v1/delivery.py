@@ -2497,6 +2497,10 @@ async def update_my_pickup_route_status(
     current = str(route.get("status") or "assigned")
     if route_status not in allowed.get(current, set()):
         raise HTTPException(status_code=400, detail=f"Invalid route transition: {current} -> {route_status}")
+    if route_status == "completed":
+        stops = route.get("stops") or []
+        if not stops or any(str(s.get("status")) != "departed_farm" for s in stops):
+            raise HTTPException(status_code=400, detail="Complete the collection at every farm before completing the route")
     update = {"status": route_status}
     if route_status == "started":
         update["startedAt"] = datetime.utcnow()
