@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock } from "lucide-react";
+import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -22,8 +22,15 @@ export default function DeliveryPickupRoutesPage() {
     refetchInterval: 10000,
   });
   const [actual, setActual] = useState<Record<string, string>>({});
+  const marketplaceQ = useQuery({
+    queryKey: ["warehousePickupJobs"],
+    queryFn: () => api.get("/delivery/me/pickup-jobs"),
+    refetchInterval: 5000,
+  });
   const offers = offersQ.data?.data?.routes || [];
   const routes = routesQ.data?.data?.routes || [];
+  const pickupJobs = marketplaceQ.data?.data?.openJobs || [];
+  const acceptedPickupJobs = marketplaceQ.data?.data?.acceptedJobs || [];
 
   const accept = async (routeId: string) => {
     try {
@@ -37,6 +44,18 @@ export default function DeliveryPickupRoutesPage() {
         toast.error(e?.response?.data?.detail?.message || e?.message || "This route is no longer available");
       }
       await offersQ.refetch();
+    }
+  };
+
+  const acceptMarketplaceJob = async (jobId: string) => {
+    try {
+      await api.post("/delivery/jobs/" + jobId + "/accept");
+      toast.success("Warehouse pickup job accepted. The full farm route is now assigned to you.");
+      await Promise.all([marketplaceQ.refetch(), routesQ.refetch()]);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || e?.message || "This pickup job is no longer available");
+      await marketplaceQ.refetch();
+      await routesQ.refetch();
     }
   };
 
@@ -63,6 +82,72 @@ export default function DeliveryPickupRoutesPage() {
           Open routes are offered to every approved pickup partner. The first partner to accept gets the route.
         </p>
       </div>
+
+      {pickupJobs.length > 0 && (
+        <Card className="border-blue-200">
+          <CardHeader className="border-b bg-blue-50/70">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Briefcase className="h-5 w-5" /> Warehouse Pickup Jobs
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              No approved pickup partner was available for these routes. They are open to eligible delivery partners based on availability and remaining vehicle capacity.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4 p-5">
+            {pickupJobs.map((job: any) => (
+              <div key={job.id} className="rounded-xl border p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="font-semibold"><Truck className="mr-2 inline h-4 w-4" />{job.routeNumber || job.orderNumber}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {job.totalStops || job.farmStops?.length || 0} farm stops · {job.totalQuantity || job.weightKg || 0} kg · {job.distanceKm || 0} km route
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Farms → {job.warehouseName || "Warehouse"}
+                    </p>
+                  </div>
+                  <Button onClick={() => acceptMarketplaceJob(job.id)}>
+                    <Hand className="mr-2 h-4 w-4" /> Accept Pickup Job
+                  </Button>
+                </div>
+                <div className="mt-4 space-y-2">
+                  {(job.farmStops || []).map((stop: any, i: number) => (
+                    <div key={stop.collectionId || i} className="flex items-center gap-3 rounded-lg bg-slate-50 p-3">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{i + 1}</span>
+                      <div>
+                        <p className="text-sm font-medium">{stop.farmerName || "Farm"}</p>
+                        <p className="text-xs text-muted-foreground">{stop.productName || "Farm Product"} · {stop.quantity || 0} kg</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {acceptedPickupJobs.length > 0 && (
+        <Card className="border-emerald-200">
+          <CardHeader className="border-b bg-emerald-50/70">
+            <CardTitle>My Warehouse Pickup Jobs</CardTitle>
+            <p className="text-sm text-muted-foreground">Accepted marketplace pickup routes are now being processed in the same pickup workflow below.</p>
+          </CardHeader>
+          <CardContent className="space-y-3 p-5">
+            {acceptedPickupJobs.map((job: any) => (
+              <div key={job.id} className="rounded-xl border p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold">{job.routeNumber || job.orderNumber}</p>
+                    <p className="text-sm text-muted-foreground">{job.totalStops || 0} farms · {job.totalQuantity || job.weightKg || 0} kg → {job.warehouseName || "Warehouse"}</p>
+                  </div>
+                  <Badge variant="success">Accepted</Badge>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {offers.length > 0 && (
         <Card className="border-amber-200">
