@@ -2461,13 +2461,35 @@ async def apply_for_pickup_team(
 
 @router.get("/me/pickup-offers")
 async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
+    """Show today's open and claimed routes for every approved pickup partner.
+
+    Claimed routes stay visible so every partner can see who won the route.
+    """
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can view pickup offers")
     profile = await _get_or_create_partner(str(current_user["_id"]))
-    memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(str(profile["_id"]))
-    warehouse_ids = [str(m["warehouseId"]) for m in memberships]
-    routes = await warehouse_pickup_route_repository.get_offered_for_warehouses(warehouse_ids, datetime.utcnow().strftime("%Y-%m-%d"))
-    return {"success": True, "data": {"routes": [serialize_route(x) for x in routes]}}
+    partner_id = str(profile["_id"])
+    memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(partner_id)
+    approved_memberships = [
+        m for m in memberships if str(m.get("status") or "").lower() == "approved"
+    ]
+    warehouse_ids = [str(m["warehouseId"]) for m in approved_memberships if m.get("warehouseId")]
+    routes = await warehouse_pickup_route_repository.get_offered_for_warehouses(
+        warehouse_ids, datetime.utcnow().strftime("%Y-%m-%d")
+    )
+
+    enriched = []
+    for route in routes:
+        route = await enrich_route_assignment(route)
+        winner_id = str(route.get("deliveryPartnerId") or "")
+        route["claimState"] = (
+            "open" if not winner_id else
+            "mine" if winner_id == partner_id else
+            "claimed_by_other"
+        )
+        route["canAccept"] = route["claimState"] == "open"
+        enriched.append(serialize_route(route))
+    return {"success": True, "data": {"routes": enriched}}
 
 
 @router.post("/me/pickup-offers/{route_id}/accept")
@@ -2475,43 +2497,99 @@ async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_cu
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can accept pickup offers")
     profile = await _get_or_create_partner(str(current_user["_id"]))
+    partner_id = str(profile["_id"])
     route = await warehouse_pickup_route_repository.get_by_id(route_id)
     if not route:
         raise HTTPException(status_code=404, detail="Pickup route not found")
-    membership = await warehouse_pickup_team_repository.get_membership(str(route["warehouseId"]), str(profile["_id"]))
-    if not membership:
+    membership = await warehouse_pickup_team_repository.get_membership(str(route["warehouseId"]), partner_id)
+    if not membership or str(membership.get("status") or "").lower() != "approved":
         raise HTTPException(status_code=403, detail="You are not an approved pickup partner for this warehouse")
-    claimed = await warehouse_pickup_route_repository.claim_route(route_id, str(profile["_id"]))
+
+    partner_name = ""
+    try:
+        partner_user = await UserService.get_user_by_id(str(profile.get("userId") or current_user["_id"]))
+        if partner_user:
+            partner_name = (
+                f"{partner_user.get('firstName', '')} {partner_user.get('lastName', '')}".strip()
+                or partner_user.get("name")
+                or ""
+            )
+    except Exception:
+        pass
+    partner_name = partner_name or profile.get("name") or "Pickup Partner"
+    vehicle_type = str(profile.get("vehicleType") or "")
+    vehicle_number = str(profile.get("vehicleNumber") or "")
+
+    claimed = await warehouse_pickup_route_repository.claim_route(
+        route_id,
+        partner_id,
+        partner_name=partner_name,
+        vehicle_type=vehicle_type,
+        vehicle_number=vehicle_number,
+    )
     if not claimed:
+        # Another partner may have won milliseconds earlier. Return the winner
+        # details so the losing client can immediately render the correct state.
+        latest = await warehouse_pickup_route_repository.get_by_id(route_id)
+        if latest and latest.get("deliveryPartnerId"):
+            latest = await enrich_route_assignment(latest)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "This pickup route was already accepted by another pickup partner.",
+                    "route": serialize_route(latest),
+                },
+            )
         raise HTTPException(status_code=409, detail="This pickup route was already accepted by another pickup partner")
-    claimed["assignedBy"] = claimed.get("assignedBy") or ObjectId(str(profile["_id"]))
+
+    claimed = await enrich_route_assignment(claimed)
+    claimed["assignedBy"] = claimed.get("assignedBy") or ObjectId(partner_id)
     await assign_route(claimed, {**membership, "deliveryPartnerUserId": str(membership.get("userId") or current_user["_id"])})
 
-    # Tell the warehouse and every other approved partner that the offer is closed.
     warehouse = await warehouse_repository.find_one({"_id": ObjectId(str(claimed["warehouseId"])), "deletedAt": None})
     if warehouse:
         manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
         if manager_id:
             await NotificationService.send_custom_notification(
                 manager_id,
-                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by a pickup partner.",
+                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by {partner_name}.",
                 title="Pickup Route Accepted",
-                data={"type": "warehouse_pickup_route_claimed", "routeId": route_id, "deliveryPartnerId": str(profile["_id"])},
+                data={
+                    "type": "warehouse_pickup_route_claimed",
+                    "routeId": route_id,
+                    "deliveryPartnerId": partner_id,
+                    "deliveryPartnerName": partner_name,
+                    "vehicleType": vehicle_type,
+                    "vehicleNumber": vehicle_number,
+                },
             )
     members = await warehouse_pickup_team_repository.get_approved_members(str(claimed["warehouseId"]))
     for member in members:
         member_partner_id = str(member.get("deliveryPartnerId") or "")
-        if member_partner_id == str(profile["_id"]):
+        if member_partner_id == partner_id:
             continue
         user_id = str(member.get("userId") or "")
         if user_id:
             await NotificationService.send_custom_notification(
                 user_id,
-                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by another pickup partner and is no longer available.",
-                title="Pickup Route Closed",
-                data={"type": "warehouse_pickup_route_closed", "routeId": route_id},
+                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by {partner_name}. "
+                f"Vehicle: {vehicle_type or 'Not specified'} · {vehicle_number or 'Not specified'}. "
+                "You cannot accept this route.",
+                title="Pickup Route Already Accepted",
+                data={
+                    "type": "warehouse_pickup_route_closed",
+                    "routeId": route_id,
+                    "deliveryPartnerId": partner_id,
+                    "deliveryPartnerName": partner_name,
+                    "vehicleType": vehicle_type,
+                    "vehicleNumber": vehicle_number,
+                },
             )
-    return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route accepted successfully"}
+    return {
+        "success": True,
+        "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)),
+        "message": "Pickup route accepted successfully",
+    }
 
 
 @router.get("/me/pickup-routes")
