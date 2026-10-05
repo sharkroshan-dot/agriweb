@@ -3083,6 +3083,55 @@ async def accept_delivery_job(
     if not await delivery_job_repository.claim_job(job_id, partner_id):
         raise HTTPException(status_code=409, detail="Another partner claimed this job first")
 
+    # Warehouse pickup marketplace jobs represent an entire multi-farm route.
+    # They do not use the customer-delivery order acceptance pipeline.
+    if job.get("jobType") == "warehouse_pickup":
+        route_id = str(job.get("routeId") or "")
+        route = await warehouse_pickup_route_repository.get_by_id(route_id)
+        if not route:
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Pickup route no longer exists")
+        if route.get("status") != "offered" or route.get("deliveryPartnerId"):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="This pickup route is no longer available")
+
+        partner_user = await UserService.get_user_by_id(str(profile.get("userId") or str(current_user["_id"])))
+        partner_name = (
+            f"{partner_user.get('firstName', '')} {partner_user.get('lastName', '')}".strip()
+            if partner_user else ""
+        ) or profile.get("name") or "Delivery Partner"
+
+        claimed_route = await warehouse_pickup_route_repository.claim_route(
+            route_id,
+            partner_id,
+            partner_name=partner_name,
+            vehicle_type=profile.get("vehicleType"),
+            vehicle_number=profile.get("vehicleNumber"),
+        )
+        if not claimed_route:
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="Another partner claimed this pickup route first")
+
+        for stop in claimed_route.get("stops") or []:
+            collection_id = str(stop.get("collectionId") or "")
+            if collection_id:
+                await warehouse_collection_repository.update_job(collection_id, {
+                    "pickupRouteId": ObjectId(route_id),
+                    "collectionTeamId": ObjectId(partner_id),
+                    "status": "team_assigned",
+                    "teamAssignedAt": datetime.utcnow(),
+                })
+
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        return {
+            "success": True,
+            "data": {
+                "job": serialize_job_for_partner(job, reveal=True),
+                "route": serialize_route(claimed_route),
+            },
+            "message": "Warehouse pickup route accepted successfully",
+        }
+
     # Wire the order + assignment so the existing delivery flow takes over.
     order_id = str(job["orderId"])
     order = await order_repository.get_by_id(order_id)
