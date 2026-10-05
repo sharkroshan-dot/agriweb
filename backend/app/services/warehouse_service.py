@@ -207,6 +207,25 @@ class WarehouseService:
         created = []
         for stop in route.get("stops") or []:
             collection_id = str(stop.get("collectionId") or "")
+            incoming_stock_id = str(stop.get("incomingStockId") or "")
+            existing = await incoming_stock_repository.get_by_id(incoming_stock_id) if ObjectId.is_valid(incoming_stock_id) else None
+            if existing:
+                qty = float(stop.get("actualQuantity") if stop.get("actualQuantity") is not None else stop.get("quantity") or existing.get("quantity") or 0)
+                await incoming_stock_repository.update({"_id": existing["_id"]}, {
+                    "quantity": int(qty),
+                    "quantityReceived": 0,
+                    "usableQuantity": 0,
+                    "quantityRejected": 0,
+                    "pickupRouteId": ObjectId(route_id),
+                    "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
+                    "sourceMode": "warehouse_pickup_route",
+                    "packingRequired": True,
+                    "status": "in_transit",
+                    "updatedAt": datetime.utcnow(),
+                })
+                existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
+                if existing: created.append(existing)
+                continue
             existing = await incoming_stock_repository.find_one({"pickupRouteId": ObjectId(route_id), "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id, "deletedAt": None}) if collection_id else None
             if existing:
                 created.append(existing); continue
