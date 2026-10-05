@@ -379,7 +379,8 @@ async def create_pickup_routes(
         route_id = await warehouse_pickup_route_repository.create_route({
             "warehouseId": warehouse["_id"],
             "routeDate": route_date,
-            "status": "planned",
+            "status": "offered",
+            "deliveryPartnerId": None,
             "routeNumber": f"PR-{datetime.utcnow().strftime('%Y%m%d')}-{len(created)+1:02d}",
             "stops": group["stops"],
             "totalStops": group["totalStops"],
@@ -387,7 +388,23 @@ async def create_pickup_routes(
             "createdBy": ObjectId(str(current_user["_id"])),
         })
         if route_id:
-            created.append(serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)))
+            route_doc = await warehouse_pickup_route_repository.get_by_id(route_id)
+            created.append(serialize_route(route_doc))
+            # Broadcast the offer to every approved pickup partner. The first
+            # partner to accept atomically claims the route.
+            members = await warehouse_pickup_team_repository.get_approved_members(str(warehouse["_id"]))
+            for member in members:
+                try:
+                    user_id = str(member.get("userId") or "")
+                    if user_id:
+                        await NotificationService.send_custom_notification(
+                            user_id,
+                            f"Pickup route {route_doc.get('routeNumber', route_id)} is available. Accept it to claim this route.",
+                            title="New Warehouse Pickup Route",
+                            data={"type": "warehouse_pickup_offer", "routeId": route_id},
+                        )
+                except Exception:
+                    logger.exception("Failed to notify pickup partner about route offer")
     return {"success": True, "data": {"routes": created}, "message": f"{len(created)} pickup route(s) created"}
 
 
