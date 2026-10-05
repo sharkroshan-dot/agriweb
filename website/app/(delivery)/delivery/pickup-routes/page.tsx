@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse } from "lucide-react";
+import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -32,9 +32,9 @@ export default function DeliveryPickupRoutesPage() {
       await Promise.all([offersQ.refetch(), routesQ.refetch()]);
     } catch (e: any) {
       if (e?.response?.status === 409 || e?.status === 409) {
-        toast.error("Another pickup partner accepted this route first.");
+        toast.error("This route was accepted by another partner. Refreshing the accepted-by details.");
       } else {
-        toast.error(e?.message || "This route is no longer available");
+        toast.error(e?.response?.data?.detail?.message || e?.message || "This route is no longer available");
       }
       await offersQ.refetch();
     }
@@ -68,34 +68,70 @@ export default function DeliveryPickupRoutesPage() {
         <Card className="border-amber-200">
           <CardHeader className="border-b bg-amber-50/70">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Hand className="h-5 w-5" /> Available Pickup Offers
+              <Hand className="h-5 w-5" /> Today's Warehouse Pickup Routes
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
-            {offers.map((r: any) => (
-              <div key={r.id} className="rounded-xl border p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="font-semibold">🚚 {r.routeNumber}</p>
-                    <p className="text-sm text-muted-foreground">{r.totalStops} farms · {r.totalQuantity || 0} kg</p>
-                  </div>
-                  <Button onClick={() => accept(r.id)}>
-                    <Hand className="mr-2 h-4 w-4" /> Accept Route
-                  </Button>
-                </div>
-                <div className="mt-4 space-y-2">
-                  {(r.stops || []).map((s: any, i: number) => (
-                    <div key={s.collectionId} className="flex items-center gap-3 rounded-lg bg-slate-50 p-3">
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</span>
-                      <div>
-                        <p className="text-sm font-medium">{s.farmerName}</p>
-                        <p className="text-xs text-muted-foreground">{s.productName} · {s.quantity} kg</p>
-                      </div>
+            {offers.map((r: any) => {
+              const mine = r.claimState === "mine";
+              const claimedByOther = r.claimState === "claimed_by_other";
+              return (
+                <div key={r.id} className="rounded-xl border p-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-semibold">🚚 {r.routeNumber}</p>
+                      <p className="text-sm text-muted-foreground">{r.totalStops} farm stops · {r.totalQuantity || 0} kg</p>
                     </div>
-                  ))}
+                    {r.claimState === "open" && (
+                      <Button onClick={() => accept(r.id)}>
+                        <Hand className="mr-2 h-4 w-4" /> Accept Route
+                      </Button>
+                    )}
+                  </div>
+
+                  {mine && (
+                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                      <p className="flex items-center gap-2 font-semibold text-emerald-800">
+                        <UserCheck className="h-4 w-4" /> Route Accepted
+                      </p>
+                      <p className="mt-1 text-sm text-emerald-700">You accepted this route.</p>
+                      <p className="mt-2 text-xs text-emerald-700">Vehicle: {r.deliveryPartnerVehicleType || "Not specified"} · {r.deliveryPartnerVehicleNumber || "Not specified"}</p>
+                    </div>
+                  )}
+
+                  {claimedByOther && (
+                    <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-4">
+                      <p className="flex items-center gap-2 font-semibold text-orange-800">
+                        <Lock className="h-4 w-4" /> Route Accepted
+                      </p>
+                      <p className="mt-2 text-sm text-orange-900">
+                        Accepted by: <strong>{r.deliveryPartnerName || "Another pickup partner"}</strong>
+                      </p>
+                      <p className="mt-1 text-sm text-orange-900">
+                        🚚 {r.deliveryPartnerVehicleType || "Vehicle not specified"}
+                      </p>
+                      <p className="text-sm text-orange-900">
+                        {r.deliveryPartnerVehicleNumber || "Vehicle number not specified"}
+                      </p>
+                      <p className="mt-3 text-sm font-medium text-orange-800">⛔ This route has already been accepted by {r.deliveryPartnerName || "another pickup partner"}.</p>
+                      <p className="text-xs text-orange-700">You cannot accept this route.</p>
+                    </div>
+                  )}
+
+                  <div className="mt-4 space-y-2">
+                    {(r.stops || []).map((s: any, i: number) => (
+                      <div key={s.collectionId} className="flex items-center gap-3 rounded-lg bg-slate-50 p-3">
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</span>
+                        <div>
+                          <p className="text-sm font-medium">{s.farmerName}</p>
+                          <p className="text-xs text-muted-foreground">{s.productName} · {s.quantity} kg</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -105,7 +141,7 @@ export default function DeliveryPickupRoutesPage() {
           <Route className="mx-auto h-12 w-12 text-muted-foreground" />
           <h2 className="mt-4 font-semibold">{offers.length ? "No route assigned yet" : "No pickup route assigned"}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {offers.length ? "Accept an available route. If another partner accepts first, it will disappear from your offers." : "The warehouse will offer routes when farms are ready for pickup."}
+            {offers.length ? "Accept an available route. If another partner accepts first, you will see who accepted it and you will no longer be able to accept it." : "The warehouse will offer routes when farms are ready for pickup."}
           </p>
         </Card>
       ) : (
