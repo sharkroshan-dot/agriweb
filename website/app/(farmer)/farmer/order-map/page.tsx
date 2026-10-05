@@ -2009,30 +2009,40 @@ export default function FarmerOrderMapPage() {
                 {mapFilterMode === "route" ? "All packed orders are along the selected route." : `All packed orders are within ${radiusKm} km.`}
               </p>
             ) : (
-              <>
-                <div className="rounded-lg border border-orange-200 bg-orange-50/60 p-3">
-                  <p className="text-sm font-semibold text-orange-800">
-                    Automatic Processing ({deliveryOutsideOrders.length})
+              <div className="flex min-h-[420px] items-center justify-center p-4">
+                <div className="w-full max-w-md rounded-2xl border-2 border-dashed border-orange-300 bg-orange-50/70 p-6 text-center shadow-sm">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-orange-100 text-2xl">
+                    ⚡
+                  </div>
+                  <h3 className="mt-4 text-base font-bold text-orange-900">
+                    Automatic Processing
+                  </h3>
+                  <p className="mt-2 text-sm font-medium text-orange-800">
+                    {deliveryOutsideOrders.length} remaining packed order{deliveryOutsideOrders.length === 1 ? "" : "s"} will be processed automatically.
                   </p>
-                  <p className="mt-1 text-xs text-orange-700">
-                    Do not select these orders for self delivery. After confirmation, the system processes them automatically:
-                    {mapFilterMode === "route"
-                      ? " outside selected route → distance decision → Nearby/Long Distance workflow."
-                      : ` outside ${radiusKm} km → Long Distance workflow through Warehouse → Local Hub → Delivery Partner.`}
+                  <p className="mt-2 text-xs leading-5 text-orange-700">
+                    After you click <strong>Confirm Selection</strong>, you do not need to select these orders or give any additional permission.
+                    The system will automatically continue the delivery workflow.
+                  </p>
+                  <div className="mt-5 space-y-2 text-left">
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                      <p className="text-xs font-bold text-blue-900">Nearby</p>
+                      <p className="mt-1 text-xs text-blue-800">
+                        Farmer → Local Hub → Delivery Partner → Customer
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                      <p className="text-xs font-bold text-violet-900">Long Distance</p>
+                      <p className="mt-1 text-xs text-violet-800">
+                        Farmer → Warehouse → Local Hub → Delivery Partner → Customer
+                      </p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-[11px] font-medium text-orange-600">
+                    Distance is checked automatically for every remaining order.
                   </p>
                 </div>
-                <div className="space-y-3">
-                  {deliveryOutsideOrders.map((stop, index) => (
-                    <OrderCard
-                      key={getStopId(stop)}
-                      stop={stop}
-                      index={index + 1}
-                      selected={false}
-                      onSelect={() => setSelectedStopId(getStopId(stop))}
-                    />
-                  ))}
-                </div>
-              </>
+              </div>
             )}
           </CardContent>
         </Card>
