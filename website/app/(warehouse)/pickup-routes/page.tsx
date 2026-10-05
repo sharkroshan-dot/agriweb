@@ -81,7 +81,7 @@ export default function PickupRoutesPage() {
                 <div className="mb-4 flex flex-col gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="flex items-center gap-2 font-semibold text-blue-900"><PackageCheck className="h-4 w-4" />Ready for Warehouse Receiving</p>
-                    <p className="mt-1 text-xs text-blue-800">The pickup partner returned this route. Receive and quality-check each incoming stock record, then Store it to update warehouse inventory.</p>
+                    <p className="mt-1 text-xs text-blue-800">The pickup partner returned this route. Receive each incoming stock record, complete quality check, then Store it to update warehouse inventory.</p>
                   </div>
                   <Button variant="outline" onClick={() => { window.location.href = "/incoming"; }}>Open Incoming</Button>
                 </div>
