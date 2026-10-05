@@ -2459,6 +2459,36 @@ async def apply_for_pickup_team(
     return {"success": True, "data": {"id": application_id, "status": "pending"}, "message": "Application submitted for warehouse approval"}
 
 
+@router.get("/me/pickup-offers")
+async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can view pickup offers")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(str(profile["_id"]))
+    warehouse_ids = [str(m["warehouseId"]) for m in memberships]
+    routes = await warehouse_pickup_route_repository.get_offered_for_warehouses(warehouse_ids, datetime.utcnow().strftime("%Y-%m-%d"))
+    return {"success": True, "data": {"routes": [serialize_route(x) for x in routes]}}
+
+
+@router.post("/me/pickup-offers/{route_id}/accept")
+async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can accept pickup offers")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    route = await warehouse_pickup_route_repository.get_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Pickup route not found")
+    membership = await warehouse_pickup_team_repository.get_membership(str(route["warehouseId"]), str(profile["_id"]))
+    if not membership:
+        raise HTTPException(status_code=403, detail="You are not an approved pickup partner for this warehouse")
+    claimed = await warehouse_pickup_route_repository.claim_route(route_id, str(profile["_id"]))
+    if not claimed:
+        raise HTTPException(status_code=409, detail="This pickup route was already accepted by another pickup partner")
+    claimed["assignedBy"] = claimed.get("assignedBy") or ObjectId(str(profile["_id"]))
+    await assign_route(claimed, {**membership, "deliveryPartnerUserId": str(membership.get("userId") or current_user["_id"])})
+    return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route accepted successfully"}
+
+
 @router.get("/me/pickup-routes")
 async def get_my_pickup_routes(
     date: Optional[str] = None,
