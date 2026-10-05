@@ -1090,41 +1090,6 @@ export default function FarmerOrdersPage() {
                                     )}
                                   </div>
                                 )}
-                                    <div className="grid gap-1.5 sm:grid-cols-2">
-                                      {[
-                                        ["incoming", "Warehouse Fulfillment Selected"],
-                                        ["pickup_requested", "Product Ready · Pickup Requested"],
-                                        ["collection_team_assigned", "Collection Team Assigned"],
-                                        ["collection_en_route", "Collection Team En Route"],
-                                        ["collection_arrived", "Collection Team Arrived at Farm"],
-                                        ["collected", "Collected from Farm"],
-                                        ["collection_departed", "Departed Farm"],
-                                        ["received", "Warehouse Received"],
-                                        ["received", "Received & Quality Checked"],
-                                        ["stored", "Stock Stored"],
-                                        ["ready_for_packing", "Ready for Packing"],
-                                        ["packing_team_assigned", "Packing Team Assigned"],
-                                        ["packing", "Order Packing"],
-                                        ["packed", "Packing Complete"],
-                                        ["ready_for_dispatch", "Ready for Dispatch"],
-                                        ["delivery_decision", "Delivery Decision"],
-                                        ["dispatched", "Warehouse Dispatched"],
-                                      ].map(([key, label], index) => {
-                                        const stage = String(order.warehouseFulfillmentStage || "incoming");
-                                        const stages = ["incoming", "pickup_requested", "collection_team_assigned", "collection_en_route", "collection_arrived", "collected", "collection_departed", "received", "stored", "ready_for_packing", "packing_team_assigned", "packing", "packed", "ready_for_dispatch", "delivery_decision", "dispatched"];
-                                        const currentIndex = stages.indexOf(stage);
-                                        const isComplete = currentIndex >= index;
-                                        return (
-                                          <div key={key + index} className={"flex items-center gap-2 rounded-md px-2 py-1.5 " + (isComplete ? "bg-white font-medium text-blue-900" : "text-blue-500")}>
-                                            <span className={"h-2 w-2 rounded-full " + (isComplete ? "bg-blue-600" : "bg-blue-200")} />
-                                            <span>{label}</span>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                    <p className="border-t border-blue-200 pt-2">Farmer visibility only — warehouse staff performs these steps.</p>
-                                  </div>
-                                )}
                               </div>
                             )}
                             {status === "ready_for_delivery" && order.fulfillmentMethod === "farmer" && !order.selfDelivery && !order.deliveryPartnerId && !order.partnerRequested && order.deliveryType !== "pickup" && (
