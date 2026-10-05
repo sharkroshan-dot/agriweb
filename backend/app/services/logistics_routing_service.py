@@ -88,15 +88,25 @@ async def apply_partner_route(
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
     if str(order.get("fulfillmentMethod") or "") == "farmer":
-        if str(order.get("fulfillmentStage") or "") != "packed":
+        if str(order.get("fulfillmentStage") or "").lower() not in ("packed", "dispatched"):
             raise ValueError("Farmer order must be packed before delivery routing.")
-        if str(order.get("orderStatus") or "") != "processing":
-            raise ValueError("Farmer order must still be processing before delivery routing.")
+        if str(order.get("orderStatus") or "").lower() in ("cancelled", "delivered"):
+            raise ValueError("Farmer order is no longer eligible for delivery routing.")
 
     items = order.get("items") or []
     quantity = float(sum(float(i.get("quantity") or 0) for i in items))
     origin = order.get("farmLocation") or order.get("originLocation") or order.get("pickupLocation")
-    destination = (order.get("deliveryAddress") or {}).get("location")
+    delivery_address = order.get("deliveryAddress") or {}
+    destination = (
+        delivery_address.get("location")
+        or delivery_address.get("deliveryLocation")
+        or delivery_address.get("geo")
+    )
+    if not destination:
+        lat = delivery_address.get("lat", delivery_address.get("latitude"))
+        lng = delivery_address.get("lng", delivery_address.get("longitude"))
+        if lat is not None and lng is not None:
+            destination = {"lat": lat, "lng": lng}
 
     hub = None
     warehouse = None
