@@ -40,6 +40,7 @@ export default function AddProductPage() {
 
   const [formData, setFormData] = useState({
     name: "",
+    cropName: "",
     slug: "",
     categoryId: "",
     subCategoryId: "",
@@ -173,7 +174,7 @@ export default function AddProductPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name || !formData.categoryId || !formData.price || !formData.quantity) {
+    if (!formData.name || !formData.cropName || !formData.categoryId || !formData.price || !formData.quantity) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -292,8 +293,8 @@ export default function AddProductPage() {
         {/* Basic Information */}
         <Card>
           <CardHeader>
-            <CardTitle>Basic Information</CardTitle>
-            <CardDescription>Product name, category, and pricing</CardDescription>
+            <CardTitle>Product & Crop Information</CardTitle>
+            <CardDescription>Enter the crop and marketplace product details. A separate My Crops setup is not required.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
@@ -305,6 +306,18 @@ export default function AddProductPage() {
                 placeholder="e.g., Fresh Tomatoes"
                 required
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Crop Name *</label>
+              <Input
+                name="cropName"
+                value={formData.cropName}
+                onChange={handleInputChange}
+                placeholder="e.g., Tomato"
+                required
+              />
+              <p className="mt-1 text-xs text-gray-500">Stored with the product for crop traceability.</p>
             </div>
 
             <div>
