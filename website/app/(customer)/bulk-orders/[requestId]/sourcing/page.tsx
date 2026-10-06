@@ -302,7 +302,6 @@ export default function EventSourcingPage() {
               <Button asChild className="mt-3">
                 <Link href={"/bulk-orders/" + requestId + "/tracking"}>Track Bulk Order</Link>
               </Button>
-              </p>
             </div>
           </CardContent>
         </Card>
