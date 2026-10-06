@@ -546,8 +546,13 @@ class OrderService:
             total_amount = subtotal + delivery_charge + platform_fee - discount
             platform_commission = platform_fee
         
-        delivery_speed = data.deliverySpeed or "standard"
+        # Delivery mode is derived from the server-side timing/availability
+        # decision. The client may request Fastest, but it can never force a
+        # 30-minute promise when the service window, partner availability, or
+        # end-to-end ETA does not support it.
+        delivery_speed = "standard"
         delivery_availability = None
+        fastest = {"eligible": False, "estimatedMinutes": None, "reason": None}
         if not is_pickup:
             delivery_availability = await get_delivery_service_availability(
                 destination=(delivery_address or {}).get("location")
@@ -555,15 +560,15 @@ class OrderService:
             fastest = estimate_fastest_eligibility(
                 distance_km=(delivery_details or {}).get("distanceKm") if delivery_details else None
             )
-            if delivery_speed == "fastest_30m" and (
-                not delivery_availability.get("serviceAvailable")
-                or not delivery_availability.get("partnerAvailable")
-                or not fastest.get("eligible")
+
+            if (
+                delivery_availability.get("status") == "available"
+                and delivery_availability.get("partnerAvailable")
+                and fastest.get("eligible")
             ):
-                # The customer can still place the order. Fastest Delivery is
-                # downgraded to standard/next-service delivery instead of
-                # rejecting an otherwise valid product order.
-                delivery_speed = "standard"
+                # Active window + suitable partner + complete ETA <= 30 min.
+                delivery_speed = "fastest_30m"
+
             if delivery_details is not None:
                 delivery_details["serviceAvailable"] = bool(delivery_availability.get("serviceAvailable"))
                 delivery_details["partnerAvailable"] = bool(delivery_availability.get("partnerAvailable"))
@@ -574,7 +579,7 @@ class OrderService:
                 delivery_details["availabilityStatus"] = delivery_availability.get("status")
                 delivery_details["availabilityMessage"] = delivery_availability.get("message")
                 delivery_details["nextDeliveryServiceAt"] = delivery_availability.get("nextServiceAt")
-
+                delivery_details["deliverySpeed"] = delivery_speed
 
         effective_requested_delivery_date = data.requestedDeliveryDate
         effective_delivery_time_slot = data.deliveryTimeSlot
