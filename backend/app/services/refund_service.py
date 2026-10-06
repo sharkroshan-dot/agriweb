@@ -31,8 +31,10 @@ AUTO_CANCEL_STATUSES = {
     OrderStatus.PROCESSING.value,
 }
 
-# Statuses where cancellation requires manual support review (refund request).
-REVIEW_CANCEL_STATUSES = {
+# No normal customer cancellation is allowed once delivery processing has
+# started. These states are blocked rather than routed to review.
+REVIEW_CANCEL_STATUSES = set()
+NON_CANCELLABLE_CANCEL_STATUSES = {
     OrderStatus.READY_FOR_DELIVERY.value,
     OrderStatus.DISPATCHED.value,
     OrderStatus.IN_TRANSIT.value,
@@ -176,13 +178,13 @@ class RefundService:
                     "reason": "Order is in a cancellable state; refund is auto-approved.",
                     "status": RefundStatus.APPROVED.value,
                 }
-            if order_status in REVIEW_CANCEL_STATUSES:
+            if order_status in NON_CANCELLABLE_CANCEL_STATUSES:
                 return {
-                    "eligible": True,
+                    "eligible": False,
                     "autoApprove": False,
-                    "requiresReview": True,
-                    "reason": "Order is out for delivery; cancellation requires support review.",
-                    "status": RefundStatus.UNDER_REVIEW.value,
+                    "requiresReview": False,
+                    "reason": "This order has entered the delivery process and cannot be cancelled normally.",
+                    "status": None,
                 }
             if order_status == OrderStatus.CANCELLED.value:
                 return {
