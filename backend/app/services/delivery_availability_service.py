@@ -89,7 +89,7 @@ async def get_delivery_service_availability(
         "availablePartnerCount": partner_count,
         "status": status,
         "message": message,
-        "nextServiceAt": next_start,
+        "nextServiceAt": next_start if not active_window else None,
         "timezone": str(DELIVERY_SERVICE_TZ),
         "serviceStart": "06:00",
         "serviceEnd": "21:30",
