@@ -26,6 +26,7 @@ export default function CreateBulkOrderPage() {
   const queryClient = useQueryClient();
   const [purpose, setPurpose] = useState("");
   const [eventDate, setEventDate] = useState("");
+  const [guestCount, setGuestCount] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
   const [deliveryTime, setDeliveryTime] = useState(timeSlots[0]);
   const [deliveryCity, setDeliveryCity] = useState("");
@@ -47,9 +48,9 @@ export default function CreateBulkOrderPage() {
   const createMutation = useMutation({
     mutationFn: (payload: any) => api.post("/bulk-orders/requests", payload),
     onSuccess: (res: any) => {
-      toast.success("Bulk request published! Farmers can now submit offers.");
+      toast.success("Event request created. Smart sourcing will find the nearest available stock.");
       queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
-      router.push(`/bulk-orders/${res?.data?.id || res?.data?.request?.id}`);
+      router.push(`/bulk-orders/${res?.data?.id || res?.data?.request?.id}/sourcing`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to create bulk request"),
   });
@@ -64,6 +65,7 @@ export default function CreateBulkOrderPage() {
       requestType: "bulk_event",
       purpose,
       eventDate: eventDate || undefined,
+      guestCount: guestCount ? Number(guestCount) : undefined,
       requestedDeliveryDate: deliveryDate,
       requestedDeliveryTime: deliveryTime,
       deliveryCity: deliveryCity.trim(),
@@ -89,7 +91,7 @@ export default function CreateBulkOrderPage() {
       </div>
       <p className="text-sm text-gray-500">
         Need large quantities for a wedding, function or festival? Tell us what you need — farmers
-        will submit offers and you pick the best one.
+        will be matched with available farmers. If delivery is within 24 hours, nearby stock is prioritized for on-time fulfillment.
       </p>
 
       <Card>
@@ -114,10 +116,14 @@ export default function CreateBulkOrderPage() {
           </div>
 
           {/* Dates */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-4">
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Event date</label>
               <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Expected guests</label>
+              <Input type="number" min="1" value={guestCount} onChange={(e) => setGuestCount(e.target.value)} placeholder="e.g. 500" />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Delivery date *</label>
