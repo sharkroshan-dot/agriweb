@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 
 import '../../../../core/services/api_service.dart';
@@ -105,6 +108,70 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     _trackingTimer?.cancel();
   }
 
+  LatLng? _trackingPoint(dynamic value) {
+    if (value is Map) {
+      final coords = value['coordinates'];
+      if (coords is List && coords.length >= 2) {
+        final lng = (coords[0] as num?)?.toDouble();
+        final lat = (coords[1] as num?)?.toDouble();
+        if (lat != null && lng != null) return LatLng(lat, lng);
+      }
+      final lat = (value['latitude'] as num?)?.toDouble() ?? (value['lat'] as num?)?.toDouble();
+      final lng = (value['longitude'] as num?)?.toDouble() ?? (value['lng'] as num?)?.toDouble();
+      if (lat != null && lng != null) return LatLng(lat, lng);
+    }
+    return null;
+  }
+
+  Widget _buildTrackingMap(Map<String, dynamic> tracking, Map<String, dynamic>? partner) {
+    final current = _trackingPoint(tracking['currentLocation']);
+    final destination = _trackingPoint(tracking['deliveryLocation']);
+    final center = current ?? destination;
+    if (center == null) return const SizedBox.shrink();
+
+    final markers = <Marker>[
+      if (current != null)
+        Marker(
+          point: current,
+          width: 48,
+          height: 48,
+          child: const Icon(Icons.local_shipping, size: 32, color: Colors.green),
+        ),
+      if (destination != null)
+        Marker(
+          point: destination,
+          width: 48,
+          height: 48,
+          child: const Icon(Icons.location_on, size: 36, color: Colors.red),
+        ),
+    ];
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        height: 250,
+        child: FlutterMap(
+          options: MapOptions(initialCenter: center, initialZoom: 13),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.agriconnect.mobile',
+            ),
+            MarkerLayer(markers: markers),
+            RichAttributionWidget(
+              attributions: [
+                TextSourceAttribution(
+                  'OpenStreetMap contributors',
+                  onTap: () => launchUrl(Uri.parse('https://www.openstreetmap.org/copyright')),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildTrackingSheet(BuildContext sheetContext, Map<String, dynamic>? tracking) {
     final t = tracking ?? <String, dynamic>{};
     final status = (t['orderStatus'] as String? ?? _orderStatus()).toLowerCase();
@@ -185,7 +252,10 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                   ]);
                 }),
                 const SizedBox(height: 4),
-                if (hasLocation) Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Row(children: [
+                if (hasLocation) ...[
+                  _buildTrackingMap(t, partner),
+                  const SizedBox(height: 10),
+                  Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Row(children: [
                   const Icon(Icons.location_on_outlined, size: 18),
                   const SizedBox(width: 8),
                   Expanded(child: Text('Delivery partner location is being updated live. Refreshes every 10 seconds.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
