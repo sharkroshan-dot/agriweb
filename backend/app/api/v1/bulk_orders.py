@@ -1019,10 +1019,12 @@ async def update_event_fulfillment_status(
         raise HTTPException(status_code=400, detail="Invalid event fulfillment status")
 
     if new_status == "cancelled":
-        if current in ("collected", "cancelled"):
-            raise HTTPException(status_code=400, detail="Fulfillment can no longer be cancelled")
+        if current not in ("pending_farmer_confirmation", "accepted"):
+            raise HTTPException(status_code=400, detail="Event fulfillment can only be declined before packing starts")
         from app.repositories.inventory_repository import inventory_repository
-        await inventory_repository.atomic_release(str(fulfillment["productId"]), float(fulfillment["allocatedQuantityKg"]))
+        released = await inventory_repository.atomic_release(str(fulfillment["productId"]), float(fulfillment["allocatedQuantityKg"]))
+        if not released:
+            raise HTTPException(status_code=409, detail="Reserved stock could not be released safely")
     elif new_status != "pending_farmer_confirmation":
         try:
             if allowed.index(new_status) <= allowed.index(current):
@@ -1039,7 +1041,13 @@ async def update_event_fulfillment_status(
 
     siblings = await event_fulfillment_repo.find_many({"requestId": fulfillment["requestId"], "deletedAt": None}, limit=500)
     statuses = [s.get("status") for s in siblings]
-    if statuses and all(s == "collected" for s in statuses):
+    if new_status == "cancelled":
+        await request_repo.update({"_id": fulfillment["requestId"]}, {
+            "eventSourcingStatus": "replacement_required",
+            "eventDeliveryStatus": "replacement_required",
+            "updatedAt": datetime.utcnow(),
+        })
+    elif statuses and all(s == "collected" for s in statuses):
         await request_repo.update({"_id": fulfillment["requestId"]}, {
             "eventDeliveryStatus": "ready_for_event_delivery",
             "eventConsolidationStatus": "consolidated",
