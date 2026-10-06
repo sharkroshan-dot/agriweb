@@ -476,49 +476,73 @@ class OrderRepository(BaseRepository):
         if not order:
             return None
         
-        # Get delivery partner location if in transit
+        # Delivery jobs are the delivery source of truth once a job exists.
+        # The order remains the source of truth for the customer order/fulfillment
+        # lifecycle, while partner assignment, delivery-job state and live GPS
+        # come from delivery_jobs.
         location = None
         delivery_partner = None
         partner = None
-        
-        if order.get("deliveryPartnerId") and order.get("orderStatus") in [
-            OrderStatus.IN_TRANSIT,
-            OrderStatus.DISPATCHED
-        ]:
+        delivery_job = None
+
+        try:
+            from app.repositories.delivery_job_repository import delivery_job_repository
+            delivery_job = await delivery_job_repository.get_by_order_id(order_id)
+        except Exception as e:
+            logger.warning("Unable to load delivery job for tracking %s: %s", order_id, e)
+
+        partner_id = (
+            delivery_job.get("acceptedBy")
+            if delivery_job
+            else order.get("deliveryPartnerId")
+        )
+
+        if partner_id:
             from app.repositories.delivery_repository import delivery_repository
-            partner = await delivery_repository.get_by_id(
-                str(order["deliveryPartnerId"])
-            )
+            partner = await delivery_repository.get_by_id(str(partner_id))
             if not partner:
-                partner = await delivery_repository.get_by_user_id(
-                    str(order["deliveryPartnerId"])
-                )
+                partner = await delivery_repository.get_by_user_id(str(partner_id))
             if partner:
                 delivery_partner = {
                     "id": str(partner["_id"]),
                     "name": partner.get("name", "Delivery Partner"),
                     "phone": partner.get("phone"),
                     "vehicleType": partner.get("vehicleType"),
-                    "vehicleNumber": partner.get("vehicleNumber")
+                    "vehicleNumber": partner.get("vehicleNumber"),
                 }
                 location = partner.get("currentLocation")
-        
-        # Get route if available
+
+        # Get the route from the active delivery job first, then the legacy
+        # order route. This keeps customer tracking aligned with the actual
+        # delivery partner route.
         route = None
-        if order.get("routeId"):
+        route_id = (delivery_job or {}).get("routeId") or order.get("routeId")
+        if route_id:
             from app.repositories.route_repository import route_repository
-            route_data = await route_repository.get_by_id(str(order["routeId"]))
+            route_data = await route_repository.get_by_id(str(route_id))
             if route_data:
                 route = route_data.get("waypoints", [])
-        
+
+        job_status = (delivery_job or {}).get("status")
+        job_order_status = (delivery_job or {}).get("orderStatus")
+
         return {
             "orderId": order_id,
             "orderStatus": order.get("orderStatus"),
+            "fulfillmentMethod": order.get("fulfillmentMethod"),
+            "fulfillmentStage": order.get("fulfillmentStage"),
+            "deliveryJob": {
+                "id": str(delivery_job["_id"]) if delivery_job and delivery_job.get("_id") else None,
+                "status": job_status,
+                "orderStatus": job_order_status,
+                "acceptedAt": delivery_job.get("acceptedAt") if delivery_job else None,
+                "updatedAt": delivery_job.get("updatedAt") if delivery_job else None,
+            } if delivery_job else None,
             "currentLocation": location,
             "deliveryPartner": delivery_partner,
             "route": route,
             "statusHistory": order.get("statusHistory", []),
-            "locationUpdatedAt": partner.get("updatedAt") if partner else None,
+            "locationUpdatedAt": partner.get("updatedAt") if partner else ((delivery_job or {}).get("updatedAt") if delivery_job else None),
         }
 
     async def update_order_field(
