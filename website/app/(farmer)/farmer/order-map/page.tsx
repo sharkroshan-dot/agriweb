@@ -848,13 +848,13 @@ export default function FarmerOrderMapPage() {
 
   const deliverSelected = () => {
     // Confirming the plan is the single delivery decision point. The farmer
-    // may select zero or more orders for self delivery; every unselected
+    // must select exactly one order for self delivery; every unselected
     // eligible packed order is automatically routed by distance.
     deliverSelectedMutation.mutate();
   };
 
   const continueToCalendar = () => {
-    const ids = selectedRouteIds.length ? selectedRouteIds : selectedRouteOrders.map((stop) => getStopId(stop));
+    const ids = confirmedOrderIds;
     if (!ids.length) {
       toast.error("Select at least one self-delivery order before opening the Delivery Calendar.");
       return;
@@ -863,8 +863,8 @@ export default function FarmerOrderMapPage() {
   };
 
   const openPlannedRoute = () => {
-    if (!selectedRouteOrders.length) {
-      toast.error("Select at least one order for the route");
+    if (!confirmedOrderIds.length) {
+      toast.error("Confirm the delivery selection before opening the route.");
       return;
     }
     const points = Array.from(
@@ -1316,7 +1316,7 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!withinUnassigned.length || selectedRouteIds.length > 0}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select One Visible
                   </Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !routeCandidates.length}>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length !== 1}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
                     Confirm Selection
                   </Button>
@@ -1498,7 +1498,7 @@ export default function FarmerOrderMapPage() {
               <Navigation className="mr-1.5 h-4 w-4" />
               Preview Route
             </Button>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !routeCandidates.length || !routeDestination}>
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length !== 1 || !routeDestination}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
               Confirm Selection
             </Button>
