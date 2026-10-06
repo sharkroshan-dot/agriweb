@@ -78,6 +78,7 @@ class BulkRequestCreate(BaseModel):
     requestType: str = Field(..., description="bulk_event | b2b")
     purpose: str = Field(..., description="wedding/birthday/function/festival/family_event/other or business purpose")
     eventDate: Optional[str] = None
+    guestCount: Optional[int] = Field(None, gt=0)
     requestedDeliveryDate: str
     requestedDeliveryTime: Optional[str] = None
     deliveryCity: Optional[str] = None
@@ -211,6 +212,7 @@ async def create_request(
         "buyerName": _buyer_label(current_user),
         "purpose": data.purpose.strip(),
         "eventDate": data.eventDate,
+        "guestCount": data.guestCount,
         "requestedDeliveryDate": data.requestedDeliveryDate,
         "requestedDeliveryTime": data.requestedDeliveryTime,
         "deliveryCity": data.deliveryCity,
