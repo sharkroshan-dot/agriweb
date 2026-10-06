@@ -75,13 +75,26 @@ async def get_delivery_service_availability(
             "serviceEnd": "21:30",
         }
 
-    next_start = _next_service_start(current)
     if not active_window:
+        # Outside 06:00–21:30 there is no active delivery service. The next
+        # service period always starts at 06:00 Asia/Kolkata.
+        next_available = _next_service_start(current)
         status = "scheduled_for_next_service"
-        message = "Delivery partners are currently unavailable. Your order can still be placed and will be delivered in the next available delivery period."
+        message = "Delivery service is unavailable now. Your order can still be placed and will be scheduled for the next morning delivery period."
     else:
+        # During the active window, a missing partner must NOT reject the
+        # order. Give the order a retry/next-available handoff time. If the
+        # retry would cross 21:30, move it to the next morning service start.
+        candidate = current + timedelta(minutes=30)
+        service_end = current.replace(
+            hour=DELIVERY_SERVICE_END.hour,
+            minute=DELIVERY_SERVICE_END.minute,
+            second=0,
+            microsecond=0,
+        )
+        next_available = candidate if candidate < service_end else _next_service_start(current)
         status = "waiting_for_delivery_partner"
-        message = "No suitable delivery partner is currently available. Your order can still be placed and delivery will start when a partner becomes available."
+        message = "No suitable delivery partner is currently available. Your order can still be placed and will be scheduled for the next available delivery time."
 
     return {
         "serviceAvailable": False,
@@ -89,7 +102,7 @@ async def get_delivery_service_availability(
         "availablePartnerCount": partner_count,
         "status": status,
         "message": message,
-        "nextServiceAt": next_start if not active_window else None,
+        "nextServiceAt": next_available,
         "timezone": str(DELIVERY_SERVICE_TZ),
         "serviceStart": "06:00",
         "serviceEnd": "21:30",
