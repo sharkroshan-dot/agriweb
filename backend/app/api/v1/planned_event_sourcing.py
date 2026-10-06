@@ -169,14 +169,14 @@ async def planned_source(request_id: str, current_user: dict = Depends(get_curre
 
     if first_rfq_open:
         for farmer_id in eligible:
-        await NotificationService.create_in_app_notification(
-            farmer_id,
-            NotificationType.PROMOTION,
-            "New planned event RFQ 📋",
-            f"{request.get('purpose') or 'Event'} {request.get('requestNumber')} needs your quote.",
-            {"requestId": request_id, "type": "planned_event_rfq"},
-            NotificationPriority.HIGH,
-        )
+            await NotificationService.create_in_app_notification(
+                farmer_id,
+                NotificationType.PROMOTION,
+                "New planned event RFQ 📋",
+                f"{request.get('purpose') or 'Event'} {request.get('requestNumber')} needs your quote.",
+                {"requestId": request_id, "type": "planned_event_rfq"},
+                NotificationPriority.HIGH,
+            )
 
     return {"success": True, "data": sourcing, "message": "Smart sourcing completed; RFQ opened for eligible farmers"}
 
