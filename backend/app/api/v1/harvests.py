@@ -1228,6 +1228,10 @@ async def get_my_preorders(current_user: dict = Depends(get_current_user)):
     for po in preorders:
         po["id"] = str(po["_id"])
         po["harvestPlanId"] = str(po.get("harvestPlanId"))
+        if po.get("productId"):
+            po["productId"] = str(po.get("productId"))
+        if po.get("deliveryAddressId"):
+            po["deliveryAddressId"] = str(po.get("deliveryAddressId"))
         if po.get("plan"):
             _serialize_plan(po["plan"])
             po["plan"]["farmerInfo"] = await _farmer_info(str(po["plan"].get("farmerId")))
