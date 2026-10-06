@@ -1065,11 +1065,14 @@ async def event_order_summary(
         raise HTTPException(status_code=403, detail="Not allowed")
 
     rows = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    required_by_product = {
+        str(item.get("name")): float(item.get("quantityKg") or 0)
+        for item in request.get("items", [])
+    }
     grouped = {}
     for row in rows:
         key = str(row.get("productName"))
-        grouped.setdefault(key, {"requiredKg": 0, "allocatedKg": 0, "status": []})
-        grouped[key]["requiredKg"] += float(row.get("requiredQuantityKg") or 0)
+        grouped.setdefault(key, {"requiredKg": required_by_product.get(key, 0), "allocatedKg": 0, "status": []})
         grouped[key]["allocatedKg"] += float(row.get("allocatedQuantityKg") or 0)
         grouped[key]["status"].append(row.get("status"))
     request = _stringify_request(request)
