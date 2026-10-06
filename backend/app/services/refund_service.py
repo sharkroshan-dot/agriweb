@@ -29,7 +29,6 @@ AUTO_CANCEL_STATUSES = {
     OrderStatus.PENDING.value,
     OrderStatus.CONFIRMED.value,
     OrderStatus.PROCESSING.value,
-    OrderStatus.READY_FOR_PICKUP.value,
 }
 
 # Statuses where cancellation requires manual support review (refund request).
@@ -137,6 +136,29 @@ class RefundService:
             RefundType.BULK.value,
         ):
             if order_status in AUTO_CANCEL_STATUSES:
+                # Processing is cancellable only before packing begins. Once
+                # packing has started, the order has entered fulfillment and
+                # normal customer cancellation is no longer allowed.
+                if order_status == OrderStatus.PROCESSING.value:
+                    packing_started = bool(
+                        order.get("packingStarted")
+                        or order.get("packing_started")
+                        or order.get("packingStartedAt")
+                        or order.get("packing_started_at")
+                        or order.get("packingComplete")
+                        or order.get("packing_complete")
+                        or order.get("packingCompletedAt")
+                        or order.get("packing_completed_at")
+                        or str(order.get("fulfillmentStage") or "").lower() == "packed"
+                    )
+                    if packing_started:
+                        return {
+                            "eligible": False,
+                            "autoApprove": False,
+                            "requiresReview": False,
+                            "reason": "Packing has started. Customer cancellation is no longer available.",
+                            "status": None,
+                        }
                 # Bulk / event orders always go through seller review even in
                 # early states: the farmer may have already sourced produce.
                 if is_bulk and refund_type == RefundType.BULK.value:
