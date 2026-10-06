@@ -44,6 +44,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   bool _partnerSubmitting = false;
   Map<String, dynamic>? _partnerRatingData;
   Map<String, dynamic>? _tracking;
+  final ValueNotifier<Map<String, dynamic>?> _trackingNotifier = ValueNotifier<Map<String, dynamic>?>(null);
   Timer? _trackingTimer;
   bool _trackingLoading = false;
 
@@ -56,6 +57,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   @override
   void dispose() {
     _trackingTimer?.cancel();
+    _trackingNotifier.dispose();
     super.dispose();
   }
 
@@ -73,6 +75,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
       final data = res['data'] is Map<String, dynamic> ? res['data'] as Map<String, dynamic> : res;
       if (!mounted) return;
       setState(() => _tracking = data);
+      _trackingNotifier.value = data;
     } catch (_) {
       // Keep the last successful tracking snapshot visible during transient network failures.
     } finally {
@@ -94,21 +97,16 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => StatefulBuilder(
-        builder: (sheetContext, setSheetState) {
-          // Rebuild the sheet whenever the parent receives a fresh tracking snapshot.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (sheetContext.mounted) setSheetState(() {});
-          });
-          return _buildTrackingSheet(sheetContext);
-        },
+      builder: (sheetContext) => ValueListenableBuilder<Map<String, dynamic>?>(
+        valueListenable: _trackingNotifier,
+        builder: (_, tracking, __) => _buildTrackingSheet(sheetContext, tracking),
       ),
     );
     _trackingTimer?.cancel();
   }
 
-  Widget _buildTrackingSheet(BuildContext sheetContext) {
-    final t = _tracking ?? <String, dynamic>{};
+  Widget _buildTrackingSheet(BuildContext sheetContext, Map<String, dynamic>? tracking) {
+    final t = tracking ?? <String, dynamic>{};
     final status = (t['orderStatus'] as String? ?? _orderStatus()).toLowerCase();
     final partner = t['deliveryPartner'] is Map ? t['deliveryPartner'] as Map<String, dynamic> : null;
     final history = (t['statusHistory'] is List ? t['statusHistory'] as List : const [])
@@ -167,7 +165,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                       Text(partner['name']?.toString() ?? 'Delivery Partner', style: const TextStyle(fontWeight: FontWeight.w600)),
                       Text([partner['vehicleType'], partner['vehicleNumber']].where((x) => x != null && x.toString().isNotEmpty).join(' · '), style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                     ])),
-                    if (partner['phone'] != null) IconButton(onPressed: () {}, icon: const Icon(Icons.phone_outlined)),
+
                   ])),
                 ],
                 const SizedBox(height: 16),
