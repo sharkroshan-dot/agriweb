@@ -140,17 +140,7 @@ export default function FarmerBulkOrdersPage() {
     );
   }
 
-  const bulkRequests = (bulkData?.data?.requests || []).filter((r: any) => {
-    if (r.matchInfo?.canSupply === false) return false;
-    if (r.requestType === "bulk_event" && r.purchaseMode !== "family_weekly") {
-      const eligible = r.eventSourcingPlan?.eligibleFarmerIds || [];
-      if (eligible.length > 0 && !eligible.map(String).includes(String(r.userId || r.farmerId || ""))) {
-        // The request API normally returns only the current farmer's match. The
-        // explicit eligibility list is still displayed below when available.
-      }
-    }
-    return true;
-  });
+  const bulkRequests = (bulkData?.data?.requests || []).filter((r: any) => r.matchInfo?.canSupply !== false);
 
   const items: any[] = bulkRequests.map((r: any) => ({
     kind: "bulk",
