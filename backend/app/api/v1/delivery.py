@@ -50,7 +50,7 @@ from app.services.delivery_job_service import (
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
 from app.services.delivery_priority_service import calculate_order_delivery_priority
-from app.services.delivery_availability_service import get_delivery_service_availability
+from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
 import logging
 
 logger = logging.getLogger(__name__)
@@ -438,6 +438,8 @@ async def delivery_fee_estimate(
             "freeDelivery": quote["freeDelivery"],
             "subsidy": quote["subsidy"],
             "distanceAvailable": quote["distanceAvailable"],
+            **(await get_delivery_service_availability(destination=destination)),
+            **estimate_fastest_eligibility(distance_km=quote.get("distanceKm")),
         },
     }
 
