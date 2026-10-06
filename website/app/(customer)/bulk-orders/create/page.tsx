@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Plus, Trash2, Loader2, Send, MapPin } from "lucide-react";
+import { Sparkles, Plus, Trash2, Loader2, Send, MapPin, ShoppingBasket, Users } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -24,6 +24,8 @@ interface ItemRow {
 export default function CreateBulkOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [purchaseMode, setPurchaseMode] = useState<"event" | "family_weekly">("event");
+  const [familySize, setFamilySize] = useState("");
   const [purpose, setPurpose] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
@@ -48,7 +50,7 @@ export default function CreateBulkOrderPage() {
   const createMutation = useMutation({
     mutationFn: (payload: any) => api.post("/bulk-orders/requests", payload),
     onSuccess: (res: any) => {
-      toast.success("Event request created. Smart sourcing will find the nearest available stock.");
+      toast.success(purchaseMode === "family_weekly" ? "Weekly family basket created. Smart sourcing will find available nearby stock." : "Event request created. Smart sourcing will find the nearest available stock.");
       queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
       router.push(`/bulk-orders/${res?.data?.id || res?.data?.request?.id}/sourcing`);
     },
@@ -63,7 +65,9 @@ export default function CreateBulkOrderPage() {
     const selected = addresses.find((a: any) => String(a.id) === selectedAddress);
     const payload: any = {
       requestType: "bulk_event",
-      purpose,
+      purchaseMode,
+      familySize: purchaseMode === "family_weekly" && familySize ? Number(familySize) : undefined,
+      purpose: purchaseMode === "family_weekly" ? "Weekly Family Basket" : purpose,
       eventDate: eventDate || undefined,
       guestCount: guestCount ? Number(guestCount) : undefined,
       requestedDeliveryDate: deliveryDate,
@@ -94,9 +98,34 @@ export default function CreateBulkOrderPage() {
         will be matched with available farmers. If delivery is within 24 hours, nearby stock is prioritized for on-time fulfillment.
       </p>
 
+      <Card className="border-emerald-200 bg-emerald-50/40">
+        <CardContent className="space-y-3 p-4">
+          <p className="text-sm font-semibold text-slate-800">What do you want to buy?</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button type="button" onClick={() => setPurchaseMode("event")} className={`rounded-xl border p-4 text-left ${purchaseMode === "event" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
+              <Sparkles className="mb-2 h-5 w-5 text-emerald-600" />
+              <p className="font-semibold">Event / Bulk Order</p>
+              <p className="mt-1 text-xs text-slate-500">For weddings, functions, festivals and large one-time requirements.</p>
+            </button>
+            <button type="button" onClick={() => setPurchaseMode("family_weekly")} className={`rounded-xl border p-4 text-left ${purchaseMode === "family_weekly" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
+              <ShoppingBasket className="mb-2 h-5 w-5 text-emerald-600" />
+              <p className="font-semibold">Manual Weekly Family Basket</p>
+              <p className="mt-1 text-xs text-slate-500">Choose your own products and quantities for your family for one week. This is a one-time purchase, not a subscription.</p>
+            </button>
+          </div>
+          {purchaseMode === "family_weekly" && (
+            <div className="flex items-center gap-2 sm:max-w-xs">
+              <Users className="h-4 w-4 text-slate-500" />
+              <Input type="number" min="1" value={familySize} onChange={(e) => setFamilySize(e.target.value)} placeholder="Family members (e.g. 4)" />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="space-y-5 p-6">
           {/* Purpose */}
+          {purchaseMode === "event" &&
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">What are you buying for? *</label>
             <div className="flex flex-wrap gap-2">
@@ -114,6 +143,7 @@ export default function CreateBulkOrderPage() {
               ))}
             </div>
           </div>
+          </div>\n          )}
 
           {/* Dates */}
           <div className="grid gap-4 sm:grid-cols-4">
