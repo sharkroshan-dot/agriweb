@@ -112,6 +112,21 @@ export default function FarmerBulkOrdersPage() {
   const [tab, setTab] = useState<"not_submitted" | "submitted">("not_submitted");
   const [openFor, setOpenFor] = useState<string | null>(null);
 
+  const { data: eventData, isLoading: eventLoading } = useQuery({
+    queryKey: ["farmer", "event-fulfillments"],
+    queryFn: () => api.get("/bulk-orders/event-orders/fulfillments"),
+  });
+
+  const eventStatusMutation = useMutation({
+    mutationFn: (payload: { id: string; status: string }) =>
+      api.put(`/bulk-orders/event-orders/fulfillments/${payload.id}/status`, { status: payload.status }),
+    onSuccess: () => {
+      toast.success("Event fulfillment updated.");
+      queryClient.invalidateQueries({ queryKey: ["farmer", "event-fulfillments"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to update event fulfillment"),
+  });
+
   const { data: bulkData, isLoading: bulkLoading } = useQuery({
     queryKey: ["farmer", "bulk-orders"],
     queryFn: () => api.get("/bulk-orders/requests", { params: { scope: "open" } }),
@@ -199,6 +214,69 @@ export default function FarmerBulkOrdersPage() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-3xl border border-purple-200 bg-purple-50/60 p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-bold text-purple-900">
+              <CalendarDays className="h-5 w-5" /> Event Fulfillment
+            </h2>
+            <p className="text-sm text-purple-700">Urgent and planned event allocations assigned directly to your farm.</p>
+          </div>
+          <Badge variant="outline" className="border-purple-300 bg-white text-purple-700">{(eventData?.data?.fulfillments || []).length} allocation(s)</Badge>
+        </div>
+        {eventLoading ? (
+          <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-purple-600" /></div>
+        ) : (eventData?.data?.fulfillments || []).length === 0 ? (
+          <p className="mt-4 rounded-xl border border-dashed border-purple-200 bg-white p-5 text-center text-sm text-slate-500">No event fulfillment assignments yet.</p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {(eventData?.data?.fulfillments || []).map((f: any) => {
+              const next: Record<string, string> = {
+                pending_farmer_confirmation: "accepted",
+                accepted: "packing",
+                packing: "packed",
+                packed: "ready_for_collection",
+                ready_for_collection: "collected",
+              };
+              const nextStatus = next[f.status];
+              return (
+                <Card key={f.id} className="bg-white">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">Event</Badge>
+                          <p className="font-semibold">{f.productName}</p>
+                          <Badge variant="secondary">{String(f.status || "").replace(/_/g, " ")}</Badge>
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">{f.allocatedQuantityKg} kg · {f.farmName || "Your farm"}</p>
+                      </div>
+                      {f.distanceKm != null && f.distanceKm < 999 ? <span className="text-xs text-slate-500">{f.distanceKm} km to event destination</span> : null}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">Event: {f.requestNumber || "Event order"}</p>
+                      <div className="flex gap-2">
+                        {nextStatus ? (
+                          <Button size="sm" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: nextStatus })}>
+                            <CheckCircle className="mr-1.5 h-4 w-4" /> Mark {nextStatus.replace(/_/g, " ")}
+                          </Button>
+                        ) : null}
+                        {["pending_farmer_confirmation", "accepted"].includes(f.status) ? (
+                          <Button size="sm" variant="outline" className="text-red-600" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: "cancelled" })}>
+                            Decline
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+
       <div className="flex items-center gap-2">
         <FileText className="h-6 w-6 text-emerald-600" />
         <h1 className="text-2xl font-bold">Bulk RFQ</h1>
