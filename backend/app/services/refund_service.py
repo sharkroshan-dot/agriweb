@@ -142,6 +142,8 @@ class RefundService:
                 # packing has started, the order has entered fulfillment and
                 # normal customer cancellation is no longer allowed.
                 if order_status == OrderStatus.PROCESSING.value:
+                    fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+                    warehouse_stage = str(order.get("warehouseFulfillmentStage") or "").lower()
                     packing_started = bool(
                         order.get("packingStarted")
                         or order.get("packing_started")
@@ -151,7 +153,14 @@ class RefundService:
                         or order.get("packing_complete")
                         or order.get("packingCompletedAt")
                         or order.get("packing_completed_at")
-                        or str(order.get("fulfillmentStage") or "").lower() == "packed"
+                        or fulfillment_stage in {"packed", "dispatched"}
+                        or warehouse_stage in {
+                            "packing",
+                            "packed",
+                            "ready_for_dispatch",
+                            "delivery_decision",
+                            "dispatched",
+                        }
                     )
                     if packing_started:
                         return {
