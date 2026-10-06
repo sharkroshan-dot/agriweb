@@ -1078,12 +1078,31 @@ class OrderService:
             # backend will actually do. Later states (ready_for_delivery,
             # dispatched, in_transit) go through the review-based cancellation
             # refund request instead of a direct status change.
-            if current_status not in [
-                OrderStatus.PENDING,
-                OrderStatus.CONFIRMED,
-                OrderStatus.PROCESSING,
-                OrderStatus.READY_FOR_PICKUP,
-            ]:
+            # Customer cancellation policy:
+            # pending/confirmed -> always cancellable.
+            # processing -> cancellable only until packing starts.
+            # Once packing has started/completed, or delivery has begun,
+            # customer cancellation is blocked. Later issues use the
+            # support/return/refund workflow instead.
+            if current_status in (OrderStatus.PENDING, OrderStatus.CONFIRMED):
+                pass
+            elif current_status == OrderStatus.PROCESSING:
+                fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+                packing_started = bool(
+                    order.get("packingStarted")
+                    or order.get("packing_started")
+                    or order.get("packingStartedAt")
+                    or order.get("packing_started_at")
+                )
+                packing_complete = bool(
+                    order.get("packingComplete")
+                    or order.get("packing_complete")
+                    or order.get("packingCompletedAt")
+                    or order.get("packing_completed_at")
+                )
+                if fulfillment_stage == FulfillmentStage.PACKED.value or packing_started or packing_complete:
+                    return None
+            else:
                 return None
         
         # Customer hand-off verification is mandatory before a delivery order
