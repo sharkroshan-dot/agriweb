@@ -185,7 +185,8 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     final eta = t['eta']?.toString();
     final updated = t['locationUpdatedAt']?.toString() ?? t['lastUpdated']?.toString();
     final current = t['currentLocation'];
-    final hasLocation = _trackingPoint(current) != null;
+    final destination = _trackingPoint(t['deliveryLocation']);
+    final hasLocation = _trackingPoint(current) != null || destination != null;
 
     String pretty(String value) => value.replaceAll('_', ' ').split(' ').map((x) => x.isEmpty ? x : '${x[0].toUpperCase()}${x.substring(1)}').join(' ');
 
