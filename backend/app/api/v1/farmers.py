@@ -650,7 +650,7 @@ async def get_delivery_calendar(
     capacity = await _get_delivery_capacity(farmer_id)
     active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    calendar_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer"}
+    calendar_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
     if workflow_ids: calendar_query["_id"] = {"$in": workflow_ids}
     orders = await order_repository.find_many(calendar_query)
     orders = orders or []
@@ -758,7 +758,7 @@ async def get_smart_route(
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    smart_route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer"}
+    smart_route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
     if workflow_ids: smart_route_query["_id"] = {"$in": workflow_ids}
     orders = await order_repository.find_many(smart_route_query)
     orders = orders or []
@@ -1464,7 +1464,7 @@ async def get_my_route(
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery", "ready_for_pickup"]
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer"}
+    route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
     if workflow_ids: route_query["_id"] = {"$in": workflow_ids}
     orders = await order_repository.find_many(route_query)
     orders = orders or []
