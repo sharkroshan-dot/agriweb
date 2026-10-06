@@ -673,6 +673,411 @@ async def update_order_status(
     }
 
 
+# ================== EVENT SMART SOURCING ==================
+
+event_fulfillment_repo = BaseRepository("event_fulfillments")
+
+
+class EventSourceConfirm(BaseModel):
+    allocations: List[dict] = Field(..., min_length=1)
+
+
+class EventFulfillmentStatusUpdate(BaseModel):
+    status: str
+
+
+def _event_deadline(request: dict) -> Optional[datetime]:
+    raw = request.get("requestedDeliveryDate") or request.get("eventDate")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def _event_location(request: dict):
+    return ((request.get("deliveryAddress") or {}).get("location"))
+
+
+def _distance_for_farmer(request: dict, farmer: dict) -> float:
+    dest = _event_location(request)
+    origin = (farmer or {}).get("farmLocation") or (farmer or {}).get("location")
+    try:
+        dc = (dest or {}).get("coordinates")
+        oc = (origin or {}).get("coordinates")
+        if dc and oc and len(dc) >= 2 and len(oc) >= 2:
+            return round(BulkOrderService.haversine_km(dc[1], dc[0], oc[1], oc[0]), 1)
+    except Exception:
+        pass
+    return 999.0
+
+
+async def _event_candidates(request: dict) -> dict:
+    """Build a product-by-product nearby sourcing plan from live farmer inventory."""
+    farmers = await farmer_repository.find_many({"deletedAt": None}, limit=1000)
+    deadline = _event_deadline(request)
+    hours_left = None
+    if deadline:
+        hours_left = round((deadline - datetime.utcnow()).total_seconds() / 3600, 1)
+    urgent = hours_left is not None and hours_left <= 24
+
+    plan = []
+    missing = []
+
+    for requested in request.get("items", []):
+        required = float(requested.get("quantityKg") or 0)
+        name = BulkOrderService._normalize(requested.get("name"))
+        candidates = []
+
+        for farmer in farmers:
+            farmer_id = farmer.get("userId")
+            if not farmer_id:
+                continue
+            products = await product_repository.get_by_farmer(str(farmer_id), limit=500)
+            for product in products:
+                product_name = BulkOrderService._normalize(product.get("name"))
+                if product_name != name and name not in product_name and product_name not in name:
+                    continue
+                try:
+                    available = float(await InventoryService.get_available_stock(str(product["_id"])))
+                except Exception:
+                    available = 0.0
+                if available <= 0:
+                    continue
+
+                distance = _distance_for_farmer(request, farmer)
+                coverage = min(available, required) / required * 100 if required else 0
+                rating = float(farmer.get("rating") or 0)
+                distance_score = max(0.0, 100.0 - min(distance, 100.0))
+                if urgent:
+                    score = distance_score * 0.55 + min(coverage, 100.0) * 0.30 + (rating / 5.0) * 100 * 0.15
+                else:
+                    score = distance_score * 0.35 + min(coverage, 100.0) * 0.35 + (rating / 5.0) * 100 * 0.20 + (100.0 if available >= required else 50.0) * 0.10
+
+                candidates.append({
+                    "farmerId": str(farmer_id),
+                    "farmName": farmer.get("farmName") or farmer.get("name") or "Farmer",
+                    "productId": str(product["_id"]),
+                    "productName": product.get("name"),
+                    "availableKg": round(available, 2),
+                    "distanceKm": distance,
+                    "rating": rating,
+                    "score": round(score, 1),
+                })
+
+        candidates.sort(key=lambda x: (x["score"], -x["distanceKm"]), reverse=True)
+        remaining = required
+        selected = []
+        for candidate in candidates:
+            if remaining <= 0:
+                break
+            qty = min(remaining, candidate["availableKg"])
+            if qty <= 0:
+                continue
+            selected.append({
+                **candidate,
+                "quantityKg": round(qty, 2),
+            })
+            remaining -= qty
+
+        plan.append({
+            "productName": requested.get("name"),
+            "requiredKg": required,
+            "selectedKg": round(required - remaining, 2),
+            "shortageKg": round(max(0.0, remaining), 2),
+            "allocations": selected,
+            "candidates": candidates[:10],
+        })
+        if remaining > 0:
+            missing.append({
+                "productName": requested.get("name"),
+                "requiredKg": required,
+                "availableKg": round(required - remaining, 2),
+                "shortageKg": round(remaining, 2),
+            })
+
+    return {
+        "urgent": urgent,
+        "hoursUntilDelivery": hours_left,
+        "searchStrategy": "nearby_first" if urgent else "balanced",
+        "plan": plan,
+        "missing": missing,
+        "canFulfill": len(missing) == 0,
+    }
+
+
+@router.post("/requests/{request_id}/smart-source")
+async def smart_source_event(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Find nearby live inventory and split an event requirement across farmers."""
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your event request")
+    if request.get("requestType") != "bulk_event":
+        raise HTTPException(status_code=400, detail="Smart event sourcing is only for event requests")
+
+    sourcing = await _event_candidates(request)
+    await request_repo.update({
+        "_id": request["_id"]
+    }, {
+        "eventFulfillmentMode": "urgent_nearby" if sourcing["urgent"] else "planned",
+        "eventSourcingPlan": sourcing,
+        "eventSourcingStatus": "plan_ready",
+        "eventSourcingUpdatedAt": datetime.utcnow(),
+    })
+    return {"success": True, "data": sourcing}
+
+
+@router.post("/requests/{request_id}/confirm-source")
+async def confirm_event_source(
+    request_id: str,
+    data: EventSourceConfirm,
+    current_user: dict = Depends(get_current_user),
+):
+    """Atomically reserve selected live stock and create one fulfillment per farmer allocation."""
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your event request")
+    if request.get("eventSourcingStatus") in ("confirmed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Event sourcing is already finalized")
+
+    sourcing = request.get("eventSourcingPlan") or {}
+    if not sourcing:
+        raise HTTPException(status_code=400, detail="Run smart sourcing before confirming")
+
+    plan_lookup = {}
+    for row in sourcing.get("plan", []):
+        for a in row.get("allocations", []):
+            plan_lookup[(str(row["productName"]).strip().lower(), str(a["farmerId"]), str(a["productId"]))] = a
+
+    normalized = []
+    for raw in data.allocations:
+        key = (
+            str(raw.get("productName") or "").strip().lower(),
+            str(raw.get("farmerId") or ""),
+            str(raw.get("productId") or ""),
+        )
+        allowed = plan_lookup.get(key)
+        qty = float(raw.get("quantityKg") or 0)
+        if not allowed or qty <= 0 or qty > float(allowed.get("quantityKg") or 0) + 1e-6:
+            raise HTTPException(status_code=400, detail=f"Invalid allocation for {key[0] or 'product'}")
+        normalized.append({
+            "productName": raw.get("productName"),
+            "productId": str(raw.get("productId")),
+            "farmerId": str(raw.get("farmerId")),
+            "quantityKg": qty,
+            "farmName": allowed.get("farmName"),
+            "distanceKm": allowed.get("distanceKm"),
+        })
+
+    required = {
+        str(i.get("name")).strip().lower(): float(i.get("quantityKg") or 0)
+        for i in request.get("items", [])
+    }
+    covered = {}
+    for a in normalized:
+        covered[a["productName"].strip().lower()] = covered.get(a["productName"].strip().lower(), 0) + a["quantityKg"]
+    shortages = [
+        {"productName": name, "requiredKg": qty, "selectedKg": round(covered.get(name, 0), 2), "shortageKg": round(max(0, qty - covered.get(name, 0)), 2)}
+        for name, qty in required.items()
+        if covered.get(name, 0) + 1e-6 < qty
+    ]
+    if shortages:
+        raise HTTPException(status_code=400, detail={"message": "Every event requirement must be fully sourced", "shortages": shortages})
+
+    created = []
+    reserved = []
+    try:
+        for a in normalized:
+            ok = await __import__("app.repositories.inventory_repository", fromlist=["inventory_repository"]).inventory_repository.atomic_reserve(
+                a["productId"], a["quantityKg"]
+            )
+            if not ok:
+                raise HTTPException(status_code=409, detail=f"Stock changed for {a['productName']} at {a['farmName']}; run sourcing again")
+            reserved.append(a)
+
+            fulfillment = {
+                "requestId": request["_id"],
+                "requestNumber": request.get("requestNumber"),
+                "buyerUserId": request.get("buyerUserId"),
+                "farmerId": ObjectId(a["farmerId"]),
+                "productId": ObjectId(a["productId"]),
+                "productName": a["productName"],
+                "requiredQuantityKg": next((x["quantityKg"] for x in request.get("items", []) if str(x.get("name")).strip().lower() == a["productName"].strip().lower()), a["quantityKg"]),
+                "allocatedQuantityKg": a["quantityKg"],
+                "status": "pending_farmer_confirmation",
+                "packingStatus": "not_started",
+                "collectionStatus": "pending",
+                "deliveryStatus": "pending_consolidation",
+                "distanceKm": a.get("distanceKm"),
+                "farmName": a.get("farmName"),
+            }
+            fid = await event_fulfillment_repo.create(fulfillment)
+            if not fid:
+                raise RuntimeError("Failed to create event fulfillment")
+            fulfillment["_id"] = ObjectId(fid)
+            created.append(fulfillment)
+
+        await request_repo.update({"_id": request["_id"]}, {
+            "status": REQUEST_AWARDED,
+            "eventSourcingStatus": "confirmed",
+            "eventFulfillmentMode": "urgent_nearby" if sourcing.get("urgent") else "planned",
+            "eventDeliveryStatus": "awaiting_farmer_confirmation",
+            "eventConsolidationStatus": "pending_collection",
+            "eventFulfillmentIds": [x["_id"] for x in created],
+            "updatedAt": datetime.utcnow(),
+        })
+    except HTTPException:
+        from app.repositories.inventory_repository import inventory_repository
+        for a in reserved:
+            await inventory_repository.atomic_release(a["productId"], a["quantityKg"])
+        raise
+    except Exception as exc:
+        from app.repositories.inventory_repository import inventory_repository
+        for a in reserved:
+            await inventory_repository.atomic_release(a["productId"], a["quantityKg"])
+        raise HTTPException(status_code=500, detail=f"Failed to confirm event sourcing: {exc}")
+
+    for a in created:
+        await NotificationService.create_in_app_notification(
+            str(a["farmerId"]),
+            NotificationType.ORDER,
+            "New event fulfillment request 🎉",
+            f"{a['productName']} {a['allocatedQuantityKg']} kg for {request.get('purpose') or 'event'} • {request.get('requestNumber')}.",
+            {"requestId": request_id, "type": "event_fulfillment"},
+            NotificationPriority.HIGH,
+        )
+
+    return {"success": True, "data": {"requestId": request_id, "fulfillments": [await _stringify_event_fulfillment(x) for x in created]}, "message": "Event sourcing confirmed and stock reserved"}
+
+
+async def _stringify_event_fulfillment(f: dict) -> dict:
+    f["id"] = str(f["_id"])
+    f["requestId"] = str(f.get("requestId"))
+    f["farmerId"] = str(f.get("farmerId"))
+    f["productId"] = str(f.get("productId"))
+    return f
+
+
+@router.get("/event-orders/fulfillments")
+async def list_event_fulfillments(
+    request_id: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    role = current_user.get("role")
+    match = {"deletedAt": None}
+    if request_id:
+        match["requestId"] = ObjectId(request_id)
+    if role == "farmer":
+        match["farmerId"] = ObjectId(current_user["_id"])
+    elif role in ("customer", "business"):
+        match["buyerUserId"] = ObjectId(current_user["_id"])
+    elif role not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    rows = await event_fulfillment_repo.find_many(match, sort=[("createdAt", -1)], limit=500)
+    return {"success": True, "data": {"fulfillments": [await _stringify_event_fulfillment(x) for x in rows]}}
+
+
+@router.put("/event-orders/fulfillments/{fulfillment_id}/status")
+async def update_event_fulfillment_status(
+    fulfillment_id: str,
+    data: EventFulfillmentStatusUpdate,
+    current_user: dict = Depends(get_current_user),
+):
+    fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "deletedAt": None})
+    if not fulfillment:
+        raise HTTPException(status_code=404, detail="Event fulfillment not found")
+
+    role = current_user.get("role")
+    farmer_ok = role == "farmer" and str(fulfillment.get("farmerId")) == str(current_user["_id"])
+    admin_ok = role in ("admin", "super_admin")
+    if not (farmer_ok or admin_ok):
+        raise HTTPException(status_code=403, detail="Only the assigned farmer can update this fulfillment")
+
+    allowed = [
+        "pending_farmer_confirmation",
+        "accepted",
+        "packing",
+        "packed",
+        "ready_for_collection",
+        "collected",
+        "cancelled",
+    ]
+    new_status = data.status
+    current = fulfillment.get("status") or allowed[0]
+    if new_status not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid event fulfillment status")
+
+    if new_status == "cancelled":
+        if current in ("collected", "cancelled"):
+            raise HTTPException(status_code=400, detail="Fulfillment can no longer be cancelled")
+        from app.repositories.inventory_repository import inventory_repository
+        await inventory_repository.atomic_release(str(fulfillment["productId"]), float(fulfillment["allocatedQuantityKg"]))
+    elif new_status != "pending_farmer_confirmation":
+        try:
+            if allowed.index(new_status) <= allowed.index(current):
+                raise HTTPException(status_code=400, detail="Fulfillment cannot move backwards")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid fulfillment state")
+
+    await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+        "status": new_status,
+        "updatedAt": datetime.utcnow(),
+        "packingStatus": "started" if new_status in ("packing", "packed", "ready_for_collection", "collected") else fulfillment.get("packingStatus", "not_started"),
+        "collectionStatus": "ready" if new_status == "ready_for_collection" else ("collected" if new_status == "collected" else fulfillment.get("collectionStatus", "pending")),
+    })
+
+    siblings = await event_fulfillment_repo.find_many({"requestId": fulfillment["requestId"], "deletedAt": None}, limit=500)
+    statuses = [s.get("status") for s in siblings]
+    if statuses and all(s == "collected" for s in statuses):
+        await request_repo.update({"_id": fulfillment["requestId"]}, {
+            "eventDeliveryStatus": "ready_for_event_delivery",
+            "eventConsolidationStatus": "consolidated",
+        })
+    elif any(s == "ready_for_collection" for s in statuses):
+        await request_repo.update({"_id": fulfillment["requestId"]}, {
+            "eventDeliveryStatus": "collection_in_progress",
+        })
+
+    updated = await event_fulfillment_repo.find_one({"_id": fulfillment["_id"]})
+    return {"success": True, "data": await _stringify_event_fulfillment(updated), "message": f"Event fulfillment updated to {new_status}"}
+
+
+@router.get("/event-orders/{request_id}/summary")
+async def event_order_summary(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event order not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]) and current_user.get("role") not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    rows = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    grouped = {}
+    for row in rows:
+        key = str(row.get("productName"))
+        grouped.setdefault(key, {"requiredKg": 0, "allocatedKg": 0, "status": []})
+        grouped[key]["requiredKg"] += float(row.get("requiredQuantityKg") or 0)
+        grouped[key]["allocatedKg"] += float(row.get("allocatedQuantityKg") or 0)
+        grouped[key]["status"].append(row.get("status"))
+    request = _stringify_request(request)
+    request["fulfillmentSummary"] = grouped
+    request["fulfillmentCount"] = len(rows)
+    request["eventDeliveryStatus"] = request.get("eventDeliveryStatus", "not_started")
+    request["eventSourcingStatus"] = request.get("eventSourcingStatus", "not_started")
+    return {"success": True, "data": request}
+
+
 # ================== AI RECOMMENDATION ==================
 
 @router.post("/requests/{request_id}/ai-recommend")
