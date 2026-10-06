@@ -109,9 +109,10 @@ export default function CreateBulkOrderPage() {
           : "Need large quantities for a wedding, function or festival? Send your requirements to eligible farmers and compare their quotes."}
       </p>
 
-      <Card className="border-emerald-200 bg-emerald-50/40">
+      <Card className="border-slate-200 bg-white shadow-sm">
         <CardContent className="space-y-3 p-4">
-          <p className="text-sm font-semibold text-slate-800">What do you want to buy?</p>
+          <p className="text-sm font-semibold text-slate-900">Choose what you need</p>
+          <p className="text-xs text-slate-500">We will automatically choose the fastest or best-value sourcing path for your order.</p>
           <div className="grid gap-3 sm:grid-cols-2">
             <button type="button" onClick={() => setPurchaseMode("event")} className={`rounded-xl border p-4 text-left ${purchaseMode === "event" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
               <Sparkles className="mb-2 h-5 w-5 text-emerald-600" />
@@ -127,7 +128,7 @@ export default function CreateBulkOrderPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-slate-200 shadow-sm">
         <CardContent className="space-y-5 p-6">
           {purchaseMode === "event" && (
             <div className="space-y-2">
@@ -240,7 +241,7 @@ export default function CreateBulkOrderPage() {
             <Input type="number" min="0" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="e.g. 15000" />
           </div>
 
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 text-sm">
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
             {isFamilyWeekly ? (
               <div className="flex gap-3">
                 <Search className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
