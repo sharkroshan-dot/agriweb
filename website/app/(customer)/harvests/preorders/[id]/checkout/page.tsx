@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { CalendarDays, CheckCircle2, Loader2, MapPin, ShieldCheck, Sprout } from "lucide-react";
 import { api } from "../../../../../lib/api/client";
