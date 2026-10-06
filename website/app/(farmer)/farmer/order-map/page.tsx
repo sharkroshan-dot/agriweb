@@ -2027,7 +2027,29 @@ export default function FarmerOrderMapPage() {
                 {mapFilterMode === "route" ? "All packed orders are along the selected route." : `All packed orders are within ${radiusKm} km.`}
               </p>
             ) : (
-              <div className="flex min-h-[420px] items-center justify-center p-4">
+              <div className="space-y-3">
+                <div className="rounded-lg border border-orange-200 bg-orange-50/70 p-3">
+                  <p className="text-sm font-semibold text-orange-900">
+                    {deliveryOutsideOrders.length} order{deliveryOutsideOrders.length === 1 ? "" : "s"} will be automatic
+                  </p>
+                  <p className="mt-1 text-xs text-orange-700">
+                    These orders cannot be selected for Farmer Self Delivery. After you confirm the one selected order, every order listed here is automatically routed by distance.
+                  </p>
+                </div>
+                {deliveryOutsideOrders.map((stop, index) => (
+                  <div key={getStopId(stop)} className="rounded-xl border border-orange-200 bg-white p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-900">#{stop.orderNumber || getStopId(stop)}</p>
+                        <p className="mt-1 text-xs font-medium text-slate-700">{getCustomerDisplayName(stop)}</p>
+                        <p className="mt-1 text-xs text-slate-600">{stop.product || "Items"} · {stop.quantityKg ?? stop.quantity ?? 0} kg</p>
+                        <p className="mt-1 text-xs text-slate-500">{formatAddress(stop)}</p>
+                      </div>
+                      <Badge variant="warning">Automatic</Badge>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex min-h-[180px] items-center justify-center p-4">
                 <div className="w-full max-w-md rounded-2xl border-2 border-dashed border-orange-300 bg-orange-50/70 p-6 text-center shadow-sm">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-orange-100 text-2xl">
                     ⚡
@@ -2059,6 +2081,7 @@ export default function FarmerOrderMapPage() {
                   <p className="mt-4 text-[11px] font-medium text-orange-600">
                     Distance is checked automatically for every remaining order.
                   </p>
+                </div>
                 </div>
               </div>
             )}
