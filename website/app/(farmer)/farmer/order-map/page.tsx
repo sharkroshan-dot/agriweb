@@ -850,6 +850,10 @@ export default function FarmerOrderMapPage() {
     // Confirming the plan is the single delivery decision point. The farmer
     // must select exactly one order for self delivery; every unselected
     // eligible packed order is automatically routed by distance.
+    if (selectedRouteIds.length !== 1) {
+      toast.error("Select exactly one order for Farmer Self Delivery before confirming.");
+      return;
+    }
     deliverSelectedMutation.mutate();
   };
 
