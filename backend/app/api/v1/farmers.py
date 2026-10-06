@@ -2308,7 +2308,6 @@ async def get_my_delivery_map(
         and not bool(o.get("deliveryPartnerId"))
         and not bool(o.get("partnerRequested"))
         and not bool(o.get("selfDelivery"))
-        and str(o.get("deliveryDecision") or "").lower() not in ("nearby", "long_distance")
     ]
 
     # Index delivery jobs without re-reading every order from MongoDB. The
