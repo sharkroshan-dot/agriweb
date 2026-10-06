@@ -117,7 +117,7 @@ export default function CreateBulkOrderPage() {
       <Card>
         <CardContent className="space-y-5 p-6">
           {/* Purpose */}
-          {purchaseMode === "event" &&
+          {purchaseMode === "event" && (
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">What are you buying for? *</label>
             <div className="flex flex-wrap gap-2">
@@ -135,7 +135,7 @@ export default function CreateBulkOrderPage() {
               ))}
             </div>
           </div>
-          </div>\n          )}
+          )}
 
           {/* Dates */}
           <div className="grid gap-4 sm:grid-cols-4">
