@@ -79,6 +79,8 @@ class BulkRequestCreate(BaseModel):
     purpose: str = Field(..., description="wedding/birthday/function/festival/family_event/other or business purpose")
     eventDate: Optional[str] = None
     guestCount: Optional[int] = Field(None, gt=0)
+    familySize: Optional[int] = Field(None, gt=0)
+    purchaseMode: Optional[str] = Field("event", description="event | family_weekly")
     requestedDeliveryDate: str
     requestedDeliveryTime: Optional[str] = None
     deliveryCity: Optional[str] = None
@@ -213,6 +215,9 @@ async def create_request(
         "purpose": data.purpose.strip(),
         "eventDate": data.eventDate,
         "guestCount": data.guestCount,
+        "familySize": data.familySize,
+        "purchaseMode": data.purchaseMode or "event",
+        "isManualWeeklyFamilyBasket": (data.purchaseMode or "event") == "family_weekly",
         "requestedDeliveryDate": data.requestedDeliveryDate,
         "requestedDeliveryTime": data.requestedDeliveryTime,
         "deliveryCity": data.deliveryCity,
