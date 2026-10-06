@@ -12,6 +12,7 @@ import {
   PackageSearch,
   RefreshCw,
   Truck,
+  ShoppingBasket,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { Card, CardContent } from "../../../../components/ui/card";
@@ -32,18 +33,19 @@ export default function EventSourcingPage() {
   });
 
   const request = requestData?.data;
+  const isFamilyWeekly = request?.purchaseMode === "family_weekly" || request?.isManualWeeklyFamilyBasket === true;
 
   const sourceMutation = useMutation({
     mutationFn: () => api.post(`/bulk-orders/requests/${requestId}/smart-source`, {}),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["bulk", "request", requestId] });
       if (res?.data?.missing?.length) {
-        toast.error("Some event quantities are not currently available.");
+        toast.error("Some requested quantities are not currently available.");
       } else {
-        toast.success("Nearby live stock found for the complete event order.");
+        toast.success(isFamilyWeekly ? "Available nearby farmer stock found." : "Nearby live stock found for the complete event order.");
       }
     },
-    onError: (err: any) => toast.error(err?.message || "Could not search nearby stock"),
+    onError: (err: any) => toast.error(err?.message || "Could not search available stock"),
   });
 
   const summaryQuery = useQuery({
@@ -82,11 +84,11 @@ export default function EventSourcingPage() {
       }),
     onSuccess: () => {
       setConfirmed(true);
-      toast.success("Event sourcing confirmed. Stock has been reserved.");
+      toast.success(isFamilyWeekly ? "Stock reserved. Your weekly family basket is being prepared." : "Event sourcing confirmed. Stock has been reserved.");
       queryClient.invalidateQueries({ queryKey: ["bulk", "request", requestId] });
       queryClient.invalidateQueries({ queryKey: ["event", "summary", requestId] });
     },
-    onError: (err: any) => toast.error(err?.message || "Could not confirm event sourcing"),
+    onError: (err: any) => toast.error(err?.message || "Could not confirm sourcing"),
   });
 
   if (requestLoading || !request) {
@@ -108,19 +110,37 @@ export default function EventSourcingPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <PackageSearch className="h-6 w-6 text-emerald-600" />
-            <h1 className="text-2xl font-bold">Event Smart Fulfillment</h1>
+            {isFamilyWeekly ? (
+              <ShoppingBasket className="h-6 w-6 text-emerald-600" />
+            ) : (
+              <PackageSearch className="h-6 w-6 text-emerald-600" />
+            )}
+            <h1 className="text-2xl font-bold">
+              {isFamilyWeekly ? "Weekly Family Basket · Smart Sourcing" : "Event Smart Fulfillment"}
+            </h1>
           </div>
           <p className="mt-1 text-sm text-slate-500">
             {request.requestNumber} · {request.purpose} {request.guestCount ? `· ${request.guestCount} guests` : ""}
           </p>
         </div>
         <Badge variant={isConfirmed ? "success" : urgent ? "warning" : "secondary"}>
-          {isConfirmed ? "Sourcing Confirmed" : urgent ? "Urgent · ≤24h" : "Planning"}
+          {isConfirmed ? "Stock Reserved" : urgent ? "Urgent · ≤24h" : "Finding Available Stock"}
         </Badge>
       </div>
 
-      {urgent && !isConfirmed ? (
+      {isFamilyWeekly ? (
+        <Card className="border-emerald-200 bg-emerald-50">
+          <CardContent className="flex items-start gap-3 p-4">
+            <ShoppingBasket className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+            <div>
+              <p className="font-semibold text-emerald-900">One-time weekly purchase</p>
+              <p className="text-sm text-emerald-800">
+                AgriConnect is checking live farmer stock, availability and distance. This is not a subscription and no farmer quote is required.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : urgent && !isConfirmed ? (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="flex items-start gap-3 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
@@ -142,7 +162,9 @@ export default function EventSourcingPage() {
           <CardContent className="flex items-center gap-3 p-5">
             <CheckCircle2 className="h-6 w-6 text-emerald-600" />
             <div>
-              <p className="font-semibold text-emerald-900">Stock reserved and farmer fulfillment created</p>
+              <p className="font-semibold text-emerald-900">
+                {isFamilyWeekly ? "Stock reserved and farmer fulfillment created" : "Stock reserved and farmer fulfillment created"}
+              </p>
               <p className="text-sm text-emerald-800">
                 {fulfillmentCount} farmer fulfillment allocation(s) are now being prepared.
               </p>
@@ -155,8 +177,12 @@ export default function EventSourcingPage() {
         <CardContent className="p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="font-semibold">Required products</h2>
-              <p className="text-sm text-slate-500">One event order can be fulfilled by multiple farmers.</p>
+              <h2 className="font-semibold">Products and available farmers</h2>
+              <p className="text-sm text-slate-500">
+                {isFamilyWeekly
+                  ? "Smart sourcing can split your basket across suitable farmers based on live stock and distance."
+                  : "One event order can be fulfilled by multiple farmers."}
+              </p>
             </div>
             {!isConfirmed ? (
               <Button variant="outline" size="sm" onClick={() => sourceMutation.mutate()} disabled={sourceMutation.isPending}>
@@ -211,7 +237,7 @@ export default function EventSourcingPage() {
       {missing.length > 0 && !isConfirmed ? (
         <Card className="border-red-200">
           <CardContent className="space-y-2 p-5">
-            <p className="font-semibold text-red-700">Cannot guarantee the complete event yet</p>
+            <p className="font-semibold text-red-700">Cannot guarantee the complete order yet</p>
             {missing.map((m: any) => (
               <div key={m.productName} className="flex justify-between text-sm">
                 <span>{m.productName}</span>
@@ -219,7 +245,7 @@ export default function EventSourcingPage() {
               </div>
             ))}
             <p className="pt-2 text-xs text-slate-500">
-              Try again after stock changes, or adjust the event requirement before confirming.
+              Try again after stock changes, or adjust the required quantity before confirming.
             </p>
           </CardContent>
         </Card>
@@ -233,12 +259,14 @@ export default function EventSourcingPage() {
           onClick={() => confirmMutation.mutate()}
         >
           {confirmMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-          Confirm Sourcing & Reserve Stock
+          {isFamilyWeekly ? "Confirm & Reserve Stock" : "Confirm Sourcing & Reserve Stock"}
         </Button>
       ) : (
         <Card>
           <CardContent className="p-5">
-            <h2 className="mb-3 font-semibold">Event fulfillment tracking</h2>
+            <h2 className="mb-3 font-semibold">
+              {isFamilyWeekly ? "Weekly basket fulfillment" : "Event fulfillment tracking"}
+            </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {Object.entries(fulfillmentRows).map(([name, value]: any) => (
                 <div key={name} className="rounded-xl border p-3">
@@ -254,7 +282,7 @@ export default function EventSourcingPage() {
               </div>
             ) : (
               <p className="mt-4 text-sm text-slate-500">
-                Farmers will accept, pack and mark each allocation ready for collection. AgriConnect will consolidate the event order before final delivery.
+                Farmers will accept, pack and mark each allocation ready for collection. AgriConnect will consolidate the order before final delivery.
               </p>
             )}
           </CardContent>
