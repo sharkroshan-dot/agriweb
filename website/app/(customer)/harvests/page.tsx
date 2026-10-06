@@ -309,8 +309,11 @@ export default function HarvestMarketplacePage() {
                         size="sm"
                         onClick={() => window.location.assign(`/harvests/preorders/${po.id}/checkout`)}
                       >
-                        Confirm & Pay
+                        Confirm final price & pay
                       </Button>
+                    ) : null}
+                    {po.status === "waitlisted" || po.status === "inventory_shortage" ? (
+                      <Badge variant="secondary">Waiting for harvest quantity</Badge>
                     ) : null}
                     {po.status === "order_created" || po.status === "paid" ? (
                       <Button
