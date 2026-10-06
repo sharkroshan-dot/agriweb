@@ -211,13 +211,19 @@ export default function EventSourcingPage() {
               <p className="font-semibold text-blue-900">Planned Event — Request Farmer Quotes</p>
               <p className="text-sm text-blue-800">Smart sourcing has identified suitable farmers using live stock, quantity coverage, distance and rating. Distance is a recommendation factor, not a hard requirement.</p>
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{offers.length} farmer quote{offers.length === 1 ? "" : "s"} received</p>
+                <p className="text-xs text-slate-500">All quotes are shown below. The recommended quote is placed first.</p>
+              </div>
+            </div>
+            <div className="space-y-3">
               {offers.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-blue-200 bg-white p-4 text-sm text-slate-500 md:col-span-2">
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
                   Waiting for eligible farmers to submit quotes.
                 </div>
               ) : (
-                rankedOffers.map((offer: any) => {
+                rankedOffers.map((offer: any, offerIndex: number) => {
                   const checked = selectedOffers.includes(offer.id);
                   const total = Number(offer.totalPrice || 0);
                   const coverage = Number(offer.coveragePercent || 0);
@@ -264,7 +270,10 @@ export default function EventSourcingPage() {
                         </div>
                       </div>
                       {offer.id === recommendedOfferId ? (
-                        <p className="mt-3 text-xs text-emerald-700">Best overall balance of price, coverage, reliability and distance.</p>
+                        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-emerald-50 px-3 py-2">
+                          <p className="text-xs font-medium text-emerald-800">Best overall balance of price, coverage, reliability and distance.</p>
+                          <span className="shrink-0 text-[11px] font-semibold text-emerald-700">Top recommendation</span>
+                        </div>
                       ) : null}
                     </button>
                   );
