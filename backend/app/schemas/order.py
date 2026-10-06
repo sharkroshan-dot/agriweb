@@ -187,12 +187,15 @@ class OrderResponse(BaseModel):
 class OrderTrackingResponse(BaseModel):
     orderId: str
     orderStatus: OrderStatus
+    fulfillmentMethod: Optional[FulfillmentMethod] = None
+    fulfillmentStage: Optional[FulfillmentStage] = None
     currentLocation: Optional[Dict[str, Any]] = None
     deliveryLocation: Optional[Dict[str, Any]] = None
     eta: Optional[str] = None
     distanceRemaining: Optional[float] = None
     deliveryPartner: Optional[Dict[str, Any]] = None
-    route: Optional[List[Dict[str, float]]] = None
+    deliveryJob: Optional[Dict[str, Any]] = None
+    route: Optional[List[Dict[str, Any]]] = None
     statusHistory: List[Dict[str, Any]]
     locationUpdatedAt: Optional[datetime] = None
     deliveryVerification: Optional[Dict[str, Any]] = None
