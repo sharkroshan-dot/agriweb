@@ -25,6 +25,7 @@ export default function EventSourcingPage() {
   const requestId = params.requestId;
   const queryClient = useQueryClient();
   const [confirmed, setConfirmed] = useState(false);
+  const [selectedOffers, setSelectedOffers] = useState<string[]>([]);
 
   const { data: requestData, isLoading: requestLoading } = useQuery({
     queryKey: ["bulk", "request", requestId],
@@ -36,16 +37,23 @@ export default function EventSourcingPage() {
   const isFamilyWeekly = request?.purchaseMode === "family_weekly" || request?.isManualWeeklyFamilyBasket === true;
 
   const sourceMutation = useMutation({
-    mutationFn: () => api.post(`/bulk-orders/requests/${requestId}/smart-source`, {}),
+    mutationFn: () => {
+      const delivery = request?.requestedDeliveryDate ? new Date(`${request.requestedDeliveryDate}T00:00:00`) : null;
+      const plannedByDate = Boolean(delivery && delivery.getTime() - Date.now() > 24 * 60 * 60 * 1000);
+      const planned = !isFamilyWeekly && (request?.eventSourcingMode === "planned_rfq" || plannedByDate);
+      return api.post(`/bulk-orders/requests/${requestId}/${planned ? "planned-source" : "smart-source"}`, {});
+    },
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["bulk", "request", requestId] });
       if (res?.data?.missing?.length) {
         toast.error("Some requested quantities are not currently available.");
+      } else if (res?.data?.sourcingMode === "planned_rfq") {
+        toast.success("Smart sourcing completed. Eligible farmers have received the RFQ.");
       } else {
-        toast.success(isFamilyWeekly ? "Available nearby farmer stock found." : "Nearby live stock found for the complete event order.");
+        toast.success(isFamilyWeekly ? "Available farmer stock found." : "Urgent nearby live stock found.");
       }
     },
-    onError: (err: any) => toast.error(err?.message || "Could not search available stock"),
+    onError: (err: any) => toast.error(err?.message || "Could not start sourcing"),
   });
 
   const summaryQuery = useQuery({
@@ -62,6 +70,8 @@ export default function EventSourcingPage() {
   }, [request?.id, request?.eventSourcingPlan]);
 
   const sourcing = request?.eventSourcingPlan;
+  const planned = !isFamilyWeekly && sourcing?.sourcingMode === "planned_rfq";
+  const offers = request?.offers || [];
   const allocations = useMemo(
     () =>
       (sourcing?.plan || []).flatMap((row: any) =>
@@ -79,12 +89,13 @@ export default function EventSourcingPage() {
 
   const confirmMutation = useMutation({
     mutationFn: () =>
-      api.post(`/bulk-orders/requests/${requestId}/confirm-source`, {
-        allocations,
-      }),
+      api.post(
+        `/bulk-orders/requests/${requestId}/${planned ? "planned-confirm" : "confirm-source"}`,
+        planned ? { offerIds: selectedOffers } : { allocations },
+      ),
     onSuccess: () => {
       setConfirmed(true);
-      toast.success(isFamilyWeekly ? "Stock reserved. Your weekly family basket is being prepared." : "Event sourcing confirmed. Stock has been reserved.");
+      toast.success(planned ? "Quotes confirmed. Live inventory is now reserved." : isFamilyWeekly ? "Stock reserved. Your weekly family basket is being prepared." : "Urgent sourcing confirmed. Stock has been reserved.");
       queryClient.invalidateQueries({ queryKey: ["bulk", "request", requestId] });
       queryClient.invalidateQueries({ queryKey: ["event", "summary", requestId] });
     },
@@ -99,7 +110,7 @@ export default function EventSourcingPage() {
     );
   }
 
-  const urgent = Boolean(sourcing?.urgent);
+  const urgent = Boolean(sourcing?.urgent) && !planned;
   const missing = sourcing?.missing || [];
   const isConfirmed = confirmed || request.eventSourcingStatus === "confirmed";
   const fulfillmentRows = summaryQuery.data?.data?.fulfillmentSummary || {};
@@ -116,7 +127,7 @@ export default function EventSourcingPage() {
               <PackageSearch className="h-6 w-6 text-emerald-600" />
             )}
             <h1 className="text-2xl font-bold">
-              {isFamilyWeekly ? "Weekly Family Basket · Smart Sourcing" : "Event Smart Fulfillment"}
+              {isFamilyWeekly ? "Weekly Family Basket · Smart Sourcing" : planned ? "Planned Event · Smart Sourcing + Quotes" : "Urgent Event · Smart Sourcing"}
             </h1>
           </div>
           <p className="mt-1 text-sm text-slate-500">
@@ -124,7 +135,7 @@ export default function EventSourcingPage() {
           </p>
         </div>
         <Badge variant={isConfirmed ? "success" : urgent ? "warning" : "secondary"}>
-          {isConfirmed ? "Stock Reserved" : urgent ? "Urgent · ≤24h" : "Finding Available Stock"}
+          {isConfirmed ? "Stock Reserved" : planned ? "RFQ · Waiting for Quotes" : urgent ? "Urgent · ≤24h" : "Finding Available Stock"}
         </Badge>
       </div>
 
@@ -145,7 +156,7 @@ export default function EventSourcingPage() {
           <CardContent className="flex items-start gap-3 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
             <div>
-              <p className="font-semibold text-amber-900">Urgent event fulfillment</p>
+              <p className="font-semibold text-amber-900">Urgent Event — Smart Sourcing</p>
               <p className="text-sm text-amber-800">
                 Delivery is within 24 hours. AgriConnect is prioritizing nearby live inventory and the shortest reliable fulfillment path.
               </p>
@@ -153,6 +164,57 @@ export default function EventSourcingPage() {
                 <p className="mt-1 text-xs text-amber-700">{sourcing.hoursUntilDelivery} hours until requested delivery.</p>
               ) : null}
             </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {planned && !isConfirmed ? (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="space-y-3 p-5">
+            <div>
+              <p className="font-semibold text-blue-900">Planned Event — Request Farmer Quotes</p>
+              <p className="text-sm text-blue-800">Smart sourcing has identified suitable farmers using live stock, quantity coverage, distance and rating. Distance is a recommendation factor, not a hard requirement.</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {offers.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-blue-200 bg-white p-4 text-sm text-slate-500 md:col-span-2">
+                  Waiting for eligible farmers to submit quotes.
+                </div>
+              ) : (
+                offers.map((offer: any) => {
+                  const checked = selectedOffers.includes(offer.id);
+                  const total = Number(offer.totalPrice || 0);
+                  const coverage = Number(offer.coveragePercent || 0);
+                  const rating = Number(offer.farmerInfo?.rating || 0);
+                  const distance = (sourcing?.plan || []).flatMap((row: any) => row.candidates || []).find((c: any) => String(c.farmerId) === String(offer.farmerId))?.distanceKm;
+                  return (
+                    <button
+                      type="button"
+                      key={offer.id}
+                      onClick={() => setSelectedOffers((current) => checked ? current.filter((id) => id !== offer.id) : [...current, offer.id])}
+                      className={`rounded-xl border p-4 text-left transition ${checked ? "border-blue-500 bg-white shadow-sm" : "border-slate-200 bg-white hover:border-blue-300"}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold">{offer.farmerInfo?.farmName || "Farmer"}</p>
+                          <p className="text-xs text-slate-500">{offer.farmerInfo?.city || "Location not provided"}</p>
+                        </div>
+                        <Badge variant={checked ? "success" : "secondary"}>{checked ? "Selected" : "Quote"}</Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                        <span>💰 ₹{total.toLocaleString("en-IN")}</span>
+                        <span>📦 {coverage.toFixed(0)}% coverage</span>
+                        <span>⭐ {rating.toFixed(1)}</span>
+                        <span>📍 {distance != null && distance < 999 ? `${distance} km` : "Distance unavailable"}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            {offers.length > 0 ? (
+              <p className="text-xs text-slate-500">Smart recommendation: prefer strong quantity coverage and reliability; choose a farther farmer when price/coverage is materially better.</p>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
@@ -251,7 +313,7 @@ export default function EventSourcingPage() {
         </Card>
       ) : null}
 
-      {!isConfirmed ? (
+      {!isConfirmed && !planned ? (
         <Button
           className="w-full"
           size="lg"
@@ -260,6 +322,16 @@ export default function EventSourcingPage() {
         >
           {confirmMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
           {isFamilyWeekly ? "Confirm & Reserve Stock" : "Confirm Sourcing & Reserve Stock"}
+        </Button>
+      ) : planned && !isConfirmed ? (
+        <Button
+          className="w-full"
+          size="lg"
+          disabled={selectedOffers.length === 0 || confirmMutation.isPending || offers.length === 0}
+          onClick={() => confirmMutation.mutate()}
+        >
+          {confirmMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+          Confirm Selected Quote{selectedOffers.length === 1 ? "" : "s"} & Reserve Inventory
         </Button>
       ) : (
         <Card>
