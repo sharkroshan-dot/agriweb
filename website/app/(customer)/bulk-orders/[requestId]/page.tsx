@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles,
@@ -99,6 +100,11 @@ export default function BulkRequestDetailPage() {
           <h1 className="text-2xl font-bold">{request.requestNumber}</h1>
         </div>
         <Badge variant={statusVariant[request.status] || "secondary"}>{request.status.replace(/_/g, " ")}</Badge>
+        <Button asChild variant="outline">
+          <Link href={"/bulk-orders/" + requestId + "/tracking"}>
+            <Eye className="mr-2 h-4 w-4" /> View Tracking
+          </Link>
+        </Button>
       </div>
 
       {/* Request summary */}
