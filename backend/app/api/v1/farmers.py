@@ -2308,6 +2308,10 @@ async def get_my_delivery_map(
         and not bool(o.get("deliveryPartnerId"))
         and not bool(o.get("partnerRequested"))
         and not bool(o.get("selfDelivery"))
+        # Order Map is an assignment queue only. Once the delivery decision
+        # has been finalized (self / nearby / long-distance), the order leaves
+        # this queue and continues in its own downstream workflow.
+        and str(o.get("deliveryDecision") or "").lower() not in ("self_delivery", "nearby", "long_distance")
     ]
 
     # Index delivery jobs without re-reading every order from MongoDB. The
