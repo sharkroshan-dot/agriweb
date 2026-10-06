@@ -509,7 +509,10 @@ export default function FarmerOrderMapPage() {
           String(stop?.assignment || "unassigned").toLowerCase() === "unassigned" &&
           !stop?.deliveryPartnerId &&
           !stop?.partnerRequested &&
-          !stop?.selfDelivery
+          !stop?.selfDelivery &&
+          !["nearby", "long_distance", "self_delivery"].includes(
+            String(stop?.deliveryDecision || "").toLowerCase()
+          )
       ),
     [packedOrders]
   );
