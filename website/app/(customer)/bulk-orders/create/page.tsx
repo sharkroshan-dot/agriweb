@@ -53,12 +53,11 @@ export default function CreateBulkOrderPage() {
       queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
 
       if (purchaseMode === "family_weekly") {
-        toast.success("Weekly family basket created. Finding available nearby farmers and live stock.");
-        router.push(`/bulk-orders/${requestId}/sourcing`);
+        toast.success("Weekly family basket created. Finding live stock.");
       } else {
-        toast.success("Event request sent. Eligible farmers can now submit their quotes.");
-        router.push(`/bulk-orders/${requestId}`);
+        toast.success("Event created. AgriConnect will choose urgent smart sourcing or planned RFQ from the delivery deadline.");
       }
+      router.push(`/bulk-orders/${requestId}/sourcing`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to create bulk request"),
   });
