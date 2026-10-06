@@ -72,6 +72,20 @@ export default function EventSourcingPage() {
   const sourcing = request?.eventSourcingPlan;
   const planned = !isFamilyWeekly && sourcing?.sourcingMode === "planned_rfq";
   const offers = request?.offers || [];
+  const rankedOffers = useMemo(() => {
+    if (!offers.length) return [];
+    const maxPrice = Math.max(...offers.map((o: any) => Number(o.totalPrice || 0)), 1);
+    return [...offers].map((offer: any) => {
+      const coverage = Number(offer.coveragePercent || 0);
+      const rating = Number(offer.farmerInfo?.rating || 0);
+      const distance = Number((sourcing?.plan || []).flatMap((row: any) => row.candidates || []).find((c: any) => String(c.farmerId) === String(offer.farmerId))?.distanceKm || 999);
+      const priceScore = Math.max(0, 100 - (Number(offer.totalPrice || 0) / maxPrice) * 100);
+      const distanceScore = distance >= 999 ? 0 : Math.max(0, 100 - Math.min(distance, 100));
+      const score = priceScore * 0.35 + coverage * 0.30 + (rating / 5) * 100 * 0.20 + distanceScore * 0.15;
+      return { ...offer, smartScore: Math.round(score * 10) / 10, smartDistance: distance };
+    }).sort((a: any, b: any) => b.smartScore - a.smartScore);
+  }, [offers, sourcing]);
+  const recommendedOfferId = rankedOffers[0]?.id;
   const allocations = useMemo(
     () =>
       (sourcing?.plan || []).flatMap((row: any) =>
@@ -199,7 +213,10 @@ export default function EventSourcingPage() {
                           <p className="font-semibold">{offer.farmerInfo?.farmName || "Farmer"}</p>
                           <p className="text-xs text-slate-500">{offer.farmerInfo?.city || "Location not provided"}</p>
                         </div>
-                        <Badge variant={checked ? "success" : "secondary"}>{checked ? "Selected" : "Quote"}</Badge>
+                        <div className="flex items-center gap-2">
+                          {offer.id === recommendedOfferId ? <Badge variant="success">Smart Pick</Badge> : null}
+                          <Badge variant={checked ? "success" : "secondary"}>{checked ? "Selected" : "Quote"}</Badge>
+                        </div>
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
                         <span>💰 ₹{total.toLocaleString("en-IN")}</span>
@@ -213,7 +230,7 @@ export default function EventSourcingPage() {
               )}
             </div>
             {offers.length > 0 ? (
-              <p className="text-xs text-slate-500">Smart recommendation: prefer strong quantity coverage and reliability; choose a farther farmer when price/coverage is materially better.</p>
+              <p className="text-xs text-slate-500">Smart recommendation ranks price, quantity coverage, farmer rating and distance. Distance is optional for planned events, so a farther farmer can still be the best choice.</p>
             ) : null}
           </CardContent>
         </Card>
