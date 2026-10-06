@@ -24,6 +24,8 @@ from app.repositories.base_repository import BaseRepository
 from app.repositories.farmer_repository import farmer_repository
 from app.repositories.address_repository import address_repository
 from app.services.notification_service import NotificationService
+from app.services.delivery_job_service import eligible_partners_for_job, JOB_DEFAULT_EXPIRY_MINUTES
+from app.repositories.delivery_job_repository import delivery_job_repository
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import (
     BulkOrderService,
@@ -996,6 +998,67 @@ async def confirm_event_source(
     return {"success": True, "data": {"requestId": request_id, "fulfillments": [await _stringify_event_fulfillment(x) for x in created]}, "message": "Event sourcing confirmed and stock reserved"}
 
 
+async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optional[str]:
+    """Create one final consolidated delivery job after every farmer is collected."""
+    if not fulfillments:
+        return None
+    destination = ((request.get("deliveryAddress") or {}).get("location") or {})
+    destination_coords = destination.get("coordinates") or []
+    if len(destination_coords) < 2:
+        return None
+    hubs = await MongoDB.get_collection("fulfillment_hubs").find({"deletedAt": None, "isActive": True, "approvalStatus": {"$in": ["approved", "active"]}}).to_list(length=200)
+    if not hubs:
+        return None
+    def hub_distance(hub: dict) -> float:
+        coords = (hub.get("location") or {}).get("coordinates") or []
+        if len(coords) < 2: return 1e9
+        try: return BulkOrderService.haversine_km(float(destination_coords[1]), float(destination_coords[0]), float(coords[1]), float(coords[0]))
+        except Exception: return 1e9
+    hubs.sort(key=hub_distance)
+    hub = hubs[0]
+    hub_coords = (hub.get("location") or {}).get("coordinates") or []
+    if len(hub_coords) < 2: return None
+    total_weight = round(sum(float(f.get("allocatedQuantityKg") or 0) for f in fulfillments), 2)
+    delivery_repo = BaseRepository("delivery_jobs")
+    existing = await delivery_repo.find_one({"eventRequestId": request["_id"], "jobType": "event_consolidated_delivery", "deletedAt": None})
+    if existing: return str(existing["_id"])
+    pickup_lat, pickup_lng = float(hub_coords[1]), float(hub_coords[0])
+    delivery_lat, delivery_lng = float(destination_coords[1]), float(destination_coords[0])
+    distance = round(BulkOrderService.haversine_km(pickup_lat, pickup_lng, delivery_lat, delivery_lng), 2)
+    partners = await eligible_partners_for_job(pickup_lat, pickup_lng, total_weight, job_type="customer_delivery")
+    now = datetime.utcnow()
+    job = {
+        "jobType": "event_consolidated_delivery", "eventRequestId": request["_id"],
+        "requestNumber": request.get("requestNumber"), "orderId": request["_id"],
+        "orderNumber": request.get("requestNumber") or "EVENT", "status": "open",
+        "openedAt": now, "expiresAt": now + timedelta(minutes=JOB_DEFAULT_EXPIRY_MINUTES),
+        "acceptedBy": None, "acceptedAt": None,
+        "eligiblePartnerIds": [str(p.get("id")) for p in partners if p.get("id")],
+        "pickupLocation": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
+        "pickupName": hub.get("name") or "Event Consolidation Hub", "pickupAddress": hub.get("address") or "",
+        "deliveryLocation": {"type": "Point", "coordinates": [delivery_lng, delivery_lat]},
+        "deliveryArea": (request.get("deliveryAddress") or {}).get("area") or request.get("deliveryCity") or "",
+        "deliveryCity": (request.get("deliveryAddress") or {}).get("city") or request.get("deliveryCity") or "",
+        "deliveryAddress": (request.get("deliveryAddress") or {}).get("addressLine1") or (request.get("deliveryAddress") or {}).get("address") or "",
+        "customerName": request.get("buyerName") or "Customer", "customerPhone": request.get("buyerPhone") or "",
+        "distanceKm": distance, "weightKg": total_weight, "itemCount": len(fulfillments),
+        "eventDelivery": True, "eventFulfillmentIds": [f["_id"] for f in fulfillments],
+        "deliveryDay": request.get("requestedDeliveryDate"), "timeSlot": request.get("requestedDeliveryTime") or "Event delivery",
+        "priority": 3 if str(request.get("eventFulfillmentMode") or "").startswith("urgent") else 2,
+        "priorityLabel": "Urgent" if str(request.get("eventFulfillmentMode") or "").startswith("urgent") else "High",
+        "orderStatus": "ready_for_delivery", "createdAt": now, "updatedAt": now, "deletedAt": None,
+    }
+    job_id = await delivery_job_repository.create_job(job)
+    if not job_id: return None
+    await request_repo.update({"_id": request["_id"]}, {"eventDeliveryJobId": ObjectId(job_id), "eventDeliveryStatus": "delivery_partner_assignment", "eventConsolidationStatus": "consolidated", "consolidationHubId": hub["_id"], "consolidationHubName": hub.get("name"), "updatedAt": datetime.utcnow()})
+    for partner in partners:
+        try:
+            message = str(request.get("requestNumber") or "Event order") + " is consolidated and ready for delivery."
+            await NotificationService.create_in_app_notification(str(partner.get("userId") or partner.get("id")), NotificationType.ORDER, "New event delivery job", message, {"requestId": str(request["_id"]), "deliveryJobId": str(job_id), "type": "event_delivery_job"}, NotificationPriority.HIGH)
+        except Exception:
+            continue
+    return str(job_id)
+
 async def _stringify_event_fulfillment(f: dict) -> dict:
     f["id"] = str(f["_id"])
     f["requestId"] = str(f.get("requestId"))
@@ -1084,10 +1147,21 @@ async def update_event_fulfillment_status(
             "updatedAt": datetime.utcnow(),
         })
     elif statuses and all(s == "collected" for s in statuses):
-        await request_repo.update({"_id": fulfillment["requestId"]}, {
-            "eventDeliveryStatus": "ready_for_event_delivery",
-            "eventConsolidationStatus": "consolidated",
-        })
+        request_for_job = await request_repo.find_one({"_id": fulfillment["requestId"], "deletedAt": None})
+        job_id = await _create_event_delivery_job(request_for_job, siblings)
+        if job_id:
+            await request_repo.update({"_id": fulfillment["requestId"]}, {
+                "eventDeliveryStatus": "delivery_partner_assignment",
+                "eventConsolidationStatus": "consolidated",
+                "eventDeliveryJobId": ObjectId(job_id),
+                "updatedAt": datetime.utcnow(),
+            })
+        else:
+            await request_repo.update({"_id": fulfillment["requestId"]}, {
+                "eventDeliveryStatus": "ready_for_event_delivery",
+                "eventConsolidationStatus": "consolidation_ready",
+                "updatedAt": datetime.utcnow(),
+            })
     elif any(s == "ready_for_collection" for s in statuses):
         await request_repo.update({"_id": fulfillment["requestId"]}, {
             "eventDeliveryStatus": "collection_in_progress",
