@@ -580,11 +580,18 @@ class OrderService:
         effective_delivery_time_slot = data.deliveryTimeSlot
         if (
             delivery_availability
-            and delivery_availability.get("status") == "scheduled_for_next_service"
             and delivery_availability.get("nextServiceAt")
+            and delivery_availability.get("status") in (
+                "scheduled_for_next_service",
+                "waiting_for_delivery_partner",
+            )
         ):
-            effective_requested_delivery_date = delivery_availability.get("nextServiceAt")
-            effective_delivery_time_slot = "morning"
+            # No partner during the active window still accepts the order, but
+            # the requested delivery time is moved to the next available
+            # handoff. Outside 21:30–06:00 this is the next 06:00 service start.
+            next_available = delivery_availability.get("nextServiceAt")
+            effective_requested_delivery_date = next_available
+            effective_delivery_time_slot = "next_available"
 
         order_data = {
             "customerId": ObjectId(customer_id),
