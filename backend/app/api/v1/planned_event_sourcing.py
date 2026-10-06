@@ -158,6 +158,7 @@ async def planned_source(request_id: str, current_user: dict = Depends(get_curre
         "plan": plan,
         "eligibleFarmerIds": eligible,
     }
+    first_rfq_open = request.get("eventSourcingStatus") != "rfq_open"
     await request_repo.update({"_id": request["_id"]}, {
         "eventFulfillmentMode": "planned_rfq",
         "eventSourcingMode": "planned_rfq",
@@ -166,7 +167,8 @@ async def planned_source(request_id: str, current_user: dict = Depends(get_curre
         "eventSourcingUpdatedAt": datetime.utcnow(),
     })
 
-    for farmer_id in eligible:
+    if first_rfq_open:
+        for farmer_id in eligible:
         await NotificationService.create_in_app_notification(
             farmer_id,
             NotificationType.PROMOTION,
