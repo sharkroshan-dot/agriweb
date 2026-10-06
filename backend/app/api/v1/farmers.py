@@ -2876,8 +2876,9 @@ async def create_self_delivery_plan(
             status_code=400,
             detail="Select only one order for Farmer Self Delivery. All other orders are processed automatically.",
         )
-    # Empty selection is valid: all eligible packed orders can be sent through
-    # automatic distance-based delivery-partner routing.
+    # The assignment workflow requires one explicit Farmer Self Delivery
+    # order. Every other eligible packed order is then processed automatically
+    # by the nearby/long-distance workflow.
     # Load customer profile addresses as a fallback for older checkout records
     # that do not contain delivery coordinates.
     customer_ids = {str(o.get("customerId")) for o in orders if o.get("customerId")}
@@ -2918,8 +2919,14 @@ async def create_self_delivery_plan(
             },
         )
 
-    # No self-delivery selection is also valid. In that case every eligible
-    # packed order continues directly into automatic distance-based
+    if not selected_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="Select one order for Farmer Self Delivery before confirming the delivery plan.",
+        )
+
+    # Exactly one order is selected for Farmer Self Delivery. Every other
+    # eligible packed order continues automatically into the distance-based
     # delivery-partner routing below.
     selected_results = []
     for order in selected:
