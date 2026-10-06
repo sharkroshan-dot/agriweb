@@ -182,7 +182,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     final eta = t['eta']?.toString();
     final updated = t['locationUpdatedAt']?.toString() ?? t['lastUpdated']?.toString();
     final current = t['currentLocation'];
-    final hasLocation = current is Map && current['coordinates'] is List && (current['coordinates'] as List).length >= 2;
+    final hasLocation = _trackingPoint(current) != null;
 
     String pretty(String value) => value.replaceAll('_', ' ').split(' ').map((x) => x.isEmpty ? x : '${x[0].toUpperCase()}${x.substring(1)}').join(' ');
 
@@ -256,11 +256,11 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                   _buildTrackingMap(t, partner),
                   const SizedBox(height: 10),
                   Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Row(children: [
-                  const Icon(Icons.location_on_outlined, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('Delivery partner location is being updated live. Refreshes every 10 seconds.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
-                ]))
-                else Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Text('Live map location will appear when the delivery partner starts sharing their location.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
+                    const Icon(Icons.location_on_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('Delivery partner location is being updated live. Refreshes every 10 seconds.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
+                  ])),
+                ] else Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Text('Live map location will appear when the delivery partner starts sharing their location.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
               ],),
             ),
           ],
