@@ -576,6 +576,16 @@ class OrderService:
                 delivery_details["nextDeliveryServiceAt"] = delivery_availability.get("nextServiceAt")
 
 
+        effective_requested_delivery_date = data.requestedDeliveryDate
+        effective_delivery_time_slot = data.deliveryTimeSlot
+        if (
+            delivery_availability
+            and delivery_availability.get("status") == "scheduled_for_next_service"
+            and delivery_availability.get("nextServiceAt")
+        ):
+            effective_requested_delivery_date = delivery_availability.get("nextServiceAt")
+            effective_delivery_time_slot = "morning"
+
         order_data = {
             "customerId": ObjectId(customer_id),
             "idempotencyKey": data.idempotencyKey,
@@ -605,8 +615,8 @@ class OrderService:
             "deliveryMethod": delivery_method,
             "pickupDate": data.pickupDate,
             "pickupTimeSlot": data.pickupTimeSlot,
-            "requestedDeliveryDate": data.requestedDeliveryDate,
-            "deliveryTimeSlot": data.deliveryTimeSlot,
+            "requestedDeliveryDate": effective_requested_delivery_date,
+            "deliveryTimeSlot": effective_delivery_time_slot,
             "deliverySpeed": delivery_speed,
             "deliveryAvailabilityStatus": (delivery_availability or {}).get("status"),
             "deliveryAvailabilityMessage": (delivery_availability or {}).get("message"),
