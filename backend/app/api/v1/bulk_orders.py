@@ -823,6 +823,30 @@ async def smart_source_event(
     if request.get("requestType") != "bulk_event":
         raise HTTPException(status_code=400, detail="Smart event sourcing is only for event requests")
 
+    # City/address-only event requests are geocoded once so nearby sourcing still
+    # works when the customer did not provide GPS coordinates.
+    destination = _event_location(request)
+    if not destination:
+        try:
+            from app.services.order_service import geocode_address
+            addr = request.get("deliveryAddress") or {}
+            destination = await geocode_address({
+                "address_line1": addr.get("addressLine1") or "",
+                "address_line2": addr.get("addressLine2") or "",
+                "city": addr.get("city") or request.get("deliveryCity") or "",
+                "state": addr.get("state") or "",
+                "zip_code": addr.get("zipCode") or "",
+                "country": "India",
+            })
+            if destination:
+                await request_repo.update({"_id": request["_id"]}, {
+                    "deliveryAddress": {**addr, "location": destination},
+                    "updatedAt": datetime.utcnow(),
+                })
+                request["deliveryAddress"] = {**addr, "location": destination}
+        except Exception:
+            pass
+
     sourcing = await _event_candidates(request)
     await request_repo.update({
         "_id": request["_id"]
