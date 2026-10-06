@@ -106,6 +106,7 @@ export default function CheckoutPage() {
   const [isEstimatingFee, setIsEstimatingFee] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
+  const [selectedDeliverySpeed, setSelectedDeliverySpeed] = useState<"fastest_30m" | "standard">("standard");
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
@@ -198,6 +199,23 @@ export default function CheckoutPage() {
     });
     return () => { cancelled = true; };
   }, [estimatedDeliveryAddressId, items]);
+
+  useEffect(() => {
+    const fastestAvailable =
+      deliveryQuote?.fastestEligible === true &&
+      deliveryAvailability?.serviceAvailable === true &&
+      deliveryAvailability?.partnerAvailable === true;
+
+    if (fastestAvailable) {
+      setSelectedDeliverySpeed((current) => current);
+    } else {
+      setSelectedDeliverySpeed("standard");
+    }
+  }, [
+    deliveryQuote?.fastestEligible,
+    deliveryAvailability?.serviceAvailable,
+    deliveryAvailability?.partnerAvailable,
+  ]);
 
   useEffect(() => {
     const nextServiceAt = deliveryAvailability?.nextServiceAt;
@@ -431,7 +449,7 @@ export default function CheckoutPage() {
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
-        deliverySpeed: deliveryQuote?.fastestEligible ? "fastest_30m" : "standard",
+        deliverySpeed: selectedDeliverySpeed,
       };
 
       if (couponAppliedCode) {
@@ -663,18 +681,102 @@ export default function CheckoutPage() {
                   </div>
                 </div>
               )}
-              {deliveryQuote?.fastestEligible && deliveryAvailability?.serviceAvailable && deliveryAvailability?.partnerAvailable && (
-                <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-4">
-                  <p className="font-semibold text-emerald-900">⚡ Fastest Delivery</p>
-                  <p className="mt-1 text-sm text-emerald-800">Estimated delivery within {deliveryQuote.estimatedDeliveryMinutes || 30} minutes.</p>
-                </div>
-              )}
-              {deliveryQuote && !deliveryQuote.fastestEligible && deliveryAvailability?.serviceAvailable && deliveryAvailability?.partnerAvailable && (
-                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                  <p className="font-semibold text-blue-900">🚚 Standard Delivery</p>
-                  <p className="mt-1 text-sm text-blue-800">Fastest 30-minute delivery is not currently feasible for this address. Standard delivery is available.</p>
-                </div>
-              )}
+              {deliveryQuote?.fastestEligible &&
+                deliveryAvailability?.serviceAvailable &&
+                deliveryAvailability?.partnerAvailable && (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Choose your delivery speed</p>
+                        <p className="text-xs text-slate-500">Fastest is available only when the backend confirms the full journey can be completed within 30 minutes.</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                        Partner available
+                      </span>
+                    </div>
+
+                    <label
+                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
+                        selectedDeliverySpeed === "fastest_30m"
+                          ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-emerald-300"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliverySpeed"
+                          value="fastest_30m"
+                          checked={selectedDeliverySpeed === "fastest_30m"}
+                          onChange={() => setSelectedDeliverySpeed("fastest_30m")}
+                          className="mt-1 h-4 w-4 accent-emerald-600"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-bold text-emerald-900">⚡ Fastest Delivery</p>
+                              <p className="mt-0.5 text-sm font-semibold text-slate-900">
+                                Arrives in about {deliveryQuote.estimatedDeliveryMinutes || 30} minutes
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                              ≤ 30 MIN
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-emerald-800">
+                            Stock available · Delivery partner available · Estimated end-to-end time is within 30 minutes.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+                            <span className="rounded-full bg-white px-2.5 py-1">✓ Farmer packing</span>
+                            <span className="rounded-full bg-white px-2.5 py-1">✓ Partner pickup</span>
+                            <span className="rounded-full bg-white px-2.5 py-1">✓ Customer delivery</span>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
+                        selectedDeliverySpeed === "standard"
+                          ? "border-blue-500 bg-blue-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-blue-300"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliverySpeed"
+                          value="standard"
+                          checked={selectedDeliverySpeed === "standard"}
+                          onChange={() => setSelectedDeliverySpeed("standard")}
+                          className="mt-1 h-4 w-4 accent-blue-600"
+                        />
+                        <div>
+                          <p className="font-bold text-blue-900">🚚 Standard Delivery</p>
+                          <p className="mt-0.5 text-sm font-medium text-slate-800">Choose your normal delivery schedule</p>
+                          <p className="mt-1 text-xs text-blue-800">The order follows the normal farmer → delivery partner workflow.</p>
+                        </div>
+                      </div>
+                    </label>
+
+                    <p className="flex items-center gap-2 text-[11px] text-slate-500">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                      AgriConnect re-checks stock, delivery partner availability and ETA when you place the order.
+                    </p>
+                  </div>
+                )}
+
+              {deliveryQuote &&
+                !deliveryQuote.fastestEligible &&
+                deliveryAvailability?.serviceAvailable &&
+                deliveryAvailability?.partnerAvailable && (
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                    <p className="font-semibold text-blue-900">🚚 Standard Delivery</p>
+                    <p className="mt-1 text-sm text-blue-800">
+                      Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.
+                    </p>
+                  </div>
+                )}
             </CardContent>
           </Card>
 
