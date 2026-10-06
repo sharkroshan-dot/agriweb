@@ -50,6 +50,7 @@ from app.services.delivery_job_service import (
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
 from app.services.delivery_priority_service import calculate_order_delivery_priority
+from app.services.delivery_availability_service import get_delivery_service_availability
 import logging
 
 logger = logging.getLogger(__name__)
@@ -315,6 +316,28 @@ async def _available_delivery_balance(partner_id: str, user_id: str) -> float:
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.post("/availability", response_model=dict)
+async def delivery_availability(
+    request: DeliveryFeeEstimateRequest,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Check whether delivery partners can currently serve this destination."""
+    destination = _normalize_location(request.coordinates) if request.coordinates else None
+    if not destination and request.deliveryAddressId:
+        try:
+            from app.repositories.address_repository import address_repository
+            address = await address_repository.get_address_by_id(
+                request.deliveryAddressId, str(current_user["_id"])
+            )
+            destination = _normalize_location((address or {}).get("location"))
+            if not destination and address:
+                destination = await geocode_address(address)
+        except Exception:
+            destination = None
+    result = await get_delivery_service_availability(destination=destination)
+    return {"success": True, "data": result}
 
 
 @router.post("/fee-estimate", response_model=dict)
