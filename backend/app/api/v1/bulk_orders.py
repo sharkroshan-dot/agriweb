@@ -879,6 +879,15 @@ async def confirm_event_source(
             "distanceKm": allowed.get("distanceKm"),
         })
 
+    selected_by_key = {}
+    for a in normalized:
+        key = (a["productName"].strip().lower(), a["farmerId"], a["productId"])
+        selected_by_key[key] = selected_by_key.get(key, 0) + a["quantityKg"]
+    for key, qty in selected_by_key.items():
+        allowed = plan_lookup[key]
+        if qty > float(allowed.get("quantityKg") or 0) + 1e-6:
+            raise HTTPException(status_code=400, detail=f"Allocation exceeds the smart-sourcing plan for {key[0]}")
+
     required = {
         str(i.get("name")).strip().lower(): float(i.get("quantityKg") or 0)
         for i in request.get("items", [])
