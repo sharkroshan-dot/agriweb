@@ -1252,10 +1252,12 @@ async def bulk_order_tracking(
 
     if request.get("status") == REQUEST_CANCELLED or "cancelled" in fulfillment_statuses:
         current_stage = "cancelled"
-    elif any(s in ("delivered", "completed") for s in job_statuses + order_statuses) and not any(s in ("in_transit", "out_for_delivery") for s in job_statuses):
+    elif any(s in ("delivered", "completed") for s in job_statuses + order_statuses):
         current_stage = "delivered"
     elif any(s in ("in_transit", "out_for_delivery", "picked_up") for s in job_statuses) or "out_for_delivery" in order_statuses:
         current_stage = "out_for_delivery"
+    elif any(s in ("accepted", "confirmed") for s in job_statuses) or delivery_status == "delivery_partner_assignment":
+        current_stage = "delivery_partner"
     elif any(s in ("dispatched", "ready_for_delivery") for s in job_statuses) or delivery_status == "ready_for_event_delivery":
         current_stage = "ready_for_delivery"
     elif consolidation_status == "consolidated" or (fulfillment_statuses and all(s == "collected" for s in fulfillment_statuses)):
@@ -1274,12 +1276,16 @@ async def bulk_order_tracking(
         current_stage = "order_created"
 
     def serialize_job(job):
-        result = dict(job)
+        def convert(value):
+            if isinstance(value, ObjectId):
+                return str(value)
+            if isinstance(value, dict):
+                return {k: convert(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [convert(v) for v in value]
+            return value
+        result = convert(dict(job))
         result["id"] = str(result.pop("_id", ""))
-        if result.get("orderId"):
-            result["orderId"] = str(result["orderId"])
-        if result.get("acceptedBy"):
-            result["acceptedBy"] = str(result["acceptedBy"])
         return result
 
     return {
