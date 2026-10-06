@@ -2022,9 +2022,11 @@ export default function FarmerOrderMapPage() {
             <CardDescription>Every order not selected for Farmer Self Delivery is processed automatically after confirmation.</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
-            {deliveryOutsideOrders.length === 0 && selectedRouteIds.length === routeCandidates.length ? (
+            {deliveryOutsideOrders.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                {mapFilterMode === "route" ? "All packed orders are along the selected route." : `All packed orders are within ${radiusKm} km.`}
+                {mapFilterMode === "route"
+                  ? "No packed orders are outside the selected route."
+                  : `No packed orders are outside ${radiusKm} km.`}
               </p>
             ) : (
               <div className="space-y-3">
@@ -2044,6 +2046,11 @@ export default function FarmerOrderMapPage() {
                         <p className="mt-1 text-xs font-medium text-slate-700">{getCustomerDisplayName(stop)}</p>
                         <p className="mt-1 text-xs text-slate-600">{stop.product || "Items"} · {stop.quantityKg ?? stop.quantity ?? 0} kg</p>
                         <p className="mt-1 text-xs text-slate-500">{formatAddress(stop)}</p>
+                        {stop.distance != null && (
+                          <p className="mt-1 text-xs font-medium text-orange-700">
+                            {Number(stop.distance).toFixed(1)} km from farm · Outside selected {mapFilterMode === "route" ? "route" : `${radiusKm} km radius`}
+                          </p>
+                        )}
                       </div>
                       <Badge variant="warning">Automatic</Badge>
                     </div>
