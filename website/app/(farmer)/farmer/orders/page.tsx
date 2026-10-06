@@ -96,6 +96,8 @@ export default function FarmerOrdersPage() {
   const { data: orders, isLoading, refetch } = useQuery({
     queryKey: ["farmerOrders", statusFilter],
     queryFn: () => api.get("/farmers/me/orders", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 500 } }),
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
   });
 
   const availabilityQuery = useQuery({
