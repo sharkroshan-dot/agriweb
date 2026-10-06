@@ -27,6 +27,23 @@ type DeliveryQuote = {
   freeDelivery?: boolean;
   subsidy?: number;
   distanceAvailable?: boolean;
+  serviceAvailable?: boolean;
+  partnerAvailable?: boolean;
+  availablePartnerCount?: number;
+  fastestEligible?: boolean;
+  estimatedDeliveryMinutes?: number | null;
+  availabilityStatus?: string;
+  availabilityMessage?: string;
+  nextDeliveryServiceAt?: string | null;
+};
+
+type DeliveryAvailability = {
+  serviceAvailable: boolean;
+  partnerAvailable: boolean;
+  availablePartnerCount: number;
+  status: string;
+  message: string;
+  nextServiceAt?: string | null;
 };
 
 
@@ -85,6 +102,7 @@ export default function CheckoutPage() {
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [savingAddr, setSavingAddr] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const [deliveryAvailability, setDeliveryAvailability] = useState<DeliveryAvailability | null>(null);
   const [isEstimatingFee, setIsEstimatingFee] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
@@ -160,6 +178,25 @@ export default function CheckoutPage() {
     return () => {
       cancelled = true;
     };
+  }, [estimatedDeliveryAddressId, items]);
+
+  useEffect(() => {
+    if (!estimatedDeliveryAddressId || items.length === 0) {
+      setDeliveryAvailability(null);
+      return;
+    }
+    let cancelled = false;
+    api.post("/delivery/availability", {
+      items: items.map((item) => ({ productId: item.id, quantity: item.quantity })),
+      deliveryAddressId: estimatedDeliveryAddressId,
+    }).then((res) => {
+      if (cancelled) return;
+      const body = res?.data || res;
+      setDeliveryAvailability(body?.data || body || null);
+    }).catch(() => {
+      if (!cancelled) setDeliveryAvailability(null);
+    });
+    return () => { cancelled = true; };
   }, [estimatedDeliveryAddressId, items]);
 
   const handleAddrChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -376,6 +413,7 @@ export default function CheckoutPage() {
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
+        deliverySpeed: deliveryQuote?.fastestEligible ? "fastest_30m" : "standard",
       };
 
       if (couponAppliedCode) {
@@ -574,6 +612,30 @@ export default function CheckoutPage() {
               {!deliveryQuote && (
                 <div className="rounded-lg border bg-white p-4 text-center">
                   <p className="text-sm text-slate-500">Select a delivery address to calculate delivery fee</p>
+                </div>
+              )}
+              {deliveryAvailability && (
+                <div className={`mt-3 rounded-lg border p-4 ${deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                  <div className="flex items-start gap-3">
+                    <Truck className="mt-0.5 h-5 w-5 text-emerald-600" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900">{deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable ? "Delivery available" : "Delivery partners currently unavailable"}</p>
+                      <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
+                      {!deliveryAvailability.serviceAvailable && <p className="mt-2 text-sm font-semibold text-amber-900">Your order can still be placed. Delivery will be handled in the next available delivery period.</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {deliveryQuote?.fastestEligible && deliveryAvailability?.serviceAvailable && deliveryAvailability?.partnerAvailable && (
+                <div className="mt-3 rounded-lg border border-emerald-300 bg-emerald-50 p-4">
+                  <p className="font-semibold text-emerald-900">⚡ Fastest Delivery</p>
+                  <p className="mt-1 text-sm text-emerald-800">Estimated delivery within {deliveryQuote.estimatedDeliveryMinutes || 30} minutes.</p>
+                </div>
+              )}
+              {deliveryQuote && !deliveryQuote.fastestEligible && deliveryAvailability?.serviceAvailable && deliveryAvailability?.partnerAvailable && (
+                <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p className="font-semibold text-blue-900">🚚 Standard Delivery</p>
+                  <p className="mt-1 text-sm text-blue-800">Fastest 30-minute delivery is not currently feasible for this address. Standard delivery is available.</p>
                 </div>
               )}
             </CardContent>
