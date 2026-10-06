@@ -464,60 +464,89 @@ async def update_harvest_plan(
 
 
 async def _apply_harvest(plan: dict) -> int:
-    """Notify customers that the planned crop was actually harvested.
+    """Allocate the actual harvested quantity to pre-orders using FIFO.
 
-    Harvest notification is intentionally separate from product publication:
-    the crop remains unavailable for checkout until quality approval.
+    A pre-order is a reservation, not inventory. Once the farmer records the
+    actual yield, only fully allocatable reservations become confirmed. Any
+    reservation that cannot be fully covered is waitlisted rather than
+    over-promised.
     """
-    if plan.get("harvestNotificationSentAt"):
-        return 0
-
     now = datetime.utcnow()
-    notified = 0
-    preorders = await harvest_preorder_repo.find_many({
-        "harvestPlanId": plan["_id"],
-        "status": {"$ne": "cancelled"},
-        "deletedAt": None,
-    }, limit=1000)
+    preorders = await harvest_preorder_repo.find_many(
+        {
+            "harvestPlanId": plan["_id"],
+            "status": {"$in": ["pending", "waitlisted"]},
+            "deletedAt": None,
+        },
+        sort=[("createdAt", 1), ("_id", 1)],
+        limit=1000,
+    )
 
     actual_qty = float(plan.get("actualQuantityKg") or 0)
-    preorder_qty = sum(float(p.get("quantityKg", 0) or 0) for p in (preorders or []))
-    if preorder_qty > actual_qty + 0.001:
-        # Do not silently confirm an over-subscribed harvest. Customers are
-        # told that a shortage needs resolution before checkout.
-        for po in preorders or []:
+    remaining = actual_qty
+    notified = 0
+    for po in preorders or []:
+        requested = float(po.get("quantityKg", 0) or 0)
+        if requested <= 0:
+            continue
+
+        # FIFO: do not partially promise a pre-order. Customers either get
+        # their requested quantity or remain waitlisted for a later resolution.
+        if requested <= remaining + 0.0001:
+            remaining -= requested
+            final_rate = float(plan.get("finalRatePerKg") or plan.get("finalSellingRatePerKg") or po.get("unitPricePerKg") or 0)
+            update = {
+                "status": "confirmed",
+                "allocatedQuantityKg": requested,
+                "productId": plan.get("productId"),
+                "plannedUnitPricePerKg": float(po.get("unitPricePerKg") or 0),
+                "finalUnitPricePerKg": final_rate,
+                "finalTotal": round(requested * final_rate, 2),
+                "priceChange": round(final_rate - float(po.get("unitPricePerKg") or 0), 2),
+                "harvestConfirmedAt": now,
+                "updatedAt": now,
+            }
+            await harvest_preorder_repo.update({"_id": po["_id"]}, update)
             try:
                 await NotificationService.create_in_app_notification(
                     str(po.get("customerId")),
                     NotificationType.ORDER,
-                    "Harvest completed — quantity review needed",
-                    f"{plan.get('cropName')} was harvested, but the actual yield is {actual_qty:g} kg versus {preorder_qty:g} kg pre-ordered. We'll update your pre-order after the farmer resolves the shortage.",
-                    {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_shortage"},
-                    NotificationPriority.HIGH,
-                )
-                notified += 1
-            except Exception:
-                logger.exception("Failed to notify preorder shortage for %s", po.get("_id"))
-    else:
-        for po in preorders or []:
-            try:
-                await NotificationService.create_in_app_notification(
-                    str(po.get("customerId")),
-                    NotificationType.ORDER,
-                    "Your pre-ordered harvest is ready 🌾",
-                    f"{plan.get('cropName')} has been harvested. Your {float(po.get('quantityKg', 0) or 0):g} kg pre-order is reserved. Final quality approval is pending; we'll notify you when it is ready to confirm and pay.",
+                    "Your pre-order quantity is reserved 🌾",
+                    f"{plan.get('cropName')} was harvested. Your {requested:g} kg reservation is secured. Final price is ₹{final_rate:g}/kg; quality verification is still pending.",
                     {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_harvested"},
                     NotificationPriority.HIGH,
                 )
                 notified += 1
             except Exception:
-                logger.exception("Failed to notify preorder customer %s", po.get("_id"))
+                logger.exception("Failed to notify confirmed preorder %s", po.get("_id"))
+        else:
+            await harvest_preorder_repo.update(
+                {"_id": po["_id"]},
+                {
+                    "status": "waitlisted",
+                    "allocatedQuantityKg": 0,
+                    "shortageKg": requested,
+                    "waitlistReason": "Actual harvest quantity was insufficient",
+                    "updatedAt": now,
+                },
+            )
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(po.get("customerId")),
+                    NotificationType.ORDER,
+                    "Pre-order waitlisted",
+                    f"{plan.get('cropName')} was harvested, but only {actual_qty:g} kg was available and your {requested:g} kg request could not be fully allocated. The farmer must resolve the shortage before this pre-order can continue.",
+                    {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_shortage"},
+                    NotificationPriority.HIGH,
+                )
+                notified += 1
+            except Exception:
+                logger.exception("Failed to notify preorder shortage %s", po.get("_id"))
 
-    subscriptions = await harvest_notify_repo.find_many({
-        "harvestPlanId": plan["_id"],
-        "deletedAt": None,
-        "notifiedAt": None,
-    }, limit=1000)
+    subscriptions = await harvest_notify_repo.find_many(
+        {"harvestPlanId": plan["_id"], "deletedAt": None, "notifiedAt": None},
+        limit=1000,
+    )
     for sub in subscriptions or []:
         try:
             await NotificationService.create_in_app_notification(
@@ -528,17 +557,24 @@ async def _apply_harvest(plan: dict) -> int:
                 {"harvestPlanId": str(plan["_id"]), "type": "harvested"},
                 NotificationPriority.HIGH,
             )
-            await harvest_notify_repo.update(
-                {"_id": sub["_id"]},
-                {"notifiedAt": now, "updatedAt": now},
-            )
+            await harvest_notify_repo.update({"_id": sub["_id"]}, {"notifiedAt": now, "updatedAt": now})
             notified += 1
         except Exception:
             logger.exception("Failed to notify harvest subscriber %s", sub.get("_id"))
 
     await harvest_plan_repo.update(
         {"_id": plan["_id"]},
-        {"harvestNotificationSentAt": now},
+        {
+            "harvestNotificationSentAt": now,
+            "preorderAllocatedKg": round(actual_qty - remaining, 3),
+            "preorderRemainingKg": round(remaining, 3),
+            "preorderAllocationStatus": "complete" if not any(
+                p.get("status") == "waitlisted" for p in (await harvest_preorder_repo.find_many(
+                    {"harvestPlanId": plan["_id"], "deletedAt": None}, limit=1000
+                ) or [])
+            ) else "shortage",
+            "updatedAt": now,
+        },
     )
     return notified
 
@@ -1063,6 +1099,8 @@ async def create_preorder(
     # Snapshot the customer's default delivery address so a delivery route can
     # be built after harvest even if the customer edits their address later.
     default_addr = await address_repository.get_default_address(str(current_user["_id"]))
+    if not default_addr:
+        raise HTTPException(status_code=400, detail="Add a delivery address before placing a pre-order")
     delivery_address = None
     if default_addr:
         addr_parts = [
@@ -1086,10 +1124,17 @@ async def create_preorder(
         "harvestPlanId": ObjectId(plan_id),
         "farmerId": plan.get("farmerId"),
         "customerId": ObjectId(current_user["_id"]),
+        "productId": plan.get("productId"),
         "cropName": plan.get("cropName"),
         "quantityKg": quantityKg,
+        "allocatedQuantityKg": 0,
         "unitPricePerKg": price,
+        "plannedUnitPricePerKg": price,
+        "finalUnitPricePerKg": None,
+        "finalTotal": None,
+        "priceChange": None,
         "total": round(quantityKg * price, 2),
+        "deliveryAddressId": default_addr.get("_id") or default_addr.get("id"),
         "deliveryAddress": delivery_address,
         "status": "pending",
         "confirmedAt": None,
