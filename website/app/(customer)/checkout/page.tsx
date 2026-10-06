@@ -633,16 +633,16 @@ export default function CheckoutPage() {
                 </div>
               )}
               {deliveryAvailability && (
-                <div className={`mt-3 rounded-lg border p-4 ${deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                <div className={`mt-3 rounded-lg border p-4 ${deliveryAvailability.status === "available" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
                   <div className="flex items-start gap-3">
                     <Truck className="mt-0.5 h-5 w-5 text-emerald-600" />
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-900">
-                        {deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable
-                          ? "Delivery available"
+                        {deliveryAvailability.status === "available"
+                          ? "🟢 Delivery service active"
                           : deliveryAvailability.status === "scheduled_for_next_service"
-                            ? "Delivery service is currently closed"
-                            : "No suitable delivery partner available"}
+                            ? "🔴 Delivery service closed · 21:30–06:00"
+                            : "🟡 No suitable delivery partner right now"}
                       </p>
                       <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
                       {!deliveryAvailability.serviceAvailable && deliveryAvailability.nextServiceAt && (
