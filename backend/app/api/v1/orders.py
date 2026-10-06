@@ -88,6 +88,11 @@ async def create_order(
         "orderNumber": order.get("orderNumber", ""),
         "totalAmount": order.get("totalAmount", 0),
         "orderStatus": order.get("orderStatus", "pending"),
+        "deliverySpeed": order.get("deliverySpeed", "standard"),
+        "deliveryAvailabilityStatus": order.get("deliveryAvailabilityStatus"),
+        "deliveryAvailabilityMessage": order.get("deliveryAvailabilityMessage"),
+        "nextDeliveryServiceAt": order.get("nextDeliveryServiceAt"),
+        "estimatedDeliveryMinutes": order.get("estimatedDeliveryMinutes"),
         "createdAt": order.get("createdAt")
     }
 
