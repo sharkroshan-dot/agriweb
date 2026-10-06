@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Plus, Trash2, Loader2, Send, MapPin, ShoppingBasket, Users } from "lucide-react";
+import { Sparkles, Plus, Trash2, Loader2, Send, MapPin, ShoppingBasket } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -25,7 +25,6 @@ export default function CreateBulkOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [purchaseMode, setPurchaseMode] = useState<"event" | "family_weekly">("event");
-  const [familySize, setFamilySize] = useState("");
   const [purpose, setPurpose] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
@@ -66,7 +65,6 @@ export default function CreateBulkOrderPage() {
     const payload: any = {
       requestType: "bulk_event",
       purchaseMode,
-      familySize: purchaseMode === "family_weekly" && familySize ? Number(familySize) : undefined,
       purpose: purchaseMode === "family_weekly" ? "Weekly Family Basket" : purpose,
       eventDate: eventDate || undefined,
       guestCount: guestCount ? Number(guestCount) : undefined,
@@ -113,12 +111,6 @@ export default function CreateBulkOrderPage() {
               <p className="mt-1 text-xs text-slate-500">Choose your own products and quantities for your family for one week. This is a one-time purchase, not a subscription.</p>
             </button>
           </div>
-          {purchaseMode === "family_weekly" && (
-            <div className="flex items-center gap-2 sm:max-w-xs">
-              <Users className="h-4 w-4 text-slate-500" />
-              <Input type="number" min="1" value={familySize} onChange={(e) => setFamilySize(e.target.value)} placeholder="Family members (e.g. 4)" />
-            </div>
-          )}
         </CardContent>
       </Card>
 
