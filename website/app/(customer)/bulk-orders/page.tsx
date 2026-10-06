@@ -112,7 +112,7 @@ export default function CustomerBulkOrdersPage() {
                       </div>
                       <Badge variant={requestStatusVariant[r.status] || "secondary"}>{r.status.replace(/_/g, " ")}</Badge>
                     </div>
-                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}</p>
+                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}</p>
                     <ItemsSummary items={r.items} />
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
@@ -123,6 +123,15 @@ export default function CustomerBulkOrdersPage() {
                         <MapPin className="h-3.5 w-3.5" /> {r.deliveryCity || r.deliveryAddress?.city || "Location"}
                       </span>
                       <span>{r.offerCount ?? 0} offer(s)</span>
+                      {r.requestType === "bulk_event" ? (
+                        <Link
+                          href={`/bulk-orders/${r.id}/sourcing`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="font-medium text-emerald-700 hover:underline"
+                        >
+                          Smart Fulfillment
+                        </Link>
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>
