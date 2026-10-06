@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package } from "lucide-react";
+import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package, Eye } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -131,6 +131,13 @@ export default function CustomerBulkOrdersPage() {
                         >
                           Smart Fulfillment
                         </Link>
+                        <Link
+                          href={"/bulk-orders/" + r.id + "/tracking"}
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                        >
+                          <Eye className="h-3.5 w-3.5" /> View Tracking
+                        </Link>
                       ) : null}
                     </div>
                   </CardContent>
@@ -171,6 +178,14 @@ export default function CustomerBulkOrdersPage() {
                   <span>Deliver {o.requestedDeliveryDate}</span>
                   <span>₹{Number(o.totalAmount || 0).toFixed(2)}</span>
                   <span className="capitalize">{o.deliveryMethod?.replace(/_/g, " ")}</span>
+                </div>
+                <div className="mt-2">
+                  <Link
+                    href={"/bulk-orders/" + o.requestId + "/tracking"}
+                    className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
+                  >
+                    <Eye className="h-4 w-4" /> View Tracking
+                  </Link>
                 </div>
               </CardContent>
             </Card>
