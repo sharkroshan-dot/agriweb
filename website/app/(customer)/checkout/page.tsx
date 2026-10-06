@@ -200,12 +200,22 @@ export default function CheckoutPage() {
   }, [estimatedDeliveryAddressId, items]);
 
   useEffect(() => {
-    if (!deliveryAvailability || deliveryAvailability.serviceAvailable) return;
-    const next = new Date();
-    next.setDate(next.getDate() + 1);
-    setDeliveryDate(next.toISOString().split("T")[0]);
-    setDeliveryTimeSlot("morning");
-  }, [deliveryAvailability?.serviceAvailable]);
+    const nextServiceAt = deliveryAvailability?.nextServiceAt;
+    if (!nextServiceAt) return;
+
+    // The backend is authoritative for the next delivery handoff. This is
+    // either the next available partner retry during 06:00–21:30 or the next
+    // 06:00 service start during 21:30–06:00.
+    const next = new Date(nextServiceAt);
+    if (Number.isNaN(next.getTime())) return;
+
+    setDeliveryDate(next.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
+    setDeliveryTimeSlot(
+      deliveryAvailability?.status === "scheduled_for_next_service"
+        ? "morning"
+        : "next_available"
+    );
+  }, [deliveryAvailability?.nextServiceAt, deliveryAvailability?.status]);
 
   const handleAddrChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setAddrForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -627,9 +637,28 @@ export default function CheckoutPage() {
                   <div className="flex items-start gap-3">
                     <Truck className="mt-0.5 h-5 w-5 text-emerald-600" />
                     <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">{deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable ? "Delivery available" : "Delivery partners currently unavailable"}</p>
+                      <p className="font-semibold text-slate-900">
+                        {deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable
+                          ? "Delivery available"
+                          : deliveryAvailability.status === "scheduled_for_next_service"
+                            ? "Delivery service is currently closed"
+                            : "No suitable delivery partner available"}
+                      </p>
                       <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
-                      {!deliveryAvailability.serviceAvailable && <p className="mt-2 text-sm font-semibold text-amber-900">Your order can still be placed. Delivery will be scheduled for the next available delivery period.</p>}
+                      {!deliveryAvailability.serviceAvailable && deliveryAvailability.nextServiceAt && (
+                        <p className="mt-2 text-sm font-semibold text-amber-900">
+                          Next available delivery: {new Date(deliveryAvailability.nextServiceAt).toLocaleString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </p>
+                      )}
+                      {!deliveryAvailability.serviceAvailable && (
+                        <p className="mt-1 text-xs text-amber-800">
+                          Your order can still be placed. Product stock is not blocked by delivery-partner availability.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
