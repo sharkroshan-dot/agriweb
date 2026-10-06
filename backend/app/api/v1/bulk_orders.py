@@ -1127,6 +1127,100 @@ async def event_order_summary(
     return {"success": True, "data": request}
 
 
+@router.get("/event-orders/{request_id}/tracking")
+async def bulk_order_tracking(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Unified customer tracking for event and one-time weekly bulk purchases."""
+    try:
+        oid = ObjectId(request_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid bulk request id")
+
+    request = await request_repo.find_one({"_id": oid, "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Bulk order not found")
+    role = current_user.get("role")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]) and role not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Not allowed")
+
+    fulfillments = await event_fulfillment_repo.find_many(
+        {"requestId": oid, "deletedAt": None},
+        sort=[("createdAt", 1)],
+        limit=500,
+    )
+
+    # Legacy/generic bulk orders are also linked to the same request. They are
+    # included so the tracker works for older quote -> order records as well.
+    bulk_orders = await order_repo.find_many(
+        {"requestId": oid, "deletedAt": None},
+        sort=[("createdAt", 1)],
+        limit=500,
+    )
+    order_ids = [o.get("_id") for o in bulk_orders if o.get("_id")]
+
+    delivery_jobs = []
+    if order_ids:
+        delivery_repo = BaseRepository("delivery_jobs")
+        delivery_jobs = await delivery_repo.find_many(
+            {"orderId": {"$in": order_ids}, "deletedAt": None},
+            sort=[("createdAt", -1)],
+            limit=200,
+        )
+
+    fulfillment_statuses = [str(f.get("status") or "") for f in fulfillments]
+    job_statuses = [str(j.get("status") or "") for j in delivery_jobs]
+    order_statuses = [str(o.get("status") or "") for o in bulk_orders]
+    sourcing_status = str(request.get("eventSourcingStatus") or "")
+    delivery_status = str(request.get("eventDeliveryStatus") or "")
+    consolidation_status = str(request.get("eventConsolidationStatus") or "")
+
+    if request.get("status") == REQUEST_CANCELLED or "cancelled" in fulfillment_statuses:
+        current_stage = "cancelled"
+    elif any(s in ("delivered", "completed") for s in job_statuses + order_statuses) and not any(s in ("in_transit", "out_for_delivery") for s in job_statuses):
+        current_stage = "delivered"
+    elif any(s in ("in_transit", "out_for_delivery", "picked_up") for s in job_statuses) or "out_for_delivery" in order_statuses:
+        current_stage = "out_for_delivery"
+    elif any(s in ("dispatched", "ready_for_delivery") for s in job_statuses) or delivery_status == "ready_for_event_delivery":
+        current_stage = "ready_for_delivery"
+    elif consolidation_status == "consolidated" or (fulfillment_statuses and all(s == "collected" for s in fulfillment_statuses)):
+        current_stage = "consolidation"
+    elif any(s == "ready_for_collection" for s in fulfillment_statuses) or delivery_status == "collection_in_progress":
+        current_stage = "collection"
+    elif any(s in ("packing", "packed") for s in fulfillment_statuses):
+        current_stage = "packing"
+    elif any(s == "accepted" for s in fulfillment_statuses) or delivery_status == "awaiting_farmer_confirmation":
+        current_stage = "farmer_confirmation"
+    elif sourcing_status == "confirmed":
+        current_stage = "stock_reserved"
+    elif sourcing_status in ("rfq_open", "plan_ready"):
+        current_stage = "sourcing"
+    else:
+        current_stage = "order_created"
+
+    def serialize_job(job):
+        result = dict(job)
+        result["id"] = str(result.pop("_id", ""))
+        if result.get("orderId"):
+            result["orderId"] = str(result["orderId"])
+        if result.get("acceptedBy"):
+            result["acceptedBy"] = str(result["acceptedBy"])
+        return result
+
+    return {
+        "success": True,
+        "data": {
+            "request": _stringify_request(dict(request)),
+            "purchaseMode": request.get("purchaseMode") or "event",
+            "fulfillments": [await _stringify_event_fulfillment(dict(f)) for f in fulfillments],
+            "orders": [await _stringify_order(dict(o)) for o in bulk_orders],
+            "deliveryJobs": [serialize_job(j) for j in delivery_jobs],
+            "currentStage": current_stage,
+            "isActive": current_stage not in ("delivered", "cancelled"),
+        },
+    }
+
 # ================== AI RECOMMENDATION ==================
 
 @router.post("/requests/{request_id}/ai-recommend")
