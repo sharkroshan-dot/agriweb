@@ -19,6 +19,7 @@ from app.services.inventory_service import inventory_service, broadcast_stock_up
 from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
+from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
 import httpx
 import secrets
 import logging
@@ -576,11 +577,46 @@ class OrderService:
             "pickupTimeSlot": data.pickupTimeSlot,
             "requestedDeliveryDate": data.requestedDeliveryDate,
             "deliveryTimeSlot": data.deliveryTimeSlot,
+            "deliverySpeed": delivery_speed,
+            "deliveryAvailabilityStatus": (delivery_availability or {}).get("status"),
+            "deliveryAvailabilityMessage": (delivery_availability or {}).get("message"),
+            "nextDeliveryServiceAt": (delivery_availability or {}).get("nextServiceAt"),
+            "estimatedDeliveryMinutes": ((delivery_details or {}).get("estimatedDeliveryMinutes") if delivery_details else None),
             "farmAddress": farm_address,
             "pickupInstructions": pickup_instructions,
             "isBulkOrder": is_bulk_order,
             "bulkDiscountApplied": bulk_discount_applied
         }
+
+        delivery_speed = data.deliverySpeed or "standard"
+        delivery_availability = None
+        if not is_pickup:
+            delivery_availability = await get_delivery_service_availability(
+                destination=(delivery_address or {}).get("location")
+            )
+            fastest = estimate_fastest_eligibility(
+                distance_km=(delivery_details or {}).get("distanceKm") if delivery_details else None
+            )
+            if delivery_speed == "fastest_30m" and (
+                not delivery_availability.get("serviceAvailable")
+                or not delivery_availability.get("partnerAvailable")
+                or not fastest.get("eligible")
+            ):
+                # The customer can still place the order. Fastest Delivery is
+                # downgraded to standard/next-service delivery instead of
+                # rejecting an otherwise valid product order.
+                delivery_speed = "standard"
+                order_data = locals().get("order_data", {})
+            if delivery_details is not None:
+                delivery_details["serviceAvailable"] = bool(delivery_availability.get("serviceAvailable"))
+                delivery_details["partnerAvailable"] = bool(delivery_availability.get("partnerAvailable"))
+                delivery_details["availablePartnerCount"] = int(delivery_availability.get("availablePartnerCount", 0) or 0)
+                delivery_details["fastestEligible"] = bool(fastest.get("eligible"))
+                delivery_details["estimatedDeliveryMinutes"] = fastest.get("estimatedMinutes")
+                delivery_details["fastestReason"] = fastest.get("reason")
+                delivery_details["availabilityStatus"] = delivery_availability.get("status")
+                delivery_details["availabilityMessage"] = delivery_availability.get("message")
+                delivery_details["nextDeliveryServiceAt"] = delivery_availability.get("nextServiceAt")
 
         if delivery_details:
             order_data["deliveryDetails"] = delivery_details
