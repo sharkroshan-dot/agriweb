@@ -126,6 +126,8 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   Widget _buildTrackingMap(Map<String, dynamic> tracking, Map<String, dynamic>? partner) {
     final current = _trackingPoint(tracking['currentLocation']);
     final destination = _trackingPoint(tracking['deliveryLocation']);
+    final rawRoute = tracking['route'];
+    final route = rawRoute is List ? rawRoute.map(_trackingPoint).whereType<LatLng>().toList() : <LatLng>[];
     final center = current ?? destination;
     if (center == null) return const SizedBox.shrink();
 
@@ -157,6 +159,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.agriconnect.mobile',
             ),
+            if (route.length >= 2) PolylineLayer(polylines: [Polyline(points: route, strokeWidth: 4, color: AppTheme.primaryGreen)]),
             MarkerLayer(markers: markers),
             RichAttributionWidget(
               attributions: [
