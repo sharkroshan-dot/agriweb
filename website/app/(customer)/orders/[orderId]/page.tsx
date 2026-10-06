@@ -466,6 +466,7 @@ export default function OrderDetailPage() {
   const canReorder = order.status === "delivered";
   const canCancel = cancelEligibility?.eligible === true;
   const cancelRequiresReview = canCancel && cancelEligibility?.requiresReview === true;
+  const cancellationBlockedReason = !canCancel ? (cancelEligibility?.reason || "") : "";
   const cancelEstimate = Number(cancelEligibility?.estimatedRefund ?? 0);
   const hasRefund = orderRefunds.length > 0;
   const canReportProblem = !hasRefund && order.status === "delivered";
@@ -632,6 +633,9 @@ export default function OrderDetailPage() {
             <Button onClick={handleBuyAgain}>
               <RefreshCw className="mr-2 h-4 w-4" /> Buy Again
             </Button>
+          )}
+          {!canCancel && cancellationBlockedReason && (
+            <span className="text-xs text-slate-500">{cancellationBlockedReason}</span>
           )}
           {canCancel && (
             <Button variant="outline" className="border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setShowCancelDialog(true)}>
