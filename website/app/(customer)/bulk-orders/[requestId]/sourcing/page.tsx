@@ -129,32 +129,54 @@ export default function EventSourcingPage() {
   const isConfirmed = confirmed || request.eventSourcingStatus === "confirmed";
   const fulfillmentRows = summaryQuery.data?.data?.fulfillmentSummary || {};
   const fulfillmentCount = summaryQuery.data?.data?.fulfillmentCount || 0;
+  const steps = isFamilyWeekly
+    ? ["Smart Sourcing", "Your Selection", "Reserve Stock", "Fulfillment"]
+    : planned
+      ? ["Smart Sourcing", "Farmer Quotes", "Your Selection", "Reserve Stock", "Fulfillment"]
+      : ["Smart Sourcing", "Your Selection", "Reserve Stock", "Fulfillment"];
+  const activeStep = isConfirmed ? steps.length : planned ? (offers.length ? 3 : 2) : sourcing ? 2 : 1;
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            {isFamilyWeekly ? (
-              <ShoppingBasket className="h-6 w-6 text-emerald-600" />
-            ) : (
-              <PackageSearch className="h-6 w-6 text-emerald-600" />
-            )}
-            <h1 className="text-2xl font-bold">
-              {isFamilyWeekly ? "Weekly Family Basket · Smart Sourcing" : planned ? "Planned Event · Smart Sourcing + Quotes" : "Urgent Event · Smart Sourcing"}
-            </h1>
+    <div className="mx-auto max-w-5xl space-y-5 pb-8">
+      <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50">
+                {isFamilyWeekly ? <ShoppingBasket className="h-5 w-5 text-emerald-600" /> : <PackageSearch className="h-5 w-5 text-emerald-600" />}
+              </div>
+              <div>
+                <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+                  {isFamilyWeekly ? "Weekly Family Basket" : planned ? "Planned Event Sourcing" : "Urgent Event Sourcing"}
+                </h1>
+                <p className="mt-1 text-sm text-slate-500">{request.requestNumber} · {request.purpose}{request.guestCount ? ` · ${request.guestCount} guests` : ""}</p>
+              </div>
+            </div>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
-            {request.requestNumber} · {request.purpose} {request.guestCount ? `· ${request.guestCount} guests` : ""}
-          </p>
+          <Badge variant={isConfirmed ? "success" : urgent ? "warning" : "secondary"} className="w-fit">
+            {isConfirmed ? "Stock Reserved" : planned ? "Waiting for Quotes" : urgent ? "Urgent · ≤24h" : "Finding Stock"}
+          </Badge>
         </div>
-        <Badge variant={isConfirmed ? "success" : urgent ? "warning" : "secondary"}>
-          {isConfirmed ? "Stock Reserved" : planned ? "RFQ · Waiting for Quotes" : urgent ? "Urgent · ≤24h" : "Finding Available Stock"}
-        </Badge>
-      </div>
+        <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4 ">
+          {steps.map((step, index) => {
+            const done = activeStep > index + 1;
+            const current = activeStep === index + 1;
+            return (
+              <div key={step} className={`rounded-xl border px-3 py-2.5 ${done ? "border-emerald-200 bg-emerald-50" : current ? "border-slate-300 bg-slate-50" : "border-slate-100 bg-white"}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${done ? "bg-emerald-600 text-white" : current ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-400"}`}>
+                    {done ? "✓" : index + 1}
+                  </span>
+                  <span className={`text-xs font-medium ${current || done ? "text-slate-800" : "text-slate-400"}`}>{step}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </header>
 
       {isFamilyWeekly ? (
-        <Card className="border-emerald-200 bg-emerald-50">
+        <Card className="border-emerald-100 bg-white shadow-sm">
           <CardContent className="flex items-start gap-3 p-4">
             <ShoppingBasket className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
             <div>
@@ -166,7 +188,7 @@ export default function EventSourcingPage() {
           </CardContent>
         </Card>
       ) : urgent && !isConfirmed ? (
-        <Card className="border-amber-200 bg-amber-50">
+        <Card className="border-amber-100 bg-white shadow-sm">
           <CardContent className="flex items-start gap-3 p-4">
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
             <div>
@@ -183,7 +205,7 @@ export default function EventSourcingPage() {
       ) : null}
 
       {planned && !isConfirmed ? (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-100 bg-white shadow-sm">
           <CardContent className="space-y-3 p-5">
             <div>
               <p className="font-semibold text-blue-900">Planned Event — Request Farmer Quotes</p>
@@ -237,7 +259,7 @@ export default function EventSourcingPage() {
       ) : null}
 
       {isConfirmed ? (
-        <Card className="border-emerald-200 bg-emerald-50">
+        <Card className="border-emerald-100 bg-white shadow-sm">
           <CardContent className="flex items-center gap-3 p-5">
             <CheckCircle2 className="h-6 w-6 text-emerald-600" />
             <div>
@@ -314,7 +336,7 @@ export default function EventSourcingPage() {
       </Card>
 
       {missing.length > 0 && !isConfirmed ? (
-        <Card className="border-red-200">
+        <Card className="border-red-100 bg-white">
           <CardContent className="space-y-2 p-5">
             <p className="font-semibold text-red-700">Cannot guarantee the complete order yet</p>
             {missing.map((m: any) => (
