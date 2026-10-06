@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:async';
 
 import '../../../../core/services/api_service.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -42,12 +43,165 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
   String _feedback = '';
   bool _partnerSubmitting = false;
   Map<String, dynamic>? _partnerRatingData;
+  Map<String, dynamic>? _tracking;
+  Timer? _trackingTimer;
+  bool _trackingLoading = false;
 
   @override
   void initState() {
     super.initState();
     _loadOrder();
   }
+
+  @override
+  void dispose() {
+    _trackingTimer?.cancel();
+    super.dispose();
+  }
+
+  bool _isTrackableStatus(String status) {
+    return const {
+      'pending', 'confirmed', 'processing', 'ready_for_delivery',
+      'dispatched', 'in_transit', 'shipped', 'out_for_delivery', 'picked_up'
+    }.contains(status.toLowerCase());
+  }
+
+  Future<void> _loadTracking({bool showLoading = false}) async {
+    if (showLoading && mounted) setState(() => _trackingLoading = true);
+    try {
+      final res = await ApiService.get('/orders/${widget.orderId}/track');
+      final data = res['data'] is Map<String, dynamic> ? res['data'] as Map<String, dynamic> : res;
+      if (!mounted) return;
+      setState(() => _tracking = data);
+    } catch (_) {
+      // Keep the last successful tracking snapshot visible during transient network failures.
+    } finally {
+      if (mounted && showLoading) setState(() => _trackingLoading = false);
+    }
+  }
+
+  Future<void> _openTracking() async {
+    final status = _orderStatus();
+    if (!_isTrackableStatus(status) && status != 'delivered') {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Live tracking is not available for this order yet.')));
+      return;
+    }
+    await _loadTracking(showLoading: true);
+    if (!mounted) return;
+    _trackingTimer?.cancel();
+    _trackingTimer = Timer.periodic(const Duration(seconds: 10), (_) => _loadTracking());
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => StatefulBuilder(
+        builder: (sheetContext, setSheetState) {
+          // Rebuild the sheet whenever the parent receives a fresh tracking snapshot.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (sheetContext.mounted) setSheetState(() {});
+          });
+          return _buildTrackingSheet(sheetContext);
+        },
+      ),
+    );
+    _trackingTimer?.cancel();
+  }
+
+  Widget _buildTrackingSheet(BuildContext sheetContext) {
+    final t = _tracking ?? <String, dynamic>{};
+    final status = (t['orderStatus'] as String? ?? _orderStatus()).toLowerCase();
+    final partner = t['deliveryPartner'] is Map ? t['deliveryPartner'] as Map<String, dynamic> : null;
+    final history = (t['statusHistory'] is List ? t['statusHistory'] as List : const [])
+        .whereType<Map<String, dynamic>>().toList();
+    final distance = t['distanceRemaining'];
+    final eta = t['eta']?.toString();
+    final updated = t['locationUpdatedAt']?.toString() ?? t['lastUpdated']?.toString();
+    final current = t['currentLocation'];
+    final hasLocation = current is Map && current['coordinates'] is List && (current['coordinates'] as List).length >= 2;
+
+    String pretty(String value) => value.replaceAll('_', ' ').split(' ').map((x) => x.isEmpty ? x : '${x[0].toUpperCase()}${x.substring(1)}').join(' ');
+
+    return SafeArea(
+      child: Container(
+        height: MediaQuery.of(sheetContext).size.height * 0.86,
+        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 12, 8),
+              child: Row(children: [
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Track Order', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  Text('#${widget.orderId}', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                ])),
+                IconButton(onPressed: _trackingLoading ? null : () async { await _loadTracking(showLoading: true); }, icon: _trackingLoading ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.refresh)),
+                IconButton(onPressed: () => Navigator.pop(sheetContext), icon: const Icon(Icons.close)),
+              ]),
+            ),
+            Expanded(
+              child: ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(color: AppTheme.primaryGreen.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(16), border: Border.all(color: AppTheme.primaryGreen.withValues(alpha: 0.25))),
+                  child: Row(children: [
+                    Container(width: 12, height: 12, decoration: BoxDecoration(color: _statusColor(status), shape: BoxShape.circle)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(pretty(status), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      if (updated != null) Text('Last updated: $updated', style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+                    ])),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+                Row(children: [
+                  Expanded(child: _trackingMetric('ETA', eta ?? 'Calculating...')),
+                  const SizedBox(width: 8),
+                  Expanded(child: _trackingMetric('Distance', distance != null ? '${distance} km' : '—')),
+                ]),
+                if (partner != null) ...[
+                  const SizedBox(height: 12),
+                  Container(padding: const EdgeInsets.all(14), decoration: BoxDecoration(border: Border.all(color: AppTheme.border), borderRadius: BorderRadius.circular(14)), child: Row(children: [
+                    const CircleAvatar(child: Icon(Icons.local_shipping_outlined)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(partner['name']?.toString() ?? 'Delivery Partner', style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text([partner['vehicleType'], partner['vehicleNumber']].where((x) => x != null && x.toString().isNotEmpty).join(' · '), style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                    ])),
+                    if (partner['phone'] != null) IconButton(onPressed: () {}, icon: const Icon(Icons.phone_outlined)),
+                  ])),
+                ],
+                const SizedBox(height: 16),
+                const Text('Order progress', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                if (history.isEmpty) Text('Order updates will appear here as fulfillment progresses.', style: TextStyle(color: AppTheme.textSecondary)),
+                ...history.asMap().entries.map((entry) {
+                  final h = entry.value;
+                  final isLast = entry.key == history.length - 1;
+                  return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    SizedBox(width: 24, child: Column(children: [Container(width: 12, height: 12, decoration: BoxDecoration(color: AppTheme.primaryGreen, shape: BoxShape.circle)), if (!isLast) Container(width: 2, height: 48, color: AppTheme.border)])),
+                    Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(h['title']?.toString() ?? pretty(h['status']?.toString() ?? 'Status update'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      if (h['description'] != null) Text(h['description'].toString(), style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                      if (h['timestamp'] != null) Text(h['timestamp'].toString(), style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+                    ])),
+                  ]);
+                }),
+                const SizedBox(height: 4),
+                if (hasLocation) Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Row(children: [
+                  const Icon(Icons.location_on_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Delivery partner location is being updated live. Refreshes every 10 seconds.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
+                ]))
+                else Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Text('Live map location will appear when the delivery partner starts sharing their location.', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary))),
+              ],),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _trackingMetric(String label, String value) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Column(children: [Text(label, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)), const SizedBox(height: 4), Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))]);
 
   String _orderStatus() {
     return (_order?['orderStatus'] as String? ?? _order?['status'] as String? ?? 'pending').toLowerCase();
@@ -191,7 +345,7 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Tracking feature coming soon'))),
+                        onPressed: _openTracking,
                         icon: const Icon(Icons.track_changes),
                         label: const Text('Track Order'),
                       ),
