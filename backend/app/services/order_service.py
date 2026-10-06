@@ -564,7 +564,6 @@ class OrderService:
                 # downgraded to standard/next-service delivery instead of
                 # rejecting an otherwise valid product order.
                 delivery_speed = "standard"
-                order_data = locals().get("order_data", {})
             if delivery_details is not None:
                 delivery_details["serviceAvailable"] = bool(delivery_availability.get("serviceAvailable"))
                 delivery_details["partnerAvailable"] = bool(delivery_availability.get("partnerAvailable"))
