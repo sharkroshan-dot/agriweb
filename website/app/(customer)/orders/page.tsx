@@ -132,6 +132,11 @@ export default function CustomerOrdersPage() {
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <span className="font-semibold text-emerald-700">{formatPrice(order.total)}</span>
                   <div className="flex flex-wrap items-center gap-2">
+                    {["pending", "confirmed", "processing", "ready_for_delivery", "dispatched", "in_transit", "shipped", "out_for_delivery", "picked_up"].includes(order.status) && (
+                      <Button size="sm" asChild>
+                        <Link href={`/orders/${order.id}`}><Truck className="mr-1.5 h-3.5 w-3.5" /> Track Order</Link>
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" asChild><Link href={`/orders/${order.id}`}><Package className="mr-1.5 h-3.5 w-3.5" /> Details</Link></Button>
                     {(order.status === "delivered" || order.status === "cancelled") && (
                       <Button size="sm" onClick={() => handleBuyAgain(order)}><RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Buy Again</Button>
