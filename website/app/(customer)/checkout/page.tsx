@@ -199,6 +199,14 @@ export default function CheckoutPage() {
     return () => { cancelled = true; };
   }, [estimatedDeliveryAddressId, items]);
 
+  useEffect(() => {
+    if (!deliveryAvailability || deliveryAvailability.serviceAvailable) return;
+    const next = new Date();
+    next.setDate(next.getDate() + 1);
+    setDeliveryDate(next.toISOString().split("T")[0]);
+    setDeliveryTimeSlot("morning");
+  }, [deliveryAvailability?.serviceAvailable]);
+
   const handleAddrChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setAddrForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   };
@@ -621,7 +629,7 @@ export default function CheckoutPage() {
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-900">{deliveryAvailability.serviceAvailable && deliveryAvailability.partnerAvailable ? "Delivery available" : "Delivery partners currently unavailable"}</p>
                       <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
-                      {!deliveryAvailability.serviceAvailable && <p className="mt-2 text-sm font-semibold text-amber-900">Your order can still be placed. Delivery will be handled in the next available delivery period.</p>}
+                      {!deliveryAvailability.serviceAvailable && <p className="mt-2 text-sm font-semibold text-amber-900">Your order can still be placed. Delivery will be scheduled for the next available delivery period.</p>}
                     </div>
                   </div>
                 </div>
