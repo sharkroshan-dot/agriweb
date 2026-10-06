@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -297,6 +298,10 @@ export default function EventSourcingPage() {
               </p>
               <p className="text-sm text-emerald-800">
                 {fulfillmentCount} farmer fulfillment allocation(s) are now being prepared.
+              </p>
+              <Button asChild className="mt-3">
+                <Link href={"/bulk-orders/" + requestId + "/tracking"}>Track Bulk Order</Link>
+              </Button>
               </p>
             </div>
           </CardContent>
