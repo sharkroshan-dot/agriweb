@@ -1088,19 +1088,29 @@ class OrderService:
                 pass
             elif current_status == OrderStatus.PROCESSING:
                 fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+                warehouse_stage = str(order.get("warehouseFulfillmentStage") or "").lower()
                 packing_started = bool(
                     order.get("packingStarted")
                     or order.get("packing_started")
                     or order.get("packingStartedAt")
                     or order.get("packing_started_at")
-                )
-                packing_complete = bool(
-                    order.get("packingComplete")
+                    or order.get("packingComplete")
                     or order.get("packing_complete")
                     or order.get("packingCompletedAt")
                     or order.get("packing_completed_at")
+                    or fulfillment_stage in {
+                        FulfillmentStage.PACKED.value,
+                        FulfillmentStage.DISPATCHED.value,
+                    }
+                    or warehouse_stage in {
+                        "packing",
+                        "packed",
+                        "ready_for_dispatch",
+                        "delivery_decision",
+                        "dispatched",
+                    }
                 )
-                if fulfillment_stage == FulfillmentStage.PACKED.value or packing_started or packing_complete:
+                if packing_started:
                     return None
             else:
                 return None
