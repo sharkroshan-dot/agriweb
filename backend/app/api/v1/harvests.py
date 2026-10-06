@@ -490,35 +490,70 @@ async def _apply_harvest(plan: dict) -> int:
         if requested <= 0:
             continue
 
-        # FIFO: do not partially promise a pre-order. Customers either get
-        # their requested quantity or remain waitlisted for a later resolution.
-        if requested <= remaining + 0.0001:
+        final_rate = float(plan.get("finalRatePerKg") or plan.get("finalSellingRatePerKg") or po.get("unitPricePerKg") or 0)
+        allocated = min(requested, max(0.0, remaining))
+
+        if allocated >= requested - 0.0001:
             remaining -= requested
-            final_rate = float(plan.get("finalRatePerKg") or plan.get("finalSellingRatePerKg") or po.get("unitPricePerKg") or 0)
-            update = {
-                "status": "confirmed",
-                "allocatedQuantityKg": requested,
-                "productId": plan.get("productId"),
-                "plannedUnitPricePerKg": float(po.get("unitPricePerKg") or 0),
-                "finalUnitPricePerKg": final_rate,
-                "finalTotal": round(requested * final_rate, 2),
-                "priceChange": round(final_rate - float(po.get("unitPricePerKg") or 0), 2),
-                "harvestConfirmedAt": now,
-                "updatedAt": now,
-            }
-            await harvest_preorder_repo.update({"_id": po["_id"]}, update)
+            await harvest_preorder_repo.update(
+                {"_id": po["_id"]},
+                {
+                    "status": "confirmed",
+                    "allocatedQuantityKg": requested,
+                    "productId": plan.get("productId"),
+                    "plannedUnitPricePerKg": float(po.get("unitPricePerKg") or 0),
+                    "finalUnitPricePerKg": final_rate,
+                    "finalTotal": round(requested * final_rate, 2),
+                    "priceChange": round(final_rate - float(po.get("unitPricePerKg") or 0), 2),
+                    "harvestConfirmedAt": now,
+                    "updatedAt": now,
+                },
+            )
+            title = "Your pre-order quantity is reserved 🌾"
+            message = f"{plan.get('cropName')} was harvested. Your full {requested:g} kg reservation is secured. Final price is ₹{final_rate:g}/kg; quality verification is still pending."
+            status_type = "preorder_harvested"
+        elif allocated > 0:
+            # The harvest can partially satisfy this FIFO reservation. Never
+            # silently reduce the customer's order: ask them to accept the
+            # smaller quantity or cancel the pre-order.
+            remaining = 0.0
+            shortage = round(requested - allocated, 3)
+            await harvest_preorder_repo.update(
+                {"_id": po["_id"]},
+                {
+                    "status": "partial_offer",
+                    "allocatedQuantityKg": allocated,
+                    "requestedQuantityKg": requested,
+                    "shortageKg": shortage,
+                    "productId": plan.get("productId"),
+                    "plannedUnitPricePerKg": float(po.get("unitPricePerKg") or 0),
+                    "finalUnitPricePerKg": final_rate,
+                    "finalTotal": round(allocated * final_rate, 2),
+                    "priceChange": round(final_rate - float(po.get("unitPricePerKg") or 0), 2),
+                    "harvestConfirmedAt": now,
+                    "partialOfferExpiresAt": now + timedelta(hours=48),
+                    "updatedAt": now,
+                },
+            )
             try:
                 await NotificationService.create_in_app_notification(
                     str(po.get("customerId")),
                     NotificationType.ORDER,
-                    "Your pre-order quantity is reserved 🌾",
-                    f"{plan.get('cropName')} was harvested. Your {requested:g} kg reservation is secured. Final price is ₹{final_rate:g}/kg; quality verification is still pending.",
-                    {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_harvested"},
+                    f"Only {allocated:g} kg of your {plan.get('cropName')} pre-order is available",
+                    f"The farmer harvested {actual_qty:g} kg, so we can offer {allocated:g} kg instead of your requested {requested:g} kg. Accept {allocated:g} kg to continue, or cancel the pre-order.",
+                    {
+                        "harvestPlanId": str(plan["_id"]),
+                        "preorderId": str(po["_id"]),
+                        "type": "preorder_partial_offer",
+                        "action": "choose_partial_or_cancel",
+                        "offeredQuantityKg": allocated,
+                        "requestedQuantityKg": requested,
+                    },
                     NotificationPriority.HIGH,
                 )
                 notified += 1
             except Exception:
-                logger.exception("Failed to notify confirmed preorder %s", po.get("_id"))
+                logger.exception("Failed to notify partial preorder %s", po.get("_id"))
         else:
             await harvest_preorder_repo.update(
                 {"_id": po["_id"]},
@@ -535,7 +570,7 @@ async def _apply_harvest(plan: dict) -> int:
                     str(po.get("customerId")),
                     NotificationType.ORDER,
                     "Pre-order waitlisted",
-                    f"{plan.get('cropName')} was harvested, but only {actual_qty:g} kg was available and your {requested:g} kg request could not be fully allocated. The farmer must resolve the shortage before this pre-order can continue.",
+                    f"{plan.get('cropName')} was harvested, but no quantity remained for your {requested:g} kg request. Your pre-order is waitlisted and no payment has been taken.",
                     {"harvestPlanId": str(plan["_id"]), "preorderId": str(po["_id"]), "type": "preorder_shortage"},
                     NotificationPriority.HIGH,
                 )
@@ -1204,6 +1239,73 @@ async def unsubscribe_notify(
         "customerId": ObjectId(current_user["_id"]),
     })
     return {"success": True, "message": "Unsubscribed" if ok else "No active subscription"}
+
+
+class PartialPreOrderDecision(BaseModel):
+    decision: str  # "accept" | "cancel"
+
+
+@router.post("/my/preorders/{preorder_id}/partial-decision")
+async def decide_partial_preorder(
+    preorder_id: str,
+    data: PartialPreOrderDecision,
+    current_user: dict = Depends(get_current_user),
+):
+    """Customer accepts the offered partial quantity or cancels the pre-order."""
+    if current_user.get("role") != "customer":
+        raise HTTPException(status_code=403, detail="Only customers can decide a pre-order")
+    if data.decision not in {"accept", "cancel"}:
+        raise HTTPException(status_code=422, detail="Decision must be accept or cancel")
+
+    try:
+        oid = ObjectId(preorder_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Pre-order not found")
+
+    po = await harvest_preorder_repo.find_one({
+        "_id": oid,
+        "customerId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not po:
+        raise HTTPException(status_code=404, detail="Pre-order not found")
+    if po.get("status") != "partial_offer":
+        raise HTTPException(status_code=409, detail="This pre-order has no active partial-quantity offer")
+
+    expires = po.get("partialOfferExpiresAt")
+    if expires and _to_naive_utc(expires) < datetime.utcnow():
+        await harvest_preorder_repo.update(
+            {"_id": oid},
+            {"status": "cancelled", "cancellationReason": "Partial offer expired", "cancelledAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+        )
+        raise HTTPException(status_code=409, detail="The partial quantity offer has expired")
+
+    now = datetime.utcnow()
+    if data.decision == "cancel":
+        await harvest_preorder_repo.update(
+            {"_id": oid},
+            {"status": "cancelled", "cancellationReason": "Customer declined partial quantity", "cancelledAt": now, "updatedAt": now},
+        )
+        return {"success": True, "data": {"status": "cancelled"}, "message": "Pre-order cancelled. No payment was taken."}
+
+    quantity = float(po.get("allocatedQuantityKg") or 0)
+    if quantity <= 0:
+        raise HTTPException(status_code=409, detail="No quantity is available to accept")
+
+    await harvest_preorder_repo.update(
+        {"_id": oid},
+        {
+            "status": "confirmed",
+            "acceptedPartialQuantityKg": quantity,
+            "partialOfferAcceptedAt": now,
+            "updatedAt": now,
+        },
+    )
+    return {
+        "success": True,
+        "data": {"status": "confirmed", "quantityKg": quantity},
+        "message": f"{quantity:g} kg accepted. Quality approval is still required before payment.",
+    }
 
 
 @router.get("/my/preorders")
