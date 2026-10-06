@@ -68,11 +68,13 @@ async def get_delivery_service_availability(
             "partnerAvailable": True,
             "availablePartnerCount": partner_count,
             "status": "available",
-            "message": "Delivery service is currently available.",
+            "message": "Delivery service is active (06:00–21:30) and a suitable delivery partner is available.",
             "nextServiceAt": None,
             "timezone": str(DELIVERY_SERVICE_TZ),
             "serviceStart": "06:00",
             "serviceEnd": "21:30",
+            "serviceWindow": "06:00-21:30",
+            "deliveryDecision": "calculate_eta",
         }
 
     if not active_window:
@@ -106,6 +108,8 @@ async def get_delivery_service_availability(
         "timezone": str(DELIVERY_SERVICE_TZ),
         "serviceStart": "06:00",
         "serviceEnd": "21:30",
+        "serviceWindow": "06:00-21:30",
+        "deliveryDecision": "next_available_delivery_time",
     }
 
 
