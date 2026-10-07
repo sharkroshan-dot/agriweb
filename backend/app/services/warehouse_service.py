@@ -359,7 +359,7 @@ class WarehouseService:
             except Exception:
                 logger.exception("Failed to update farmer transfer order after receipt")
 
-        if incoming.get("orderId") and quality_check == "passed" and str(incoming.get("status")) == "received":
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") != "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
             try:
                 from app.repositories.order_repository import order_repository
                 await order_repository.update(
@@ -407,19 +407,22 @@ class WarehouseService:
             "deletedAt": None,
         }
         existing_stock = await warehouse_stock_repository.find_one(stock_filter)
+        is_packed_transfer = str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer"
         stock_data = {
             "warehouseId": ObjectId(warehouse_id),
             "productId": ObjectId(str(incoming["productId"])),
             "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
             "quantity": int(usable),
+            "reservedQuantity": int(usable) if is_packed_transfer else 0,
             "batchNumber": incoming.get("batchNumber"),
             "storageType": incoming.get("storageType", "ambient"),
+            "holdReason": "farmer_fulfillment_transfer" if is_packed_transfer else None,
         }
         if existing_stock:
-            await warehouse_stock_repository.update_stock(
-                str(existing_stock["_id"]),
-                {"quantity": int(existing_stock.get("quantity", 0)) + int(usable)},
-            )
+            stock_update = {"quantity": int(existing_stock.get("quantity", 0)) + int(usable)}
+            if is_packed_transfer:
+                stock_update["reservedQuantity"] = int(existing_stock.get("reservedQuantity", 0) or 0) + int(usable)
+            await warehouse_stock_repository.update_stock(str(existing_stock["_id"]), stock_update)
         else:
             if not await warehouse_stock_repository.create_stock(stock_data):
                 return None
@@ -486,38 +489,37 @@ class WarehouseService:
                 raise
             return await incoming_stock_repository.get_by_id(incoming_id)
 
-        # Transfer-only inbound from Farmer Fulfillment is already packed.
-        # It goes directly to dispatch after receipt/storage; warehouse packing
-        # is only used when packingRequired is true.
-        if incoming.get("orderId") and incoming.get("packingRequired") is False:
+        # Farmer Fulfillment transfers are already packed and sealed. They are
+        # held as reserved physical stock only; they never enter warehouse
+        # packing or the normal outgoing/dispatch queue.
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and incoming.get("packingRequired") is False:
             try:
                 from app.repositories.order_repository import order_repository
-                from app.repositories.outgoing_stock_repository import outgoing_stock_repository
-                existing = await outgoing_stock_repository.get_by_order_id(
-                    str(incoming["orderId"]), str(incoming["productId"]), str(incoming.get("variantId") or "")
-                )
-                if not existing:
-                    await WarehouseService.create_outgoing(OutgoingStockCreate(
-                        warehouseId=str(warehouse_id),
-                        productId=str(incoming["productId"]),
-                        variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
-                        orderId=str(incoming["orderId"]),
-                        quantity=int(incoming.get("quantity", 0)),
-                        batchNumber=incoming.get("batchNumber"),
-                    ))
                 await order_repository.update(
                     {"_id": ObjectId(str(incoming["orderId"]))},
-                    {"warehouseFulfillmentStage": "ready_for_dispatch", "updatedAt": datetime.utcnow()},
+                    {
+                        "warehouseFulfillmentStage": "stored_transfer",
+                        "transferStatus": "warehouse_received_stored",
+                        "updatedAt": datetime.utcnow(),
+                    },
+                )
+                await order_repository.append_tracking_event(
+                    str(incoming["orderId"]),
+                    "farmer_fulfillment_transfer_stored",
+                    "Packed farmer order held at warehouse",
+                    "The warehouse verified and stored the sealed farmer-packed shipment. No warehouse repacking is required.",
+                    actor_role="warehouse",
+                    metadata={"incomingStockId": str(incoming["_id"]), "warehouseId": warehouse_id},
                 )
             except Exception:
-                logger.exception("Failed to create transfer-only dispatch for %s", incoming.get("orderId"))
+                logger.exception("Failed to update farmer transfer after storage")
             return await incoming_stock_repository.get_by_id(incoming_id)
 
         # Warehouse fulfillment creates exactly one order-level packing task.
         # The task is created only after EVERY inbound line for the order is stored.
         # This prevents a multi-product customer order from being treated as packed
         # when only one product line reached the packing queue.
-        if incoming.get("orderId"):
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") != "farmer_fulfillment_transfer":
             await WarehouseService.ensure_order_packing_task(str(incoming["orderId"]), str(warehouse_id))
         return await incoming_stock_repository.get_by_id(incoming_id)
 
