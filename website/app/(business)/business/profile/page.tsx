@@ -176,6 +176,10 @@ export default function BusinessProfilePage() {
             <label className="text-xs font-medium text-gray-500">Address</label>
             <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
           </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-xs font-medium text-gray-500">Procurement requirements</label>
+            <textarea value={form.procurementRequirements} onChange={(e) => setForm({ ...form, procurementRequirements: e.target.value })} maxLength={2000} className="min-h-24 w-full rounded-md border border-gray-200 p-2 text-sm" placeholder="Products, quantities, quality and procurement frequency" />
+          </div>
           <div className="sm:col-span-2">
             <Button
               className="w-full sm:w-auto"
