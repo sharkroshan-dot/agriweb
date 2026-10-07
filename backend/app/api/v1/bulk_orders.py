@@ -1234,14 +1234,12 @@ async def bulk_order_tracking(
     )
     order_ids = [o.get("_id") for o in bulk_orders if o.get("_id")]
 
-    delivery_jobs = []
-    if order_ids:
-        delivery_repo = BaseRepository("delivery_jobs")
-        delivery_jobs = await delivery_repo.find_many(
-            {"orderId": {"$in": order_ids}, "deletedAt": None},
-            sort=[("createdAt", -1)],
-            limit=200,
-        )
+    delivery_repo = BaseRepository("delivery_jobs")
+    delivery_jobs = await delivery_repo.find_many(
+        {"$or": [{"orderId": {"$in": order_ids}} if order_ids else {"orderId": {"$exists": False}}, {"eventRequestId": oid}], "deletedAt": None},
+        sort=[("createdAt", -1)],
+        limit=200,
+    )
 
     fulfillment_statuses = [str(f.get("status") or "") for f in fulfillments]
     job_statuses = [str(j.get("status") or "") for j in delivery_jobs]
@@ -1260,7 +1258,7 @@ async def bulk_order_tracking(
         current_stage = "delivery_partner"
     elif any(s in ("dispatched", "ready_for_delivery") for s in job_statuses) or delivery_status == "ready_for_event_delivery":
         current_stage = "ready_for_delivery"
-    elif consolidation_status == "consolidated" or (fulfillment_statuses and all(s == "collected" for s in fulfillment_statuses)):
+    elif consolidation_status in ("consolidated", "consolidation_ready") or (fulfillment_statuses and all(s == "collected" for s in fulfillment_statuses)):
         current_stage = "consolidation"
     elif any(s == "ready_for_collection" for s in fulfillment_statuses) or delivery_status == "collection_in_progress":
         current_stage = "collection"
