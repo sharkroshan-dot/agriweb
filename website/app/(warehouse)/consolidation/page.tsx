@@ -126,6 +126,13 @@ export default function FarmerFulfillmentConsolidationPage() {
                   <div className="rounded-lg border p-3"><p className="text-xs text-muted-foreground">Local Hub</p><p className="mt-1 font-semibold">{row.localHub?.name || "Not assigned"}</p></div>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" disabled={!row.canDispatchToConsolidation || busy === row.orderId} onClick={() => dispatchPortion(row.orderId)}>
+                    <Truck className="mr-2 h-4 w-4" />Dispatch Portion
+                  </Button>
+                  <Button variant="outline" disabled={busy === row.orderId || !row.isConsolidationWarehouse} onClick={() => receiveAtConsolidation(row.orderId)}>
+                    <Warehouse className="mr-2 h-4 w-4" />Receive at Consolidation
+                  </Button>
+
                   {row.allocations?.map((a: any, index: number) => (
                     <Badge key={index} variant="outline"><Warehouse className="mr-1 h-3.5 w-3.5" />{a.warehouseName}: {a.productName} {a.quantity} {a.unit}</Badge>
                   ))}
