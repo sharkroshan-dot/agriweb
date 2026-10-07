@@ -38,6 +38,22 @@ export default function FarmerFulfillmentWarehousePage() {
   });
   const consolidations=consolidationData?.data?.consolidations||[];
 
+  const requestReturn=async(orderId:string)=>{
+    const reason=window.prompt("Reason for returning this farmer-packed shipment to the farmer:");
+    if(!reason?.trim()) return;
+    try{
+      await api.post(`/warehouse/me/farmer-fulfillment/${orderId}/return-to-farmer`,{reason:reason.trim()});
+      toast.success("Return request sent to farmer");
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Return request failed");}
+  };
+  const dispatchReturn=async(transferId:string)=>{
+    try{
+      await api.put(`/warehouse/me/farmer-fulfillment/returns/${transferId}/dispatch`);
+      toast.success("Return dispatched to farmer");
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Return dispatch failed");}
+  };
   const receive=async(id:string,qty:number)=>{
     try {
       await api.put(`/warehouse/me/incoming/${id}/receive`,{quantity:qty,qualityCheck:"passed",notes:"Farmer-packed fulfillment received at warehouse"});
@@ -96,7 +112,8 @@ export default function FarmerFulfillmentWarehousePage() {
             <p className="mt-2 text-sm text-muted-foreground">Farmer: {o.farmerName||"Assigned Farmer"} · Warehouse: {o.warehouseName}</p>
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3"/>Customer: {[o.deliveryAddress?.addressLine1,o.deliveryAddress?.city,o.deliveryAddress?.state].filter(Boolean).join(", ")||"Address unavailable"}</p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">{(o.items||[]).map((i:any)=><div key={`${i.productId}-${i.variantId||""}`} className="rounded-lg bg-slate-50 p-3 text-sm"><b>{i.productName}</b><div className="text-muted-foreground">{i.quantity} {i.unit}</div></div>)}</div>
-            <div className="mt-4 space-y-2">{(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><b>Incoming shipment</b><div className="text-xs text-muted-foreground">Expected {x.expectedQuantity} · Received {x.receivedQuantity||0} · {x.qualityCheck||"quality pending"}</div></div><div className="flex gap-2">{x.status==="pending"&&<Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}{x.status==="received"&&<Button size="sm" onClick={()=>store(x.id)}>Store Packed Shipment</Button>}{x.status==="stored"&&<Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Stored</Badge>}</div></div>)}</div>
+            <div className="mt-4 space-y-2">{(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><b>Incoming shipment</b><div className="text-xs text-muted-foreground">Expected {x.expectedQuantity} · Received {x.receivedQuantity||0} · {x.qualityCheck||"quality pending"}</div></div><div className="flex gap-2">{x.status==="pending"&&<Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}{x.status==="received"&&<Button size="sm" onClick={()=>store(x.id)}>Store Packed Shipment</Button>}{x.status==="stored"&&<Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Stored</Badge>}
+                  {(x.status==="rejected"||x.qualityCheck==="failed")&&<Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}</div></div>)}</div>
           </div>
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
