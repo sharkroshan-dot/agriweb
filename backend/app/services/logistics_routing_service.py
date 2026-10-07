@@ -453,7 +453,10 @@ async def apply_partner_route(
 
     await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
 
-    # Farmer Fulfillment + long distance uses the warehouse only as a
+    # Farmer Fulfillment + long distance may use several warehouses. The initial
+    # route decision is saved above; merge the allocation/consolidation metadata
+    # and persist it again so the customer order remains the single source of truth.
+    #
     # transfer point. The farmer has already packed the individual order, so
     # the warehouse must never create another packing task for this route.
     multi_warehouse = None
@@ -477,6 +480,7 @@ async def apply_partner_route(
             update["nearbyFulfillmentLocation"] = multi_warehouse["localHub"]
         update["transferStatus"] = "warehouse_consolidation_pending"
         update["logisticsMode"] = "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+        await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
 
     return {
         "route": mode,
