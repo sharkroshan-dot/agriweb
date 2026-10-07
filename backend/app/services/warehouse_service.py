@@ -300,7 +300,16 @@ class WarehouseService:
         if not success:
             return None
 
-        # Receive records the physical receipt only. Inventory is committed by Store.\n
+                # Receive records the physical receipt only. Inventory is committed by Store.
+        received = await incoming_stock_repository.get_by_id(incoming_id)
+        if received and str(received.get("sourceMode") or "") == "event_fulfillment_transfer" and quality_check == "passed" and str(received.get("status")) == "received":
+            try:
+                from app.api.v1.bulk_orders import event_fulfillment_repo
+                fulfillment_id = received.get("eventFulfillmentId")
+                if fulfillment_id:
+                    await event_fulfillment_repo.update({"_id": ObjectId(str(fulfillment_id))}, {"status": "warehouse_received", "warehouseStatus": "received", "warehouseReceivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+            except Exception:
+                logger.exception("Failed to synchronize event fulfillment after warehouse receipt")
         if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
             try:
                 from app.repositories.order_repository import order_repository
@@ -392,6 +401,22 @@ class WarehouseService:
                 await order_repository.append_tracking_event(str(incoming["orderId"]), "stock_stored", "Stock stored at warehouse", "Quality-approved stock has been stored and is ready for order allocation.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"])})
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after storage")
+
+        # Event fulfillment transfers are already packed. Store makes the
+        # warehouse inventory authoritative, then the parent event progresses
+        # only when every farmer fulfillment has reached stored.
+        if incoming.get("sourceMode") == "event_fulfillment_transfer":
+            try:
+                from app.api.v1.bulk_orders import event_fulfillment_repo, _finalize_event_after_warehouse_storage
+                fulfillment_id = incoming.get("eventFulfillmentId")
+                if fulfillment_id:
+                    await event_fulfillment_repo.update({"_id": ObjectId(str(fulfillment_id))}, {"status": "stored", "warehouseStatus": "stored", "storedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+                    request_id = incoming.get("eventRequestId")
+                    if request_id:
+                        await _finalize_event_after_warehouse_storage(str(request_id))
+            except Exception:
+                logger.exception("Failed to finalize event fulfillment after warehouse storage")
+            return await incoming_stock_repository.get_by_id(incoming_id)
 
         # Transfer-only inbound from Farmer Fulfillment is already packed.
         # It goes directly to dispatch after receipt/storage; warehouse packing
