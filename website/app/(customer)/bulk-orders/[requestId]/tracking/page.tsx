@@ -60,7 +60,7 @@ export default function BulkOrderTrackingPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href="/bulk-orders" className="text-sm font-medium text-emerald-700 hover:underline">← Bulk Orders</Link>
-          <h1 className="mt-2 text-2xl font-bold text-slate-900">Bulk Order Tracking</h1>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">{isWeekly ? "Weekly Family Basket Tracking" : "Event Order Tracking"}</h1>
           <p className="mt-1 text-sm text-slate-500">{request.requestNumber} · {request.purpose}</p>
         </div>
         <Badge variant={tracking.currentStage === "delivered" ? "success" : tracking.currentStage === "cancelled" ? "destructive" : "warning"}>
@@ -70,7 +70,7 @@ export default function BulkOrderTrackingPage() {
 
       <Card className="border-emerald-100">
         <CardContent className="grid gap-4 p-5 sm:grid-cols-3">
-          <div><p className="text-xs text-slate-500">Order Type</p><p className="mt-1 font-semibold">{isWeekly ? "Weekly Family Bulk" : "Event Bulk"}</p></div>
+          <div><p className="text-xs text-slate-500">Order Type</p><p className="mt-1 font-semibold">{isWeekly ? "Weekly Family Basket" : "Event Order"}</p></div>
           <div><p className="text-xs text-slate-500">Delivery</p><p className="mt-1 font-semibold">{request.requestedDeliveryDate}{request.requestedDeliveryTime ? ` · ${request.requestedDeliveryTime}` : ""}</p></div>
           <div><p className="text-xs text-slate-500">Destination</p><p className="mt-1 flex items-center gap-1 font-semibold"><MapPin className="h-4 w-4 text-emerald-600" />{request.deliveryCity || request.deliveryAddress?.city || "Location"}</p></div>
         </CardContent>
@@ -108,6 +108,7 @@ export default function BulkOrderTrackingPage() {
           <CardContent className="p-5">
             <div className="mb-4 flex items-center gap-2"><Users className="h-5 w-5 text-emerald-600" /><h2 className="font-semibold">Farmer Fulfillment</h2></div>
             <div className="mb-4 rounded-xl bg-slate-50 p-3 text-sm"><span className="font-semibold">{collected} / {totalFulfillments}</span> farmer fulfillment{totalFulfillments === 1 ? "" : "s"} collected</div>
+            {request.familySize ? <p className="mb-3 text-xs text-slate-500">Family size: {request.familySize}</p> : null}
             <div className="space-y-2">
               {fulfillments.map((f: any) => (
                 <div key={f.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
