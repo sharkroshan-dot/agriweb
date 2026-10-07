@@ -82,6 +82,15 @@ export async function POST(request: Request) {
       first_name: body.first_name ?? body.firstName,
       last_name: body.last_name ?? body.lastName,
       role: body.role,
+      businessName: body.businessName,
+      businessType: body.businessType,
+      gstin: body.gstin,
+      businessAddress: body.businessAddress,
+      businessCity: body.businessCity,
+      businessDistrict: body.businessDistrict,
+      businessState: body.businessState,
+      contactPerson: body.contactPerson,
+      procurementRequirements: body.procurementRequirements,
     };
     const response = await fetch(`${getApiBaseUrl()}/auth/register`, {
       method: "POST",
