@@ -245,6 +245,43 @@ async def allocate_farmer_fulfillment_warehouses(
             "updatedAt": now,
             "deletedAt": None,
         })
+    # Create one packed-transfer incoming record per warehouse allocation.
+    # These are receiving records, not warehouse packing tasks.
+    incoming_collection = MongoDB.get_collection("incoming_stock")
+    await incoming_collection.update_many(
+        {"orderId": order["_id"], "sourceMode": "farmer_fulfillment_transfer", "deletedAt": None},
+        {"$set": {"deletedAt": now, "updatedAt": now}},
+    )
+    for allocation in allocations:
+        wid = ObjectId(str(allocation["warehouseId"]))
+        pid = ObjectId(str(allocation["productId"])) if allocation.get("productId") and ObjectId.is_valid(str(allocation["productId"])) else allocation.get("productId")
+        vid = ObjectId(str(allocation["variantId"])) if allocation.get("variantId") and ObjectId.is_valid(str(allocation["variantId"])) else None
+        await incoming_collection.insert_one({
+            "warehouseId": wid,
+            "productId": pid,
+            "variantId": vid,
+            "farmerId": ObjectId(str(order.get("farmerId"))) if order.get("farmerId") else None,
+            "orderId": order["_id"],
+            "quantity": int(round(float(allocation["quantity"]))),
+            "quantityReceived": 0,
+            "usableQuantity": 0,
+            "qualityCheck": "pending",
+            "warehouseTransferType": "packed_order_transfer",
+            "packingRequired": False,
+            "warehousePackingRequired": False,
+            "transferReadyForPickup": True,
+            "warehouseTransferReadyForPickup": True,
+            "warehouseTransferReadyAt": now,
+            "status": "in_transit",
+            "sourceMode": "farmer_fulfillment_transfer",
+            "consolidationId": consolidation_id,
+            "consolidationWarehouseId": consolidation["_id"],
+            "batchNumber": allocation.get("batchNumber"),
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        })
+
 
     return {
         "allocations": allocations,
