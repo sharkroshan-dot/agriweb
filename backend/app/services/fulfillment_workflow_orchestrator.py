@@ -184,10 +184,22 @@ class FulfillmentWorkflowOrchestrator:
                 })
 
         all_stored = bool(expected) and not missing and stored_rows >= len(expected)
+        # A source receipt being stored is not enough for consolidation. Every
+        # warehouse portion must also be dispatched and physically received by
+        # the consolidation warehouse.
+        transfer_legs = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+            "orderId": oid,
+            "legType": "warehouse_to_consolidation",
+            "deletedAt": None,
+        }).to_list(length=1000)
+        all_legs_received = bool(expected) and bool(transfer_legs) and all(
+            str(x.get("status") or "") == "received_at_consolidation" for x in transfer_legs
+        )
+        consolidation_ready = all_stored and all_legs_received
         current = str(order.get("warehouseFulfillmentStage") or "")
         consolidation_status = str(order.get("consolidationStatus") or "")
 
-        if all_stored and consolidation_status not in {
+        if consolidation_ready and consolidation_status not in {
             "consolidated",
             "hub_handoff_pending",
             "local_hub_ready",
@@ -213,6 +225,7 @@ class FulfillmentWorkflowOrchestrator:
                 "receivedRows": len(incoming),
                 "storedRows": stored_rows,
                 "allStored": all_stored,
+                "allConsolidationLegsReceived": all_legs_received,
                 "missingPortions": missing,
                 "updatedAt": datetime.utcnow(),
             },
@@ -224,7 +237,7 @@ class FulfillmentWorkflowOrchestrator:
         managers = await FulfillmentWorkflowOrchestrator._warehouse_manager_ids(warehouse_ids)
         farmer_id = _as_id(order.get("farmerId"))
 
-        if all_stored:
+        if consolidation_ready:
             await FulfillmentWorkflowOrchestrator._emit_once(
                 order,
                 f"multi:{oid}:all-warehouses-stored",
