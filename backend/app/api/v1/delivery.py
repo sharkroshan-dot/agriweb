@@ -3040,7 +3040,7 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
-        if job.get("jobType", "customer_delivery") != "customer_delivery":
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery"):
             continue
         coords = (job.get("pickupLocation") or {}).get("coordinates")
         dist = None
@@ -3051,7 +3051,7 @@ async def get_my_delivery_jobs(
     accepted_jobs = await delivery_job_repository.get_jobs_for_partner(partner_id)
     accepted_list = []
     for job in accepted_jobs or []:
-        if job.get("jobType", "customer_delivery") != "customer_delivery":
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery"):
             continue
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
     accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
@@ -3200,6 +3200,29 @@ async def accept_delivery_job(
                 "route": serialize_route(claimed_route),
             },
             "message": "Warehouse pickup route accepted successfully",
+        }
+
+    # Consolidated event/weekly bulk delivery starts at the warehouse and is
+    # intentionally not represented by a normal customer order document.
+    if job.get("jobType") == "event_consolidated_delivery":
+        from app.api.v1.bulk_orders import request_repo
+        request_id = str(job.get("eventRequestId") or job.get("orderId") or "")
+        request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+        if not request:
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Event bulk request for this delivery job no longer exists")
+        await request_repo.update({"_id": request["_id"]}, {
+            "eventDeliveryStatus": "delivery_partner_assigned",
+            "eventDeliveryPartnerId": ObjectId(partner_id),
+            "eventDeliveryPartnerName": profile.get("name") or "Delivery Partner",
+            "updatedAt": datetime.utcnow(),
+        })
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        refreshed = await delivery_job_repository.get_by_id(job_id)
+        return {
+            "success": True,
+            "data": serialize_job_for_partner(refreshed, reveal=True),
+            "message": "Consolidated event delivery accepted from warehouse",
         }
 
     # Wire the order + assignment so the existing delivery flow takes over.
