@@ -830,8 +830,8 @@ async def smart_source_event(
         raise HTTPException(status_code=404, detail="Event request not found")
     if str(request.get("buyerUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your event request")
-    if request.get("requestType") != "bulk_event":
-        raise HTTPException(status_code=400, detail="Smart event sourcing is only for event requests")
+    if request.get("requestType") != "bulk_event" or request.get("purchaseMode") not in ("event", "family_weekly"):
+        raise HTTPException(status_code=400, detail="Smart sourcing is only available for event and weekly family bulk requests")
 
     # City/address-only event requests are geocoded once so nearby sourcing still
     # works when the customer did not provide GPS coordinates.
@@ -861,7 +861,7 @@ async def smart_source_event(
     await request_repo.update({
         "_id": request["_id"]
     }, {
-        "eventFulfillmentMode": "urgent_nearby" if sourcing["urgent"] else "planned",
+        "eventFulfillmentMode": "weekly_smart" if request.get("purchaseMode") == "family_weekly" else ("urgent_nearby" if sourcing["urgent"] else "planned"),
         "eventSourcingPlan": sourcing,
         "eventSourcingStatus": "plan_ready",
         "eventSourcingUpdatedAt": datetime.utcnow(),
@@ -973,7 +973,7 @@ async def confirm_event_source(
         await request_repo.update({"_id": request["_id"]}, {
             "status": REQUEST_AWARDED,
             "eventSourcingStatus": "confirmed",
-            "eventFulfillmentMode": "urgent_nearby" if sourcing.get("urgent") else "planned",
+            "eventFulfillmentMode": "weekly_smart" if request.get("purchaseMode") == "family_weekly" else ("urgent_nearby" if sourcing.get("urgent") else "planned"),
             "eventDeliveryStatus": "awaiting_farmer_confirmation",
             "eventConsolidationStatus": "pending_collection",
             "eventFulfillmentIds": [x["_id"] for x in created],
