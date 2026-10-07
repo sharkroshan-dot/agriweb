@@ -47,6 +47,12 @@ class WarehouseDeliveryRouteRequest(BaseModel):
     radius: int = Field(10, ge=1, le=200)
 
 
+class WarehouseFarmerReturnRequest(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=500)
+    notes: Optional[str] = Field(None, max_length=1000)
+    quantity: Optional[float] = Field(None, gt=0)
+
+
 router = APIRouter()
 
 @router.get("/me", response_model=WarehouseResponse)
@@ -1827,6 +1833,178 @@ async def choose_warehouse_delivery_route(
         "data": {**result, "deliveryJob": {"id": str(job["_id"]), "status": job.get("status")} if job else None},
         "message": "Delivery decision saved and delivery partner job opened",
     }
+
+
+
+@router.post("/me/farmer-fulfillment/{order_id}/return-to-farmer")
+async def return_farmer_fulfillment_to_farmer(
+    order_id: str,
+    payload: WarehouseFarmerReturnRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create an auditable warehouse -> farmer return/rejection handoff.
+
+    This is used when a packed Farmer Fulfillment portion cannot continue
+    because of quantity/quality/damage/transfer exceptions. It never creates
+    a warehouse packing task.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can return a farmer fulfillment shipment")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("fulfillmentMethod") or "") != "farmer":
+        raise HTTPException(status_code=404, detail="Farmer fulfillment order not found")
+
+    warehouse_id = str(warehouse["_id"])
+    assigned_ids = {str(x) for x in (order.get("warehouseIds") or [])}
+    if str(order.get("warehouseId") or ""):
+        assigned_ids.add(str(order.get("warehouseId")))
+    if warehouse_id not in assigned_ids:
+        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse")
+
+    if str(order.get("orderStatus") or "").lower() in {"delivered", "completed", "cancelled", "refunded"}:
+        raise HTTPException(status_code=400, detail="Order is no longer eligible for a warehouse-to-farmer return")
+
+    now = datetime.utcnow()
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    existing = await transfers.find_one({
+        "orderId": ObjectId(order_id),
+        "warehouseId": ObjectId(warehouse_id),
+        "direction": "warehouse_to_farmer",
+        "status": {"$in": ["pending_farmer_acceptance", "accepted"]},
+        "deletedAt": None,
+    })
+    if existing:
+        return {"success": True, "data": {"transferId": str(existing["_id"]), "status": existing["status"], "existing": True}}
+
+    allocations = [
+        x for x in (order.get("warehouseAllocations") or [])
+        if str(x.get("warehouseId")) == warehouse_id
+    ]
+    if not allocations and str(order.get("warehouseId") or "") == warehouse_id:
+        allocations = [{
+            "warehouseId": warehouse_id,
+            "productId": x.get("productId"),
+            "variantId": x.get("variantId"),
+            "productName": x.get("productName") or "Product",
+            "quantity": x.get("quantity"),
+            "unit": x.get("unit") or "kg",
+        } for x in (order.get("items") or [])]
+
+    if not allocations:
+        raise HTTPException(status_code=400, detail="No assigned shipment portion exists for this warehouse")
+
+    items = []
+    remaining = payload.quantity
+    for allocation in allocations:
+        qty = float(allocation.get("quantity") or 0)
+        if remaining is not None:
+            if remaining <= 0:
+                break
+            take = min(qty, remaining)
+            remaining -= take
+        else:
+            take = qty
+        if take > 0:
+            items.append({
+                "productId": allocation.get("productId"),
+                "variantId": allocation.get("variantId"),
+                "productName": allocation.get("productName") or "Product",
+                "quantity": round(float(take), 3),
+                "unit": allocation.get("unit") or "kg",
+            })
+    if not items:
+        raise HTTPException(status_code=400, detail="Return quantity does not match the assigned warehouse portion")
+
+    doc = {
+        "orderId": ObjectId(order_id),
+        "orderNumber": order.get("orderNumber"),
+        "farmerId": ObjectId(str(order["farmerId"])),
+        "warehouseId": ObjectId(warehouse_id),
+        "direction": "warehouse_to_farmer",
+        "status": "pending_farmer_acceptance",
+        "reason": payload.reason,
+        "notes": payload.notes,
+        "items": items,
+        "createdBy": ObjectId(str(current_user["_id"])),
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    }
+    result = await transfers.insert_one(doc)
+    transfer_id = result.inserted_id
+
+    await order_repository.update(
+        {"_id": ObjectId(order_id)},
+        {
+            "warehouseReturnStatus": "pending_farmer_acceptance",
+            "warehouseReturnTransferId": transfer_id,
+            "warehouseReturnReason": payload.reason,
+            "warehouseReturnRequestedAt": now,
+            "warehouseReturnWarehouseId": ObjectId(warehouse_id),
+            "transferStatus": "warehouse_to_farmer_pending",
+            "updatedAt": now,
+        },
+    )
+
+    farmer_id = str(order["farmerId"])
+    try:
+        await NotificationService.create_in_app_notification(
+            farmer_id,
+            NotificationType.WAREHOUSE,
+            "Warehouse return request",
+            f"Warehouse {warehouse.get('name') or 'your assigned warehouse'} requested a return for order {order.get('orderNumber', order_id)}: {payload.reason}",
+            data={
+                "type": "warehouse_to_farmer_return",
+                "transferId": str(transfer_id),
+                "orderId": order_id,
+                "warehouseId": warehouse_id,
+            },
+            priority=NotificationPriority.URGENT,
+            mandatory=True,
+        )
+    except Exception:
+        logger.exception("Failed to notify farmer about warehouse return request")
+
+    return {
+        "success": True,
+        "data": {"transferId": str(transfer_id), "status": "pending_farmer_acceptance"},
+        "message": "Warehouse-to-farmer return request created and sent to the farmer.",
+    }
+
+
+@router.get("/me/farmer-fulfillment/{order_id}/return-status")
+async def get_farmer_fulfillment_return_status(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can view warehouse-to-farmer returns")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    transfer = await MongoDB.get_collection("warehouse_farmer_transfers").find_one({
+        "orderId": ObjectId(order_id),
+        "warehouseId": ObjectId(str(warehouse["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    }, sort=[("createdAt", -1)])
+    if not transfer:
+        return {"success": True, "data": None}
+    transfer["id"] = str(transfer["_id"])
+    transfer["_id"] = str(transfer["_id"])
+    for key in ("orderId", "farmerId", "warehouseId", "createdBy"):
+        if transfer.get(key) is not None:
+            transfer[key] = str(transfer[key])
+    return {"success": True, "data": transfer}
 
 
 @router.get("/me/outgoing", response_model=dict)
