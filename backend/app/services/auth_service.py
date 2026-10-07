@@ -28,6 +28,18 @@ class AuthService:
         normalized_data["firstName"] = first_name.strip()
         normalized_data["lastName"] = last_name.strip()
 
+        business_fields = {
+            "businessName", "businessType", "gstin", "businessAddress",
+            "businessCity", "businessState", "businessDistrict",
+            "contactPerson", "procurementRequirements",
+        }
+        vehicle_fields = {"vehicleType", "vehicleNumber", "vehicleModel", "vehicleYear", "capacity", "fuelType"}
+        if role != "business":
+            for field in business_fields:
+                normalized_data.pop(field, None)
+        if role != "delivery":
+            for field in vehicle_fields:
+                normalized_data.pop(field, None)
         if role == "business":
             required = ("businessName", "businessType", "businessAddress", "businessCity", "businessState", "contactPerson")
             missing = [field for field in required if not str(normalized_data.get(field) or "").strip()]
