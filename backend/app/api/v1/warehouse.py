@@ -711,14 +711,45 @@ async def receive_farmer_fulfillment_at_local_hub(
     transfer = await transfer_collection.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
     if not transfer:
         raise HTTPException(status_code=400, detail="Local hub transfer manifest does not exist")
+    if str(transfer.get("status")) != "in_transit":
+        if str(transfer.get("status")) == "received":
+            job = await _create_single_farmer_fulfillment_delivery_job(order_id, hub_doc, current_user)
+            return {"success": True, "data": job, "message": "Local hub receipt was already confirmed; one final delivery job is reused."}
+        raise HTTPException(status_code=400, detail="Local hub transfer is not awaiting receipt")
+
+    now = datetime.utcnow()
     await transfer_collection.update_one(
-        {"_id": transfer["_id"]},
-        {"$set": {"status": "received", "receivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
+        {"_id": transfer["_id"], "status": "in_transit"},
+        {"$set": {"status": "received", "receivedAt": now, "receivedBy": ObjectId(str(current_user["_id"])), "updatedAt": now}},
     )
     await order_repository.update(
         {"_id": ObjectId(order_id)},
-        {"transferStatus": "local_hub_ready", "consolidationStatus": "local_hub_ready", "updatedAt": datetime.utcnow()},
+        {
+            "transferStatus": "local_hub_ready",
+            "consolidationStatus": "local_hub_ready",
+            "localHubReceivedAt": now,
+            "updatedAt": now,
+        },
     )
+    await order_repository.append_tracking_event(
+        order_id,
+        "local_hub_received",
+        "Complete order received at local hub",
+        "The consolidated customer order has been physically received at the local hub and is ready for one final delivery partner.",
+        actor_id=str(current_user["_id"]),
+        actor_role="warehouse",
+        metadata={"localHubId": str(hub_doc["_id"])},
+    )
+    refreshed = await order_repository.get_by_id(order_id)
+    if refreshed:
+        await NotificationService.send_order_workflow_update(
+            refreshed,
+            stage="local_hub_ready",
+            title=f"Order #{order.get('orderNumber')}: local hub received",
+            message="The complete consolidated order is at the local hub. One final delivery partner job is being opened.",
+            actor_role="warehouse",
+            priority=NotificationPriority.HIGH,
+        )
     job = await _create_single_farmer_fulfillment_delivery_job(order_id, hub_doc, current_user)
     return {"success": True, "data": job, "message": "Local hub received the complete order. One final delivery partner job is now open."}
 
