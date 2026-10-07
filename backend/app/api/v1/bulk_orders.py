@@ -1311,6 +1311,7 @@ async def confirm_event_source(
                 "deliveryStatus": "pending_consolidation",
                 "distanceKm": a.get("distanceKm"),
                 "farmName": a.get("farmName"),
+                "warehouseId": event_warehouse_id,
             }
             fid = await event_fulfillment_repo.create(fulfillment)
             if not fid:
@@ -1551,9 +1552,10 @@ async def update_event_fulfillment_status(
 
     role = current_user.get("role")
     farmer_ok = role == "farmer" and str(fulfillment.get("farmerId")) == str(current_user["_id"])
+    warehouse_ok = role == "warehouse" and str(fulfillment.get("warehouseId") or fulfillment.get("eventWarehouseId") or "") != ""
     admin_ok = role in ("admin", "super_admin")
-    if not (farmer_ok or admin_ok):
-        raise HTTPException(status_code=403, detail="Only the assigned farmer can update this fulfillment")
+    if not (farmer_ok or warehouse_ok or admin_ok):
+        raise HTTPException(status_code=403, detail="Only the assigned farmer, warehouse, or administrator can update this fulfillment")
 
     allowed = [
         "pending_farmer_confirmation",
