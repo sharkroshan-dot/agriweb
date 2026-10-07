@@ -331,7 +331,7 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     consolidation_id = order.get("consolidationWarehouseId")
     consolidation_manager_id = None
     if consolidation_id:
-        consolidation = await WarehouseService.get_warehouse_by_id(str(consolidation_id))
+        consolidation = await warehouse_repository.get_by_id(str(consolidation_id))
         if consolidation and consolidation.get("managerId"):
             consolidation_manager_id = str(consolidation["managerId"])
 
