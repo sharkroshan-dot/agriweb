@@ -49,7 +49,7 @@ export default function FarmerFulfillmentWarehousePage() {
   };
   const receive=async(id:string,qty:number)=>{
     try {
-      await api.put(`/warehouse/me/incoming/${id}/receive`,{quantity:qty,qualityCheck:"passed",notes:"Farmer-packed fulfillment received at warehouse"});
+      await api.put(`/warehouse/me/incoming/${id}/receive`,undefined,{params:{quantity:qty,quality_check:"passed",usableQuantity:qty,notes:"Farmer-packed fulfillment received at warehouse"}});
       toast.success("Farmer-packed shipment received");
       await refetch();
     } catch(e:any){toast.error(e?.message||"Receiving failed");}
