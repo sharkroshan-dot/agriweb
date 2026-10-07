@@ -120,9 +120,9 @@ export default function FarmerFulfillmentWarehousePage() {
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
             {o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && (()=>{const con=consolidations.find((x:any)=>x.orderId===o.id);const status=con?.consolidationStatus;return <div className="space-y-2">
               {(status==="collecting_from_warehouses"||status==="partial"||(!status&&con?.allWarehousesReceived===false))&&<div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Consolidation</Button>
-                <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Receive at Consolidation</Button>
-                <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>
+                {canDispatch && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Consolidation</Button>}
+                {isConsolidationWarehouse && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Receive at Consolidation</Button>}
+                <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!complete || !consolidationReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>
               </div>}
               {status==="consolidated"&&<Button size="sm" onClick={()=>handoffHub(o.id)}>Transfer to Local Hub</Button>}
               {status==="hub_handoff_pending"&&<Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
