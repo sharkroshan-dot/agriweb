@@ -1993,6 +1993,33 @@ async def choose_warehouse_delivery_route(
         str(order_id), "warehouseFulfillmentStage", "dispatched"
     )
 
+    # Long-distance Warehouse Fulfillment must complete the physical
+    # warehouse -> local-hub transfer before any delivery partner sees a job.
+    # The existing hub receive/dispatch workflow becomes the downstream gate.
+    if data.route == "long_distance" and str(order.get("fulfillmentMethod") or "") == "warehouse":
+        await order_repository.update(
+            {"_id": ObjectId(str(order_id))},
+            {
+                "deliveryDecisionStatus": "hub_handoff_pending",
+                "partnerAssignmentOpen": False,
+                "updatedAt": datetime.utcnow(),
+            },
+        )
+        await order_repository.append_tracking_event(
+            str(order_id),
+            "warehouse_dispatch_waiting_for_hub",
+            "Warehouse shipment dispatched; local-hub receipt required",
+            "The warehouse shipment is dispatched. Delivery partner assignment opens only after the local hub receives the shipment.",
+            actor_id=str(current_user["_id"]),
+            actor_role="warehouse",
+            metadata={"route": "long_distance"},
+        )
+        return {
+            "success": True,
+            "data": {**result, "deliveryJob": None},
+            "message": "Warehouse shipment dispatched. Waiting for local-hub receipt before delivery-partner assignment.",
+        }
+
     # Warehouse Fulfillment delivery decision:
     # nearby -> Warehouse -> Delivery Partner -> Customer
     # long-distance -> Warehouse -> Local Hub -> Delivery Partner -> Customer
