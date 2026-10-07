@@ -262,7 +262,9 @@ async def allocate_farmer_fulfillment_warehouses(
             "variantId": vid,
             "farmerId": ObjectId(str(order.get("farmerId"))) if order.get("farmerId") else None,
             "orderId": order["_id"],
-            "quantity": int(round(float(allocation["quantity"]))),
+            # Preserve the allocated quantity exactly; farmer-packed orders may
+            # contain fractional weights (for example 2.5 kg).
+            "quantity": float(allocation["quantity"]),
             "quantityReceived": 0,
             "usableQuantity": 0,
             "qualityCheck": "pending",
