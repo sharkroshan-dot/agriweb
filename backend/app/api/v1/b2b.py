@@ -360,7 +360,7 @@ def _logistics_snapshot(op: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 class BusinessProfileCreate(BaseModel):
     businessName: str
-    businessType: str = Field(..., description="restaurant, hotel, canteen, supermarket, caterer, processor, wholesaler, cafe")
+    businessType: str = Field(..., description="Eligible bulk/institutional buyer type")
     gstin: Optional[str] = None
     contactPerson: Optional[str] = None
     phone: Optional[str] = None
@@ -379,6 +379,16 @@ async def create_business_profile(
     """Create/update the caller's business buyer profile."""
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business accounts can create a business profile")
+
+    eligible_types = {
+        "restaurant", "hotel", "cafe", "cloud_kitchen", "canteen", "caterer",
+        "supermarket", "retail_store", "wholesaler", "food_processor", "institution",
+        "food_processing", "food_manufacturer", "supermarket_chain", "grocery_chain",
+        "distributor", "exporter", "hospital", "school_college_hostel",
+        "corporate_canteen", "animal_feed",
+    }
+    if data.businessType not in eligible_types:
+        raise HTTPException(status_code=400, detail="Business type is not eligible for B2B procurement")
 
     existing = await profile_repo.find_one({"userId": ObjectId(current_user["_id"]), "deletedAt": None})
     payload = {
