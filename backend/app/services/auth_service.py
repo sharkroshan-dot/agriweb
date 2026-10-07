@@ -28,6 +28,14 @@ class AuthService:
         normalized_data["firstName"] = first_name.strip()
         normalized_data["lastName"] = last_name.strip()
 
+        if role == "business":
+            required = ("businessName", "businessType", "businessAddress", "businessCity", "businessState", "contactPerson")
+            missing = [field for field in required if not str(normalized_data.get(field) or "").strip()]
+            if missing:
+                raise ValueError("Business registration requires: " + ", ".join(missing))
+            if normalized_data.get("gstin"):
+                normalized_data["gstin"] = str(normalized_data["gstin"]).strip().upper()
+
         return normalized_data
     
     @staticmethod
@@ -51,7 +59,33 @@ class AuthService:
             role = normalized_data.get("role", "customer")
             first_name = normalized_data.get("firstName", "")
 
-            if role == "farmer":
+            if role == "business":
+                from app.repositories.base_repository import BaseRepository
+                business_profile_repo = BaseRepository("business_profiles")
+                sensitive = {
+                    "gstin": Security.encrypt_business_data(normalized_data.get("gstin")),
+                    "businessAddress": Security.encrypt_business_data(normalized_data.get("businessAddress")),
+                    "contactPerson": Security.encrypt_business_data(normalized_data.get("contactPerson")),
+                    "procurementRequirements": Security.encrypt_business_data(normalized_data.get("procurementRequirements")),
+                }
+                await business_profile_repo.create({
+                    "userId": user_id,
+                    "businessName": normalized_data.get("businessName"),
+                    "businessType": normalized_data.get("businessType"),
+                    "gstinEncrypted": sensitive["gstin"],
+                    "businessAddressEncrypted": sensitive["businessAddress"],
+                    "contactPersonEncrypted": sensitive["contactPerson"],
+                    "procurementRequirementsEncrypted": sensitive["procurementRequirements"],
+                    "city": normalized_data.get("businessCity"),
+                    "state": normalized_data.get("businessState"),
+                    "district": normalized_data.get("businessDistrict"),
+                    "phone": normalized_data.get("phone"),
+                    "isVerified": False,
+                    "verificationStatus": "pending",
+                    "createdAt": datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                })
+            elif role == "farmer":
                 from app.repositories.farmer_repository import farmer_repository
                 await farmer_repository.create({
                     "userId": user_id,
