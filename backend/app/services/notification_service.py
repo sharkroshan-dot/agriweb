@@ -652,8 +652,10 @@ class NotificationService:
 
         sent = False
         for recipient_id, recipient_role in recipients.items():
-            if recipient_role == actor_role:
-                continue
+            # actor_role describes the role that performed the event, not the
+            # identity of the actor. Do not suppress every recipient in the
+            # same role: multiple warehouses may need the same cross-role
+            # update.
             notification_type = {
                 "customer": NotificationType.ORDER,
                 "farmer": NotificationType.FARMER,
