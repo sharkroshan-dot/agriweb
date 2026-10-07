@@ -617,6 +617,8 @@ async def handoff_farmer_fulfillment_to_local_hub(
         raise HTTPException(status_code=404, detail="Consolidated farmer fulfillment order not found")
     if str(order.get("consolidationStatus")) != "consolidated":
         raise HTTPException(status_code=400, detail="Complete consolidation after all warehouse receipts are stored first")
+    if str(order.get("consolidationWarehouseId") or "") != str(warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can hand the complete order to the local hub")
 
     hub = order.get("nearbyFulfillmentLocation") or {}
     hub_id = order.get("nearbyFulfillmentLocationId")
@@ -690,6 +692,8 @@ async def receive_farmer_fulfillment_at_local_hub(
         raise HTTPException(status_code=404, detail="Farmer fulfillment consolidation not found")
     if str(order.get("consolidationStatus")) not in ("hub_handoff_pending", "local_hub_ready"):
         raise HTTPException(status_code=400, detail="Complete consolidation and local-hub handoff first")
+    if str(order.get("consolidationWarehouseId") or "") != str(warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can confirm local-hub receipt")
 
     hub_id = order.get("nearbyFulfillmentLocationId")
     if not hub_id:
