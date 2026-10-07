@@ -419,7 +419,7 @@ async def create_business_profile(
         "userId": ObjectId(current_user["_id"]),
         "businessName": data.businessName.strip(),
         "businessType": data.businessType,
-        "gstinEncrypted": Security.encrypt_business_data(data.gstin.strip().upper() if data.gstin else None),
+        "gstinEncrypted": Security.encrypt_business_data(data.gstin.strip().upper()) if data.gstin else (existing.get("gstinEncrypted") if existing else None),
         "contactPersonEncrypted": Security.encrypt_business_data(data.contactPerson),
         "procurementRequirementsEncrypted": Security.encrypt_business_data(data.procurementRequirements),
         "phone": data.phone or current_user.get("phone"),
