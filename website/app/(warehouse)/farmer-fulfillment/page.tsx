@@ -47,13 +47,6 @@ export default function FarmerFulfillmentWarehousePage() {
       await refreshAll();
     }catch(e:any){toast.error(e?.message||"Return request failed");}
   };
-  const dispatchReturn=async(transferId:string)=>{
-    try{
-      await api.put(`/warehouse/me/farmer-fulfillment/returns/${transferId}/dispatch`);
-      toast.success("Return dispatched to farmer");
-      await refreshAll();
-    }catch(e:any){toast.error(e?.message||"Return dispatch failed");}
-  };
   const receive=async(id:string,qty:number)=>{
     try {
       await api.put(`/warehouse/me/incoming/${id}/receive`,{quantity:qty,qualityCheck:"passed",notes:"Farmer-packed fulfillment received at warehouse"});
