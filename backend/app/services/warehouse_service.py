@@ -408,14 +408,40 @@ class WarehouseService:
         if incoming.get("sourceMode") == "event_fulfillment_transfer":
             try:
                 from app.api.v1.bulk_orders import event_fulfillment_repo, _finalize_event_after_warehouse_storage
+                from app.repositories.inventory_repository import inventory_repository
                 fulfillment_id = incoming.get("eventFulfillmentId")
                 if fulfillment_id:
-                    await event_fulfillment_repo.update({"_id": ObjectId(str(fulfillment_id))}, {"status": "stored", "warehouseStatus": "stored", "storedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+                    fulfillment = await event_fulfillment_repo.find_one({
+                        "_id": ObjectId(str(fulfillment_id)),
+                        "deletedAt": None,
+                    })
+                    # The reservation belongs to the farmer inventory. It is
+                    # committed exactly once when the physical shipment has
+                    # passed warehouse receiving/QC and is stored.
+                    if fulfillment and not fulfillment.get("inventoryFinalizedAt"):
+                        confirmed = await inventory_repository.atomic_confirm(
+                            str(fulfillment["productId"]),
+                            float(fulfillment["allocatedQuantityKg"]),
+                        )
+                        if not confirmed:
+                            raise RuntimeError("Reserved farmer stock could not be finalized for event fulfillment")
+                        await event_fulfillment_repo.update(
+                            {"_id": fulfillment["_id"]},
+                            {
+                                "inventoryFinalizedAt": datetime.utcnow(),
+                                "inventoryFinalizationStatus": "confirmed",
+                                "status": "stored",
+                                "warehouseStatus": "stored",
+                                "storedAt": datetime.utcnow(),
+                                "updatedAt": datetime.utcnow(),
+                            },
+                        )
                     request_id = incoming.get("eventRequestId")
                     if request_id:
                         await _finalize_event_after_warehouse_storage(str(request_id))
             except Exception:
                 logger.exception("Failed to finalize event fulfillment after warehouse storage")
+                raise
             return await incoming_stock_repository.get_by_id(incoming_id)
 
         # Transfer-only inbound from Farmer Fulfillment is already packed.
