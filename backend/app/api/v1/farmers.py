@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from bson import ObjectId
 
 from app.api.v1.auth import get_current_user
+from app.database.mongodb import MongoDB
 from app.services.analytics_service import AnalyticsService
 from app.services.farmer_service import FarmerService
 from app.services.order_service import OrderService
@@ -53,6 +54,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+class FarmerReturnDecisionRequest(BaseModel):
+    decision: str = Field(..., pattern="^(accept|reject)$")
+    notes: Optional[str] = Field(None, max_length=1000)
+
 class UpdateFarmerProfileRequest(BaseModel):
     farmName: Optional[str] = None
     ownerName: Optional[str] = None
@@ -64,6 +69,119 @@ class UpdateFarmerProfileRequest(BaseModel):
     pickupInstructions: Optional[str] = None
 
 router = APIRouter()
+
+@router.get("/me/warehouse-returns")
+async def get_warehouse_returns(current_user: dict = Depends(get_current_user)):
+    """List warehouse -> farmer return requests awaiting farmer action."""
+    _ensure_farmer(current_user)
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    rows = await transfers.find({
+        "farmerId": ObjectId(str(current_user["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    }).sort("createdAt", -1).to_list(length=200)
+    for row in rows:
+        row["id"] = str(row["_id"])
+        row["_id"] = str(row["_id"])
+        for key in ("orderId", "farmerId", "warehouseId", "createdBy"):
+            if row.get(key) is not None:
+                row[key] = str(row[key])
+    return {"success": True, "data": {"returns": rows}}
+
+
+@router.put("/me/warehouse-returns/{transfer_id}")
+async def decide_warehouse_return(
+    transfer_id: str,
+    payload: FarmerReturnDecisionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Farmer accepts/rejects a warehouse return request."""
+    _ensure_farmer(current_user)
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid return transfer ID")
+
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    transfer = await transfers.find_one({
+        "_id": ObjectId(transfer_id),
+        "farmerId": ObjectId(str(current_user["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Warehouse return request not found")
+    if transfer.get("status") != "pending_farmer_acceptance":
+        raise HTTPException(status_code=409, detail="This return request has already been decided")
+
+    now = datetime.utcnow()
+    accepted = payload.decision == "accept"
+    new_status = "accepted" if accepted else "rejected"
+    await transfers.update_one(
+        {"_id": transfer["_id"]},
+        {"$set": {
+            "status": new_status,
+            "farmerDecision": payload.decision,
+            "farmerNotes": payload.notes,
+            "farmerDecidedAt": now,
+            "updatedAt": now,
+        }},
+    )
+
+    order = await order_repository.get_by_id(str(transfer["orderId"]))
+    if order:
+        order_update = {
+            "warehouseReturnStatus": new_status,
+            "warehouseReturnFarmerDecidedAt": now,
+            "warehouseReturnFarmerNotes": payload.notes,
+            "updatedAt": now,
+        }
+        if accepted:
+            order_update.update({
+                "transferStatus": "warehouse_to_farmer_accepted",
+                "orderStatus": "processing",
+            })
+        else:
+            order_update["transferStatus"] = "warehouse_to_farmer_rejected"
+        await order_repository.update({"_id": transfer["orderId"]}, order_update)
+        try:
+            await order_repository.append_tracking_event(
+                str(transfer["orderId"]),
+                "warehouse_return_decision",
+                "Warehouse return decision",
+                f"Farmer {payload.decision}ed the warehouse return request.",
+                actor_id=str(current_user["_id"]),
+                actor_role="farmer",
+                metadata={"transferId": transfer_id, "decision": payload.decision},
+            )
+        except Exception:
+            logger.exception("Failed to append warehouse return tracking event")
+
+        warehouse = None
+        try:
+            from app.repositories.warehouse_repository import warehouse_repository
+            warehouse = await warehouse_repository.get_by_id(str(transfer["warehouseId"]))
+        except Exception:
+            pass
+        if warehouse and warehouse.get("managerId"):
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(warehouse["managerId"]),
+                    NotificationType.WAREHOUSE,
+                    f"Farmer {payload.decision}ed warehouse return",
+                    f"Order {order.get('orderNumber', str(transfer['orderId']))}: the farmer has {payload.decision}ed the return request.",
+                    data={"type": "warehouse_to_farmer_return_decision", "transferId": transfer_id, "orderId": str(transfer["orderId"])},
+                    priority=NotificationPriority.HIGH,
+                    mandatory=True,
+                )
+            except Exception:
+                logger.exception("Failed to notify warehouse about farmer return decision")
+
+    return {
+        "success": True,
+        "data": {"transferId": transfer_id, "status": new_status},
+        "message": f"Warehouse return {new_status}.",
+    }
+
+
 
 
 def _ensure_farmer(user: dict) -> None:
