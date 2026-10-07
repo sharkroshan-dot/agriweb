@@ -245,6 +245,9 @@ async def allocate_farmer_fulfillment_warehouses(
             "updatedAt": now,
             "deletedAt": None,
         })
+    # A source allocation must never be considered received at the
+    # consolidation warehouse merely because the source warehouse stored it.
+    # The destination warehouse has an explicit receive action.
     # Create one packed-transfer incoming record per warehouse allocation.
     # These are receiving records, not warehouse packing tasks.
     incoming_collection = MongoDB.get_collection("incoming_stock")
