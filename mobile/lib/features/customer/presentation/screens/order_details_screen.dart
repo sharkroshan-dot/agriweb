@@ -248,11 +248,19 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
                   final isLast = entry.key == history.length - 1;
                   return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     SizedBox(width: 24, child: Column(children: [Container(width: 12, height: 12, decoration: BoxDecoration(color: AppTheme.primaryGreen, shape: BoxShape.circle)), if (!isLast) Container(width: 2, height: 48, color: AppTheme.border)])),
-                    Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(h['title']?.toString() ?? pretty(h['status']?.toString() ?? 'Status update'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      if (h['description'] != null) Text(h['description'].toString(), style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                      if (h['timestamp'] != null) Text(h['timestamp'].toString(), style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
-                    ])),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(h['title']?.toString() ?? pretty(h['status']?.toString() ?? 'Status update'), style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            if (h['description'] != null) Text(h['description'].toString(), style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+                            if (h['timestamp'] != null) Text(h['timestamp'].toString(), style: TextStyle(fontSize: 10, color: AppTheme.textSecondary)),
+                          ],
+                        ),
+                      ),
+                    ),
                   ]);
                 }),
                 const SizedBox(height: 4),
@@ -273,7 +281,26 @@ class _OrderDetailsScreenState extends State<OrderDetailsScreen> {
     );
   }
 
-  Widget _trackingMetric(String label, String value) => Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: AppTheme.background, borderRadius: BorderRadius.circular(12)), child: Column(children: [Text(label, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)), const SizedBox(height: 4), Text(value, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))]);
+  Widget _trackingMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: TextStyle(fontSize: 11, color: AppTheme.textSecondary)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
 
   String _orderStatus() {
     return (_order?['orderStatus'] as String? ?? _order?['status'] as String? ?? 'pending').toLowerCase();
