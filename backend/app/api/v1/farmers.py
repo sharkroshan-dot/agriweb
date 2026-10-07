@@ -25,6 +25,7 @@ from app.repositories.wallet_repository import wallet_repository, wallet_transac
 from app.repositories.withdrawal_repository import withdrawal_repository
 from app.services.user_service import UserService
 from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationType, NotificationPriority
 from app.repositories.user_repository import user_repository
 from app.schemas.order import OrderStatusUpdate, PaymentStatus, DeliveryType
 from app.utils.delivery_map_events import delivery_map_event_broker
