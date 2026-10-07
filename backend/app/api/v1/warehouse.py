@@ -241,6 +241,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
         "$or": [
             {"warehouseId": ObjectId(str(warehouse["_id"]))},
             {"warehouseIds": ObjectId(str(warehouse["_id"]))},
+            {"consolidationWarehouseId": ObjectId(str(warehouse["_id"]))},
         ],
         "deletedAt": None,
         "orderStatus": {"$nin": ["cancelled", "refunded", "delivered", "completed"]},
