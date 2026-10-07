@@ -31,6 +31,12 @@ export default function FarmerFulfillmentWarehousePage() {
     refetchInterval:15000,
   });
   const transfers=data?.data?.transfers||[];
+  const {data:consolidationData,refetch:refetchConsolidations}=useQuery({
+    queryKey:["farmerFulfillmentConsolidations"],
+    queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),
+    refetchInterval:15000,
+  });
+  const consolidations=consolidationData?.data?.consolidations||[];
 
   const receive=async(id:string,qty:number)=>{
     try {
@@ -38,6 +44,19 @@ export default function FarmerFulfillmentWarehousePage() {
       toast.success("Farmer-packed shipment received");
       await refetch();
     } catch(e:any){toast.error(e?.message||"Receiving failed");}
+  };
+  const refreshAll=async()=>{await refetch();await refetchConsolidations();};
+  const completeConsolidation=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/complete-consolidation`);toast.success("All warehouse portions consolidated");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Consolidation failed");}
+  };
+  const handoffHub=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/handoff-local-hub`);toast.success("Complete order handed to local hub");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Local hub handoff failed");}
+  };
+  const receiveHub=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-local-hub`);toast.success("Local hub received complete order; one delivery job opened");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Local hub receipt failed");}
   };
   const store=async(id:string)=>{
     try {
@@ -81,7 +100,13 @@ export default function FarmerFulfillmentWarehousePage() {
           </div>
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
-            {(o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" || ["ready_for_dispatch","delivery_decision"].includes(o.stage))&&<Button asChild><a href={o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "/warehouse/consolidation" : "/outgoing"}><Route className="mr-2 h-4 w-4"/>{o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "Open Consolidation" : "Choose Hub Route"}</a></Button>}
+            {o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && (()=>{const con=consolidations.find((x:any)=>x.orderId===o.id);const status=con?.consolidationStatus;return <div className="space-y-2">
+              {(status==="collecting_from_warehouses"||status==="partial"||(!status&&con?.allWarehousesReceived===false))&&<Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
+              {status==="consolidated"&&<Button size="sm" onClick={()=>handoffHub(o.id)}>Transfer to Local Hub</Button>}
+              {status==="hub_handoff_pending"&&<Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
+              {["local_hub_ready","partner_pending"].includes(status||"")&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>One Delivery Job Ready</Badge>}
+            </div>})()}
+            {o.logisticsMode !== "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && ["ready_for_dispatch","delivery_decision"].includes(o.stage)&&<Button asChild><a href="/outgoing"><Route className="mr-2 h-4 w-4"/>Choose Hub Route</a></Button>}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
         </div>
