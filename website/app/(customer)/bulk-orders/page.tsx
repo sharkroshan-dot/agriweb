@@ -124,20 +124,22 @@ export default function CustomerBulkOrdersPage() {
                       </span>
                       <span>{r.offerCount ?? 0} offer(s)</span>
                       {r.requestType === "bulk_event" ? (
-                        <Link
-                          href={`/bulk-orders/${r.id}/sourcing`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="font-medium text-emerald-700 hover:underline"
-                        >
-                          Smart Fulfillment
-                        </Link>
-                        <Link
-                          href={"/bulk-orders/" + r.id + "/tracking"}
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
-                        >
-                          <Eye className="h-3.5 w-3.5" /> View Tracking
-                        </Link>
+                        <>
+                          <Link
+                            href={`/bulk-orders/${r.id}/sourcing`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-medium text-emerald-700 hover:underline"
+                          >
+                            Smart Fulfillment
+                          </Link>
+                          <Link
+                            href={"/bulk-orders/" + r.id + "/tracking"}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                          >
+                            <Eye className="h-3.5 w-3.5" /> View Tracking
+                          </Link>
+                        </>
                       ) : null}
                     </div>
                   </CardContent>
