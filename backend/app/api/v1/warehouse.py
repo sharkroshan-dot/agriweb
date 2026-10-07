@@ -154,8 +154,14 @@ async def get_farmer_fulfillment_transfers(
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
     query: Dict[str, Any] = {
-        "warehouseId": ObjectId(str(warehouse["_id"])),
-        "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "$or": [
+            {"warehouseId": ObjectId(str(warehouse["_id"]))},
+            {"warehouseIds": ObjectId(str(warehouse["_id"]))},
+        ],
+        "logisticsMode": {"$in": [
+            "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+        ]},
         "deletedAt": None,
         "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
     }
