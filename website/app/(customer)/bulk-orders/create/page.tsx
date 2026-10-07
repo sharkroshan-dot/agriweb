@@ -99,7 +99,7 @@ export default function CreateBulkOrderPage() {
   const urgentEventPreview = useMemo(() => {
     if (isFamilyWeekly || !deliveryDate) return false;
     const raw = String(deliveryTime || "");
-    const match = raw.match(/(\\d{1,2}:\\d{2})\\s*(AM|PM)/i);
+    const match = raw.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
     const delivery = new Date(`${deliveryDate}T00:00:00`);
     if (match) {
       const [hourText, minuteText] = match[1].split(":");
