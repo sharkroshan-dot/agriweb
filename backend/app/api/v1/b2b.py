@@ -391,6 +391,10 @@ async def create_business_profile(
     }
     if data.businessType not in eligible_types:
         raise HTTPException(status_code=400, detail="Business type is not eligible for B2B procurement")
+    if data.gstin and not re.fullmatch(r"[0-9A-Z]{15}", data.gstin.strip().upper()):
+        raise HTTPException(status_code=400, detail="GSTIN must contain exactly 15 letters/numbers")
+    if not data.address or not data.city or not data.state:
+        raise HTTPException(status_code=400, detail="Business address, city and state are required")
 
     existing = await profile_repo.find_one({"userId": ObjectId(current_user["_id"]), "deletedAt": None})
     payload = {
