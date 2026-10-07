@@ -56,6 +56,14 @@ export default function FarmerFulfillmentWarehousePage() {
   };
   const refreshAll=async()=>{await refetch();await refetchConsolidations();};
   const completeConsolidation=async(id:string)=>{
+  const dispatchConsolidation = async (id:string) => {
+    try{await api.post(\`/warehouse/me/farmer-fulfillment/\${id}/dispatch-to-consolidation\`);toast.success("Warehouse portion dispatched to consolidation");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Dispatch failed");}
+  };
+  const receiveConsolidation = async (id:string) => {
+    try{await api.post(\`/warehouse/me/farmer-fulfillment/\${id}/receive-at-consolidation\`);toast.success("Portion received at consolidation");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
+  };
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/complete-consolidation`);toast.success("All warehouse portions consolidated");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Consolidation failed");}
   };
@@ -111,7 +119,11 @@ export default function FarmerFulfillmentWarehousePage() {
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
             {o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && (()=>{const con=consolidations.find((x:any)=>x.orderId===o.id);const status=con?.consolidationStatus;return <div className="space-y-2">
-              {(status==="collecting_from_warehouses"||status==="partial"||(!status&&con?.allWarehousesReceived===false))&&<Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
+              {(status==="collecting_from_warehouses"||status==="partial"||(!status&&con?.allWarehousesReceived===false))&&<div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Consolidation</Button>
+                <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Receive at Consolidation</Button>
+                <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>
+              </div>}
               {status==="consolidated"&&<Button size="sm" onClick={()=>handoffHub(o.id)}>Transfer to Local Hub</Button>}
               {status==="hub_handoff_pending"&&<Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
               {["local_hub_ready","partner_pending"].includes(status||"")&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>One Delivery Job Ready</Badge>}
