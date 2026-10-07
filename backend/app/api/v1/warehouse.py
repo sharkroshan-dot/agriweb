@@ -226,7 +226,10 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
 
     orders = await order_repository.find_many({
         "logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
-        "warehouseIds": ObjectId(str(warehouse["_id"])),
+        "$or": [
+            {"warehouseId": ObjectId(str(warehouse["_id"]))},
+            {"warehouseIds": ObjectId(str(warehouse["_id"]))},
+        ],
         "deletedAt": None,
         "orderStatus": {"$nin": ["cancelled", "refunded", "delivered", "completed"]},
     }, skip=0, limit=200, sort=[("updatedAt", -1)])
@@ -413,11 +416,57 @@ async def handoff_farmer_fulfillment_to_local_hub(
         },
     )
 
-    # The physical hub transfer is represented by one transfer manifest for the
-    # complete order. Only after this handoff is ready do we create the single
-    # delivery marketplace job.
-    transfer_job = await _create_single_farmer_fulfillment_delivery_job(order_id, hub_doc, current_user)
-    return {"success": True, "data": transfer_job, "message": "Complete order transferred to the local hub and one delivery partner job is ready."}
+    # The physical hub transfer is one manifest for the complete order. The
+    # delivery marketplace job is intentionally created only after the local
+    # hub confirms receipt, so the partner never gets sent to an unreceived load.
+    return {"success": True, "data": {"orderId": order_id, "status": "in_transit", "localHub": order.get("nearbyFulfillmentLocation")}, "message": "Complete order transferred to the local hub. Waiting for hub receipt."}
+
+
+@router.post("/me/farmer-fulfillment/{order_id}/receive-local-hub")
+async def receive_farmer_fulfillment_at_local_hub(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm the complete order arrived at the local hub, then open exactly one final job."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can receive farmer fulfillment at the local hub")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=404, detail="Farmer fulfillment consolidation not found")
+    if str(order.get("consolidationStatus")) not in ("hub_handoff_pending", "local_hub_ready"):
+        raise HTTPException(status_code=400, detail="Complete consolidation and local-hub handoff first")
+
+    hub_id = order.get("nearbyFulfillmentLocationId")
+    if not hub_id:
+        raise HTTPException(status_code=400, detail="Local hub is not assigned")
+    hub_doc = await MongoDB.get_collection("fulfillment_hubs").find_one({
+        "_id": ObjectId(str(hub_id)),
+        "deletedAt": None,
+        "isActive": True,
+        "approvalStatus": "approved",
+    })
+    if not hub_doc:
+        raise HTTPException(status_code=400, detail="Local hub is unavailable")
+
+    transfer_collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
+    transfer = await transfer_collection.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
+    if not transfer:
+        raise HTTPException(status_code=400, detail="Local hub transfer manifest does not exist")
+    await transfer_collection.update_one(
+        {"_id": transfer["_id"]},
+        {"$set": {"status": "received", "receivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
+    )
+    await order_repository.update(
+        {"_id": ObjectId(order_id)},
+        {"transferStatus": "local_hub_ready", "consolidationStatus": "local_hub_ready", "updatedAt": datetime.utcnow()},
+    )
+    job = await _create_single_farmer_fulfillment_delivery_job(order_id, hub_doc, current_user)
+    return {"success": True, "data": job, "message": "Local hub received the complete order. One final delivery partner job is now open."}
 
 
 async def _create_single_farmer_fulfillment_delivery_job(order_id: str, hub_doc: dict, current_user: dict) -> dict:
