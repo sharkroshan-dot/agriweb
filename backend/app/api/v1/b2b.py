@@ -371,23 +371,23 @@ def _safe_business_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
         "phone": profile.get("phone"),
         "isVerified": bool(profile.get("isVerified")),
         "verificationStatus": profile.get("verificationStatus", "pending"),
-        "gstin": Security.decrypt_business_data(profile.get("gstinEncrypted")),
+        "gstinMasked": ("*" * 11 + Security.decrypt_business_data(profile.get("gstinEncrypted"))[-4:]) if Security.decrypt_business_data(profile.get("gstinEncrypted")) else None,
         "contactPerson": Security.decrypt_business_data(profile.get("contactPersonEncrypted")),
         "procurementRequirements": Security.decrypt_business_data(profile.get("procurementRequirementsEncrypted")),
         "address": Security.decrypt_business_data(profile.get("businessAddressEncrypted")),
     }
 
 class BusinessProfileCreate(BaseModel):
-    businessName: str
-    businessType: str = Field(..., description="Eligible bulk/institutional buyer type")
+    businessName: str = Field(..., min_length=2, max_length=150)
+    businessType: str = Field(..., min_length=2, max_length=60, description="Eligible bulk/institutional buyer type")
     gstin: Optional[str] = Field(None, max_length=15)
     contactPerson: str = Field(..., min_length=2, max_length=120)
     procurementRequirements: Optional[str] = Field(None, max_length=2000)
     phone: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    district: Optional[str] = None
-    address: Optional[str] = None
+    city: str = Field(..., min_length=1, max_length=100)
+    state: str = Field(..., min_length=1, max_length=100)
+    district: Optional[str] = Field(None, max_length=100)
+    address: str = Field(..., min_length=5, max_length=500)
     location: Optional[dict] = None
 
 
