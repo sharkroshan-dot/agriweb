@@ -146,7 +146,7 @@ export default function FarmerBulkOrdersPage() {
     kind: "bulk",
     id: r.id,
     source: r.buyerType,
-    sourceLabel: r.eventSourcingMode === "planned_rfq" ? "🔵 Planned Event RFQ" : "👤 Customer Event",
+    sourceLabel: r.eventFulfillmentMode === "planned" ? "🔵 Planned Event RFQ" : "👤 Customer Event",
     requestNumber: r.requestNumber,
     title: r.purpose,
     subtitle: (r.items || []).map((i: any) => `${i.name} ${i.quantityKg} kg`).join(" • "),
