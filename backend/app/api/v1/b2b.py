@@ -334,6 +334,21 @@ async def _ensure_operational_order(b2b: Dict[str, Any]) -> Optional[Dict[str, A
     except Exception as exc: logger.warning("B2B logistics evaluation failed for %s: %s", b2b.get("orderNumber"), exc)
     return await orders.find_one({"_id": result.inserted_id})
 
+async def _sync_b2b_from_operational(b2b: Dict[str, Any], op: Optional[Dict[str, Any]]) -> None:
+    if not op: return
+    status = str(op.get("orderStatus") or "")
+    mapped = {"ready_for_delivery": "dispatched", "local_dispatch": "dispatched", "dispatched": "dispatched", "in_transit": "in_transit", "delivered": "delivered"}
+    target = mapped.get(status)
+    if not target: return
+    current = b2b.get("status")
+    rank = {ORDER_CONFIRMED: 0, ORDER_PREPARING: 1, ORDER_QUALITY_CHECK: 2, ORDER_DISPATCHED: 3, ORDER_IN_TRANSIT: 4, ORDER_DELIVERED: 5, ORDER_COMPLETED: 6}
+    if rank.get(target, -1) > rank.get(current, -1):
+        update = {"status": target, "updatedAt": datetime.utcnow()}
+        if target == ORDER_DELIVERED: update["deliveredAt"] = op.get("deliveredAt") or datetime.utcnow()
+        await order_repo.update({"_id": b2b["_id"]}, update)
+        b2b.update(update)
+
+
 def _logistics_snapshot(op: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not op: return {"status": "not_created", "label": "Awaiting logistics setup"}
     status = str(op.get("orderStatus") or "confirmed")
