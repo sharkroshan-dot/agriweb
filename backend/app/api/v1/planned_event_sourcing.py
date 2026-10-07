@@ -14,6 +14,7 @@ from app.repositories.base_repository import BaseRepository
 from app.repositories.farmer_repository import farmer_repository
 from app.repositories.product_repository import product_repository
 from app.repositories.inventory_repository import inventory_repository
+from app.services.warehouse_service import WarehouseService
 from app.services.inventory_service import InventoryService
 from app.services.bulk_order_service import (
     BulkOrderService,
@@ -255,6 +256,12 @@ async def planned_confirm(request_id: str, data: dict = Body(...), current_user:
     if shortages:
         raise HTTPException(status_code=400, detail={"message": "Selected quotes do not cover the complete event", "shortages": shortages})
 
+    destination = ((request.get("deliveryAddress") or {}).get("location") or {})
+    total_required = sum(float(i.get("quantityKg") or 0) for i in request.get("items", []))
+    event_warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required) if destination.get("coordinates") else None
+    if not event_warehouse:
+        raise HTTPException(status_code=409, detail="No active warehouse has enough available capacity for the complete planned event")
+
     reserved = []
     created = []
     try:
@@ -302,6 +309,9 @@ async def planned_confirm(request_id: str, data: dict = Body(...), current_user:
             "eventDeliveryStatus": "awaiting_farmer_confirmation",
             "eventConsolidationStatus": "pending_collection",
             "eventFulfillmentIds": [x["_id"] for x in created],
+            "eventWarehouseId": event_warehouse["_id"],
+            "eventWarehouseName": event_warehouse.get("name") or event_warehouse.get("warehouseName"),
+            "eventWarehouseStatus": "awaiting_fulfillment",
             "updatedAt": datetime.utcnow(),
         })
     except HTTPException:
