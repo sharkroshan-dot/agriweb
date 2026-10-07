@@ -302,6 +302,16 @@ async def dispatch_farmer_fulfillment_to_consolidation(
         raise HTTPException(status_code=403, detail="This order has no allocation at your warehouse")
 
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    # A source warehouse may dispatch only after its own incoming records have
+    # been physically received, quality-approved and stored.
+    source_incoming = await incoming_stock_repository.find_many({
+        "orderId": ObjectId(order_id),
+        "warehouseId": ObjectId(wid),
+        "sourceMode": "farmer_fulfillment_transfer",
+        "deletedAt": None,
+    }, skip=0, limit=1000)
+    if not source_incoming or any(str(x.get("status")) != "stored" for x in source_incoming):
+        raise HTTPException(status_code=400, detail="Receive, quality-check and store this farmer-packed portion before dispatching it to consolidation")
     source_legs = await legs.find({
         "orderId": ObjectId(order_id),
         "sourceWarehouseId": ObjectId(wid),
