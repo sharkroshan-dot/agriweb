@@ -292,8 +292,9 @@ async def complete_farmer_fulfillment_consolidation(
         raise HTTPException(status_code=404, detail="Multi-warehouse farmer fulfillment order not found")
 
     allowed_warehouses = {str(x) for x in (order.get("warehouseIds") or [])}
-    if str(warehouse["_id"]) not in allowed_warehouses:
-        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse")
+    consolidation_warehouse_id = str(order.get("consolidationWarehouseId") or "")
+    if str(warehouse["_id"]) not in allowed_warehouses and str(warehouse["_id"]) != consolidation_warehouse_id:
+        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse or consolidation hub")
 
     incoming = await incoming_stock_repository.find_many({
         "orderId": ObjectId(order_id),
