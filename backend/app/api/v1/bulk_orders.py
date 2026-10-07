@@ -1584,7 +1584,7 @@ async def update_event_fulfillment_status(
     # A warehouse "stored" event is the commit point for the reservation:
     # reserved stock becomes sold/committed only after physical receipt,
     # quality approval and storage. This is deliberately after collection.
-    if new_status == "stored":
+    if new_status == "stored" and not fulfillment.get("inventoryFinalizedAt"):
         from app.repositories.inventory_repository import inventory_repository
         confirmed = await inventory_repository.atomic_confirm(
             str(fulfillment["productId"]),
@@ -1615,6 +1615,8 @@ async def update_event_fulfillment_status(
         ),
         "warehouseReceivedAt": datetime.utcnow() if new_status == "warehouse_received" else fulfillment.get("warehouseReceivedAt"),
         "storedAt": datetime.utcnow() if new_status == "stored" else fulfillment.get("storedAt"),
+        "inventoryFinalizedAt": datetime.utcnow() if new_status == "stored" and not fulfillment.get("inventoryFinalizedAt") else fulfillment.get("inventoryFinalizedAt"),
+        "inventoryFinalizationStatus": "confirmed" if new_status == "stored" else fulfillment.get("inventoryFinalizationStatus"),
     })
 
     siblings = await event_fulfillment_repo.find_many({"requestId": fulfillment["requestId"], "deletedAt": None}, limit=500)
