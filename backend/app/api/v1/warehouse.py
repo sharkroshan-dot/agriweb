@@ -1989,8 +1989,16 @@ async def choose_warehouse_delivery_route(
             "message": "Delivery route selected. Dispatch the warehouse shipment next.",
         }
 
-    await order_repository.update_order_field(
-        str(order_id), "warehouseFulfillmentStage", "dispatched"
+    await order_repository.update(
+        {"_id": ObjectId(str(order_id))},
+        {
+            "warehouseFulfillmentStage": "dispatched",
+            "orderStatus": "ready_for_delivery",
+            "dispatchedAt": datetime.utcnow(),
+            "deliveryDispatchStatus": "dispatched",
+            "deliveryDispatchAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
+        },
     )
 
     # Long-distance Warehouse Fulfillment must complete the physical
