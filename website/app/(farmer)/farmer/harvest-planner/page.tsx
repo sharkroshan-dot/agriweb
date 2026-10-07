@@ -73,6 +73,8 @@ interface CropPlan {
   preOrderEnabled?: boolean;
   productCreated?: boolean;
   productId?: string;
+  masterCropId?: string;
+  farmerCropId?: string;
   harvestedAt?: string;
   actualQuantityKg?: number;
   finalRatePerKg?: number;
