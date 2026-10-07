@@ -88,6 +88,17 @@ async def allocate_farmer_fulfillment_warehouses(
     if not warehouses:
         raise ValueError("No active warehouses are available for farmer fulfillment transfer.")
 
+    # Allocation uses live inventory-derived capacity, not stale warehouse profile values.
+    for warehouse in warehouses:
+        try:
+            from app.repositories.warehouse_repository import warehouse_repository
+            await warehouse_repository.sync_capacity_usage(str(warehouse["_id"]))
+            refreshed = await warehouse_repository.get_by_id(str(warehouse["_id"]))
+            if refreshed:
+                warehouse.update(refreshed)
+        except Exception:
+            continue
+
     item_lines = []
     for item in order.get("items") or []:
         qty = float(item.get("quantity") or 0)
@@ -108,8 +119,11 @@ async def allocate_farmer_fulfillment_warehouses(
     def capacity(w: Dict[str, Any]) -> float:
         total = float(w.get("totalCapacity") or 0)
         used = float(w.get("usedCapacity") or 0)
-        configured = max(0.0, total - used)
-        return configured if configured > 0 else 10**12
+        # A warehouse with no configured capacity must not become an
+        # unlimited fallback. Only explicit positive capacity is eligible.
+        if total <= 0:
+            return 0.0
+        return max(0.0, total - used)
 
     scored = []
     for warehouse in warehouses:
