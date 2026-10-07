@@ -263,6 +263,8 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "consolidationStatus": order.get("consolidationStatus") or (consolidation or {}).get("status"),
             "localHub": order.get("nearbyFulfillmentLocation"),
             "transferStatus": order.get("transferStatus"),
+            "logisticsMode": order.get("logisticsMode"),
+            "warehouseCount": int(order.get("warehouseCount") or 1),
             "incomingCount": len(incoming),
             "storedCount": len(stored),
             "allWarehousesReceived": bool(incoming) and len(stored) == len(incoming),
