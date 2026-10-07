@@ -15,7 +15,8 @@ const STAGES = [
   ["stock_reserved", "Stock Reserved", "The required live inventory is reserved."],
   ["packing", "Packing", "Farmers are packing the allocated quantities."],
   ["collection", "Collection", "Products are being collected from farms."],
-  ["consolidation", "Consolidation", "Collected products are being prepared together."],
+  ["warehouse_receiving", "Warehouse Receiving", "All collected products are being received and quality-checked at the warehouse."],
+  ["consolidation", "Consolidation", "All received products are being stored and consolidated together."],
   ["ready_for_delivery", "Ready for Delivery", "The complete bulk order is ready."],
   ["delivery_partner", "Delivery Partner Assigned", "A delivery job has been assigned."],
   ["out_for_delivery", "Out for Delivery", "Your order is on the way."],
@@ -46,7 +47,7 @@ export default function BulkOrderTrackingPage() {
   const isWeekly = tracking.purchaseMode === "family_weekly";
   const fulfillments = tracking.fulfillments || [];
   const jobs = tracking.deliveryJobs || [];
-  const collected = fulfillments.filter((f: any) => f.status === "collected").length;
+  const collected = fulfillments.filter((f: any) => ["collected", "warehouse_received", "stored"].includes(f.status)).length;
   const totalFulfillments = fulfillments.length;
 
   const stageVisible = (key: string) => {
@@ -111,7 +112,7 @@ export default function BulkOrderTrackingPage() {
               {fulfillments.map((f: any) => (
                 <div key={f.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
                   <div><p className="font-medium">{f.farmName || "Farmer"}</p><p className="text-xs text-slate-500">{f.productName} · {f.allocatedQuantityKg} kg</p></div>
-                  <Badge variant={f.status === "collected" ? "success" : f.status === "cancelled" ? "destructive" : "secondary"}>{String(f.status || "").replace(/_/g, " ")}</Badge>
+                  <Badge variant={["collected", "warehouse_received", "stored"].includes(f.status) ? "success" : f.status === "cancelled" ? "destructive" : "secondary"}>{String(f.status || "").replace(/_/g, " ")}</Badge>
                 </div>
               ))}
             </div>
