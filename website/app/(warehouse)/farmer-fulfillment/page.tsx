@@ -125,7 +125,7 @@ export default function FarmerFulfillmentWarehousePage() {
                 <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!complete || !consolidationReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>
               </div>}
               {status==="consolidated"&&<Button size="sm" onClick={()=>handoffHub(o.id)}>Transfer to Local Hub</Button>}
-              {status==="hub_handoff_pending"&&<Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
+              {status==="hub_handoff_pending"&&<div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button><span className="text-xs text-muted-foreground self-center">Confirm only after the local hub physically receives the complete order.</span></div>}
               {["local_hub_ready","partner_pending"].includes(status||"")&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>One Delivery Job Ready</Badge>}
             </div>})()}
             {o.logisticsMode !== "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && ["ready_for_dispatch","delivery_decision"].includes(o.stage)&&<Button asChild><a href="/outgoing"><Route className="mr-2 h-4 w-4"/>Choose Hub Route</a></Button>}
