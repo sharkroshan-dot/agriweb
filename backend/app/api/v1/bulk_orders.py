@@ -266,6 +266,13 @@ async def list_requests(
             match = {"_id": {"$in": ids}, "deletedAt": None} if ids else {"_id": {"$in": []}}
         else:
             match = {"status": {"$in": [REQUEST_OPEN, REQUEST_OFFERS]}, "deletedAt": None}
+            # Planned event RFQs are only visible to farmers selected by smart sourcing.
+            match["$or"] = [
+                {"purchaseMode": {"$ne": "event"}},
+                {"rfqFarmerIds": ObjectId(current_user["_id"])},
+                {"rfqFarmerIds": str(current_user["_id"])},
+                {"rfqFarmerIds": {"$exists": False}},
+            ]
     elif role in ("admin", "super_admin"):
         match = {"deletedAt": None}
         if status and status != "all":
@@ -377,6 +384,15 @@ async def submit_offer(
         raise HTTPException(status_code=404, detail="Request not found")
     if request.get("status") not in (REQUEST_OPEN, REQUEST_OFFERS):
         raise HTTPException(status_code=400, detail="This request is no longer accepting offers")
+
+    if request.get("requestType") == "bulk_event":
+        if request.get("purchaseMode") == "family_weekly":
+            raise HTTPException(status_code=400, detail="Weekly family baskets use smart sourcing and do not accept farmer quotes")
+        if request.get("eventFulfillmentMode") != "planned":
+            raise HTTPException(status_code=400, detail="This event is using urgent smart sourcing; quotes are not required")
+        allowed_farmer_ids = {str(x) for x in (request.get("rfqFarmerIds") or [])}
+        if allowed_farmer_ids and str(current_user["_id"]) not in allowed_farmer_ids:
+            raise HTTPException(status_code=403, detail="This planned RFQ was not sent to your farm")
 
     existing = await offer_repo.find_one({
         "requestId": ObjectId(request_id),
@@ -699,11 +715,27 @@ class EventFulfillmentStatusUpdate(BaseModel):
 
 
 def _event_deadline(request: dict) -> Optional[datetime]:
-    raw = request.get("requestedDeliveryDate") or request.get("eventDate")
-    if not raw:
+    """Return the requested delivery deadline using the delivery date + first time in the slot.
+    
+    The UI stores delivery slots such as "6:00 AM – 9:00 AM". We use the
+    beginning of the slot because sourcing must be ready before delivery starts.
+    """
+    raw_date = request.get("requestedDeliveryDate") or request.get("eventDate")
+    if not raw_date:
         return None
     try:
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).replace(tzinfo=None)
+        date_text = str(raw_date).strip()[:10]
+        time_text = str(request.get("requestedDeliveryTime") or "").strip()
+        if time_text:
+            import re
+            match = re.search(r"(\\d{1,2}:\\d{2})\\s*(AM|PM)", time_text, re.IGNORECASE)
+            if match:
+                parsed = datetime.strptime(
+                    f"{date_text} {match.group(1)} {match.group(2).upper()}",
+                    "%Y-%m-%d %I:%M %p",
+                )
+                return parsed
+        return datetime.fromisoformat(date_text)
     except Exception:
         return None
 
@@ -858,15 +890,279 @@ async def smart_source_event(
             pass
 
     sourcing = await _event_candidates(request)
-    await request_repo.update({
-        "_id": request["_id"]
-    }, {
-        "eventFulfillmentMode": "weekly_smart" if request.get("purchaseMode") == "family_weekly" else ("urgent_nearby" if sourcing["urgent"] else "planned"),
-        "eventSourcingPlan": sourcing,
-        "eventSourcingStatus": "plan_ready",
-        "eventSourcingUpdatedAt": datetime.utcnow(),
-    })
+    mode = "weekly_smart" if request.get("purchaseMode") == "family_weekly" else ("urgent_nearby" if sourcing["urgent"] else "planned")
+    sourcing["sourcingMode"] = mode
+    await request_repo.update(
+        {"_id": request["_id"]},
+        {
+            "eventFulfillmentMode": mode,
+            "eventSourcingPlan": sourcing,
+            "eventSourcingStatus": "plan_ready",
+            "eventSourcingUpdatedAt": datetime.utcnow(),
+        },
+    )
     return {"success": True, "data": sourcing}
+
+
+@router.post("/requests/{request_id}/planned-source")
+async def planned_event_source(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Run smart sourcing for a planned event and open an RFQ for the eligible farmers.
+    
+    No inventory is reserved at this stage. Farmers quote against the live
+    requirement; reservation happens only after the buyer selects quotes.
+    """
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your event request")
+    if request.get("requestType") != "bulk_event" or request.get("purchaseMode") != "event":
+        raise HTTPException(status_code=400, detail="Planned RFQ is only available for event orders")
+
+    sourcing = await _event_candidates(request)
+    if sourcing.get("urgent"):
+        raise HTTPException(status_code=409, detail="This event is within 24 hours and must use urgent smart sourcing")
+
+    farmer_ids = sorted({
+        str(candidate.get("farmerId"))
+        for row in sourcing.get("plan", [])
+        for candidate in (row.get("candidates") or [])
+        if candidate.get("farmerId")
+    })
+    if not farmer_ids:
+        raise HTTPException(status_code=409, detail="No eligible farmers with live inventory were found")
+
+    rfq_object_ids = []
+    for farmer_id in farmer_ids:
+        try:
+            rfq_object_ids.append(ObjectId(farmer_id))
+        except Exception:
+            continue
+
+    sourcing["sourcingMode"] = "planned_rfq"
+    sourcing["eligibleFarmerIds"] = farmer_ids
+
+    await request_repo.update(
+        {"_id": request["_id"]},
+        {
+            "eventFulfillmentMode": "planned",
+            "eventSourcingPlan": sourcing,
+            "eventSourcingStatus": "rfq_open",
+            "eventSourcingUpdatedAt": datetime.utcnow(),
+            "rfqFarmerIds": rfq_object_ids,
+            "rfqOpenedAt": datetime.utcnow(),
+        },
+    )
+
+    for farmer_id in farmer_ids:
+        try:
+            await NotificationService.create_in_app_notification(
+                farmer_id,
+                NotificationType.PROMOTION,
+                "New planned event RFQ",
+                f"{request.get('requestNumber')} needs {len(request.get('items') or [])} product line(s) for {request.get('requestedDeliveryDate')}. Submit your price, quantity and delivery availability.",
+                {"requestId": request_id, "type": "planned_event_rfq"},
+                NotificationPriority.HIGH,
+            )
+        except Exception:
+            continue
+
+    return {
+        "success": True,
+        "data": {
+            **sourcing,
+            "sourcingMode": "planned_rfq",
+            "eligibleFarmerIds": farmer_ids,
+            "message": "RFQ opened for smart-sourced eligible farmers",
+        },
+    }
+
+
+@router.post("/requests/{request_id}/planned-confirm")
+async def planned_event_confirm(
+    request_id: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm selected planned-event quotes, validate live stock, reserve it atomically, and create product-wise fulfillments."""
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your event request")
+    if request.get("eventSourcingStatus") in ("confirmed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Event sourcing is already finalized")
+    if request.get("eventFulfillmentMode") != "planned":
+        raise HTTPException(status_code=400, detail="This event is not using planned sourcing")
+
+    offer_ids = [str(x) for x in (data.get("offerIds") or []) if x]
+    if not offer_ids:
+        raise HTTPException(status_code=400, detail="Select at least one farmer quote")
+
+    offers = []
+    for offer_id in offer_ids:
+        try:
+            oid = ObjectId(offer_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid quote selection")
+        offer = await offer_repo.find_one({"_id": oid, "requestId": request["_id"], "deletedAt": None})
+        if not offer or offer.get("status") != OFFER_PENDING:
+            raise HTTPException(status_code=400, detail="One or more selected quotes are no longer available")
+        offers.append(offer)
+
+    required = {
+        str(i.get("name")).strip().lower(): float(i.get("quantityKg") or 0)
+        for i in request.get("items", [])
+    }
+    covered = {name: 0.0 for name in required}
+    allocations = []
+    from app.repositories.inventory_repository import inventory_repository
+
+    for offer in offers:
+        farmer_id = str(offer.get("farmerId"))
+        farmer = await farmer_repository.find_one({"userId": ObjectId(farmer_id)})
+        products = await product_repository.get_by_farmer(farmer_id, limit=500)
+        product_by_name = {}
+        for product in products:
+            key = BulkOrderService._normalize(product.get("name"))
+            if key not in product_by_name:
+                product_by_name[key] = product
+
+        for quoted in offer.get("items", []):
+            name = str(quoted.get("name") or "").strip()
+            key = BulkOrderService._normalize(name)
+            if key not in required:
+                continue
+            qty = float(quoted.get("quantityKg") or 0)
+            remaining = required[key] - covered[key]
+            if qty <= 0 or remaining <= 1e-6:
+                continue
+            qty = min(qty, remaining)
+            product = product_by_name.get(key)
+            if not product:
+                # Fall back to the same fuzzy matching used by smart sourcing.
+                product = next(
+                    (p for p in products if key in BulkOrderService._normalize(p.get("name")) or BulkOrderService._normalize(p.get("name")) in key),
+                    None,
+                )
+            if not product:
+                raise HTTPException(status_code=409, detail=f"{name} is no longer supplied by the selected farmer")
+            available = float(await InventoryService.get_available_stock(str(product["_id"])))
+            if available + 1e-6 < qty:
+                raise HTTPException(status_code=409, detail=f"{name} stock changed at {(farmer or {}).get('farmName') or 'selected farmer'}; please review quotes again")
+            distance = _distance_for_farmer(request, farmer or {})
+            covered[key] += qty
+            allocations.append({
+                "offerId": offer["_id"],
+                "farmerId": farmer_id,
+                "productId": str(product["_id"]),
+                "productName": name,
+                "quantityKg": round(qty, 2),
+                "farmName": (farmer or {}).get("farmName") or "Farmer",
+                "distanceKm": distance,
+                "pricePerKg": float(quoted.get("pricePerKg") or 0),
+            })
+
+    shortages = [
+        {"productName": name, "requiredKg": qty, "selectedKg": round(covered.get(name, 0), 2), "shortageKg": round(max(0, qty - covered.get(name, 0)), 2)}
+        for name, qty in required.items()
+        if covered.get(name, 0) + 1e-6 < qty
+    ]
+    if shortages:
+        raise HTTPException(status_code=400, detail={"message": "Selected quotes do not fully cover the event", "shortages": shortages})
+
+    destination = ((request.get("deliveryAddress") or {}).get("location") or {})
+    total_required = sum(required.values())
+    event_warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required) if destination.get("coordinates") else None
+    if not event_warehouse:
+        raise HTTPException(status_code=409, detail="No active warehouse has enough available capacity for the complete bulk order")
+
+    created = []
+    reserved = []
+    try:
+        for allocation in allocations:
+            ok = await inventory_repository.atomic_reserve(allocation["productId"], allocation["quantityKg"])
+            if not ok:
+                raise HTTPException(status_code=409, detail=f"Stock changed for {allocation['productName']}; please review the selected quotes")
+            reserved.append(allocation)
+            required_qty = required[BulkOrderService._normalize(allocation["productName"])]
+            fulfillment = {
+                "requestId": request["_id"],
+                "requestNumber": request.get("requestNumber"),
+                "buyerUserId": request.get("buyerUserId"),
+                "farmerId": ObjectId(allocation["farmerId"]),
+                "productId": ObjectId(allocation["productId"]),
+                "productName": allocation["productName"],
+                "requiredQuantityKg": required_qty,
+                "allocatedQuantityKg": allocation["quantityKg"],
+                "status": "pending_farmer_confirmation",
+                "packingStatus": "not_started",
+                "collectionStatus": "pending",
+                "deliveryStatus": "pending_consolidation",
+                "distanceKm": allocation.get("distanceKm"),
+                "farmName": allocation.get("farmName"),
+                "sourceOfferId": allocation["offerId"],
+                "pricePerKg": allocation.get("pricePerKg"),
+                "quoteTotal": round(allocation["quantityKg"] * allocation.get("pricePerKg", 0), 2),
+            }
+            fid = await event_fulfillment_repo.create(fulfillment)
+            if not fid:
+                raise RuntimeError("Failed to create planned event fulfillment")
+            fulfillment["_id"] = ObjectId(fid)
+            created.append(fulfillment)
+
+        await request_repo.update(
+            {"_id": request["_id"]},
+            {
+                "status": REQUEST_AWARDED,
+                "eventSourcingStatus": "confirmed",
+                "eventFulfillmentMode": "planned",
+                "eventDeliveryStatus": "awaiting_farmer_confirmation",
+                "eventConsolidationStatus": "pending_collection",
+                "eventFulfillmentIds": [x["_id"] for x in created],
+                "eventWarehouseId": event_warehouse["_id"],
+                "eventWarehouseName": event_warehouse.get("name") or event_warehouse.get("warehouseName"),
+                "eventWarehouseStatus": "awaiting_fulfillment",
+                "selectedOfferIds": [x["_id"] for x in offers],
+                "updatedAt": datetime.utcnow(),
+            },
+        )
+        await offer_repo.collection.update_many(
+            {"requestId": request["_id"], "status": OFFER_PENDING},
+            {"$set": {"status": OFFER_DECLINED, "updatedAt": datetime.utcnow()}},
+        )
+        for offer in offers:
+            await offer_repo.update({"_id": offer["_id"]}, {"status": OFFER_ACCEPTED, "acceptedAt": datetime.utcnow()})
+    except HTTPException:
+        for allocation in reserved:
+            await inventory_repository.atomic_release(allocation["productId"], allocation["quantityKg"])
+        raise
+    except Exception as exc:
+        for allocation in reserved:
+            await inventory_repository.atomic_release(allocation["productId"], allocation["quantityKg"])
+        raise HTTPException(status_code=500, detail=f"Failed to confirm planned event sourcing: {exc}")
+
+    for allocation in created:
+        await NotificationService.create_in_app_notification(
+            str(allocation["farmerId"]),
+            NotificationType.ORDER,
+            "Your event fulfillment was selected",
+            f"{allocation['productName']} {allocation['allocatedQuantityKg']} kg for {request.get('requestNumber')} is confirmed.",
+            {"requestId": request_id, "type": "event_fulfillment"},
+            NotificationPriority.HIGH,
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "requestId": request_id,
+            "fulfillments": [await _stringify_event_fulfillment(x) for x in created],
+        },
+        "message": "Planned event quotes confirmed and stock reserved",
+    }
 
 
 @router.post("/requests/{request_id}/confirm-source")
