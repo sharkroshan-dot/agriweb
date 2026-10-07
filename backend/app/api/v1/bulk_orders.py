@@ -86,6 +86,8 @@ class BulkRequestCreate(BaseModel):
     purpose: str = Field(..., description="wedding/birthday/function/festival/family_event/other or business purpose")
     eventDate: Optional[str] = None
     guestCount: Optional[int] = Field(None, gt=0)
+    familySize: Optional[int] = Field(None, gt=0)
+    deliveryDay: Optional[str] = None
     purchaseMode: Optional[str] = Field("event", description="event | family_weekly")
     requestedDeliveryDate: str
     requestedDeliveryTime: Optional[str] = None
@@ -221,6 +223,8 @@ async def create_request(
         "purpose": data.purpose.strip(),
         "eventDate": data.eventDate,
         "guestCount": data.guestCount,
+        "familySize": data.familySize if (data.purchaseMode or "event") == "family_weekly" else None,
+        "deliveryDay": data.deliveryDay if (data.purchaseMode or "event") == "family_weekly" else None,
         "purchaseMode": data.purchaseMode or "event",
         "isManualWeeklyFamilyBasket": (data.purchaseMode or "event") == "family_weekly",
         "requestedDeliveryDate": data.requestedDeliveryDate,
@@ -273,7 +277,6 @@ async def list_requests(
             farmer_id = ObjectId(current_user["_id"])
             match["$or"] = [
                 {"requestType": {"$ne": "bulk_event"}},
-                {"purchaseMode": "family_weekly"},
                 {"eventFulfillmentMode": "planned", "rfqFarmerIds": farmer_id},
                 {"eventFulfillmentMode": "planned", "rfqFarmerIds": str(current_user["_id"])},
             ]
@@ -923,8 +926,16 @@ async def smart_source_event(
             pass
 
     sourcing = await _event_candidates(request)
-    mode = "weekly_smart" if request.get("purchaseMode") == "family_weekly" else ("urgent_nearby" if sourcing["urgent"] else "planned")
-    sourcing["sourcingMode"] = mode
+    if request.get("purchaseMode") == "family_weekly":
+        # Weekly baskets never enter the RFQ system. The delivery deadline
+        # only changes the smart-sourcing priority:
+        # <=24h = urgent weekly, >24h = planned weekly.
+        mode = "urgent_weekly" if sourcing["urgent"] else "planned_weekly"
+        sourcing["weeklySourcingMode"] = mode
+        sourcing["sourcingMode"] = mode
+    else:
+        mode = "urgent_nearby" if sourcing["urgent"] else "planned"
+        sourcing["sourcingMode"] = mode
     await request_repo.update(
         {"_id": request["_id"]},
         {
@@ -1310,7 +1321,15 @@ async def confirm_event_source(
         await request_repo.update({"_id": request["_id"]}, {
             "status": REQUEST_AWARDED,
             "eventSourcingStatus": "confirmed",
-            "eventFulfillmentMode": "weekly_smart" if request.get("purchaseMode") == "family_weekly" else ("urgent_nearby" if sourcing.get("urgent") else "planned"),
+            "eventFulfillmentMode": (
+                "urgent_weekly"
+                if request.get("purchaseMode") == "family_weekly" and sourcing.get("urgent")
+                else "planned_weekly"
+                if request.get("purchaseMode") == "family_weekly"
+                else "urgent_nearby"
+                if sourcing.get("urgent")
+                else "planned"
+            ),
             "eventDeliveryStatus": "awaiting_farmer_confirmation",
             "eventConsolidationStatus": "pending_collection",
             "eventFulfillmentIds": [x["_id"] for x in created],
