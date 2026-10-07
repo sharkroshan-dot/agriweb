@@ -12,7 +12,7 @@ Collections:
   - bulk_offers:    a farmer's supply offer against a request
   - bulk_orders:    an accepted offer -> one order allocation per farmer
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel, Field
@@ -27,6 +27,10 @@ from app.repositories.address_repository import address_repository
 from app.services.notification_service import NotificationService
 from app.services.delivery_job_service import eligible_partners_for_job, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository
+from app.repositories.warehouse_repository import warehouse_repository
+from app.repositories.incoming_stock_repository import incoming_stock_repository
+from app.services.warehouse_service import WarehouseService
+from app.services.warehouse_collection_service import ensure_collection_job
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import (
     BulkOrderService,
@@ -986,6 +990,19 @@ async def confirm_event_source(
             await inventory_repository.atomic_release(a["productId"], a["quantityKg"])
         raise HTTPException(status_code=500, detail=f"Failed to confirm event sourcing: {exc}")
 
+    destination = ((request.get("deliveryAddress") or {}).get("location") or {})
+    total_required = sum(float(i.get("quantityKg") or 0) for i in request.get("items", []))
+    if not request.get("eventWarehouseId") and destination.get("coordinates"):
+        warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required)
+        if warehouse:
+            await request_repo.update({"_id": request["_id"]}, {
+                "eventWarehouseId": warehouse["_id"],
+                "eventWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
+                "updatedAt": datetime.utcnow(),
+            })
+            request["eventWarehouseId"] = warehouse["_id"]
+            request["eventWarehouseName"] = warehouse.get("name") or warehouse.get("warehouseName")
+
     for a in created:
         await NotificationService.create_in_app_notification(
             str(a["farmerId"]),
@@ -1000,65 +1017,153 @@ async def confirm_event_source(
 
 
 async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optional[str]:
-    """Create one final consolidated delivery job after every farmer is collected."""
-    if not fulfillments:
+    """Create one final customer-delivery job only after every farmer fulfillment is stored at the event warehouse."""
+    if not fulfillments or any(str(f.get("status")) != "stored" for f in fulfillments):
         return None
+
+    warehouse_id = request.get("eventWarehouseId")
+    warehouse = await warehouse_repository.get_by_id(str(warehouse_id)) if warehouse_id else None
+    if not warehouse:
+        destination = ((request.get("deliveryAddress") or {}).get("location") or {})
+        if not destination.get("coordinates"):
+            return None
+        total_weight = round(sum(float(f.get("allocatedQuantityKg") or 0) for f in fulfillments), 2)
+        warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_weight)
+        if not warehouse:
+            return None
+        warehouse_id = warehouse["_id"]
+
+    warehouse_coords = (warehouse.get("location") or {}).get("coordinates") or []
     destination = ((request.get("deliveryAddress") or {}).get("location") or {})
     destination_coords = destination.get("coordinates") or []
-    if len(destination_coords) < 2:
+    if len(warehouse_coords) < 2 or len(destination_coords) < 2:
         return None
-    hubs = await MongoDB.get_collection("fulfillment_hubs").find({"deletedAt": None, "isActive": True, "approvalStatus": {"$in": ["approved", "active"]}}).to_list(length=200)
-    if not hubs:
-        return None
-    def hub_distance(hub: dict) -> float:
-        coords = (hub.get("location") or {}).get("coordinates") or []
-        if len(coords) < 2: return 1e9
-        try: return BulkOrderService.haversine_km(float(destination_coords[1]), float(destination_coords[0]), float(coords[1]), float(coords[0]))
-        except Exception: return 1e9
-    hubs.sort(key=hub_distance)
-    hub = hubs[0]
-    hub_coords = (hub.get("location") or {}).get("coordinates") or []
-    if len(hub_coords) < 2: return None
+
     total_weight = round(sum(float(f.get("allocatedQuantityKg") or 0) for f in fulfillments), 2)
     delivery_repo = BaseRepository("delivery_jobs")
     existing = await delivery_repo.find_one({"eventRequestId": request["_id"], "jobType": "event_consolidated_delivery", "deletedAt": None})
-    if existing: return str(existing["_id"])
-    pickup_lat, pickup_lng = float(hub_coords[1]), float(hub_coords[0])
+    if existing:
+        return str(existing["_id"])
+
+    pickup_lat, pickup_lng = float(warehouse_coords[1]), float(warehouse_coords[0])
     delivery_lat, delivery_lng = float(destination_coords[1]), float(destination_coords[0])
     distance = round(BulkOrderService.haversine_km(pickup_lat, pickup_lng, delivery_lat, delivery_lng), 2)
     partners = await eligible_partners_for_job(pickup_lat, pickup_lng, total_weight, job_type="customer_delivery")
     now = datetime.utcnow()
     job = {
-        "jobType": "event_consolidated_delivery", "eventRequestId": request["_id"],
-        "requestNumber": request.get("requestNumber"), "orderId": request["_id"],
-        "orderNumber": request.get("requestNumber") or "EVENT", "status": "open",
-        "openedAt": now, "expiresAt": now + timedelta(minutes=JOB_DEFAULT_EXPIRY_MINUTES),
-        "acceptedBy": None, "acceptedAt": None,
+        "jobType": "event_consolidated_delivery",
+        "eventRequestId": request["_id"],
+        "requestNumber": request.get("requestNumber"),
+        "orderId": request["_id"],
+        "orderNumber": request.get("requestNumber") or "EVENT",
+        "status": "open",
+        "openedAt": now,
+        "expiresAt": now + timedelta(minutes=JOB_DEFAULT_EXPIRY_MINUTES),
+        "acceptedBy": None,
+        "acceptedAt": None,
         "eligiblePartnerIds": [str(p.get("id")) for p in partners if p.get("id")],
         "pickupLocation": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
-        "pickupName": hub.get("name") or "Event Consolidation Hub", "pickupAddress": hub.get("address") or "",
+        "pickupName": warehouse.get("name") or warehouse.get("warehouseName") or "Event Warehouse",
+        "pickupAddress": warehouse.get("address") or "",
+        "pickupWarehouseId": warehouse["_id"],
         "deliveryLocation": {"type": "Point", "coordinates": [delivery_lng, delivery_lat]},
         "deliveryArea": (request.get("deliveryAddress") or {}).get("area") or request.get("deliveryCity") or "",
         "deliveryCity": (request.get("deliveryAddress") or {}).get("city") or request.get("deliveryCity") or "",
         "deliveryAddress": (request.get("deliveryAddress") or {}).get("addressLine1") or (request.get("deliveryAddress") or {}).get("address") or "",
-        "customerName": request.get("buyerName") or "Customer", "customerPhone": request.get("buyerPhone") or "",
-        "distanceKm": distance, "weightKg": total_weight, "itemCount": len(fulfillments),
-        "eventDelivery": True, "eventFulfillmentIds": [f["_id"] for f in fulfillments],
-        "deliveryDay": request.get("requestedDeliveryDate"), "timeSlot": request.get("requestedDeliveryTime") or "Event delivery",
+        "customerName": request.get("buyerName") or "Customer",
+        "customerPhone": request.get("buyerPhone") or "",
+        "distanceKm": distance,
+        "weightKg": total_weight,
+        "itemCount": len(fulfillments),
+        "eventDelivery": True,
+        "eventFulfillmentIds": [f["_id"] for f in fulfillments],
+        "deliveryDay": request.get("requestedDeliveryDate"),
+        "timeSlot": request.get("requestedDeliveryTime") or "Event delivery",
         "priority": 3 if str(request.get("eventFulfillmentMode") or "").startswith("urgent") else 2,
         "priorityLabel": "Urgent" if str(request.get("eventFulfillmentMode") or "").startswith("urgent") else "High",
-        "orderStatus": "ready_for_delivery", "createdAt": now, "updatedAt": now, "deletedAt": None,
+        "orderStatus": "ready_for_delivery",
+        "warehouseConsolidated": True,
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
     }
     job_id = await delivery_job_repository.create_job(job)
-    if not job_id: return None
-    await request_repo.update({"_id": request["_id"]}, {"eventDeliveryJobId": ObjectId(job_id), "eventDeliveryStatus": "delivery_partner_assignment", "eventConsolidationStatus": "consolidated", "consolidationHubId": hub["_id"], "consolidationHubName": hub.get("name"), "updatedAt": datetime.utcnow()})
+    if not job_id:
+        return None
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryJobId": ObjectId(job_id),
+        "eventDeliveryStatus": "delivery_partner_assignment",
+        "eventConsolidationStatus": "consolidated",
+        "eventWarehouseId": ObjectId(str(warehouse_id)),
+        "consolidationHubId": ObjectId(str(warehouse_id)),
+        "consolidationHubName": warehouse.get("name") or warehouse.get("warehouseName"),
+        "updatedAt": datetime.utcnow(),
+    })
     for partner in partners:
         try:
-            message = str(request.get("requestNumber") or "Event order") + " is consolidated and ready for delivery."
-            await NotificationService.create_in_app_notification(str(partner.get("userId") or partner.get("id")), NotificationType.ORDER, "New event delivery job", message, {"requestId": str(request["_id"]), "deliveryJobId": str(job_id), "type": "event_delivery_job"}, NotificationPriority.HIGH)
+            await NotificationService.create_in_app_notification(
+                str(partner.get("userId") or partner.get("id")),
+                NotificationType.ORDER,
+                "New event delivery job",
+                str(request.get("requestNumber") or "Event order") + " is consolidated at the warehouse and ready for delivery.",
+                {"requestId": str(request["_id"]), "deliveryJobId": str(job_id), "type": "event_delivery_job"},
+                NotificationPriority.HIGH,
+            )
         except Exception:
             continue
     return str(job_id)
+
+
+async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> Optional[dict]:
+    """Create one packed farm -> warehouse incoming shipment and collection job for a ready fulfillment."""
+    if str(fulfillment.get("status")) != "ready_for_collection" or not request:
+        return None
+    existing = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
+    if existing:
+        return existing
+    warehouse_id = request.get("eventWarehouseId")
+    if not warehouse_id:
+        return None
+    farmer = await farmer_repository.find_one({"userId": ObjectId(str(fulfillment["farmerId"]))})
+    farm_location = (farmer or {}).get("farmLocation") or (farmer or {}).get("location") or {}
+    incoming_id = await incoming_stock_repository.create_incoming({
+        "warehouseId": ObjectId(str(warehouse_id)),
+        "productId": fulfillment["productId"],
+        "farmerId": fulfillment["farmerId"],
+        "quantity": int(round(float(fulfillment.get("allocatedQuantityKg") or 0))),
+        "expectedDate": datetime.utcnow(),
+        "batchNumber": fulfillment.get("batchNumber"),
+        "qualityGrade": fulfillment.get("qualityGrade"),
+        "storageType": fulfillment.get("storageType") or "ambient",
+        "sourceMode": "event_fulfillment_transfer",
+        "eventRequestId": request["_id"],
+        "eventFulfillmentId": fulfillment["_id"],
+        "packingRequired": False,
+        "packingVerified": True,
+        "readyForPickup": True,
+        "readyForPickupAt": datetime.utcnow(),
+        "pickupLocation": farm_location,
+        "farmLocation": farm_location,
+        "eventProductName": fulfillment.get("productName"),
+    })
+    if not incoming_id:
+        return None
+    incoming = await incoming_stock_repository.get_by_id(incoming_id)
+    if not incoming:
+        return None
+    await ensure_collection_job(incoming, "event_fulfillment_transfer", "event_fulfillment_transfer")
+    return await incoming_stock_repository.get_by_id(incoming_id) or incoming
+
+
+async def _finalize_event_after_warehouse_storage(request_id: str) -> Optional[str]:
+    """When every event fulfillment is stored, create the single warehouse -> customer job."""
+    request = await request_repo.find_one({"_id": ObjectId(str(request_id)), "deletedAt": None})
+    if not request:
+        return None
+    fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    if not fulfillments or any(str(f.get("status")) != "stored" for f in fulfillments):
+        return None
+    return await _create_event_delivery_job(request, fulfillments)
 
 async def _stringify_event_fulfillment(f: dict) -> dict:
     f["id"] = str(f["_id"])
@@ -1111,6 +1216,8 @@ async def update_event_fulfillment_status(
         "packed",
         "ready_for_collection",
         "collected",
+        "warehouse_received",
+        "stored",
         "cancelled",
     ]
     new_status = data.status
@@ -1137,6 +1244,9 @@ async def update_event_fulfillment_status(
         "updatedAt": datetime.utcnow(),
         "packingStatus": "started" if new_status in ("packing", "packed", "ready_for_collection", "collected") else fulfillment.get("packingStatus", "not_started"),
         "collectionStatus": "ready" if new_status == "ready_for_collection" else ("collected" if new_status == "collected" else fulfillment.get("collectionStatus", "pending")),
+        "warehouseStatus": "received" if new_status == "warehouse_received" else ("stored" if new_status == "stored" else fulfillment.get("warehouseStatus")),
+        "warehouseReceivedAt": datetime.utcnow() if new_status == "warehouse_received" else fulfillment.get("warehouseReceivedAt"),
+        "storedAt": datetime.utcnow() if new_status == "stored" else fulfillment.get("storedAt"),
     })
 
     siblings = await event_fulfillment_repo.find_many({"requestId": fulfillment["requestId"], "deletedAt": None}, limit=500)
@@ -1147,9 +1257,22 @@ async def update_event_fulfillment_status(
             "eventDeliveryStatus": "replacement_required",
             "updatedAt": datetime.utcnow(),
         })
-    elif statuses and all(s == "collected" for s in statuses):
+    elif new_status == "ready_for_collection":
         request_for_job = await request_repo.find_one({"_id": fulfillment["requestId"], "deletedAt": None})
-        job_id = await _create_event_delivery_job(request_for_job, siblings)
+        await _ensure_event_warehouse_inbound(request_for_job, fulfillment)
+        await request_repo.update({"_id": fulfillment["requestId"]}, {
+            "eventDeliveryStatus": "collection_in_progress",
+            "eventConsolidationStatus": "awaiting_farm_collection",
+            "updatedAt": datetime.utcnow(),
+        })
+    elif new_status == "warehouse_received":
+        await request_repo.update({"_id": fulfillment["requestId"]}, {
+            "eventDeliveryStatus": "warehouse_receiving",
+            "eventConsolidationStatus": "warehouse_receiving",
+            "updatedAt": datetime.utcnow(),
+        })
+    elif statuses and all(s == "stored" for s in statuses):
+        job_id = await _finalize_event_after_warehouse_storage(fulfillment["requestId"])
         if job_id:
             await request_repo.update({"_id": fulfillment["requestId"]}, {
                 "eventDeliveryStatus": "delivery_partner_assignment",
@@ -1159,8 +1282,8 @@ async def update_event_fulfillment_status(
             })
         else:
             await request_repo.update({"_id": fulfillment["requestId"]}, {
-                "eventDeliveryStatus": "ready_for_event_delivery",
-                "eventConsolidationStatus": "consolidation_ready",
+                "eventDeliveryStatus": "warehouse_stored",
+                "eventConsolidationStatus": "awaiting_delivery_job",
                 "updatedAt": datetime.utcnow(),
             })
     elif any(s == "ready_for_collection" for s in statuses):
