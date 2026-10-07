@@ -279,6 +279,187 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
     return {"success": True, "data": {"consolidations": result}}
 
 
+
+@router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-consolidation")
+async def dispatch_farmer_fulfillment_to_consolidation(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Dispatch one received/stored farmer-packed portion from its source warehouse to the consolidation warehouse."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment transfers")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=404, detail="Multi-warehouse farmer fulfillment order not found")
+    wid = str(warehouse["_id"])
+    allocations = [a for a in (order.get("warehouseAllocations") or []) if str(a.get("warehouseId")) == wid]
+    if not allocations:
+        raise HTTPException(status_code=403, detail="This order has no allocation at your warehouse")
+
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    source_legs = await legs.find({
+        "orderId": ObjectId(order_id),
+        "sourceWarehouseId": ObjectId(wid),
+        "legType": "warehouse_to_consolidation",
+        "deletedAt": None,
+    }).to_list(length=1000)
+    if not source_legs:
+        raise HTTPException(status_code=404, detail="No consolidation transfer legs found for this warehouse")
+
+    invalid = [x for x in source_legs if str(x.get("status")) not in ("pending", "stored", "received_at_source")]
+    if invalid:
+        if all(str(x.get("status")) in ("in_transit", "received_at_consolidation") for x in source_legs):
+            return {"success": True, "data": {"status": "already_dispatched"}, "message": "This warehouse portion has already been dispatched to consolidation."}
+        raise HTTPException(status_code=400, detail="This warehouse portion is not ready for consolidation dispatch")
+
+    now = datetime.utcnow()
+    await legs.update_many(
+        {"_id": {"$in": [x["_id"] for x in source_legs]}},
+        {"$set": {
+            "status": "in_transit",
+            "dispatchedAt": now,
+            "dispatchedBy": ObjectId(str(current_user["_id"])),
+            "updatedAt": now,
+        }},
+    )
+
+    consolidation_id = order.get("consolidationWarehouseId")
+    consolidation_manager_id = None
+    if consolidation_id:
+        consolidation = await WarehouseService.get_warehouse_by_id(str(consolidation_id))
+        if consolidation and consolidation.get("managerId"):
+            consolidation_manager_id = str(consolidation["managerId"])
+
+    await order_repository.append_tracking_event(
+        order_id,
+        "warehouse_portion_dispatched_to_consolidation",
+        "Warehouse portion dispatched to consolidation",
+        f"{warehouse.get('name') or 'Warehouse'} dispatched its farmer-packed portion to the consolidation warehouse.",
+        actor_id=str(current_user["_id"]),
+        actor_role="warehouse",
+        metadata={"sourceWarehouseId": wid, "consolidationWarehouseId": str(consolidation_id) if consolidation_id else None},
+    )
+
+    refreshed = await order_repository.get_by_id(order_id)
+    if refreshed:
+        recipients = [str(order.get("farmerId")) if order.get("farmerId") else None, consolidation_manager_id]
+        await NotificationService.send_order_workflow_update(
+            refreshed,
+            stage="warehouse_portion_in_transit",
+            title=f"Order #{order.get('orderNumber')}: warehouse portion dispatched",
+            message=f"{warehouse.get('name') or 'A warehouse'} dispatched its portion to the consolidation warehouse.",
+            actor_role="warehouse",
+            priority=NotificationPriority.HIGH,
+        )
+        for recipient in [x for x in recipients if x and x != str(current_user["_id"])]:
+            try:
+                await NotificationService.create_in_app_notification(
+                    recipient,
+                    NotificationType.WAREHOUSE if recipient == consolidation_manager_id else NotificationType.FARMER,
+                    f"Order #{order.get('orderNumber')}: portion dispatched to consolidation",
+                    f"{warehouse.get('name') or 'Warehouse'} has dispatched its portion to the consolidation warehouse.",
+                    {"orderId": order_id, "sourceWarehouseId": wid, "consolidationWarehouseId": str(consolidation_id) if consolidation_id else None},
+                    NotificationPriority.HIGH,
+                    mandatory=True,
+                )
+            except Exception:
+                logger.exception("Failed to notify consolidation/source dispatch")
+
+    return {
+        "success": True,
+        "data": {
+            "orderId": order_id,
+            "sourceWarehouseId": wid,
+            "status": "in_transit",
+            "legCount": len(source_legs),
+        },
+        "message": "Warehouse portion dispatched to consolidation.",
+    }
+
+
+@router.post("/me/farmer-fulfillment/{order_id}/receive-at-consolidation")
+async def receive_farmer_fulfillment_at_consolidation(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Receive all in-transit portions belonging to the consolidation warehouse."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can receive consolidation transfers")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=404, detail="Multi-warehouse farmer fulfillment order not found")
+    consolidation_id = str(order.get("consolidationWarehouseId") or "")
+    if str(warehouse["_id"]) != consolidation_id:
+        raise HTTPException(status_code=403, detail="Only the assigned consolidation warehouse can receive these portions")
+
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    rows = await legs.find({
+        "orderId": ObjectId(order_id),
+        "destinationWarehouseId": ObjectId(str(warehouse["_id"])),
+        "legType": "warehouse_to_consolidation",
+        "deletedAt": None,
+    }).to_list(length=1000)
+    if not rows:
+        raise HTTPException(status_code=404, detail="No consolidation transfer legs found")
+    pending = [x for x in rows if str(x.get("status")) == "in_transit"]
+    if not pending:
+        if all(str(x.get("status")) == "received_at_consolidation" for x in rows):
+            return {"success": True, "data": {"status": "received", "legCount": len(rows)}, "message": "All consolidation portions are already received."}
+        raise HTTPException(status_code=400, detail="No warehouse portions are currently in transit to this consolidation warehouse")
+
+    now = datetime.utcnow()
+    await legs.update_many(
+        {"_id": {"$in": [x["_id"] for x in pending]}},
+        {"$set": {
+            "status": "received_at_consolidation",
+            "receivedAtConsolidation": now,
+            "receivedByConsolidation": ObjectId(str(current_user["_id"])),
+            "updatedAt": now,
+        }},
+    )
+
+    await order_repository.append_tracking_event(
+        order_id,
+        "consolidation_portions_received",
+        "Warehouse portions received at consolidation",
+        "The consolidation warehouse received the dispatched farmer-packed portions.",
+        actor_id=str(current_user["_id"]),
+        actor_role="warehouse",
+        metadata={"receivedLegCount": len(pending), "consolidationWarehouseId": str(warehouse["_id"])},
+    )
+    refreshed = await order_repository.get_by_id(order_id)
+    if refreshed:
+        await NotificationService.send_order_workflow_update(
+            refreshed,
+            stage="consolidation_portions_received",
+            title=f"Order #{order.get('orderNumber')}: consolidation receipt updated",
+            message="The consolidation warehouse received the dispatched farmer-packed portions. Complete consolidation when every portion has arrived.",
+            actor_role="warehouse",
+            priority=NotificationPriority.HIGH,
+        )
+
+    return {
+        "success": True,
+        "data": {
+            "orderId": order_id,
+            "status": "received",
+            "receivedLegCount": len(pending),
+            "totalLegCount": len(rows),
+        },
+        "message": "Farmer-packed portions received at the consolidation warehouse.",
+    }
+
+
 @router.post("/me/farmer-fulfillment/{order_id}/complete-consolidation")
 async def complete_farmer_fulfillment_consolidation(
     order_id: str,
