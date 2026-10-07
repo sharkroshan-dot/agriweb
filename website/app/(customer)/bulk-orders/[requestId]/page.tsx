@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Bot,
   Truck,
+  Eye,
   Store,
   User,
   Package,
