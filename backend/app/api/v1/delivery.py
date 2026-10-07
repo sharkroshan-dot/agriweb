@@ -3225,6 +3225,12 @@ async def accept_delivery_job(
             "message": "Consolidated event delivery accepted from warehouse",
         }
 
+    # Final Farmer Fulfillment jobs are opened only after local-hub receipt.
+    # They must remain a single customer order and a single delivery assignment.
+    if job.get("jobType") == "farmer_fulfillment_consolidated_delivery":
+        if not bool(job.get("singleFinalDelivery")):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="Invalid consolidated delivery job")
     # Wire the order + assignment so the existing delivery flow takes over.
     order_id = str(job["orderId"])
     order = await order_repository.get_by_id(order_id)
