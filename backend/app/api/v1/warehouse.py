@@ -31,7 +31,7 @@ from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_t
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.services.warehouse_pickup_route_service import build_smart_routes, serialize_route, assign_route
 from app.services.notification_service import NotificationService
-from app.schemas.notification import NotificationPriority
+from app.schemas.notification import NotificationPriority, NotificationType
 import logging
 
 logger = logging.getLogger(__name__)
