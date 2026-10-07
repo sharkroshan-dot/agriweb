@@ -11,7 +11,7 @@ import { ChevronDownIcon } from "lucide-react";
 const roleOptions = [
   { value: "customer", label: "Customer" },
   { value: "farmer", label: "Farmer" },
-  { value: "business", label: "Business" },
+  { value: "business", label: "Business — Bulk / Institutional Buyer" },
   { value: "warehouse", label: "Warehouse" },
   { value: "delivery", label: "Delivery Partner" },
   { value: "admin", label: "Admin" },
@@ -510,6 +510,11 @@ export function RegisterForm() {
               </select>
             </div>
           )}
+          {role === "business" ? (
+            <div className="rounded-md border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-800">
+              <strong>Business accounts:</strong> for restaurants, hotels, food processors, supermarkets, wholesalers, distributors, institutions, caterers, hospitals, schools/hostels, corporate canteens and other organizations that procure agricultural products in bulk.
+            </div>
+          ) : null}
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <Button className="w-full" disabled={isLoading} type="submit">
             {isLoading ? "Creating account..." : "Register"}
