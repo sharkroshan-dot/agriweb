@@ -1753,6 +1753,15 @@ async def choose_warehouse_delivery_route(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    # Farmer Fulfillment is already packed by the farmer. Its warehouse
+    # records are transfer/receiving legs only and must never enter the normal
+    # warehouse packing/outgoing delivery pipeline.
+    if str(order.get("fulfillmentMethod") or "") == "farmer":
+        raise HTTPException(
+            status_code=409,
+            detail="Farmer Fulfillment uses the Farmer Fulfillment transfer/consolidation workflow; warehouse packing and outgoing routing are not allowed.",
+        )
+
     result = await apply_partner_route(
         order,
         data.route,
