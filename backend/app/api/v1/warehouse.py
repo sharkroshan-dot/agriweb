@@ -2001,6 +2001,21 @@ async def choose_warehouse_delivery_route(
         },
     )
 
+    refreshed_dispatch_order = await order_repository.get_by_id(str(order_id))
+    if refreshed_dispatch_order:
+        try:
+            await NotificationService.send_order_workflow_update(
+                refreshed_dispatch_order,
+                status="ready_for_delivery",
+                stage="dispatched",
+                title=f"Order #{order.get('orderNumber')}: warehouse dispatch complete",
+                message="The complete warehouse-fulfilled order has left the warehouse and is ready for the downstream delivery handoff.",
+                actor_role="warehouse",
+                priority=NotificationPriority.HIGH,
+            )
+        except Exception:
+            logger.exception("Failed to notify after warehouse dispatch")
+
     # Long-distance Warehouse Fulfillment must complete the physical
     # warehouse -> local-hub transfer before any delivery partner sees a job.
     # The existing hub receive/dispatch workflow becomes the downstream gate.
