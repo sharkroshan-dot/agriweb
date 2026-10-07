@@ -3040,7 +3040,7 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery"):
             continue
         coords = (job.get("pickupLocation") or {}).get("coordinates")
         dist = None
