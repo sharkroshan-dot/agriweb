@@ -3,10 +3,10 @@
 import { useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, ClipboardList, Package, RefreshCw, Warehouse, AlertTriangle, Truck, Boxes } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
-import { Badge } from "../../components/ui/badge";
-import { api } from "../../lib/api/client";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
+import { api } from "../lib/api/client";
 import toast from "react-hot-toast";
 
 const STAGES: Record<string,string> = {
@@ -110,7 +110,7 @@ export default function WarehouseWorkflowPage() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{order.orderNumber}</h3><Badge variant="outline">{STAGES[stage]||stage.replace(/_/g," ")}</Badge>{order.shortageResolutionRequired&&<Badge variant="destructive">Shortage Action</Badge>}</div>
-                    <p className="mt-1 text-sm text-muted-foreground">{order.customer?.name||"Customer"} · {order.items?.map((i:any)=>`${i.productName} × ${i.quantity} ${i.unit||"kg"}`).join(" · ")}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{order.customer?.name||"Customer"} · {order.items?.map((i:any)=>String(i.productName) + " × " + String(i.quantity) + " " + String(i.unit || "kg")).join(" · ")}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{order.deliveryAddress?.city||""} {order.deliveryAddress?.state||""}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
