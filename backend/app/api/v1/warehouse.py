@@ -274,12 +274,24 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "incomingCount": len(incoming),
             "storedCount": len(stored),
             "allWarehousesReceived": bool(incoming) and len(stored) == len(incoming),
-            "allConsolidationLegsReceived": bool(incoming) and bool(await MongoDB.get_collection("farmer_fulfillment_transfer_legs").count_documents({
-                "orderId": order["_id"],
-                "legType": "warehouse_to_consolidation",
-                "deletedAt": None,
-                "status": "received_at_consolidation",
-            })),
+            "allConsolidationLegsReceived": (
+                len(await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+                    "orderId": order["_id"],
+                    "legType": "warehouse_to_consolidation",
+                    "deletedAt": None,
+                }).to_list(length=1000)) > 0
+                and len(await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+                    "orderId": order["_id"],
+                    "legType": "warehouse_to_consolidation",
+                    "deletedAt": None,
+                    "status": "received_at_consolidation",
+                }).to_list(length=1000))
+                == len(await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+                    "orderId": order["_id"],
+                    "legType": "warehouse_to_consolidation",
+                    "deletedAt": None,
+                }).to_list(length=1000))
+            ),
             "canDispatchToConsolidation": any(str(a.get("warehouseId")) == str(warehouse["_id"]) for a in (order.get("warehouseAllocations") or [])),
             "isConsolidationWarehouse": str(order.get("consolidationWarehouseId") or "") == str(warehouse["_id"]),
             "deliveryPartnerJobId": order.get("deliveryPartnerJobId"),
