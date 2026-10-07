@@ -61,7 +61,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
-      - run: dart format lib test
+      - name: Format Dart sources (non-blocking)
+        run: dart format lib test
       - run: dart analyze --no-fatal-warnings
       - run: flutter test --timeout 30s --reporter expanded
 
