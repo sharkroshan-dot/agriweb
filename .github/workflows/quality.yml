@@ -62,6 +62,7 @@ jobs:
           cache: true
       - run: flutter pub get
       - name: Format Dart sources (non-blocking)
+        continue-on-error: true
         run: dart format lib test
       - run: dart analyze --no-fatal-warnings
       - run: flutter test --timeout 30s --reporter expanded
