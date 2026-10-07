@@ -937,6 +937,14 @@ async def confirm_event_source(
     if shortages:
         raise HTTPException(status_code=400, detail={"message": "Every event requirement must be fully sourced", "shortages": shortages})
 
+    # One warehouse must be able to consolidate the complete parent order.
+    destination = ((request.get("deliveryAddress") or {}).get("location") or {})
+    total_required = sum(float(i.get("quantityKg") or 0) for i in request.get("items", []))
+    event_warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required) if destination.get("coordinates") else None
+    if not event_warehouse:
+        raise HTTPException(status_code=409, detail="No active warehouse has enough available capacity for the complete bulk order")
+    event_warehouse_id = event_warehouse["_id"]
+
     created = []
     reserved = []
     try:
@@ -977,6 +985,9 @@ async def confirm_event_source(
             "eventDeliveryStatus": "awaiting_farmer_confirmation",
             "eventConsolidationStatus": "pending_collection",
             "eventFulfillmentIds": [x["_id"] for x in created],
+            "eventWarehouseId": event_warehouse_id,
+            "eventWarehouseName": event_warehouse.get("name") or event_warehouse.get("warehouseName"),
+            "eventWarehouseStatus": "awaiting_fulfillment",
             "updatedAt": datetime.utcnow(),
         })
     except HTTPException:
@@ -989,19 +1000,6 @@ async def confirm_event_source(
         for a in reserved:
             await inventory_repository.atomic_release(a["productId"], a["quantityKg"])
         raise HTTPException(status_code=500, detail=f"Failed to confirm event sourcing: {exc}")
-
-    destination = ((request.get("deliveryAddress") or {}).get("location") or {})
-    total_required = sum(float(i.get("quantityKg") or 0) for i in request.get("items", []))
-    if not request.get("eventWarehouseId") and destination.get("coordinates"):
-        warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required)
-        if warehouse:
-            await request_repo.update({"_id": request["_id"]}, {
-                "eventWarehouseId": warehouse["_id"],
-                "eventWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
-                "updatedAt": datetime.utcnow(),
-            })
-            request["eventWarehouseId"] = warehouse["_id"]
-            request["eventWarehouseName"] = warehouse.get("name") or warehouse.get("warehouseName")
 
     for a in created:
         await NotificationService.create_in_app_notification(
@@ -1384,8 +1382,12 @@ async def bulk_order_tracking(
         current_stage = "ready_for_delivery"
     elif consolidation_status in ("consolidated", "consolidation_ready") or (fulfillment_statuses and all(s == "collected" for s in fulfillment_statuses)):
         current_stage = "consolidation"
+    elif any(s == "warehouse_received" for s in fulfillment_statuses) or delivery_status == "warehouse_receiving":
+        current_stage = "warehouse_receiving"
     elif any(s == "ready_for_collection" for s in fulfillment_statuses) or delivery_status == "collection_in_progress":
         current_stage = "collection"
+    elif any(s == "stored" for s in fulfillment_statuses) or delivery_status == "warehouse_stored":
+        current_stage = "consolidation"
     elif any(s in ("packing", "packed") for s in fulfillment_statuses):
         current_stage = "packing"
     elif any(s == "accepted" for s in fulfillment_statuses) or delivery_status == "awaiting_farmer_confirmation":
