@@ -45,7 +45,7 @@ class AuthService:
             missing = [field for field in required if not str(normalized_data.get(field) or "").strip()]
             if missing:
                 raise ValueError("Business registration requires: " + ", ".join(missing))
-            if business_profile_data.get("gstin"):
+            if normalized_data.get("gstin"):
                 normalized_data["gstin"] = str(normalized_data["gstin"]).strip().upper()
 
         return normalized_data
