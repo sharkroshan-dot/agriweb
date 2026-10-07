@@ -56,16 +56,16 @@ export default function FarmerFulfillmentWarehousePage() {
   };
   const refreshAll=async()=>{await refetch();await refetchConsolidations();};
   const completeConsolidation=async(id:string)=>{
-  const dispatchConsolidation = async (id:string) => {
-    try{await api.post(\`/warehouse/me/farmer-fulfillment/\${id}/dispatch-to-consolidation\`);toast.success("Warehouse portion dispatched to consolidation");await refreshAll();}
-    catch(e:any){toast.error(e?.message||"Dispatch failed");}
-  };
-  const receiveConsolidation = async (id:string) => {
-    try{await api.post(\`/warehouse/me/farmer-fulfillment/\${id}/receive-at-consolidation\`);toast.success("Portion received at consolidation");await refreshAll();}
-    catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
-  };
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/complete-consolidation`);toast.success("All warehouse portions consolidated");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Consolidation failed");}
+  };
+  const dispatchConsolidation=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/dispatch-to-consolidation`);toast.success("Warehouse portion dispatched to consolidation");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Dispatch failed");}
+  };
+  const receiveConsolidation=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-consolidation`);toast.success("Portion received at consolidation");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
   };
   const handoffHub=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/handoff-local-hub`);toast.success("Complete order handed to local hub");await refreshAll();}
