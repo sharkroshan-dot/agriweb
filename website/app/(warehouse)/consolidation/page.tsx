@@ -33,7 +33,7 @@ export default function FarmerFulfillmentConsolidationPage() {
   const dispatchPortion = async (orderId: string) => {
     setBusy(orderId);
     try {
-      await api.post(\`/warehouse/me/farmer-fulfillment/\${orderId}/dispatch-to-consolidation\`);
+      await api.post(`/warehouse/me/farmer-fulfillment/${orderId}/dispatch-to-consolidation`);
       toast.success("Warehouse portion dispatched to consolidation");
       refetch();
     } catch (e: any) {
@@ -44,7 +44,7 @@ export default function FarmerFulfillmentConsolidationPage() {
   const receiveAtConsolidation = async (orderId: string) => {
     setBusy(orderId);
     try {
-      await api.post(\`/warehouse/me/farmer-fulfillment/\${orderId}/receive-at-consolidation\`);
+      await api.post(`/warehouse/me/farmer-fulfillment/${orderId}/receive-at-consolidation`);
       toast.success("Portions received at consolidation warehouse");
       refetch();
     } catch (e: any) {
