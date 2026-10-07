@@ -78,8 +78,7 @@ export default function BusinessContractsPage() {
 
   const apiContracts = useMemo(() => {
     const list = contractsData?.data?.contracts || contractsData?.data || [];
-    if (Array.isArray(list) && list.length > 0) return list;
-    return DEMO_CONTRACTS;
+    return Array.isArray(list) ? list : [];
   }, [contractsData]);
 
   const createMutation = useMutation({
