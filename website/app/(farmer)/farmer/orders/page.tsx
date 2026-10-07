@@ -45,6 +45,16 @@ const statusLabels: Record<string,string> = {
   refunded: "Refunded",
 };
 
+function DeliveryPriorityBadge({ priority, label }: { priority?: string; label?: string }) {
+  const value = label || priority || "Normal";
+  const normalized = String(priority || "").toLowerCase();
+  return (
+    <Badge variant={normalized === "urgent" || normalized === "high" ? "destructive" : normalized === "medium" ? "warning" : "secondary"}>
+      {value}
+    </Badge>
+  );
+}
+
 const paymentBadge = (method?: string): { label: string; cod: boolean } => {
   const m = (method || "").toLowerCase();
   const cod = m === "cash" || m === "cod" || m === "cash_on_delivery";
