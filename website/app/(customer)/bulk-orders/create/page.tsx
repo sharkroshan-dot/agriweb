@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Plus, Trash2, Loader2, Send, MapPin, ShoppingBasket, Search } from "lucide-react";
@@ -96,6 +96,22 @@ export default function CreateBulkOrderPage() {
   };
 
   const isFamilyWeekly = purchaseMode === "family_weekly";
+  const urgentEventPreview = useMemo(() => {
+    if (isFamilyWeekly || !deliveryDate) return false;
+    const raw = String(deliveryTime || "");
+    const match = raw.match(/(\\d{1,2}:\\d{2})\\s*(AM|PM)/i);
+    const delivery = new Date(`${deliveryDate}T00:00:00`);
+    if (match) {
+      const [hourText, minuteText] = match[1].split(":");
+      let hour = Number(hourText);
+      const minute = Number(minuteText);
+      const period = match[2].toUpperCase();
+      if (period === "PM" && hour !== 12) hour += 12;
+      if (period === "AM" && hour === 12) hour = 0;
+      delivery.setHours(hour, minute, 0, 0);
+    }
+    return delivery.getTime() - Date.now() <= 24 * 60 * 60 * 1000;
+  }, [deliveryDate, deliveryTime, isFamilyWeekly]);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -254,8 +270,14 @@ export default function CreateBulkOrderPage() {
               <div className="flex gap-3">
                 <Send className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
                 <div>
-                  <p className="font-semibold text-emerald-900">Who receives this request?</p>
-                  <p className="mt-1 text-emerald-800">Eligible farmers receive the event/bulk request. They can submit their own price, available quantity and delivery option. You can compare the quotes and select the offer that suits you.</p>
+                  <p className="font-semibold text-emerald-900">
+                    {urgentEventPreview ? "Urgent Event — Smart Sourcing" : "Planned Event — Request Farmer Quotes"}
+                  </p>
+                  <p className="mt-1 text-emerald-800">
+                    {urgentEventPreview
+                      ? "Delivery is within 24 hours. AgriConnect will prioritize nearby farmers with live stock and will not wait for quotes."
+                      : "AgriConnect will smart-source suitable farmers first, then send the RFQ to eligible farmers. Distance influences the recommendation but is not a hard requirement."}
+                  </p>
                 </div>
               </div>
             )}
@@ -269,7 +291,7 @@ export default function CreateBulkOrderPage() {
             ) : (
               <Send className="mr-2 h-4 w-4" />
             )}
-            {isFamilyWeekly ? "Find Available Farmers" : "Request Quotes"}
+            {isFamilyWeekly ? "Find Available Farmers" : urgentEventPreview ? "Find Available Stock" : "Request Quotes"}
           </Button>
         </CardContent>
       </Card>
