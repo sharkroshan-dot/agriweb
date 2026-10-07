@@ -90,6 +90,52 @@ async def get_warehouse_returns(current_user: dict = Depends(get_current_user)):
     return {"success": True, "data": {"returns": rows}}
 
 
+@router.put("/me/warehouse-returns/{transfer_id}/receive")
+async def receive_warehouse_return(
+    transfer_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Farmer confirms physical receipt of a warehouse return."""
+    _ensure_farmer(current_user)
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid return transfer ID")
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    transfer = await transfers.find_one({
+        "_id": ObjectId(transfer_id),
+        "farmerId": ObjectId(str(current_user["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Warehouse return not found")
+    if transfer.get("status") != "in_transit_to_farmer":
+        raise HTTPException(status_code=400, detail="Return is not currently in transit")
+
+    now = datetime.utcnow()
+    await transfers.update_one({"_id": transfer["_id"]}, {"$set": {
+        "status": "received_by_farmer",
+        "receivedAt": now,
+        "updatedAt": now,
+    }})
+    await order_repository.update({"_id": transfer["orderId"]}, {
+        "transferStatus": "warehouse_to_farmer_received",
+        "warehouseReturnStatus": "received_by_farmer",
+        "warehouseReturnReceivedAt": now,
+        "updatedAt": now,
+    })
+    try:
+        await order_repository.append_tracking_event(
+            str(transfer["orderId"]), "warehouse_return_received",
+            "Warehouse return received by farmer",
+            "The farmer confirmed receipt of the returned shipment.",
+            actor_id=str(current_user["_id"]), actor_role="farmer",
+            metadata={"transferId": transfer_id},
+        )
+    except Exception:
+        logger.exception("Failed to append warehouse return receipt event")
+    return {"success": True, "data": {"transferId": transfer_id, "status": "received_by_farmer"}}
+
+
 @router.put("/me/warehouse-returns/{transfer_id}")
 async def decide_warehouse_return(
     transfer_id: str,
