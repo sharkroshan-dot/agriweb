@@ -17,6 +17,7 @@ from app.schemas.warehouse import (
     WarehouseTransferCreate
 )
 from app.services.notification_service import NotificationService
+from app.services.user_service import UserService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,7 +38,48 @@ class WarehouseService:
 
     @staticmethod
     async def get_warehouse_by_manager(manager_id: str) -> Optional[Dict[str, Any]]:
-        return await warehouse_repository.get_by_manager(manager_id)
+        """Resolve the warehouse owned by a warehouse account.
+
+        Older accounts may not have a warehouse profile yet. Provision a minimal
+        profile on first authenticated access so warehouse APIs do not return 404.
+        Physical capacity is configured by the manager; used capacity is derived
+        from live inventory records.
+        """
+        warehouse = await warehouse_repository.get_by_manager(manager_id)
+        if warehouse:
+            return warehouse
+        try:
+            user = await UserService.get_user_by_id(manager_id)
+            if not user or str(user.get("role") or "").lower() != "warehouse":
+                return None
+            first = str(user.get("firstName") or user.get("name") or "Warehouse").strip()
+            last = str(user.get("lastName") or "").strip()
+            display_name = f"{first} {last}".strip()
+            now = datetime.utcnow()
+            warehouse_id = await warehouse_repository.create_warehouse({
+                "userId": ObjectId(manager_id),
+                "managerId": ObjectId(manager_id),
+                "name": f"{display_name} Warehouse",
+                "warehouseName": f"{display_name} Warehouse",
+                "location": {},
+                "address": {},
+                "totalCapacity": 0,
+                "coldStorageCapacity": 0,
+                "usedCapacity": 0,
+                "coldStorageUsed": 0,
+                "serviceAreas": [],
+                "supportedStorageTypes": [],
+                "isActive": True,
+                "isVerified": False,
+                "deletedAt": None,
+                "createdAt": now,
+                "updatedAt": now,
+            })
+            if warehouse_id:
+                return await warehouse_repository.get_by_manager(manager_id)
+        except Exception:
+            logger.exception("Failed to provision warehouse profile for manager %s", manager_id)
+        return None
 
     @staticmethod
     async def find_best_warehouse(
