@@ -465,12 +465,11 @@ async def complete_farmer_fulfillment_consolidation(
     order_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Complete the multi-warehouse consolidation and prepare one local-hub handoff."""
+    """Complete consolidation only after every source warehouse has dispatched and the consolidation warehouse has received its portion."""
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can complete farmer fulfillment consolidation")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
-
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
@@ -478,71 +477,58 @@ async def complete_farmer_fulfillment_consolidation(
     if not order or str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
         raise HTTPException(status_code=404, detail="Multi-warehouse farmer fulfillment order not found")
 
-    allowed_warehouses = {str(x) for x in (order.get("warehouseIds") or [])}
     consolidation_warehouse_id = str(order.get("consolidationWarehouseId") or "")
-    if str(warehouse["_id"]) not in allowed_warehouses and str(warehouse["_id"]) != consolidation_warehouse_id:
-        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse or consolidation hub")
+    if str(warehouse["_id"]) != consolidation_warehouse_id:
+        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can complete this consolidation")
 
     incoming = await incoming_stock_repository.find_many({
         "orderId": ObjectId(order_id),
         "sourceMode": "farmer_fulfillment_transfer",
         "deletedAt": None,
     }, skip=0, limit=1000)
-    if not incoming:
-        raise HTTPException(status_code=400, detail="No warehouse transfer receipts exist for this order")
 
-    # The original customer order is the source of truth. A consolidation may
-    # proceed only when every expected warehouse/product portion has a stored
-    # receipt; merely having the same number of incoming rows is not enough.
     expected = {}
     for allocation in order.get("warehouseAllocations") or []:
-        key = (
-            str(allocation.get("warehouseId")),
-            str(allocation.get("productId")),
-            str(allocation.get("variantId") or ""),
-        )
+        key = (str(allocation.get("warehouseId")), str(allocation.get("productId")), str(allocation.get("variantId") or ""))
         expected[key] = expected.get(key, 0.0) + float(allocation.get("quantity") or 0)
 
     received = {}
     not_stored = []
     for row in incoming:
-        key = (
-            str(row.get("warehouseId")),
-            str(row.get("productId")),
-            str(row.get("variantId") or ""),
-        )
+        key = (str(row.get("warehouseId")), str(row.get("productId")), str(row.get("variantId") or ""))
         if str(row.get("status")) != "stored":
             not_stored.append(row)
             continue
-        qty = float(
-            row.get("usableQuantity")
-            if row.get("usableQuantity") is not None
-            else row.get("quantityReceived")
-            if row.get("quantityReceived") is not None
-            else row.get("quantity") or 0
-        )
-        received[key] = received.get(key, 0.0) + max(0.0, qty)
+        qty = row.get("usableQuantity")
+        if qty is None:
+            qty = row.get("quantityReceived")
+        if qty is None:
+            qty = row.get("quantity")
+        received[key] = received.get(key, 0.0) + max(0.0, float(qty or 0))
 
-    missing = []
-    for key, required in expected.items():
-        if received.get(key, 0.0) + 1e-9 < required:
-            missing.append({
-                "warehouseId": key[0],
-                "productId": key[1],
-                "variantId": key[2] or None,
-                "required": required,
-                "stored": received.get(key, 0.0),
-            })
+    missing = [
+        {"warehouseId": key[0], "productId": key[1], "variantId": key[2] or None, "required": required, "stored": received.get(key, 0.0)}
+        for key, required in expected.items()
+        if received.get(key, 0.0) + 1e-9 < required
+    ]
 
-    if not expected:
-        raise HTTPException(status_code=400, detail="Warehouse allocation manifest is missing for this order")
-    if not_stored or missing:
+    legs = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+        "orderId": ObjectId(order_id),
+        "legType": "warehouse_to_consolidation",
+        "deletedAt": None,
+    }).to_list(length=1000)
+    not_received_at_consolidation = [
+        x for x in legs if str(x.get("status")) != "received_at_consolidation"
+    ]
+
+    if not expected or missing or not_stored or not_received_at_consolidation:
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "Every assigned warehouse portion must be received, quality-checked and stored before consolidation.",
-                "pendingReceipts": len(not_stored),
+                "message": "Every warehouse portion must be received, quality-checked, stored at its source warehouse, dispatched, and received at the consolidation warehouse before consolidation.",
                 "missingPortions": missing,
+                "unstoredReceipts": len(not_stored),
+                "pendingConsolidationLegs": len(not_received_at_consolidation),
             },
         )
 
@@ -552,17 +538,10 @@ async def complete_farmer_fulfillment_consolidation(
     if not consolidation:
         raise HTTPException(status_code=400, detail="Consolidation record is missing")
 
-    await MongoDB.get_collection("farmer_fulfillment_transfer_legs").update_many(
-        {"orderId": ObjectId(order_id), "consolidationId": consolidation["_id"], "deletedAt": None},
-        {"$set": {"status": "received_at_consolidation", "receivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()}},
-    )
+    now = datetime.utcnow()
     await consolidation_collection.update_one(
         {"_id": consolidation["_id"]},
-        {"$set": {
-            "status": "consolidated",
-            "consolidatedAt": datetime.utcnow(),
-            "updatedAt": datetime.utcnow(),
-        }},
+        {"$set": {"status": "consolidated", "consolidatedAt": now, "updatedAt": now}},
     )
     await order_repository.update(
         {"_id": ObjectId(order_id)},
@@ -570,28 +549,31 @@ async def complete_farmer_fulfillment_consolidation(
             "consolidationStatus": "consolidated",
             "transferStatus": "consolidated",
             "warehouseFulfillmentStage": "consolidated",
-            "updatedAt": datetime.utcnow(),
+            "updatedAt": now,
         },
     )
     await order_repository.append_tracking_event(
         order_id,
         "farmer_fulfillment_consolidated",
         "Farmer-packed order consolidated",
-        "All warehouse portions have arrived and the original customer order is now complete at the consolidation hub.",
+        "All warehouse portions have arrived at the consolidation warehouse and the original customer order is complete.",
         actor_id=str(current_user["_id"]),
         actor_role="warehouse",
         metadata={"consolidationId": str(consolidation["_id"]), "warehouseCount": len(order.get("warehouseIds") or [])},
     )
-
+    refreshed = await order_repository.get_by_id(order_id)
+    if refreshed:
+        await NotificationService.send_order_workflow_update(
+            refreshed,
+            stage="consolidated",
+            title=f"Order #{order.get('orderNumber')}: consolidation complete",
+            message="All warehouse portions have been received and consolidated. The complete order is ready for the local-hub handoff.",
+            actor_role="warehouse",
+            priority=NotificationPriority.HIGH,
+        )
     return {
         "success": True,
-        "data": {
-            "orderId": order_id,
-            "consolidationId": str(consolidation["_id"]),
-            "status": "consolidated",
-            "localHub": order.get("nearbyFulfillmentLocation"),
-            "nextStep": "handoff_to_local_hub",
-        },
+        "data": {"orderId": order_id, "consolidationId": str(consolidation["_id"]), "status": "consolidated", "localHub": order.get("nearbyFulfillmentLocation")},
         "message": "All warehouse portions are consolidated into the complete customer order.",
     }
 
