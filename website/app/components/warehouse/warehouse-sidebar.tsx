@@ -36,6 +36,7 @@ const navItems: Array<{ name: string; href: string; icon: any; badge?: string }>
   { name: "Stock Management", href: "/stock", icon: Package },
   { name: "Farm Collection", href: "/collections", icon: Truck },
   { name: "Customer Orders", href: "/warehouse/orders", icon: ClipboardCheck },
+  { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
   { name: "Order Packing", href: "/packing", icon: PackageCheck },
