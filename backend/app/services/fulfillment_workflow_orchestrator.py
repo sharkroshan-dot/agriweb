@@ -235,6 +235,10 @@ class FulfillmentWorkflowOrchestrator:
 
         warehouse_ids = [x.get("warehouseId") for x in allocations if x.get("warehouseId")]
         managers = await FulfillmentWorkflowOrchestrator._warehouse_manager_ids(warehouse_ids)
+        consolidation_manager_ids = await FulfillmentWorkflowOrchestrator._warehouse_manager_ids(
+            [order.get("consolidationWarehouseId")] if order.get("consolidationWarehouseId") else []
+        )
+        managers = list(dict.fromkeys([*managers, *consolidation_manager_ids]))
         farmer_id = _as_id(order.get("farmerId"))
 
         if consolidation_ready:
