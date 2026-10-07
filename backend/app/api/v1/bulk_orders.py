@@ -267,11 +267,15 @@ async def list_requests(
         else:
             match = {"status": {"$in": [REQUEST_OPEN, REQUEST_OFFERS]}, "deletedAt": None}
             # Planned event RFQs are only visible to farmers selected by smart sourcing.
+            # Only planned events are quote-driven. Urgent events and weekly
+            # family baskets are smart-sourced directly and must never appear in
+            # the farmer RFQ inbox.
+            farmer_id = ObjectId(current_user["_id"])
             match["$or"] = [
-                {"purchaseMode": {"$ne": "event"}},
-                {"rfqFarmerIds": ObjectId(current_user["_id"])},
-                {"rfqFarmerIds": str(current_user["_id"])},
-                {"rfqFarmerIds": {"$exists": False}},
+                {"requestType": {"$ne": "bulk_event"}},
+                {"purchaseMode": "family_weekly"},
+                {"eventFulfillmentMode": "planned", "rfqFarmerIds": farmer_id},
+                {"eventFulfillmentMode": "planned", "rfqFarmerIds": str(current_user["_id"])},
             ]
     elif role in ("admin", "super_admin"):
         match = {"deletedAt": None}
@@ -1541,12 +1545,27 @@ async def update_event_fulfillment_status(
         "collected",
         "warehouse_received",
         "stored",
+        "warehouse_rejected",
         "cancelled",
     ]
     new_status = data.status
     current = fulfillment.get("status") or allowed[0]
     if new_status not in allowed:
         raise HTTPException(status_code=400, detail="Invalid event fulfillment status")
+
+    # Warehouse stages are authoritative warehouse operations. Farmers may
+    # advance only their farm-side stages through collection.
+    warehouse_stage = new_status in ("warehouse_received", "stored", "warehouse_rejected")
+    if warehouse_stage:
+        if role not in ("warehouse", "admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only the assigned warehouse can update warehouse fulfillment stages")
+        request_for_warehouse = await request_repo.find_one({"_id": fulfillment["requestId"], "deletedAt": None})
+        if not request_for_warehouse:
+            raise HTTPException(status_code=404, detail="Event order not found")
+        if role == "warehouse":
+            manager_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+            if not manager_warehouse or str(request_for_warehouse.get("eventWarehouseId")) != str(manager_warehouse["_id"]):
+                raise HTTPException(status_code=403, detail="This fulfillment is not assigned to your warehouse")
 
     if new_status == "cancelled":
         if current not in ("pending_farmer_confirmation", "accepted"):
@@ -1562,22 +1581,49 @@ async def update_event_fulfillment_status(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid fulfillment state")
 
+    # A warehouse "stored" event is the commit point for the reservation:
+    # reserved stock becomes sold/committed only after physical receipt,
+    # quality approval and storage. This is deliberately after collection.
+    if new_status == "stored":
+        from app.repositories.inventory_repository import inventory_repository
+        confirmed = await inventory_repository.atomic_confirm(
+            str(fulfillment["productId"]),
+            float(fulfillment["allocatedQuantityKg"]),
+        )
+        if not confirmed:
+            raise HTTPException(status_code=409, detail="Reserved stock could not be finalized; verify the warehouse quantity before storing")
+
+    if new_status == "warehouse_rejected":
+        from app.repositories.inventory_repository import inventory_repository
+        released = await inventory_repository.atomic_release(
+            str(fulfillment["productId"]),
+            float(fulfillment["allocatedQuantityKg"]),
+        )
+        if not released:
+            raise HTTPException(status_code=409, detail="Reserved stock could not be released safely")
+
     await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
         "status": new_status,
         "updatedAt": datetime.utcnow(),
         "packingStatus": "started" if new_status in ("packing", "packed", "ready_for_collection", "collected") else fulfillment.get("packingStatus", "not_started"),
         "collectionStatus": "ready" if new_status == "ready_for_collection" else ("collected" if new_status == "collected" else fulfillment.get("collectionStatus", "pending")),
-        "warehouseStatus": "received" if new_status == "warehouse_received" else ("stored" if new_status == "stored" else fulfillment.get("warehouseStatus")),
+        "warehouseStatus": (
+            "received" if new_status == "warehouse_received"
+            else "stored" if new_status == "stored"
+            else "rejected" if new_status == "warehouse_rejected"
+            else fulfillment.get("warehouseStatus")
+        ),
         "warehouseReceivedAt": datetime.utcnow() if new_status == "warehouse_received" else fulfillment.get("warehouseReceivedAt"),
         "storedAt": datetime.utcnow() if new_status == "stored" else fulfillment.get("storedAt"),
     })
 
     siblings = await event_fulfillment_repo.find_many({"requestId": fulfillment["requestId"], "deletedAt": None}, limit=500)
     statuses = [s.get("status") for s in siblings]
-    if new_status == "cancelled":
+    if new_status in ("cancelled", "warehouse_rejected"):
         await request_repo.update({"_id": fulfillment["requestId"]}, {
             "eventSourcingStatus": "replacement_required",
             "eventDeliveryStatus": "replacement_required",
+            "eventConsolidationStatus": "replacement_required",
             "updatedAt": datetime.utcnow(),
         })
     elif new_status == "ready_for_collection":
