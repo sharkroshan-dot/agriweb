@@ -415,6 +415,35 @@ async def submit_offer(
             "pricePerKg": item.pricePerKg,
         })
 
+    # Planned event RFQs are product-wise: a farmer quotes only the product(s)
+    # they were smart-sourced for, and the quoted quantity must exist in their
+    # current inventory. This prevents a farmer from claiming unrelated event
+    # lines and keeps one parent event split into clean farmer fulfillments.
+    if request.get("eventFulfillmentMode") == "planned":
+        distinct_keys = {BulkOrderService._normalize(i["name"]) for i in normalized}
+        if len(distinct_keys) > 1:
+            raise HTTPException(status_code=400, detail="For planned event RFQs, each farmer should quote one product line")
+        farmer_products = await product_repository.get_by_farmer(str(current_user["_id"]), limit=500)
+        for quoted in normalized:
+            qkey = BulkOrderService._normalize(quoted["name"])
+            matched = next(
+                (
+                    p for p in farmer_products
+                    if BulkOrderService._normalize(p.get("name")) == qkey
+                    or qkey in BulkOrderService._normalize(p.get("name"))
+                    or BulkOrderService._normalize(p.get("name")) in qkey
+                ),
+                None,
+            )
+            if not matched:
+                raise HTTPException(status_code=400, detail=f"You do not currently supply {quoted['name']}")
+            available = float(await InventoryService.get_available_stock(str(matched["_id"])))
+            if available + 1e-6 < float(quoted["quantityKg"]):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Only {available:g} kg of {quoted['name']} is currently available",
+                )
+
     total_price = sum(float(i["quantityKg"]) * float(i["pricePerKg"]) for i in normalized)
     covered = sum(request_items.get(i["name"].lower(), 0) for i in normalized)
     total_qty = sum(request_items.values())
