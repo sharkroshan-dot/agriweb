@@ -30,7 +30,7 @@ import { api } from "../../lib/api/client";
 import { Button } from "../ui/button";
 
 const navItems: Array<{ name: string; href: string; icon: any; badge?: string }> = [
-  { name: "My Workflow", href: "/workflow", icon: ClipboardCheck },
+  { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
   { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
   { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
   { name: "Stock Management", href: "/stock", icon: Package },
