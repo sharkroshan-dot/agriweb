@@ -303,9 +303,61 @@ async def complete_farmer_fulfillment_consolidation(
     }, skip=0, limit=1000)
     if not incoming:
         raise HTTPException(status_code=400, detail="No warehouse transfer receipts exist for this order")
-    not_stored = [x for x in incoming if str(x.get("status")) != "stored"]
-    if not_stored:
-        raise HTTPException(status_code=400, detail=f"{len(not_stored)} warehouse transfer(s) are not received and stored yet")
+
+    # The original customer order is the source of truth. A consolidation may
+    # proceed only when every expected warehouse/product portion has a stored
+    # receipt; merely having the same number of incoming rows is not enough.
+    expected = {}
+    for allocation in order.get("warehouseAllocations") or []:
+        key = (
+            str(allocation.get("warehouseId")),
+            str(allocation.get("productId")),
+            str(allocation.get("variantId") or ""),
+        )
+        expected[key] = expected.get(key, 0.0) + float(allocation.get("quantity") or 0)
+
+    received = {}
+    not_stored = []
+    for row in incoming:
+        key = (
+            str(row.get("warehouseId")),
+            str(row.get("productId")),
+            str(row.get("variantId") or ""),
+        )
+        if str(row.get("status")) != "stored":
+            not_stored.append(row)
+            continue
+        qty = float(
+            row.get("usableQuantity")
+            if row.get("usableQuantity") is not None
+            else row.get("quantityReceived")
+            if row.get("quantityReceived") is not None
+            else row.get("quantity") or 0
+        )
+        received[key] = received.get(key, 0.0) + max(0.0, qty)
+
+    missing = []
+    for key, required in expected.items():
+        if received.get(key, 0.0) + 1e-9 < required:
+            missing.append({
+                "warehouseId": key[0],
+                "productId": key[1],
+                "variantId": key[2] or None,
+                "required": required,
+                "stored": received.get(key, 0.0),
+            })
+
+    if not expected:
+        raise HTTPException(status_code=400, detail="Warehouse allocation manifest is missing for this order")
+    if not_stored or missing:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Every assigned warehouse portion must be received, quality-checked and stored before consolidation.",
+                "pendingReceipts": len(not_stored),
+                "missingPortions": missing,
+            },
+        )
 
     consolidation_id = order.get("consolidationId")
     consolidation_collection = MongoDB.get_collection("farmer_fulfillment_consolidations")
@@ -483,7 +535,7 @@ async def _create_single_farmer_fulfillment_delivery_job(order_id: str, hub_doc:
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     existing = await delivery_job_repository.get_by_order_id(order_id)
-    if existing and existing.get("status") in ("open", "accepted"):
+    if existing and existing.get("status") in ("open", "accepted", "assigned", "picked_up", "in_transit"):
         return {"jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}
 
     address = order.get("deliveryAddress") or {}
@@ -527,7 +579,17 @@ async def _create_single_farmer_fulfillment_delivery_job(order_id: str, hub_doc:
     job_doc["localHubId"] = hub_doc["_id"]
     job_doc["localHubName"] = farm["name"]
     job_doc["singleFinalDelivery"] = True
-    job_id = await delivery_job_repository.create_job(job_doc)
+    try:
+        job_id = await delivery_job_repository.create_job(job_doc)
+    except Exception as exc:
+        # The delivery_jobs collection has a unique sparse orderId index. If
+        # two warehouse/hub workers race at the final handoff, the loser must
+        # reuse the already-created job instead of opening a second delivery.
+        existing = await delivery_job_repository.get_by_order_id(order_id)
+        if existing:
+            return {"jobId": str(existing["_id"]), "status": existing.get("status", "open"), "existing": True}
+        logger.exception("Failed to create final delivery job for order %s", order_id)
+        raise HTTPException(status_code=409, detail="Final delivery job could not be created safely") from exc
     if not job_id:
         raise HTTPException(status_code=500, detail="Failed to create final delivery job")
 
