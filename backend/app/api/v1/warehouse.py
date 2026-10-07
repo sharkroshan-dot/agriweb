@@ -135,6 +135,83 @@ async def get_warehouse_workflow(current_user: dict = Depends(get_current_user))
     }
 
 
+@router.get("/me/farmer-fulfillment-transfers")
+async def get_farmer_fulfillment_transfers(
+    status_filter: Optional[str] = Query(None, alias="status"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Packed farmer-fulfillment transfers routed through this warehouse.
+
+    These shipments are already packed and verified by the farmer. Warehouse
+    staff must never create a second packing task for them.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access farmer fulfillment transfers")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    query: Dict[str, Any] = {
+        "warehouseId": ObjectId(str(warehouse["_id"])),
+        "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "deletedAt": None,
+        "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
+    }
+    if status_filter:
+        query["warehouseFulfillmentStage"] = status_filter
+
+    orders = await order_repository.find_many(
+        query, skip=0, limit=200,
+        sort=[("orderDate", -1), ("createdAt", -1), ("updatedAt", -1), ("_id", -1)],
+    )
+    result = []
+    for order in orders:
+        outgoing = await outgoing_stock_repository.find_many({
+            "orderId": order["_id"],
+            "warehouseId": ObjectId(str(warehouse["_id"])),
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        incoming = await incoming_stock_repository.find_many({
+            "orderId": order["_id"],
+            "warehouseId": ObjectId(str(warehouse["_id"])),
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        result.append({
+            "id": str(order["_id"]),
+            "orderNumber": order.get("orderNumber"),
+            "orderStatus": order.get("orderStatus"),
+            "stage": order.get("warehouseFulfillmentStage") or "awaiting_farmer_confirmation",
+            "warehouseId": str(warehouse["_id"]),
+            "warehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
+            "farmerId": str(order["farmerId"]) if order.get("farmerId") else None,
+            "farmerName": order.get("farmerName"),
+            "deliveryAddress": order.get("deliveryAddress") or {},
+            "items": [{
+                "productId": str(x.get("productId")),
+                "variantId": str(x.get("variantId")) if x.get("variantId") else None,
+                "productName": x.get("productName") or "Product",
+                "quantity": float(x.get("quantity") or 0),
+                "unit": x.get("unit") or "kg",
+            } for x in (order.get("items") or [])],
+            "incoming": [{
+                "id": str(x["_id"]),
+                "status": x.get("status"),
+                "expectedQuantity": float(x.get("quantity") or 0),
+                "receivedQuantity": float(x.get("quantityReceived") or 0),
+                "qualityCheck": x.get("qualityCheck"),
+                "packingRequired": bool(x.get("packingRequired", True)),
+            } for x in incoming],
+            "outgoing": [{
+                "id": str(x["_id"]),
+                "status": x.get("status"),
+                "quantity": float(x.get("quantity") or 0),
+                "deliveryPartnerRoute": x.get("deliveryPartnerRoute"),
+                "dispatchDate": x.get("dispatchDate"),
+            } for x in outgoing],
+        })
+    return {"success": True, "data": {"transfers": result}}
+
+
 @router.get("/me/customer-orders")
 async def get_warehouse_customer_orders(
     stage: Optional[str] = Query(None),
