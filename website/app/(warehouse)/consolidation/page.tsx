@@ -30,6 +30,28 @@ export default function FarmerFulfillmentConsolidationPage() {
     } finally { setBusy(null); }
   };
 
+  const dispatchPortion = async (orderId: string) => {
+    setBusy(orderId);
+    try {
+      await api.post(\`/warehouse/me/farmer-fulfillment/\${orderId}/dispatch-to-consolidation\`);
+      toast.success("Warehouse portion dispatched to consolidation");
+      refetch();
+    } catch (e: any) {
+      toast.error(e?.message || "Warehouse dispatch failed");
+    } finally { setBusy(null); }
+  };
+
+  const receiveAtConsolidation = async (orderId: string) => {
+    setBusy(orderId);
+    try {
+      await api.post(\`/warehouse/me/farmer-fulfillment/\${orderId}/receive-at-consolidation\`);
+      toast.success("Portions received at consolidation warehouse");
+      refetch();
+    } catch (e: any) {
+      toast.error(e?.message || "Consolidation receipt failed");
+    } finally { setBusy(null); }
+  };
+
   const handoffHub = async (orderId: string) => {
     setBusy(orderId);
     try {
@@ -109,6 +131,22 @@ export default function FarmerFulfillmentConsolidationPage() {
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={!complete || busy === row.orderId}
+                    onClick={() => dispatchPortion(row.orderId)}
+                  >
+                    <Truck className="mr-2 h-4 w-4" />
+                    Dispatch Warehouse Portion
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={busy === row.orderId}
+                    onClick={() => receiveAtConsolidation(row.orderId)}
+                  >
+                    <Warehouse className="mr-2 h-4 w-4" />
+                    Receive at Consolidation
+                  </Button>
                   <Button disabled={!complete || consolidated || busy === row.orderId} onClick={() => completeConsolidation(row.orderId)}>
                     <CheckCircle2 className="mr-2 h-4 w-4" />{consolidated ? "Consolidated" : "Complete Consolidation"}
                   </Button>
