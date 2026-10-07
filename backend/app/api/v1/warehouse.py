@@ -274,6 +274,14 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "incomingCount": len(incoming),
             "storedCount": len(stored),
             "allWarehousesReceived": bool(incoming) and len(stored) == len(incoming),
+            "allConsolidationLegsReceived": bool(incoming) and bool(await MongoDB.get_collection("farmer_fulfillment_transfer_legs").count_documents({
+                "orderId": order["_id"],
+                "legType": "warehouse_to_consolidation",
+                "deletedAt": None,
+                "status": "received_at_consolidation",
+            })),
+            "canDispatchToConsolidation": any(str(a.get("warehouseId")) == str(warehouse["_id"]) for a in (order.get("warehouseAllocations") or [])),
+            "isConsolidationWarehouse": str(order.get("consolidationWarehouseId") or "") == str(warehouse["_id"]),
             "deliveryPartnerJobId": order.get("deliveryPartnerJobId"),
         })
     return {"success": True, "data": {"consolidations": result}}
