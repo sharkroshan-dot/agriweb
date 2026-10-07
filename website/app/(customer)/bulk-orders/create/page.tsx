@@ -28,7 +28,9 @@ export default function CreateBulkOrderPage() {
   const [purpose, setPurpose] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
+  const [familySize, setFamilySize] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [deliveryDay, setDeliveryDay] = useState("");
   const [deliveryTime, setDeliveryTime] = useState(timeSlots[0]);
   const [deliveryCity, setDeliveryCity] = useState("");
   const [selectedAddress, setSelectedAddress] = useState("");
@@ -68,6 +70,7 @@ export default function CreateBulkOrderPage() {
     deliveryDate &&
     validItems.length > 0 &&
     (selectedAddress || deliveryCity.trim()) &&
+    (purchaseMode !== "family_weekly" || (familySize && deliveryDay)) &&
     !createMutation.isPending;
 
   const submit = () => {
@@ -78,6 +81,8 @@ export default function CreateBulkOrderPage() {
       purpose: purchaseMode === "family_weekly" ? "Weekly Family Basket" : purpose,
       eventDate: purchaseMode === "event" ? eventDate || undefined : undefined,
       guestCount: purchaseMode === "event" && guestCount ? Number(guestCount) : undefined,
+      familySize: purchaseMode === "family_weekly" && familySize ? Number(familySize) : undefined,
+      deliveryDay: purchaseMode === "family_weekly" ? deliveryDay || undefined : undefined,
       requestedDeliveryDate: deliveryDate,
       requestedDeliveryTime: deliveryTime,
       deliveryCity: deliveryCity.trim(),
@@ -174,6 +179,21 @@ export default function CreateBulkOrderPage() {
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-gray-500">Expected guests</label>
                   <Input type="number" min="1" value={guestCount} onChange={(e) => setGuestCount(e.target.value)} placeholder="e.g. 500" />
+                </div>
+              </>
+            )}
+            {purchaseMode === "family_weekly" && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500">Family size *</label>
+                  <Input type="number" min="1" value={familySize} onChange={(e) => setFamilySize(e.target.value)} placeholder="e.g. 4" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500">Delivery day *</label>
+                  <select value={deliveryDay} onChange={(e) => setDeliveryDay(e.target.value)} className="h-11 w-full rounded-full border border-input bg-background px-4 text-sm">
+                    <option value="">Select day</option>
+                    {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => <option key={day} value={day}>{day}</option>)}
+                  </select>
                 </div>
               </>
             )}
