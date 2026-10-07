@@ -45,7 +45,7 @@ class AuthService:
             missing = [field for field in required if not str(normalized_data.get(field) or "").strip()]
             if missing:
                 raise ValueError("Business registration requires: " + ", ".join(missing))
-            if normalized_data.get("gstin"):
+            if business_profile_data.get("gstin"):
                 normalized_data["gstin"] = str(normalized_data["gstin"]).strip().upper()
 
         return normalized_data
@@ -54,10 +54,15 @@ class AuthService:
     async def register_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Register a new user."""
         normalized_data = AuthService._normalize_registration_data(user_data)
+        business_profile_data = dict(normalized_data)
         raw_password = normalized_data.pop("password")
         normalized_data["passwordHash"] = Security.get_password_hash(raw_password)
         normalized_data["isVerified"] = False
         normalized_data["isActive"] = True
+
+        if normalized_data.get("role") == "business":
+            for field in ("businessName", "businessType", "gstin", "businessAddress", "businessCity", "businessState", "businessDistrict", "contactPerson", "procurementRequirements"):
+                normalized_data.pop(field, None)
 
         # Create user using the repository helper so email normalization stays consistent.
         user_id = await user_repository.create_user(normalized_data)
@@ -75,22 +80,22 @@ class AuthService:
                 from app.repositories.base_repository import BaseRepository
                 business_profile_repo = BaseRepository("business_profiles")
                 sensitive = {
-                    "gstin": Security.encrypt_business_data(normalized_data.get("gstin")),
-                    "businessAddress": Security.encrypt_business_data(normalized_data.get("businessAddress")),
-                    "contactPerson": Security.encrypt_business_data(normalized_data.get("contactPerson")),
-                    "procurementRequirements": Security.encrypt_business_data(normalized_data.get("procurementRequirements")),
+                    "gstin": Security.encrypt_business_data(business_profile_data.get("gstin")),
+                    "businessAddress": Security.encrypt_business_data(business_profile_data.get("businessAddress")),
+                    "contactPerson": Security.encrypt_business_data(business_profile_data.get("contactPerson")),
+                    "procurementRequirements": Security.encrypt_business_data(business_profile_data.get("procurementRequirements")),
                 }
                 await business_profile_repo.create({
                     "userId": user_id,
-                    "businessName": normalized_data.get("businessName"),
-                    "businessType": normalized_data.get("businessType"),
+                    "businessName": business_profile_data.get("businessName"),
+                    "businessType": business_profile_data.get("businessType"),
                     "gstinEncrypted": sensitive["gstin"],
                     "businessAddressEncrypted": sensitive["businessAddress"],
                     "contactPersonEncrypted": sensitive["contactPerson"],
                     "procurementRequirementsEncrypted": sensitive["procurementRequirements"],
-                    "city": normalized_data.get("businessCity"),
-                    "state": normalized_data.get("businessState"),
-                    "district": normalized_data.get("businessDistrict"),
+                    "city": business_profile_data.get("businessCity"),
+                    "state": business_profile_data.get("businessState"),
+                    "district": business_profile_data.get("businessDistrict"),
                     "phone": normalized_data.get("phone"),
                     "isVerified": False,
                     "verificationStatus": "pending",
