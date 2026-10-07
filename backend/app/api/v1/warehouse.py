@@ -79,6 +79,245 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
     dashboard = await WarehouseService.get_warehouse_dashboard(str(warehouse["_id"]))
     return dashboard
 
+
+# ---------------------------------------------------------------------------
+# Warehouse fulfillment control plane
+# ---------------------------------------------------------------------------
+
+@router.get("/me/workflow")
+async def get_warehouse_workflow(current_user: dict = Depends(get_current_user)):
+    """Return one authoritative snapshot of every warehouse fulfillment stage."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access warehouse workflow")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    wid = ObjectId(str(warehouse["_id"]))
+    active_order_filter = {
+        "warehouseId": wid,
+        "fulfillmentMethod": "warehouse",
+        "deletedAt": None,
+        "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
+    }
+    orders = await order_repository.find_many(active_order_filter, skip=0, limit=1000, sort=[("orderDate", -1), ("createdAt", -1)])
+    incoming = await WarehouseService.get_incoming_stock(str(warehouse["_id"]), None, 0, 1000)
+    collections = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), None)
+    packing = await warehouse_packing_repository.get_by_warehouse(str(warehouse["_id"]), None)
+    outgoing = await WarehouseService.get_outgoing_stock(str(warehouse["_id"]), None, 0, 1000)
+    from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
+    shortages = await warehouse_shortage_repository.get_by_warehouse(str(warehouse["_id"]), None, limit=1000)
+
+    stage_counts: Dict[str, int] = {}
+    for order in orders:
+        stage = str(order.get("warehouseFulfillmentStage") or "awaiting_farmer_confirmation")
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
+
+    return {
+        "success": True,
+        "data": {
+            "warehouse": {
+                "id": str(warehouse["_id"]),
+                "name": warehouse.get("name") or warehouse.get("warehouseName"),
+                "totalCapacity": warehouse.get("totalCapacity", 0),
+                "usedCapacity": warehouse.get("usedCapacity", 0),
+            },
+            "counts": {
+                "orders": len(orders),
+                "collections": len(collections),
+                "incoming": len(incoming[0]),
+                "packing": len(packing),
+                "outgoing": len(outgoing[0]),
+                "shortages": len([x for x in shortages if x.get("status") not in ("resolved", "cancelled")]),
+            },
+            "stages": stage_counts,
+        },
+    }
+
+
+@router.get("/me/customer-orders")
+async def get_warehouse_customer_orders(
+    stage: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """List customer orders whose fulfillment source is this warehouse."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access customer orders")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    query: Dict[str, Any] = {
+        "warehouseId": ObjectId(str(warehouse["_id"])),
+        "fulfillmentMethod": "warehouse",
+        "deletedAt": None,
+        "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
+    }
+    if stage:
+        query["warehouseFulfillmentStage"] = stage
+
+    orders = await order_repository.find_many(
+        query, skip=0, limit=200,
+        sort=[("orderDate", -1), ("createdAt", -1), ("updatedAt", -1), ("_id", -1)],
+    )
+    result = []
+    for order in orders:
+        customer = None
+        if order.get("customerId"):
+            try:
+                customer = await UserService.get_user_by_id(str(order["customerId"]))
+            except Exception:
+                customer = None
+        result.append({
+            "id": str(order["_id"]),
+            "orderNumber": order.get("orderNumber") or str(order["_id"])[-8:],
+            "orderStatus": order.get("orderStatus"),
+            "warehouseFulfillmentStage": order.get("warehouseFulfillmentStage") or "awaiting_farmer_confirmation",
+            "fulfillmentMethod": order.get("fulfillmentMethod"),
+            "totalAmount": order.get("totalAmount", 0),
+            "paymentStatus": order.get("paymentStatus"),
+            "shortageResolutionRequired": bool(order.get("shortageResolutionRequired")),
+            "packingComplete": bool(order.get("packingComplete")),
+            "packingVerified": bool(order.get("packingVerified")),
+            "deliveryPartnerRoute": order.get("deliveryPartnerRoute"),
+            "deliveryAddress": order.get("deliveryAddress") or {},
+            "customer": {
+                "name": (
+                    f"{customer.get('firstName', '')} {customer.get('lastName', '')}".strip()
+                    if customer else "Customer"
+                ),
+                "phone": customer.get("phone") if customer else None,
+            },
+            "items": [
+                {
+                    "productId": str(item.get("productId")),
+                    "variantId": str(item.get("variantId")) if item.get("variantId") else None,
+                    "productName": item.get("productName") or "Product",
+                    "quantity": float(item.get("quantity", 0) or 0),
+                    "unit": item.get("unit") or "kg",
+                    "unitPrice": float(item.get("unitPrice", 0) or 0),
+                }
+                for item in (order.get("items") or [])
+            ],
+            "createdAt": order.get("createdAt"),
+            "updatedAt": order.get("updatedAt"),
+        })
+    return {"success": True, "data": {"orders": result}}
+
+
+@router.post("/me/customer-orders/{order_id}/allocate")
+async def allocate_warehouse_customer_order(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Move a stored warehouse order into the packing queue.
+
+    Allocation is deliberately idempotent: inventory was reserved by the
+    authoritative order/inventory workflow; this endpoint never reserves the
+    same stock a second time.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can allocate warehouse orders")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("warehouseId")) != str(warehouse["_id"]) or str(order.get("fulfillmentMethod") or "") != "warehouse":
+        raise HTTPException(status_code=404, detail="Warehouse customer order not found")
+    if str(order.get("orderStatus") or "").lower() in ("cancelled", "refunded", "delivered", "completed"):
+        raise HTTPException(status_code=400, detail="This order is already closed")
+
+    stage = str(order.get("warehouseFulfillmentStage") or "")
+    if stage in ("ready_for_dispatch", "delivery_decision", "dispatched"):
+        return {"success": True, "data": {"orderId": order_id, "stage": stage}, "message": "Order is already past allocation"}
+
+    task = await WarehouseService.ensure_order_packing_task(order_id, str(warehouse["_id"]))
+    if not task:
+        raise HTTPException(status_code=400, detail="The order has no warehouse-packable inventory yet")
+
+    await order_repository.update(
+        {"_id": ObjectId(order_id)},
+        {
+            "warehouseFulfillmentStage": "ready_for_packing",
+            "warehouseAllocatedAt": datetime.utcnow(),
+            "warehouseAllocatedBy": ObjectId(str(current_user["_id"])),
+            "updatedAt": datetime.utcnow(),
+        },
+    )
+    await order_repository.append_tracking_event(
+        order_id,
+        "warehouse_stock_allocated",
+        "Warehouse stock allocated",
+        "Reserved warehouse stock has been allocated to the customer order and the order is ready for packing.",
+        actor_id=str(current_user["_id"]),
+        actor_role="warehouse",
+        metadata={"packingTaskId": str(task.get("_id")) if task.get("_id") else None},
+    )
+    return {
+        "success": True,
+        "data": {
+            "orderId": order_id,
+            "orderNumber": order.get("orderNumber"),
+            "stage": "ready_for_packing",
+            "packingTaskId": str(task.get("_id")) if task.get("_id") else None,
+        },
+        "message": "Stock allocated. Customer order is ready for packing.",
+    }
+
+
+@router.get("/me/consolidation")
+async def get_warehouse_consolidation(
+    current_user: dict = Depends(get_current_user),
+):
+    """Read-only consolidation readiness for multi-farm event fulfillments."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can view consolidation")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    try:
+        from app.api.v1.bulk_orders import event_fulfillment_repo
+        rows = await event_fulfillment_repo.find_many({
+            "warehouseId": ObjectId(str(warehouse["_id"])),
+            "deletedAt": None,
+        }, skip=0, limit=1000, sort=[("updatedAt", -1)])
+    except Exception:
+        rows = []
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        request_id = str(row.get("requestId") or row.get("eventRequestId") or row.get("_id"))
+        group = grouped.setdefault(request_id, {
+            "requestId": request_id,
+            "items": [],
+            "totalItems": 0,
+            "storedItems": 0,
+            "complete": False,
+            "status": "collecting",
+        })
+        status_value = str(row.get("status") or "")
+        group["items"].append({
+            "id": str(row["_id"]),
+            "productName": row.get("productName") or row.get("cropName") or "Product",
+            "allocatedQuantity": float(row.get("allocatedQuantityKg") or row.get("quantityKg") or 0),
+            "status": status_value,
+        })
+        group["totalItems"] += 1
+        if status_value in ("stored", "consolidated", "ready_for_delivery", "delivered"):
+            group["storedItems"] += 1
+
+    for group in grouped.values():
+        group["complete"] = group["totalItems"] > 0 and group["storedItems"] == group["totalItems"]
+        group["status"] = "consolidation_ready" if group["complete"] else (
+            "partially_received" if group["storedItems"] else "collecting"
+        )
+
+    return {"success": True, "data": {"groups": list(grouped.values())}}
+
 @router.put("/me", response_model=WarehouseResponse)
 async def update_my_warehouse(
     data: WarehouseUpdate,
