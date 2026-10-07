@@ -359,6 +359,24 @@ def _logistics_snapshot(op: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 # ================== BUSINESS PROFILE ==================
 
+def _safe_business_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(profile["_id"]),
+        "userId": str(profile["userId"]),
+        "businessName": profile.get("businessName"),
+        "businessType": profile.get("businessType"),
+        "city": profile.get("city"),
+        "state": profile.get("state"),
+        "district": profile.get("district"),
+        "phone": profile.get("phone"),
+        "isVerified": bool(profile.get("isVerified")),
+        "verificationStatus": profile.get("verificationStatus", "pending"),
+        "gstin": Security.decrypt_business_data(profile.get("gstinEncrypted")),
+        "contactPerson": Security.decrypt_business_data(profile.get("contactPersonEncrypted")),
+        "procurementRequirements": Security.decrypt_business_data(profile.get("procurementRequirementsEncrypted")),
+        "address": Security.decrypt_business_data(profile.get("businessAddressEncrypted")),
+    }
+
 class BusinessProfileCreate(BaseModel):
     businessName: str
     businessType: str = Field(..., description="Eligible bulk/institutional buyer type")
@@ -427,7 +445,7 @@ async def create_business_profile(
 
     profile["id"] = str(profile["_id"])
     profile["userId"] = str(profile["userId"])
-    return {"success": True, "data": profile}
+    return {"success": True, "data": _safe_business_profile(profile)}
 
 
 @router.get("/business/profile")
@@ -438,7 +456,7 @@ async def get_business_profile(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Business profile not found")
     profile["id"] = str(profile["_id"])
     profile["userId"] = str(profile["userId"])
-    return {"success": True, "data": profile}
+    return {"success": True, "data": _safe_business_profile(profile)}
 
 
 # ================== REQUESTS FOR QUOTE ==================
