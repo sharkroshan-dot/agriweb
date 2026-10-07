@@ -125,17 +125,25 @@ export default function EventSourcingPage() {
     );
   }
 
+  const weeklyMode = isFamilyWeekly ? (sourcing?.sourcingMode || request.eventFulfillmentMode || "") : "";
   const urgent = Boolean(sourcing?.urgent) && !planned;
+  const weeklyUrgent = isFamilyWeekly && (weeklyMode === "urgent_weekly" || Boolean(sourcing?.urgent));
   const missing = sourcing?.missing || [];
   const isConfirmed = confirmed || request.eventSourcingStatus === "confirmed";
   const fulfillmentRows = summaryQuery.data?.data?.fulfillmentSummary || {};
   const fulfillmentCount = summaryQuery.data?.data?.fulfillmentCount || 0;
   const steps = isFamilyWeekly
-    ? ["Smart Sourcing", "Your Selection", "Reserve Stock", "Fulfillment"]
+    ? ["Check Delivery Time", weeklyUrgent ? "Urgent Smart Sourcing" : "Planned Smart Sourcing", "Your Selection", "Reserve Stock", "Fulfillment"]
     : planned
       ? ["Smart Sourcing", "Farmer Quotes", "Your Selection", "Reserve Stock", "Fulfillment"]
       : ["Smart Sourcing", "Your Selection", "Reserve Stock", "Fulfillment"];
-  const activeStep = isConfirmed ? steps.length : planned ? (offers.length ? 3 : 2) : sourcing ? 2 : 1;
+  const activeStep = isConfirmed
+    ? steps.length
+    : isFamilyWeekly
+      ? (sourcing ? 3 : 1)
+      : planned
+        ? (offers.length ? 3 : 2)
+        : sourcing ? 2 : 1;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-8">
@@ -181,10 +189,17 @@ export default function EventSourcingPage() {
           <CardContent className="flex items-start gap-3 p-4">
             <ShoppingBasket className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
             <div>
-              <p className="font-semibold text-emerald-900">One-time weekly purchase</p>
-              <p className="text-sm text-emerald-800">
-                AgriConnect is checking live farmer stock, availability and distance. This is not a subscription and no farmer quote is required.
+              <p className="font-semibold text-emerald-900">
+                {weeklyUrgent ? "Urgent Weekly Basket — ≤24h" : "Planned Weekly Basket — >24h"}
               </p>
+              <p className="text-sm text-emerald-800">
+                {weeklyUrgent
+                  ? "Delivery is within 24 hours. AgriConnect prioritizes available nearby stock and fast reliable delivery. No farmer quotes are required."
+                  : "Delivery is more than 24 hours away. AgriConnect plans the best farmer matches using live stock, distance, rating, coverage and delivery capability. No farmer quotes are required."}
+              </p>
+              {sourcing?.hoursUntilDelivery != null ? (
+                <p className="mt-1 text-xs text-emerald-700">{sourcing.hoursUntilDelivery} hours until requested delivery.</p>
+              ) : null}
             </div>
           </CardContent>
         </Card>
