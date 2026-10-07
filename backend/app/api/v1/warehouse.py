@@ -1988,6 +1988,51 @@ async def return_farmer_fulfillment_to_farmer(
     }
 
 
+@router.put("/me/farmer-fulfillment/returns/{transfer_id}/dispatch")
+async def dispatch_farmer_return(transfer_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer returns")
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid return transfer ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    transfer = await transfers.find_one({
+        "_id": ObjectId(transfer_id),
+        "warehouseId": ObjectId(str(warehouse["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Return transfer not found")
+    if transfer.get("status") != "accepted":
+        raise HTTPException(status_code=400, detail="Farmer must accept the return before dispatch")
+
+    now = datetime.utcnow()
+    await transfers.update_one({"_id": transfer["_id"]}, {"$set": {
+        "status": "in_transit_to_farmer",
+        "dispatchedAt": now,
+        "updatedAt": now,
+    }})
+    await order_repository.update({"_id": transfer["orderId"]}, {
+        "transferStatus": "warehouse_to_farmer_in_transit",
+        "warehouseReturnStatus": "in_transit_to_farmer",
+        "updatedAt": now,
+    })
+    try:
+        await order_repository.append_tracking_event(
+            str(transfer["orderId"]), "warehouse_return_dispatched",
+            "Warehouse return dispatched to farmer",
+            "The warehouse has dispatched the returned farmer-fulfillment shipment.",
+            actor_id=str(current_user["_id"]), actor_role="warehouse",
+            metadata={"transferId": transfer_id},
+        )
+    except Exception:
+        logger.exception("Failed to append farmer return dispatch event")
+    return {"success": True, "data": {"transferId": transfer_id, "status": "in_transit_to_farmer"}}
+
+
 @router.get("/me/farmer-fulfillment/{order_id}/return-status")
 async def get_farmer_fulfillment_return_status(
     order_id: str,
