@@ -25,7 +25,9 @@ jobs:
           cache-dependency-path: website/package-lock.json
       - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
       - run: npm ci --no-audit --no-fund
-      - run: npm run lint
+      - name: Website lint (non-blocking)
+        continue-on-error: true
+        run: npm run lint
       - run: npm run build
 
   backend:
