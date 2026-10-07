@@ -20,6 +20,7 @@ from bson import ObjectId
 import logging
 
 from app.api.v1.auth import get_current_user
+from app.database.mongodb import MongoDB
 from app.repositories.base_repository import BaseRepository
 from app.repositories.farmer_repository import farmer_repository
 from app.repositories.address_repository import address_repository
