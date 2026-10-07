@@ -2,10 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Warehouse, PackageCheck, Route, MapPin, Truck, CheckCircle2 } from "lucide-react";
-import { Card, CardContent } from "../../../components/ui/card";
-import { Button } from "../../../components/ui/button";
-import { Badge } from "../../../components/ui/badge";
-import { api } from "../../../lib/api/client";
+import { Card, CardContent } from "../../components/ui/card";
+import { Button } from "../../components/ui/button";
+import { Badge } from "../../components/ui/badge";
+import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
 const STAGES: Record<string,string> = {
