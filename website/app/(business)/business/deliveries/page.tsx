@@ -7,7 +7,7 @@ import { api } from "../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 
-const deliveryStatuses = ["preparing", "quality_check", "dispatched", "in_transit", "delivered"];
+const deliveryStatuses = ["confirmed", "processing", "ready_for_delivery", "transfer_pending", "transferred", "hub_received", "local_dispatch", "dispatched", "in_transit", "delivered"];
 
 const statusVariant: Record<string, any> = {
   preparing: "secondary",
@@ -33,7 +33,7 @@ const methodLabel: Record<string, string> = {
 };
 
 function DeliveryTimeline({ status }: { status: string }) {
-  const flow = ["preparing", "quality_check", "dispatched", "in_transit", "delivered"];
+  const flow = ["confirmed", "processing", "ready_for_delivery", "transfer_pending", "transferred", "hub_received", "local_dispatch", "dispatched", "in_transit", "delivered"];
   const idx = flow.indexOf(status);
   if (idx < 0) return null;
   return (
@@ -57,7 +57,7 @@ export default function DeliveriesPage() {
 
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["b2b", "orders"],
-    queryFn: () => api.get("/b2b/orders"),
+    queryFn: () => api.get("/b2b/deliveries"),
   });
 
   if (isLoading) {
@@ -68,9 +68,9 @@ export default function DeliveriesPage() {
     );
   }
 
-  const all = (ordersData?.data?.orders || []).filter((o: any) => deliveryStatuses.includes(o.status));
-  const deliveries = filter ? all.filter((o: any) => o.status === filter) : all;
-  const countByStatus = (s: string) => all.filter((o: any) => o.status === s).length;
+  const all = (ordersData?.data?.deliveries || []).filter((o: any) => deliveryStatuses.includes(o.status));
+  const deliveries = filter ? all.filter((o: any) => (o.logistics?.status || o.status) === filter) : all;
+  const countByStatus = (s: string) => all.filter((o: any) => (o.logistics?.status || o.status) === s).length;
 
   return (
     <div className="space-y-6">
@@ -112,7 +112,7 @@ export default function DeliveriesPage() {
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="font-medium">{o.orderNumber || o.id}</p>
-                      <Badge variant={statusVariant[o.status] || "secondary"}>{statusLabel[o.status] || o.status.replace(/_/g, " ")}</Badge>
+                      <Badge variant={statusVariant[o.logistics?.status || o.status] || "secondary"}>{o.logistics?.label || statusLabel[o.logistics?.status || o.status] || (o.logistics?.status || o.status).replace(/_/g, " ")}</Badge>
                       <Badge variant="outline">{methodLabel[o.deliveryMethod] || (o.deliveryMethod || "farmer_delivery").replace(/_/g, " ")}</Badge>
                     </div>
                     <p className="mt-1 text-sm text-gray-500">
@@ -131,9 +131,17 @@ export default function DeliveriesPage() {
                 </div>
 
                 <div className="mt-3">
-                  <DeliveryTimeline status={o.status} />
+                  <DeliveryTimeline status={o.logistics?.status || o.status} />
                 </div>
 
+
+                {o.logistics ? (
+                  <div className="mt-3 grid gap-2 rounded-lg border bg-slate-50 p-3 text-xs sm:grid-cols-3">
+                    <div><span className="text-slate-400">Warehouse</span><p className="font-medium">{o.logistics.warehouseName || (o.logistics.warehouseId ? "Assigned warehouse" : "Not used")}</p></div>
+                    <div><span className="text-slate-400">Local hub</span><p className="font-medium">{o.logistics.hubName || (o.logistics.hubId ? "Assigned hub" : "Not used")}</p></div>
+                    <div><span className="text-slate-400">Delivery partner</span><p className="font-medium">{o.logistics.deliveryPartnerName || (o.logistics.deliveryPartnerId ? "Assigned" : "Not assigned")}</p></div>
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500">
                   {o.deliveryCity ? (
                     <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {o.deliveryCity}{o.deliveryState ? `, ${o.deliveryState}` : ""}</span>

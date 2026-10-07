@@ -11,10 +11,9 @@ import { ChevronDownIcon } from "lucide-react";
 const roleOptions = [
   { value: "customer", label: "Customer" },
   { value: "farmer", label: "Farmer" },
-  { value: "business", label: "Business" },
+  { value: "business", label: "Business — Bulk / Institutional Buyer" },
   { value: "warehouse", label: "Warehouse" },
   { value: "delivery", label: "Delivery Partner" },
-  { value: "admin", label: "Admin" },
 ];
 
 const roleLabels: Record<string, string> = {
@@ -274,6 +273,15 @@ export function RegisterForm() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [role, setRole] = useState("customer");
+  const [businessName, setBusinessName] = useState("");
+  const [businessType, setBusinessType] = useState("restaurant");
+  const [gstin, setGstin] = useState("");
+  const [businessAddress, setBusinessAddress] = useState("");
+  const [businessCity, setBusinessCity] = useState("");
+  const [businessDistrict, setBusinessDistrict] = useState("");
+  const [businessState, setBusinessState] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
+  const [procurementRequirements, setProcurementRequirements] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -313,6 +321,17 @@ export function RegisterForm() {
       return;
     }
 
+    if (role === "business") {
+      if (!businessName.trim() || !businessType || !businessAddress.trim() || !businessCity.trim() || !businessState.trim() || !contactPerson.trim()) {
+        setError("Business Name, Type, Address, City, State and Contact Person are required.");
+        return;
+      }
+      if (gstin.trim() && !/^[0-9A-Z]{15}$/i.test(gstin.trim())) {
+        setError("GSTIN must contain exactly 15 letters/numbers.");
+        return;
+      }
+    }
+
     setIsLoading(true);
 
     try {
@@ -335,6 +354,17 @@ export function RegisterForm() {
           email: trimmedEmail,
           password,
           role,
+          ...(role === "business" ? {
+            businessName: businessName.trim(),
+            businessType,
+            gstin: gstin.trim().toUpperCase() || undefined,
+            businessAddress: businessAddress.trim(),
+            businessCity: businessCity.trim(),
+            businessDistrict: businessDistrict.trim() || undefined,
+            businessState: businessState.trim(),
+            contactPerson: contactPerson.trim(),
+            procurementRequirements: procurementRequirements.trim() || undefined,
+          } : {}),
         }),
       });
 
@@ -510,6 +540,21 @@ export function RegisterForm() {
               </select>
             </div>
           )}
+          {role === "business" ? (
+            <div className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+              <div><h3 className="font-semibold text-slate-900">Organization details</h3><p className="text-xs text-slate-600">Business accounts are for organizations procuring agricultural products in bulk.</p></div>
+              <Input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Business Name *" maxLength={150} />
+              <select value={businessType} onChange={(e) => setBusinessType(e.target.value)} className="h-10 w-full rounded-md border bg-white px-3 text-sm">
+                {["restaurant","hotel","cafe","cloud_kitchen","canteen","caterer","supermarket","retail_store","wholesaler","food_processor","institution","food_processing","food_manufacturer","supermarket_chain","grocery_chain","distributor","exporter","hospital","school_college_hostel","corporate_canteen","animal_feed"].map((type) => <option key={type} value={type}>{type.replace(/_/g, " ")}</option>)}
+              </select>
+              <Input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15))} placeholder="GSTIN (optional)" maxLength={15} autoComplete="off" />
+              <Input value={businessAddress} onChange={(e) => setBusinessAddress(e.target.value)} placeholder="Business Address *" maxLength={500} />
+              <div className="grid gap-3 sm:grid-cols-3"><Input value={businessCity} onChange={(e) => setBusinessCity(e.target.value)} placeholder="City *" maxLength={100} /><Input value={businessDistrict} onChange={(e) => setBusinessDistrict(e.target.value)} placeholder="District" maxLength={100} /><Input value={businessState} onChange={(e) => setBusinessState(e.target.value)} placeholder="State *" maxLength={100} /></div>
+              <Input value={contactPerson} onChange={(e) => setContactPerson(e.target.value)} placeholder="Contact Person *" maxLength={120} />
+              <textarea value={procurementRequirements} onChange={(e) => setProcurementRequirements(e.target.value)} placeholder="Procurement requirements (products, quantities, quality, frequency)" maxLength={2000} className="min-h-24 w-full rounded-md border bg-white p-3 text-sm" />
+              <p className="text-[11px] text-slate-500">Sensitive organization data is validated again by the backend and protected at rest.</p>
+            </div>
+          ) : null}
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           <Button className="w-full" disabled={isLoading} type="submit">
             {isLoading ? "Creating account..." : "Register"}

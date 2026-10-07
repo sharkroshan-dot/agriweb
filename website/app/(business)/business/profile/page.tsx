@@ -24,6 +24,16 @@ const BUSINESS_TYPES = [
   "wholesaler",
   "food_processor",
   "institution",
+  "food_processing",
+  "food_manufacturer",
+  "supermarket_chain",
+  "grocery_chain",
+  "distributor",
+  "exporter",
+  "hospital",
+  "school_college_hostel",
+  "corporate_canteen",
+  "animal_feed",
 ];
 
 export default function BusinessProfilePage() {
@@ -31,6 +41,7 @@ export default function BusinessProfilePage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
 
+  const [gstinMasked, setGstinMasked] = useState("");
   const [form, setForm] = useState({
     businessName: "",
     businessType: "restaurant",
@@ -41,6 +52,7 @@ export default function BusinessProfilePage() {
     state: "",
     district: "",
     address: "",
+    procurementRequirements: "",
   });
 
   const { data: profileData, isLoading } = useQuery({
@@ -53,16 +65,18 @@ export default function BusinessProfilePage() {
   useEffect(() => {
     const p = (profileData as any)?.data;
     if (p) {
+      setGstinMasked(p.gstinMasked || "");
       setForm({
         businessName: p.businessName || "",
         businessType: p.businessType || "restaurant",
-        gstin: p.gstin || "",
+        gstin: "",
         contactPerson: p.contactPerson || "",
         phone: p.phone || "",
         city: p.city || "",
         state: p.state || "",
         district: p.district || "",
         address: p.address || "",
+        procurementRequirements: p.procurementRequirements || "",
       });
     }
   }, [profileData]);
@@ -136,7 +150,7 @@ export default function BusinessProfilePage() {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">GSTIN (optional)</label>
-            <Input value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} placeholder="e.g. 33ABCDE1234F1Z5" />
+            <Input value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} placeholder={gstinMasked ? `${gstinMasked} — enter a new GSTIN to replace` : "e.g. 33ABCDE1234F1Z5"} />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Contact person</label>
@@ -161,6 +175,10 @@ export default function BusinessProfilePage() {
           <div className="space-y-1 sm:col-span-2">
             <label className="text-xs font-medium text-gray-500">Address</label>
             <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-xs font-medium text-gray-500">Procurement requirements</label>
+            <textarea value={form.procurementRequirements} onChange={(e) => setForm({ ...form, procurementRequirements: e.target.value })} maxLength={2000} className="min-h-24 w-full rounded-md border border-gray-200 p-2 text-sm" placeholder="Products, quantities, quality and procurement frequency" />
           </div>
           <div className="sm:col-span-2">
             <Button

@@ -46,6 +46,9 @@ from app.services.inventory_service import InventoryService
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
+from app.database.mongodb import MongoDB
+from app.services.fulfillment_engine import evaluate_order
+from app.core.security import Security
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -283,18 +286,108 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
     return order
 
 
+async def _find_farmer_by_name(name: str) -> Optional[Dict[str, Any]]:
+    value = (name or "").strip()
+    if not value: return None
+    exact = await farmer_profile_repo.find_one({"farmName": {"$regex": f"^{re.escape(value)}$", "$options": "i"}, "deletedAt": None})
+    return exact or await farmer_profile_repo.find_one({"farmName": {"$regex": re.escape(value), "$options": "i"}, "deletedAt": None})
+
+async def _ensure_operational_order(b2b: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    orders = MongoDB.get_collection("orders")
+    existing = None
+    if b2b.get("operationalOrderId"):
+        try: existing = await orders.find_one({"_id": ObjectId(str(b2b["operationalOrderId"]))})
+        except Exception: existing = None
+    if not existing: existing = await orders.find_one({"b2bOrderId": b2b["_id"], "deletedAt": None})
+    if existing:
+        if str(b2b.get("operationalOrderId")) != str(existing["_id"]):
+            await order_repo.update({"_id": b2b["_id"]}, {"operationalOrderId": existing["_id"], "updatedAt": datetime.utcnow()})
+        return existing
+    farmer_id = b2b.get("farmerId")
+    farmer = await farmer_repository.find_one({"userId": str(farmer_id)}) if farmer_id else None
+    product_id = None
+    if farmer_id:
+        supply = await _farmer_can_supply(str(farmer_id), str(b2b.get("productName") or ""))
+        if supply.get("productId"):
+            try: product_id = ObjectId(str(supply["productId"]))
+            except Exception: product_id = None
+    raw = b2b.get("deliveryAddress")
+    if isinstance(raw, dict):
+        address_text, destination_location = raw.get("address") or raw.get("fullAddress"), raw.get("location")
+    else:
+        address_text, destination_location = raw, b2b.get("deliveryLocation")
+    destination = {"address": address_text or b2b.get("deliveryCity") or "", "city": b2b.get("deliveryCity"), "state": b2b.get("deliveryState"), "location": destination_location}
+    origin = (farmer or {}).get("farmLocation") or (farmer or {}).get("location")
+    now = datetime.utcnow()
+    op = {
+        "orderNumber": b2b.get("orderNumber"), "b2bOrderId": b2b["_id"], "source": "b2b",
+        "businessUserId": b2b.get("businessUserId"), "businessProfileId": b2b.get("businessProfileId"), "farmerId": farmer_id, "customerId": None,
+        "items": [{"productId": product_id, "productName": b2b.get("productName"), "quantity": float(b2b.get("quantityKg") or 0), "unit": "kg", "price": float(b2b.get("pricePerKg") or 0)}],
+        "deliveryAddress": destination, "pickupLocation": origin, "farmLocation": origin, "orderStatus": "confirmed",
+        "paymentStatus": b2b.get("paymentStatus") or PAYMENT_PENDING, "fulfillmentSource": None, "warehouseId": None,
+        "nearbyFulfillmentLocationId": None, "deliveryPartnerId": None, "deliveryMethod": b2b.get("deliveryMethod"), "quantityKg": float(b2b.get("quantityKg") or 0),
+        "deletedAt": None, "createdAt": b2b.get("createdAt") or now, "updatedAt": now,
+        "statusHistory": [{"status": "confirmed", "changedBy": str(b2b.get("businessUserId") or ""), "timestamp": now, "note": "B2B order created"}],
+    }
+    result = await orders.insert_one(op); op["_id"] = result.inserted_id
+    await order_repo.update({"_id": b2b["_id"]}, {"operationalOrderId": result.inserted_id, "updatedAt": now})
+    try: await evaluate_order(str(result.inserted_id), persist=True)
+    except Exception as exc: logger.warning("B2B logistics evaluation failed for %s: %s", b2b.get("orderNumber"), exc)
+    return await orders.find_one({"_id": result.inserted_id})
+
+async def _sync_b2b_from_operational(b2b: Dict[str, Any], op: Optional[Dict[str, Any]]) -> None:
+    if not op: return
+    status = str(op.get("orderStatus") or "")
+    mapped = {"ready_for_delivery": "dispatched", "local_dispatch": "dispatched", "dispatched": "dispatched", "in_transit": "in_transit", "delivered": "delivered"}
+    target = mapped.get(status)
+    if not target: return
+    current = b2b.get("status")
+    rank = {ORDER_CONFIRMED: 0, ORDER_PREPARING: 1, ORDER_QUALITY_CHECK: 2, ORDER_DISPATCHED: 3, ORDER_IN_TRANSIT: 4, ORDER_DELIVERED: 5, ORDER_COMPLETED: 6}
+    if rank.get(target, -1) > rank.get(current, -1):
+        update = {"status": target, "updatedAt": datetime.utcnow()}
+        if target == ORDER_DELIVERED: update["deliveredAt"] = op.get("deliveredAt") or datetime.utcnow()
+        await order_repo.update({"_id": b2b["_id"]}, update)
+        b2b.update(update)
+
+
+def _logistics_snapshot(op: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not op: return {"status": "not_created", "label": "Awaiting logistics setup"}
+    status = str(op.get("orderStatus") or "confirmed")
+    labels = {"confirmed":"Confirmed","processing":"Farmer processing","ready_for_delivery":"Ready for delivery","transfer_pending":"Transfer to warehouse pending","transferred":"At warehouse","hub_received":"Received at local hub","local_dispatch":"Dispatched from local hub","dispatched":"Dispatched","in_transit":"In transit","delivered":"Delivered"}
+    return {"status": status, "label": labels.get(status, status.replace("_"," ").title()), "logisticsMode": op.get("logisticsMode"), "transferStatus": op.get("transferStatus"), "warehouseId": str(op["warehouseId"]) if op.get("warehouseId") else None, "hubId": str(op["nearbyFulfillmentLocationId"]) if op.get("nearbyFulfillmentLocationId") else None, "deliveryPartnerId": str(op["deliveryPartnerId"]) if op.get("deliveryPartnerId") else None, "updatedAt": op.get("updatedAt")}
+
+
 # ================== BUSINESS PROFILE ==================
 
+def _safe_business_profile(profile: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(profile["_id"]),
+        "userId": str(profile["userId"]),
+        "businessName": profile.get("businessName"),
+        "businessType": profile.get("businessType"),
+        "city": profile.get("city"),
+        "state": profile.get("state"),
+        "district": profile.get("district"),
+        "phone": profile.get("phone"),
+        "isVerified": bool(profile.get("isVerified")),
+        "verificationStatus": profile.get("verificationStatus", "pending"),
+        "gstinMasked": ("*" * 11 + Security.decrypt_business_data(profile.get("gstinEncrypted"))[-4:]) if Security.decrypt_business_data(profile.get("gstinEncrypted")) else None,
+        "contactPerson": Security.decrypt_business_data(profile.get("contactPersonEncrypted")),
+        "procurementRequirements": Security.decrypt_business_data(profile.get("procurementRequirementsEncrypted")),
+        "address": Security.decrypt_business_data(profile.get("businessAddressEncrypted")),
+    }
+
 class BusinessProfileCreate(BaseModel):
-    businessName: str
-    businessType: str = Field(..., description="restaurant, hotel, canteen, supermarket, caterer, processor, wholesaler, cafe")
-    gstin: Optional[str] = None
-    contactPerson: Optional[str] = None
+    businessName: str = Field(..., min_length=2, max_length=150)
+    businessType: str = Field(..., min_length=2, max_length=60, description="Eligible bulk/institutional buyer type")
+    gstin: Optional[str] = Field(None, max_length=15)
+    contactPerson: str = Field(..., min_length=2, max_length=120)
+    procurementRequirements: Optional[str] = Field(None, max_length=2000)
     phone: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    district: Optional[str] = None
-    address: Optional[str] = None
+    city: str = Field(..., min_length=1, max_length=100)
+    state: str = Field(..., min_length=1, max_length=100)
+    district: Optional[str] = Field(None, max_length=100)
+    address: str = Field(..., min_length=5, max_length=500)
     location: Optional[dict] = None
 
 
@@ -307,18 +400,33 @@ async def create_business_profile(
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business accounts can create a business profile")
 
+    eligible_types = {
+        "restaurant", "hotel", "cafe", "cloud_kitchen", "canteen", "caterer",
+        "supermarket", "retail_store", "wholesaler", "food_processor", "institution",
+        "food_processing", "food_manufacturer", "supermarket_chain", "grocery_chain",
+        "distributor", "exporter", "hospital", "school_college_hostel",
+        "corporate_canteen", "animal_feed",
+    }
+    if data.businessType not in eligible_types:
+        raise HTTPException(status_code=400, detail="Business type is not eligible for B2B procurement")
+    if data.gstin and not re.fullmatch(r"[0-9A-Z]{15}", data.gstin.strip().upper()):
+        raise HTTPException(status_code=400, detail="GSTIN must contain exactly 15 letters/numbers")
+    if not data.address or not data.city or not data.state:
+        raise HTTPException(status_code=400, detail="Business address, city and state are required")
+
     existing = await profile_repo.find_one({"userId": ObjectId(current_user["_id"]), "deletedAt": None})
     payload = {
         "userId": ObjectId(current_user["_id"]),
         "businessName": data.businessName.strip(),
         "businessType": data.businessType,
-        "gstin": data.gstin,
-        "contactPerson": data.contactPerson,
+        "gstinEncrypted": Security.encrypt_business_data(data.gstin.strip().upper()) if data.gstin else (existing.get("gstinEncrypted") if existing else None),
+        "contactPersonEncrypted": Security.encrypt_business_data(data.contactPerson),
+        "procurementRequirementsEncrypted": Security.encrypt_business_data(data.procurementRequirements),
         "phone": data.phone or current_user.get("phone"),
         "city": data.city,
         "state": data.state,
         "district": data.district,
-        "address": data.address,
+        "businessAddressEncrypted": Security.encrypt_business_data(data.address),
         "location": data.location,
         "isVerified": existing.get("isVerified", False) if existing else False,
         "updatedAt": datetime.utcnow(),
@@ -337,7 +445,7 @@ async def create_business_profile(
 
     profile["id"] = str(profile["_id"])
     profile["userId"] = str(profile["userId"])
-    return {"success": True, "data": profile}
+    return {"success": True, "data": _safe_business_profile(profile)}
 
 
 @router.get("/business/profile")
@@ -348,7 +456,7 @@ async def get_business_profile(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Business profile not found")
     profile["id"] = str(profile["_id"])
     profile["userId"] = str(profile["userId"])
-    return {"success": True, "data": profile}
+    return {"success": True, "data": _safe_business_profile(profile)}
 
 
 # ================== REQUESTS FOR QUOTE ==================
@@ -742,6 +850,9 @@ async def accept_offer(
     order_id = await order_repo.create(order)
     order["_id"] = ObjectId(order_id)
     order["id"] = str(order_id)
+    operational = await _ensure_operational_order(order)
+    if operational:
+        order["operationalOrderId"] = str(operational["_id"])
 
     await NotificationService.create_in_app_notification(
         str(offer.get("farmerId")),
@@ -757,6 +868,95 @@ async def accept_offer(
         "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": round(max(0.0, _rfq_quantity(rfq) - float(order.get("quantityKg"))), 2)},
         "message": "Quote accepted; B2B order created",
     }
+
+
+# ================== SUPPLY CONTRACTS ==================
+
+class SupplyContractCreate(BaseModel):
+    farmerName: str
+    farmerUserId: Optional[str] = None
+    cropName: str
+    quantityPerMonthKg: float = Field(..., gt=0)
+    pricePerKg: float = Field(..., gt=0)
+    durationMonths: int = Field(..., ge=1, le=24)
+    startDate: datetime
+
+class SupplyContractStatus(BaseModel):
+    status: str
+
+async def _contract_view(c: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(c); out["id"] = str(out["_id"])
+    for k in ("businessUserId","farmerUserId","businessProfileId"):
+        if out.get(k): out[k] = str(out[k])
+    return out
+
+@router.get("/contracts")
+async def list_business_contracts(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "business": raise HTTPException(status_code=403, detail="Only business accounts can access contracts")
+    rows = await BaseRepository("b2b_contracts").find_many({"businessUserId": ObjectId(current_user["_id"]), "deletedAt": None}, sort=[("createdAt",-1)], limit=200)
+    return {"success": True, "data": {"contracts": [await _contract_view(c) for c in rows]}}
+
+@router.get("/contracts/me")
+async def list_farmer_contracts(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "farmer": raise HTTPException(status_code=403, detail="Only farmers can access contracts")
+    rows = await BaseRepository("b2b_contracts").find_many({"farmerUserId": ObjectId(current_user["_id"]), "deletedAt": None}, sort=[("createdAt",-1)], limit=200)
+    return {"success": True, "data": {"contracts": [await _contract_view(c) for c in rows]}}
+
+@router.post("/contracts")
+async def create_supply_contract(data: SupplyContractCreate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "business": raise HTTPException(status_code=403, detail="Only business accounts can create contracts")
+    farmer = None
+    if data.farmerUserId:
+        farmer = await farmer_profile_repo.find_one({"userId": ObjectId(data.farmerUserId), "deletedAt": None})
+    if not farmer: farmer = await _find_farmer_by_name(data.farmerName)
+    if not farmer or not farmer.get("userId"): raise HTTPException(status_code=404, detail="Farmer not found. Use the registered farm name.")
+    profile = await profile_repo.find_one({"userId": ObjectId(current_user["_id"]), "deletedAt": None})
+    repo = BaseRepository("b2b_contracts"); now = datetime.utcnow()
+    count = await repo.count({"deletedAt": None})
+    contract = {"contractNumber": f"CTR-{now.year}-{count+1:04d}", "businessUserId": ObjectId(current_user["_id"]), "businessProfileId": profile.get("_id") if profile else None, "farmerUserId": ObjectId(str(farmer["userId"])), "farmerName": farmer.get("farmName") or data.farmerName, "businessName": (profile or {}).get("businessName") or "Business", "cropName": data.cropName.strip(), "quantityPerMonthKg": data.quantityPerMonthKg, "pricePerKg": data.pricePerKg, "durationMonths": data.durationMonths, "startDate": data.startDate, "endDate": data.startDate + timedelta(days=30*data.durationMonths), "status": "pending", "createdAt": now, "updatedAt": now, "deletedAt": None}
+    cid = await repo.create(contract); contract["_id"] = ObjectId(cid)
+    await NotificationService.create_in_app_notification(str(farmer["userId"]), NotificationType.ORDER, "New supply contract", f"{contract['businessName']} sent contract {contract['contractNumber']} for {contract['cropName']}. Please review and accept or decline.", {"contractId": cid, "type": "b2b_contract"}, NotificationPriority.HIGH)
+    return {"success": True, "data": await _contract_view(contract)}
+
+@router.put("/contracts/{contract_id}/status")
+async def update_supply_contract_status(contract_id: str, data: SupplyContractStatus, current_user: dict = Depends(get_current_user)):
+    repo = BaseRepository("b2b_contracts")
+    try: contract = await repo.find_one({"_id": ObjectId(contract_id), "deletedAt": None})
+    except Exception: contract = None
+    if not contract: raise HTTPException(status_code=404, detail="Contract not found")
+    role = current_user.get("role"); uid = str(current_user["_id"])
+    if role == "farmer" and str(contract.get("farmerUserId")) != uid: raise HTTPException(status_code=403, detail="Not your contract")
+    if role == "business" and str(contract.get("businessUserId")) != uid: raise HTTPException(status_code=403, detail="Not your contract")
+    allowed = {"pending","active","completed","cancelled"}
+    if data.status not in allowed: raise HTTPException(status_code=400, detail="Invalid contract status")
+    if data.status == "active" and role != "farmer": raise HTTPException(status_code=403, detail="Only the farmer can activate a contract")
+    if contract.get("status") == "completed": raise HTTPException(status_code=400, detail="Completed contract cannot be changed")
+    await repo.update({"_id": contract["_id"]}, {"status": data.status, "updatedAt": datetime.utcnow()})
+    other = str(contract.get("businessUserId")) if role == "farmer" else str(contract.get("farmerUserId"))
+    await NotificationService.create_in_app_notification(other, NotificationType.ORDER, f"Supply contract {data.status}", f"Contract {contract.get('contractNumber')} is now {data.status}.", {"contractId": contract_id, "type": "b2b_contract"}, NotificationPriority.HIGH)
+    return {"success": True, "message": f"Contract updated to {data.status}"}
+
+@router.get("/deliveries")
+async def list_b2b_deliveries(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "business": raise HTTPException(status_code=403, detail="Only business accounts can view deliveries")
+    rows = await order_repo.find_many({"businessUserId": ObjectId(current_user["_id"]), "deletedAt": None}, sort=[("startedAt",-1)], limit=200)
+    result = []
+    for row in rows:
+        op = await _ensure_operational_order(row)
+        item = dict(row); await _enrich_order(item); item["logistics"] = _logistics_snapshot(op)
+        if op:
+            item["logistics"]["warehouseName"] = None; item["logistics"]["hubName"] = None; item["logistics"]["deliveryPartnerName"] = op.get("deliveryPartnerName")
+            if op.get("warehouseId"):
+                try:
+                    wh = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(str(op["warehouseId"]))}); item["logistics"]["warehouseName"] = (wh or {}).get("name") or (wh or {}).get("warehouseName")
+                except Exception: pass
+            if op.get("nearbyFulfillmentLocationId"):
+                try:
+                    hub = await MongoDB.get_collection("local_fulfillment_hubs").find_one({"_id": ObjectId(str(op["nearbyFulfillmentLocationId"]))}); item["logistics"]["hubName"] = (hub or {}).get("name")
+                except Exception: pass
+        result.append(item)
+    return {"success": True, "data": {"deliveries": result, "count": len(result)}}
+
 
 
 # ================== ORDERS ==================
@@ -805,6 +1005,9 @@ async def list_b2b_orders(current_user: dict = Depends(get_current_user)):
     orders = await order_repo.find_many(match, sort=[("startedAt", -1)], limit=200)
     for o in orders:
         await _enrich_order(o)
+        op = await _ensure_operational_order(o)
+        o["operationalOrderId"] = str(op["_id"]) if op else None
+        o["logistics"] = _logistics_snapshot(op)
     return {"success": True, "data": {"orders": orders, "count": len(orders)}}
 
 
