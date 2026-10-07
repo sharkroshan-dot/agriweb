@@ -63,8 +63,7 @@ export default function CustomerBulkOrdersPage() {
         </Button>
       </div>
       <p className="text-sm text-gray-500">
-        Planning a wedding, function, festival or party? Request quotes for large quantities and let
-        farmers compete for your order — you pick the best offer.
+        Plan an event or a weekly family basket. AgriConnect uses smart sourcing for both; planned events may also collect farmer quotes, while weekly family baskets never use RFQs.
       </p>
 
       <div className="flex gap-2">
@@ -106,13 +105,13 @@ export default function CustomerBulkOrdersPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700">
-                          {r.requestType === "b2b" ? "Business RFQ" : "🎉 Event Request"}
+                          {r.requestType === "b2b" ? "Business RFQ" : r.purchaseMode === "family_weekly" ? "🧺 Weekly Family Basket" : "🎉 Event Request"}
                         </Badge>
                         <p className="font-medium">{r.requestNumber}</p>
                       </div>
                       <Badge variant={requestStatusVariant[r.status] || "secondary"}>{r.status.replace(/_/g, " ")}</Badge>
                     </div>
-                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}</p>
+                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}{r.familySize ? ` · Family of ${r.familySize}` : ""}</p>
                     <ItemsSummary items={r.items} />
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
