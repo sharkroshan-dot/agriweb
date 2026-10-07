@@ -21,6 +21,7 @@ import {
   Plus,
   ClipboardCheck,
   MessageSquare,
+  Boxes,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -34,10 +35,12 @@ const navItems: Array<{ name: string; href: string; icon: any; badge?: string }>
   { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
   { name: "Stock Management", href: "/stock", icon: Package },
   { name: "Farm Collection", href: "/collections", icon: Truck },
+  { name: "Customer Orders", href: "/warehouse/orders", icon: ClipboardCheck },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
   { name: "Order Packing", href: "/packing", icon: PackageCheck },
-  { name: "Outgoing Stock", href: "/outgoing", icon: ArrowUp },
+  { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
+  { name: "Consolidation", href: "/warehouse/consolidation", icon: Boxes },
   { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
   { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
