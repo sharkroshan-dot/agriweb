@@ -15,6 +15,12 @@ import { api } from "../../../lib/api/client";
 import { formatTime } from "../../../lib/utils";
 import toast from "react-hot-toast";
 
+function DeliveryPriorityBadge({ delivery, compact = false }: { delivery?: any; compact?: boolean }) {
+  const priority = String(delivery?.priority || delivery?.deliveryPriority || delivery?.order?.priority || "normal").toLowerCase();
+  const label = priority === "urgent" || priority === "high" ? "High Priority" : priority === "medium" ? "Medium Priority" : "Normal Priority";
+  return <Badge variant={priority === "urgent" || priority === "high" ? "destructive" : priority === "medium" ? "warning" : "secondary"} className={compact ? "text-[10px]" : undefined}>{label}</Badge>;
+}
+
 const ACTIVE_STATUSES = ["in_transit", "ready_for_delivery", "picked_up", "accepted", "assigned", "dispatched"];
 
 const getDeliveryId = (delivery: any) => String(
