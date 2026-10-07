@@ -24,6 +24,16 @@ const BUSINESS_TYPES = [
   "wholesaler",
   "food_processor",
   "institution",
+  "food_processing",
+  "food_manufacturer",
+  "supermarket_chain",
+  "grocery_chain",
+  "distributor",
+  "exporter",
+  "hospital",
+  "school_college_hostel",
+  "corporate_canteen",
+  "animal_feed",
 ];
 
 export default function BusinessProfilePage() {
