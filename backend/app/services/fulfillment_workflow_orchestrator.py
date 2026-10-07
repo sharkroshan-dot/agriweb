@@ -248,7 +248,7 @@ class FulfillmentWorkflowOrchestrator:
                     "warehouseCount": len(set(_as_id(x) for x in warehouse_ids)),
                     "nextAction": "complete_consolidation",
                 },
-                notify_user_ids=[*managers, farmer_id],
+                notify_user_ids=[*managers, farmer_id, _as_id(order.get("customerId"))],
             )
         elif incoming:
             await FulfillmentWorkflowOrchestrator._emit_once(
@@ -258,7 +258,7 @@ class FulfillmentWorkflowOrchestrator:
                 "Farmer-packed shipment partially received",
                 f"Order {order.get('orderNumber', str(oid))} has partial warehouse receipts. Remaining warehouse portions are still pending.",
                 metadata={"receivedRows": len(incoming), "storedRows": stored_rows},
-                notify_user_ids=[farmer_id],
+                notify_user_ids=[farmer_id, _as_id(order.get("customerId"))],
             )
 
         return {
