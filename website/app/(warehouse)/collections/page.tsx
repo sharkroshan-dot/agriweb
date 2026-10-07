@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Route,
   Truck,
-  UserRound,
+  User,
   Warehouse,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -153,7 +153,7 @@ export default function WarehouseCollectionsPage() {
                 <CardContent className="p-5">
                   <div className="mb-5 grid gap-3 sm:grid-cols-3">
                     <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Pickup</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><MapPin className="h-3.5 w-3.5 text-emerald-600" /> Farm location</p></div>
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Collection Team</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><UserRound className="h-3.5 w-3.5 text-emerald-600" /> {job.collectionTeamId || "Not assigned"}</p></div>
+                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Collection Team</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><User className="h-3.5 w-3.5 text-emerald-600" /> {job.collectionTeamId || "Not assigned"}</p></div>
                     <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Next destination</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><Warehouse className="h-3.5 w-3.5 text-emerald-600" /> {warehouseName}</p></div>
                   </div>
 
