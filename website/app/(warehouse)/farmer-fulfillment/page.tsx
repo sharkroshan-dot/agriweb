@@ -81,7 +81,7 @@ export default function FarmerFulfillmentWarehousePage() {
           </div>
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
-            {["ready_for_dispatch","delivery_decision"].includes(o.stage)&&<Button asChild><a href={o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "/warehouse/consolidation" : "/outgoing"}><Route className="mr-2 h-4 w-4"/>{o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "Open Consolidation" : "Choose Hub Route"}</a></Button>}
+            {(o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" || ["ready_for_dispatch","delivery_decision"].includes(o.stage))&&<Button asChild><a href={o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "/warehouse/consolidation" : "/outgoing"}><Route className="mr-2 h-4 w-4"/>{o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "Open Consolidation" : "Choose Hub Route"}</a></Button>}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
         </div>
