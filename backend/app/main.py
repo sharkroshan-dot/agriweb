@@ -83,6 +83,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Starting AgriConnect AI Backend...")
     expiry_task = None
+    workflow_task = None
     try:
         await MongoDB.connect()
         await RedisClient.connect()
@@ -94,6 +95,16 @@ async def lifespan(app: FastAPI):
         expiry_task = asyncio.create_task(reservation_expiry_loop())
         from app.api.v1 import subscriptions as _subscriptions
         basket_task = asyncio.create_task(_subscriptions.basket_scheduler_loop())
+        from app.services.fulfillment_workflow_orchestrator import FulfillmentWorkflowOrchestrator
+        await FulfillmentWorkflowOrchestrator.ensure_indexes()
+        async def workflow_reconciliation_loop():
+            while True:
+                try:
+                    await FulfillmentWorkflowOrchestrator.reconcile_active_orders(limit=500)
+                except Exception:
+                    logger.exception("Cross-role fulfillment reconciliation failed")
+                await asyncio.sleep(15)
+        workflow_task = asyncio.create_task(workflow_reconciliation_loop())
         logger.info("✅ Database connections established")
     except Exception as exc:
         logger.error(f"❌ Database startup failed: {exc}")
@@ -104,6 +115,8 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down...")
     if expiry_task:
         expiry_task.cancel()
+    if workflow_task:
+        workflow_task.cancel()
     if basket_task:
         basket_task.cancel()
     try:
