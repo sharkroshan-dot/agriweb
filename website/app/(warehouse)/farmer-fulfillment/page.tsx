@@ -118,11 +118,11 @@ export default function FarmerFulfillmentWarehousePage() {
           </div>
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
-            {o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && (()=>{const con=consolidations.find((x:any)=>x.orderId===o.id);const status=con?.consolidationStatus;return <div className="space-y-2">
+            {o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && (()=>{const con=consolidations.find((x:any)=>x.orderId===o.id);const status=con?.consolidationStatus;const canDispatch=Boolean(con?.canDispatchToConsolidation);const isConsolidationWarehouse=Boolean(con?.isConsolidationWarehouse);const complete=Boolean(con?.allWarehousesReceived);const consolidationReceived=Boolean(con?.allConsolidationLegsReceived);return <div className="space-y-2">
               {(status==="collecting_from_warehouses"||status==="partial"||(!status&&con?.allWarehousesReceived===false))&&<div className="flex flex-wrap gap-2">
                 {canDispatch && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Consolidation</Button>}
                 {isConsolidationWarehouse && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Receive at Consolidation</Button>}
-                <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!complete || !consolidationReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>
+                {isConsolidationWarehouse && <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!complete || !consolidationReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
               </div>}
               {status==="consolidated"&&<Button size="sm" onClick={()=>handoffHub(o.id)}>Transfer to Local Hub</Button>}
               {status==="hub_handoff_pending"&&<div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button><span className="text-xs text-muted-foreground self-center">Confirm only after the local hub physically receives the complete order.</span></div>}
