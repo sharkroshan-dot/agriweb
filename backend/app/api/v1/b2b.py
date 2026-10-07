@@ -48,6 +48,7 @@ from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
 from app.database.mongodb import MongoDB
 from app.services.fulfillment_engine import evaluate_order
+from app.core.security import Security
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -361,8 +362,9 @@ def _logistics_snapshot(op: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 class BusinessProfileCreate(BaseModel):
     businessName: str
     businessType: str = Field(..., description="Eligible bulk/institutional buyer type")
-    gstin: Optional[str] = None
-    contactPerson: Optional[str] = None
+    gstin: Optional[str] = Field(None, max_length=15)
+    contactPerson: str = Field(..., min_length=2, max_length=120)
+    procurementRequirements: Optional[str] = Field(None, max_length=2000)
     phone: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
