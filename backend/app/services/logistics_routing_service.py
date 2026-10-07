@@ -526,4 +526,9 @@ async def apply_partner_route(
         "logisticsMode": update["logisticsMode"],
         "transferStatus": update["transferStatus"],
         "resourcePending": resource_pending,
+        "warehouseAllocations": (multi_warehouse or {}).get("allocations", []),
+        "warehouseCount": (multi_warehouse or {}).get("warehouseCount", 1 if warehouse else 0),
+        "consolidationWarehouse": (multi_warehouse or {}).get("consolidationWarehouse"),
+        "consolidationId": (multi_warehouse or {}).get("consolidationId"),
+        "finalLocalHub": (multi_warehouse or {}).get("localHub") or ({"id": str(hub["_id"]), "name": hub.get("name")} if hub else None),
     }
