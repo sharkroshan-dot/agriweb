@@ -131,28 +131,6 @@ export default function FarmerFulfillmentConsolidationPage() {
                   ))}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    disabled={!complete || busy === row.orderId}
-                    onClick={() => dispatchPortion(row.orderId)}
-                  >
-                    <Truck className="mr-2 h-4 w-4" />
-                    Dispatch Warehouse Portion
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={busy === row.orderId}
-                    onClick={() => receiveAtConsolidation(row.orderId)}
-                  >
-                    <Warehouse className="mr-2 h-4 w-4" />
-                    Receive at Consolidation
-                  </Button>
-                  <Button variant="outline" disabled={!complete || busy === row.orderId} onClick={() => dispatchPortion(row.orderId)}>
-                    <Truck className="mr-2 h-4 w-4" />Dispatch Portion
-                  </Button>
-                  <Button variant="outline" disabled={busy === row.orderId} onClick={() => receiveAtConsolidation(row.orderId)}>
-                    <Warehouse className="mr-2 h-4 w-4" />Receive at Consolidation
-                  </Button>
                   <Button disabled={!complete || !row.allConsolidationLegsReceived || consolidated || busy === row.orderId} onClick={() => completeConsolidation(row.orderId)}>
                     <CheckCircle2 className="mr-2 h-4 w-4" />{consolidated ? "Consolidated" : "Complete Consolidation"}
                   </Button>
