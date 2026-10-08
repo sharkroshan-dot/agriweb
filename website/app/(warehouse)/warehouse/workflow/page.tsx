@@ -105,6 +105,14 @@ export default function WarehouseWorkflowPage() {
         </CardContent>
       </Card>
 
+      <Card className="border-slate-200">
+        <CardHeader><CardTitle>How the queues connect</CardTitle><p className="text-sm text-slate-500">Each page owns one operational action. The backend changes the authoritative state, records tracking, and exposes the next queue.</p></CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-xl border p-4"><p className="font-semibold">Normal Warehouse</p><p className="mt-1 text-xs leading-5 text-slate-500">Farm Collection → Receiving → Quality → Inventory → Customer Orders → Packing → Shortage Resolution → Dispatch.</p></div>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-4"><p className="font-semibold text-indigo-950">Farmer Fulfillment</p><p className="mt-1 text-xs leading-5 text-indigo-900/70">Farmer-packed → Transfer → Receive → Verify/Store → Local Hub. No warehouse repacking.</p></div>
+          <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-4"><p className="font-semibold text-violet-950">Multiple Warehouses</p><p className="mt-1 text-xs leading-5 text-violet-900/70">Warehouse A/B/C portions → Consolidation → complete original order → Local Hub → ONE Delivery Partner.</p></div>
+        </CardContent>
+      </Card>
       <div className="flex items-center justify-end gap-2 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />Completing an action updates the next responsible queue automatically.</div>
     </div>
   );
