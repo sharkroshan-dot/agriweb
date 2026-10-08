@@ -3,25 +3,9 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
-  LayoutDashboard,
-  Package,
-  Route,
-  Users,
-  PackageCheck,
-  ArrowDown,
-  ArrowUp,
-  Truck,
-  Warehouse,
-  Snowflake,
-  ArrowLeftRight,
-  BarChart,
-  CreditCard,
-  Settings,
-  AlertTriangle,
-  Plus,
-  ClipboardCheck,
-  MessageSquare,
-  Boxes,
+  LayoutDashboard, Package, PackageCheck, ArrowDown, ArrowUp, Truck, Warehouse,
+  Snowflake, ArrowLeftRight, BarChart, CreditCard, Settings, AlertTriangle,
+  ClipboardCheck, MessageSquare, Boxes, Route,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -29,19 +13,19 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api/client";
 import { Button } from "../ui/button";
 
-const navItems: Array<{ name: string; href: string; icon: any; badge?: string }> = [
-  { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
+const navItems = [
+  { name: "My Workflow", href: "/workflow", icon: ClipboardCheck },
   { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
   { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
   { name: "Stock Management", href: "/stock", icon: Package },
   { name: "Farm Collection", href: "/collections", icon: Truck },
   { name: "Customer Orders", href: "/warehouse/orders", icon: ClipboardCheck },
-  { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
+  { name: "Farmer Fulfillment Transfers", href: "/farmer-fulfillment", icon: Route },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
   { name: "Order Packing", href: "/packing", icon: PackageCheck },
   { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
-  { name: "Consolidation", href: "/warehouse/consolidation", icon: Boxes },
+  { name: "Consolidation", href: "/consolidation", icon: Boxes },
   { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
   { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
@@ -72,75 +56,69 @@ export function WarehouseSidebar() {
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
-          <div className="flex min-w-0 items-start gap-3">
+        <div className="mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+          <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
               <Warehouse className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-900">{dashboardQuery.isLoading ? "Loading warehouse..." : warehouseName}</p>
-              <p className="truncate text-[11px] text-slate-500">{capacity === null ? "Capacity: unavailable" : "Capacity: " + capacity + "% used"}</p>
+              <p className="text-[11px] text-slate-500">{capacity === null ? "Capacity unavailable" : `Capacity: ${capacity}% used`}</p>
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-emerald-100 pt-3 text-sm">
-            <span className="text-slate-500">Total Items</span>
-            <span className="font-bold">{totalItems === null ? "—" : totalItems.toLocaleString()}</span>
-          </div>
-          <div className="mt-2 flex items-center gap-2">
-            {lowStock === null ? (
-              <Badge variant="secondary" className="w-full justify-center">Low stock: unavailable</Badge>
-            ) : lowStock > 0 ? (
-              <Badge variant="warning" className="w-full justify-center">⚠️ {lowStock} Low Stock {lowStock === 1 ? "Item" : "Items"}</Badge>
-            ) : (
-              <Badge variant="secondary" className="w-full justify-center">✓ No Low Stock Items</Badge>
-            )}
+          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3">
+            <div><p className="text-[11px] text-slate-500">Total Items</p><p className="font-bold">{totalItems === null ? "—" : totalItems.toLocaleString()}</p></div>
+            <div><p className="text-[11px] text-slate-500">Low Stock</p><p className={cn("font-bold", lowStock && lowStock > 0 ? "text-amber-600" : "text-slate-900")}>{lowStock === null ? "—" : lowStock}</p></div>
           </div>
         </div>
 
-        <nav className="space-y-4">
-          {navItems.map((item) => {
+        <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Work Queue</div>
+        <nav className="space-y-1.5">
+          {navItems.slice(0, 12).map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={cn(
-                  "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                  isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-slate-100"
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <item.icon className="h-5 w-5" />
-                  <span>{item.name}</span>
-                </div>
-                {item.badge && (
-                  <Badge
-                    variant={isActive ? "secondary" : "default"}
-                    className={cn("px-2 py-0 text-xs", typeof item.badge === "string" && item.badge.includes("°C") && "bg-blue-500 text-white")}
-                  >
-                    {item.badge}
-                  </Badge>
-                )}
+              <Link key={item.name} href={item.href} className={cn(
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                isActive ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+              )}>
+                <item.icon className="h-4.5 w-4.5" />
+                <span>{item.name}</span>
               </Link>
             );
           })}
         </nav>
 
-        <div className="mt-6 rounded-lg border border-dashed p-4">
-          <div className="flex flex-col items-center text-center">
-            <Package className="h-8 w-8 text-muted-foreground" />
-            <p className="mt-2 text-sm font-medium">Add Stock</p>
-            <p className="text-xs text-muted-foreground">Manage farm pickups</p>
-            <Button asChild size="sm" className="mt-3 w-full">
-              <Link href="/collections">
-                <Truck className="mr-2 h-4 w-4" />
-                Farm Collection
+        <div className="my-5 border-t border-slate-200" />
+        <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Warehouse Management</div>
+        <nav className="space-y-1.5">
+          {navItems.slice(12).map((item) => {
+            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+            return (
+              <Link key={item.name} href={item.href} className={cn(
+                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all",
+                isActive ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+              )}>
+                <item.icon className="h-4.5 w-4.5" />
+                <span>{item.name}</span>
               </Link>
-            </Button>
-          </div>
+            );
+          })}
+        </nav>
+
+        <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-4">
+          <p className="text-sm font-semibold text-slate-800">Need to receive stock?</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Start a farm collection, then verify it in Receiving.</p>
+          <Button asChild size="sm" className="mt-3 w-full"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection</Link></Button>
         </div>
 
-        {lowStock !== null && lowStock > 0 && <div className="mt-4 rounded-lg bg-amber-50 p-3 border border-amber-200"><div className="flex items-start gap-2"><AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" /><div><p className="text-sm font-medium text-amber-700">Low Stock Alert</p><p className="text-xs text-amber-600">{lowStock} {lowStock === 1 ? "item needs" : "items need"} restocking.</p></div></div></div>}
+        {lowStock !== null && lowStock > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-600" />
+              <div><p className="text-sm font-medium text-amber-800">Low Stock Alert</p><p className="text-xs text-amber-700">{lowStock} item{lowStock === 1 ? "" : "s"} need restocking.</p></div>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   );
