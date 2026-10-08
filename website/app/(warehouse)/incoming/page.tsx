@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Search, CheckCircle, XCircle, Clock, ArrowDown, RefreshCw, Plus, MoreVertical, Package, Info } from "lucide-react";
+import { Calendar, Search, CheckCircle, XCircle, Clock, ArrowDown, RefreshCw, Plus, MoreVertical, Package, Info, ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -59,9 +59,11 @@ export default function WarehouseIncomingPage() {
   const [dateFilter, setDateFilter] = useState<string>("today");
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
+  const [showQualityDialog, setShowQualityDialog] = useState(false);
   const [incomingForm, setIncomingForm] = useState(emptyIncomingForm);
   const [receiveForm, setReceiveForm] = useState(emptyReceiveForm);
   const [selectedIncoming, setSelectedIncoming] = useState<any>(null);
+  const [qualityNotes, setQualityNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: incomingData, isLoading, refetch } = useQuery({
@@ -202,6 +204,23 @@ export default function WarehouseIncomingPage() {
     }
   };
 
+  const handleQuality = async (qualityCheck: "passed" | "failed") => {
+    if (!selectedIncoming?.id) return;
+    try {
+      setIsSaving(true);
+      await api.put(`/warehouse/me/incoming/${selectedIncoming.id}/quality`, {
+        qualityCheck,
+        usableQuantity: Number(selectedIncoming.quantityReceived || selectedIncoming.quantity || 0),
+        notes: qualityNotes.trim() || undefined,
+      });
+      toast.success(qualityCheck === "passed" ? "Quality approved. You can now store this stock." : "Quality rejected. Shipment is on hold.");
+      setShowQualityDialog(false); setQualityNotes(""); await refetch();
+    } catch (error: any) { toast.error(error?.message || "Failed to update quality result"); }
+    finally { setIsSaving(false); }
+  };
+
+  const openQualityDialog = (item: any) => { setSelectedIncoming(item); setQualityNotes(""); setShowQualityDialog(true); };
+
   const handleStoreIncoming = async (item: any) => {
     if (!item?.id) return;
     try {
@@ -262,7 +281,7 @@ export default function WarehouseIncomingPage() {
           const productName = item.productName || item.productId || "Incoming product";
           return (
             <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><span className="font-medium">{productName}</span><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From: {item.farmerName || item.farmerId || "Unknown Farmer"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline"><Clock className="mr-2 h-4 w-4" />Track</Button>}{["scheduled", "in_transit"].includes(item.status) && <Button size="sm" onClick={() => openReceiveDialog(item, "passed")}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
-                      {item.status === "received" && item.qualityCheck === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)}><Package className="mr-2 h-4 w-4" />Store</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openReceiveDialog(item, "failed")}><XCircle className="mr-2 h-4 w-4" />Reject</Button><Button size="sm" onClick={() => openReceiveDialog(item, "passed")}><CheckCircle className="mr-2 h-4 w-4" />Accept</Button></div>}<Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></div></div></CardContent></Card>
+                      {item.status === "received" && <Button size="sm" onClick={() => openQualityDialog(item)}><ShieldCheck className="mr-2 h-4 w-4" />Quality Check</Button>}{item.status === "received" && item.qualityCheck === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)}><Package className="mr-2 h-4 w-4" />Store</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></div></div></CardContent></Card>
           );
         })}</div>
       )}
@@ -288,6 +307,17 @@ export default function WarehouseIncomingPage() {
             </div>
             <div className="flex justify-end gap-2 pt-4"><Button type="button" variant="outline" onClick={() => setShowScheduleDialog(false)}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Schedule Incoming"}</Button></div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showQualityDialog} onOpenChange={setShowQualityDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Quality Inspection</DialogTitle><DialogDescription>Receiving is complete. Decide whether this shipment can enter warehouse inventory.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-slate-50 p-4 text-sm"><p className="font-semibold">{selectedIncoming?.productName || selectedIncoming?.productId}</p><p className="mt-1 text-muted-foreground">Received: {selectedIncoming?.quantityReceived || selectedIncoming?.quantity || 0}</p></div>
+            <Input placeholder="Inspection notes" value={qualityNotes} onChange={e=>setQualityNotes(e.target.value)} />
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setShowQualityDialog(false)}>Cancel</Button><Button variant="destructive" onClick={()=>handleQuality("failed")} disabled={isSaving}>Reject / Hold</Button><Button onClick={()=>handleQuality("passed")} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4"/>Approve Quality</Button></div>
+          </div>
         </DialogContent>
       </Dialog>
 
