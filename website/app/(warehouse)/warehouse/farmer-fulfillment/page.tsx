@@ -1,0 +1,54 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { ArrowRight, CheckCircle2, PackageCheck, RefreshCw, Truck, Warehouse } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
+import { Button } from "../../../components/ui/button";
+import { Badge } from "../../../components/ui/badge";
+import { api } from "../../../lib/api/client";
+import toast from "react-hot-toast";
+
+const labels: Record<string,string> = {
+  awaiting_warehouse_receipt:"Awaiting Warehouse Receipt",
+  received_transfer:"Received — Verify & Store",
+  partial_received:"Partially Received",
+  stored:"Stored — Ready for Handoff",
+  ready_for_dispatch:"Ready for Local Hub",
+  local_hub_transfer_pending:"Local Hub Transfer Pending",
+  ready_for_consolidation:"Ready for Consolidation",
+};
+
+export default function FarmerFulfillmentTransfersPage() {
+  const [busy,setBusy]=useState<string|null>(null);
+  const {data,isLoading,refetch}=useQuery({
+    queryKey:["warehouseFarmerFulfillmentTransfers"],
+    queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
+    refetchInterval:15000,
+  });
+  const rows=data?.data?.transfers||[];
+
+  const handoff=async(orderId:string)=>{
+    try{
+      setBusy(orderId);
+      await api.post("/warehouse/me/farmer-fulfillment/"+orderId+"/dispatch-to-local-hub");
+      toast.success("Farmer-packed order dispatched to the local hub");
+      await refetch();
+    }catch(e:any){toast.error(e?.message||"Unable to dispatch to local hub");}
+    finally{setBusy(null);}
+  };
+
+  return <div className="space-y-6">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Packed Transfers</h1><p className="mt-1 text-muted-foreground">These orders were packed and checked by the farmer. Receive → verify → store → send to the local hub. Never repack them here.</p></div>
+      <Button variant="outline" size="icon" onClick={()=>refetch()}><RefreshCw className="h-4 w-4"/></Button>
+    </div>
+    <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">The sealed farmer package is not a normal warehouse customer-order packing task. Use Incoming Stock to physically receive it, then Store after approval.</p></div></div></CardContent></Card>
+    {isLoading?<div className="h-40 animate-pulse rounded-xl bg-muted"/>:rows.length===0?<Card className="p-12 text-center"><Warehouse className="mx-auto h-12 w-12 text-muted-foreground"/><p className="mt-4 font-semibold">No Farmer Fulfillment transfers</p><p className="mt-1 text-sm text-muted-foreground">New long-distance farmer-packed orders will appear here automatically.</p></Card>:
+    <div className="space-y-4">{rows.map((o:any)=><Card key={o.id} className="overflow-hidden"><CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {o.items?.length||0} item line(s)</p></div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader><CardContent className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-3"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Receive</p><p className="mt-1 font-medium">{o.incoming?.filter((x:any)=>x.status==="received"||x.status==="stored").length||0} received</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Stored</p><p className="mt-1 font-medium">{o.incoming?.filter((x:any)=>x.status==="stored").length||0} stored</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Destination</p><p className="mt-1 font-medium">Local Hub</p></div></div>
+      <div className="flex flex-wrap gap-2">{(o.items||[]).map((i:any)=><Badge key={i.productId+"-"+(i.variantId||"")} variant="secondary">{i.productName}: {i.quantity} {i.unit}</Badge>)}</div>
+      <div className="flex flex-wrap justify-end gap-2">{["received_transfer","partial_received","awaiting_warehouse_receipt"].includes(o.stage)&&<Button asChild variant="outline"><a href="/incoming"><Truck className="mr-2 h-4 w-4"/>Open Receiving</a></Button>}{["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>handoff(o.id)} disabled={busy===o.id}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id?"Dispatching…":"Send to Local Hub"}</Button>}{o.stage==="local_hub_transfer_pending"&&<Badge className="self-center"><CheckCircle2 className="mr-1 h-3 w-3"/>In transit to local hub</Badge>}</div>
+    </CardContent></Card>)}</div>}
+  </div>;
+}
