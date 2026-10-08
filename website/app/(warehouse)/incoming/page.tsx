@@ -192,7 +192,7 @@ export default function WarehouseIncomingPage() {
           notes: receiveForm.notes.trim() || undefined,
         },
       });
-      toast.success(receiveForm.qualityCheck === "failed" ? "Incoming stock rejected" : "Incoming stock received");
+      toast.success(receiveForm.qualityCheck === "failed" ? "Incoming stock rejected" : "Shipment received. Continue to Quality Inspection / Store.");
       setShowReceiveDialog(false);
       refetch();
     } catch (error) {
