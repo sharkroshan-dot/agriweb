@@ -44,13 +44,14 @@ def _serialize_route(route: Dict[str, Any]) -> Dict[str, Any]:
 async def build_smart_routes(
     warehouse: Dict[str, Any],
     jobs: List[Dict[str, Any]],
-    max_stops: int = 8,
+    max_stops: Optional[int] = None,
     max_weight_kg: float = 0,
 ) -> List[Dict[str, Any]]:
     """Build one or more warehouse pickup routes using nearest-neighbour ordering.
 
-    Capacity/stops split routes; farms with no coordinates are kept as individual
-    stops so they are not silently lost.
+    Vehicle capacity is the primary route limit. There is no arbitrary stop-count
+    cap: the route keeps adding the nearest eligible farm stops until the vehicle
+    capacity is reached. Farms with no coordinates are kept as stops so they are not lost.
     """
     warehouse_point = _point(warehouse.get("location"))
     remaining = list(jobs)
@@ -60,7 +61,7 @@ async def build_smart_routes(
         current = warehouse_point
         selected = []
         weight = 0.0
-        while remaining and len(selected) < max_stops:
+        while remaining and (max_stops is None or len(selected) < max_stops):
             candidates = []
             for job in remaining:
                 qty = float(job.get("quantity") or 0)
