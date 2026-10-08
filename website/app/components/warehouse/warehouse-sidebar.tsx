@@ -14,18 +14,18 @@ import { api } from "../../lib/api/client";
 import { Button } from "../ui/button";
 
 const navItems = [
-  { name: "My Workflow", href: "/workflow", icon: ClipboardCheck },
+  { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
   { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
   { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
   { name: "Stock Management", href: "/stock", icon: Package },
   { name: "Farm Collection", href: "/collections", icon: Truck },
   { name: "Customer Orders", href: "/warehouse/orders", icon: ClipboardCheck },
-  { name: "Farmer Fulfillment Transfers", href: "/farmer-fulfillment", icon: Route },
+  { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
   { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
   { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
   { name: "Order Packing", href: "/packing", icon: PackageCheck },
   { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
-  { name: "Consolidation", href: "/consolidation", icon: Boxes },
+  { name: "Consolidation", href: "/warehouse/consolidation", icon: Boxes },
   { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
   { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
