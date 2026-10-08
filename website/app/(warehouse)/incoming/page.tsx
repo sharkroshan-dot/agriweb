@@ -49,7 +49,7 @@ const emptyIncomingForm = {
 const emptyReceiveForm = {
   quantity: "1",
   usableQuantity: "1",
-  qualityCheck: "passed",
+  qualityCheck: "pending",
   notes: "",
 };
 
@@ -133,12 +133,12 @@ export default function WarehouseIncomingPage() {
     setShowScheduleDialog(true);
   };
 
-  const openReceiveDialog = (item: any, qualityCheck = "passed") => {
+  const openReceiveDialog = (item: any) => {
     setSelectedIncoming(item);
     setReceiveForm({
       quantity: String(item.quantity || 1),
       usableQuantity: String(item.quantity || 1),
-      qualityCheck,
+      qualityCheck: "pending",
       notes: "",
     });
     setShowReceiveDialog(true);
@@ -280,7 +280,7 @@ export default function WarehouseIncomingPage() {
         <div className="space-y-4">{incomingList.map((item: any) => {
           const productName = item.productName || item.productId || "Incoming product";
           return (
-            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><span className="font-medium">{productName}</span><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From: {item.farmerName || item.farmerId || "Unknown Farmer"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline"><Clock className="mr-2 h-4 w-4" />Track</Button>}{["scheduled", "in_transit"].includes(item.status) && <Button size="sm" onClick={() => openReceiveDialog(item, "passed")}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
+            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><span className="font-medium">{productName}</span><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From: {item.farmerName || item.farmerId || "Unknown Farmer"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline"><Clock className="mr-2 h-4 w-4" />Track</Button>}{["scheduled", "in_transit"].includes(item.status) && <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
                       {item.status === "received" && <Button size="sm" onClick={() => openQualityDialog(item)}><ShieldCheck className="mr-2 h-4 w-4" />Quality Check</Button>}{item.status === "received" && item.qualityCheck === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)}><Package className="mr-2 h-4 w-4" />Store</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></div></div></CardContent></Card>
           );
         })}</div>
