@@ -1,7 +1,8 @@
 "use client";
 
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, Plus, CheckCircle2, Users, PackageCheck } from "lucide-react";
+import { MapPin, Route, Plus, CheckCircle2, Users, PackageCheck, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -22,10 +23,18 @@ export default function PickupRoutesPage() {
 
   const routes = routesQ.data?.data?.routes || [];
   const teams = teamsQ.data?.data?.members || [];
+  const [selectedTeamId, setSelectedTeamId] = React.useState("");
+
+  const selectedTeam = teams.find((team: any) => team.id === selectedTeamId);
 
   const createRoutes = async () => {
+    const capacity = Number(selectedTeam?.capacity || 0);
+    if (!selectedTeamId || capacity <= 0) {
+      toast.error("Select an approved pickup vehicle with a registered carrying capacity.");
+      return;
+    }
     try {
-      await api.post("/warehouse/me/pickup-routes", { maxStops: 8, maxWeightKg: 0 });
+      await api.post("/warehouse/me/pickup-routes", { maxWeightKg: capacity });
       toast.success("Pickup route(s) created. Approved partners will receive offers; otherwise eligible delivery partners can pick them up.");
       await routesQ.refetch();
     } catch (e: any) {
@@ -43,14 +52,29 @@ export default function PickupRoutesPage() {
             </div>
             <h1 className="mt-2 text-3xl font-bold">Pickup Routes</h1>
             <p className="mt-2 max-w-2xl text-sm text-emerald-50">
-              Each route is offered to every approved pickup partner. The first partner to accept claims the entire route.
+              Routes are sized by the selected vehicle capacity. The system adds as many farm stops as that vehicle can carry; there is no fixed stop limit. The first eligible partner to accept wins the route.
             </p>
           </div>
-          <Button variant="secondary" onClick={createRoutes}>
-            <Plus className="mr-2 h-4 w-4" /> Create & Offer Routes
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <label className="text-xs text-emerald-50">
+              <span className="mb-1 flex items-center gap-1"><Truck className="h-3 w-3" /> Planning vehicle</span>
+              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-10 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-sm text-slate-900">
+                <option value="">Select vehicle</option>
+                {teams.map((team: any) => (
+                  <option key={team.id} value={team.id} disabled={!team.capacity}>
+                    {team.name || "Pickup Partner"} · {team.vehicleType || "Vehicle"} · {team.capacity ? `${team.capacity} kg` : "Capacity not registered"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="secondary" onClick={createRoutes} disabled={!selectedTeamId || !selectedTeam?.capacity}>
+              <Plus className="mr-2 h-4 w-4" /> Create & Offer Routes
+            </Button>
+          </div>
         </div>
       </div>
+
+      {selectedTeam && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><strong>{selectedTeam.name || "Selected vehicle"}</strong> · {selectedTeam.vehicleType || "Vehicle"} · <strong>{selectedTeam.capacity} kg capacity</strong>. Route planning will continue adding farm stops until this capacity is reached.</div>}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Today's Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
