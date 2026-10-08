@@ -227,6 +227,180 @@ async def get_farmer_fulfillment_transfers(
 
 
 
+@router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-local-hub")
+async def dispatch_single_farmer_fulfillment_to_local_hub(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Move one fully received/stored farmer-packed order to its assigned local hub.
+
+    Farmer Fulfillment never uses the normal warehouse packing/outgoing pipeline.
+    The sealed farmer package is transferred directly from this warehouse to the
+    approved local hub, where the downstream delivery-partner job is created.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_warehouse_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=400, detail="This order is not a single-warehouse Farmer Fulfillment order")
+    if str(order.get("warehouseId") or "") != str(warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="This order is assigned to another warehouse")
+    incoming = await incoming_stock_repository.find_many({
+        "orderId": ObjectId(order_id),
+        "warehouseId": ObjectId(str(warehouse["_id"])),
+        "sourceMode": "farmer_fulfillment_transfer",
+        "deletedAt": None,
+    }, skip=0, limit=1000)
+    if not incoming or any(str(x.get("status")) != "stored" for x in incoming):
+        raise HTTPException(status_code=400, detail="Receive, quality-check and store the farmer-packed shipment first")
+    hub_id = order.get("nearbyFulfillmentLocationId")
+    if not hub_id or not ObjectId.is_valid(str(hub_id)):
+        raise HTTPException(status_code=400, detail="No approved local hub is assigned to this order")
+    hubs = MongoDB.get_collection("fulfillment_hubs")
+    hub_transfers = MongoDB.get_collection("hub_transfers")
+    hub = await hubs.find_one({
+        "_id": ObjectId(str(hub_id)),
+        "isLocalFulfillmentHub": True,
+        "isActive": True,
+        "approvalStatus": "approved",
+        "deletedAt": None,
+    })
+    if not hub:
+        raise HTTPException(status_code=404, detail="Approved local hub not found")
+    existing = await hub_transfers.find_one({"orderId": ObjectId(order_id), "status": {"$in": ["in_transit", "received"]}})
+    if existing:
+        return {"success": True, "data": {"status": "already_transferred", "transferId": str(existing["_id"])}, "message": "This order is already in the local-hub transfer flow."}
+    quantity = sum(float(x.get("usableQuantity") or x.get("quantityReceived") or 0) for x in incoming)
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="No usable received quantity is available for hub transfer")
+    if quantity > float(hub.get("availableCapacity", 0) or 0):
+        raise HTTPException(status_code=400, detail="Local hub does not have enough available capacity")
+    source = warehouse.get("location") or order.get("currentFulfillmentLocation") or order.get("originLocation")
+    now = datetime.utcnow()
+    transfer = {
+        "orderId": ObjectId(order_id),
+        "hubId": ObjectId(str(hub_id)),
+        "quantity": quantity,
+        "sourceLocation": source,
+        "destinationLocation": hub.get("location"),
+        "status": "in_transit",
+        "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "farmerFulfillment": True,
+        "createdAt": now,
+        "updatedAt": now,
+        "farmerId": order.get("farmerId"),
+        "productIds": [i.get("productId") for i in order.get("items", [])],
+        "batchIds": [i.get("batchId") for i in order.get("items", []) if i.get("batchId")],
+    }
+    result = await hub_transfers.insert_one(transfer)
+    await hubs.update_one({"_id": ObjectId(str(hub_id))}, {"$inc": {"availableCapacity": -quantity}, "$set": {"updatedAt": now}})
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "transferStatus": "in_transit",
+        "warehouseFulfillmentStage": "local_hub_transfer_pending",
+        "nearbyFulfillmentLocationId": ObjectId(str(hub_id)),
+        "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id,
+        "farmer_fulfillment_dispatched_to_local_hub",
+        "Farmer-packed order dispatched to local hub",
+        "The sealed farmer-packed order has left the warehouse and is moving to the assigned local hub for one delivery-partner handoff.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"hubId": str(hub_id), "transferId": str(result.inserted_id), "quantity": quantity},
+    )
+    try:
+        await NotificationService.send_order_workflow_update(
+            await order_repository.get_by_id(order_id),
+            stage="local_hub_transfer_pending",
+            status="transfer_pending",
+            title=f"Order #{order.get('orderNumber')}: sent to local hub",
+            message="The farmer-packed order is on its way to the local hub. One delivery partner will handle the final delivery.",
+            actor_role="warehouse", priority=NotificationPriority.HIGH,
+        )
+    except Exception:
+        logger.exception("Failed to notify after Farmer Fulfillment hub dispatch")
+    transfer["id"] = str(result.inserted_id)
+    transfer.pop("_id", None)
+    return {"success": True, "data": transfer, "message": "Farmer-packed order dispatched to the local hub."}
+
+
+@router.post("/me/farmer-fulfillment/{order_id}/complete-consolidation")
+async def complete_multi_warehouse_farmer_fulfillment_consolidation(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Complete a multi-warehouse farmer-packed order and hand it to one local hub."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can complete consolidation")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=400, detail="This order is not a multi-warehouse Farmer Fulfillment order")
+    if str(order.get("consolidationWarehouseId") or "") != str(warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can complete this order")
+    legs = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+        "orderId": ObjectId(order_id), "legType": "warehouse_to_consolidation", "deletedAt": None,
+    }).to_list(length=1000)
+    if not legs or any(str(x.get("status")) != "received_at_consolidation" for x in legs):
+        raise HTTPException(status_code=400, detail="All warehouse portions must be received at consolidation before handoff")
+    hub_id = order.get("nearbyFulfillmentLocationId")
+    if not hub_id or not ObjectId.is_valid(str(hub_id)):
+        raise HTTPException(status_code=400, detail="No approved local hub is assigned to this order")
+    hubs = MongoDB.get_collection("fulfillment_hubs")
+    hub_transfers = MongoDB.get_collection("hub_transfers")
+    hub = await hubs.find_one({
+        "_id": ObjectId(str(hub_id)), "isLocalFulfillmentHub": True, "isActive": True,
+        "approvalStatus": "approved", "deletedAt": None,
+    })
+    if not hub:
+        raise HTTPException(status_code=404, detail="Approved local hub not found")
+    existing = await hub_transfers.find_one({"orderId": ObjectId(order_id), "status": {"$in": ["in_transit", "received"]}})
+    if existing:
+        return {"success": True, "data": {"status": "already_transferred", "transferId": str(existing["_id"])}, "message": "Consolidated order is already in the local-hub transfer flow."}
+    incoming = await incoming_stock_repository.find_many({
+        "orderId": ObjectId(order_id), "sourceMode": "farmer_fulfillment_transfer", "deletedAt": None,
+    }, skip=0, limit=1000)
+    quantity = sum(float(x.get("usableQuantity") or x.get("quantityReceived") or 0) for x in incoming if str(x.get("status")) == "stored")
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="No stored quantity is available for consolidation handoff")
+    if quantity > float(hub.get("availableCapacity", 0) or 0):
+        raise HTTPException(status_code=400, detail="Local hub does not have enough available capacity")
+    now = datetime.utcnow()
+    transfer = {
+        "orderId": ObjectId(order_id), "hubId": ObjectId(str(hub_id)), "quantity": quantity,
+        "sourceLocation": warehouse.get("location"), "destinationLocation": hub.get("location"),
+        "status": "in_transit", "consolidated": True, "farmerFulfillment": True,
+        "logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+        "createdAt": now, "updatedAt": now, "farmerId": order.get("farmerId"),
+        "productIds": [i.get("productId") for i in order.get("items", [])],
+        "batchIds": [i.get("batchId") for i in order.get("items", []) if i.get("batchId")],
+    }
+    result = await hub_transfers.insert_one(transfer)
+    await hubs.update_one({"_id": ObjectId(str(hub_id))}, {"$inc": {"availableCapacity": -quantity}, "$set": {"updatedAt": now}})
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "consolidationStatus": "consolidated", "transferStatus": "in_transit",
+        "warehouseFulfillmentStage": "local_hub_transfer_pending", "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id, "farmer_fulfillment_consolidated_to_local_hub",
+        "All warehouse portions consolidated and dispatched",
+        "All warehouse portions are together and the complete order is moving to the local hub. One delivery partner will handle final delivery.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"hubId": str(hub_id), "transferId": str(result.inserted_id), "quantity": quantity},
+    )
+    transfer["id"] = str(result.inserted_id); transfer.pop("_id", None)
+    return {"success": True, "data": transfer, "message": "Complete order consolidated and dispatched to the local hub."}
+
+
 @router.get("/me/farmer-fulfillment-consolidations")
 async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get_current_user)):
     """Show multi-warehouse farmer-packed orders awaiting consolidation/handoff."""
