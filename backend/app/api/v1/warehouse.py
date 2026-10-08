@@ -42,6 +42,12 @@ class WarehouseReceiveRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class WarehouseIncomingQualityRequest(BaseModel):
+    qualityCheck: str = Field(..., pattern="^(passed|failed)$")
+    usableQuantity: Optional[float] = Field(None, ge=0)
+    notes: Optional[str] = None
+
+
 class WarehouseDeliveryRouteRequest(BaseModel):
     route: str = Field(..., pattern="^(nearby|long_distance)$")
     radius: int = Field(10, ge=1, le=200)
@@ -452,6 +458,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "transferStatus": order.get("transferStatus"),
             "logisticsMode": order.get("logisticsMode"),
             "warehouseCount": int(order.get("warehouseCount") or 1),
+            "sourceWarehouseId": str(warehouse["_id"]) if any(str(a.get("warehouseId")) == str(warehouse["_id"]) for a in (order.get("warehouseAllocations") or [])) else None,
             "incomingCount": len(incoming),
             "storedCount": len(stored),
             "allWarehousesReceived": bool(incoming) and len(stored) == len(incoming),
@@ -1803,6 +1810,86 @@ async def receive_incoming_stock(
         "data": incoming,
         "message": "Stock received successfully" if quality_check == "passed" else "Stock rejected"
     }
+
+@router.put("/me/incoming/{incoming_id}/quality")
+async def update_incoming_quality(
+    incoming_id: str,
+    data: WarehouseIncomingQualityRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Complete the warehouse quality gate after physical receipt.
+
+    Receiving and quality are separate audited actions. A shipment must be
+    physically received first, then approved/rejected here, and only an
+    approved shipment may be stored into inventory.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can perform receiving quality checks")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    incoming = await incoming_stock_repository.get_by_id(incoming_id)
+    if not incoming or str(incoming.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Incoming shipment not found")
+    if str(incoming.get("status") or "") != "received":
+        raise HTTPException(status_code=400, detail="Receive the physical shipment before quality inspection")
+    if data.usableQuantity is not None and float(data.usableQuantity) > float(incoming.get("quantityReceived") or incoming.get("quantity") or 0):
+        raise HTTPException(status_code=400, detail="Usable quantity cannot exceed received quantity")
+
+    update: Dict[str, Any] = {
+        "qualityCheck": data.qualityCheck,
+        "qualityNotes": data.notes,
+        "updatedAt": datetime.utcnow(),
+    }
+    if data.usableQuantity is not None:
+        update["usableQuantity"] = float(data.usableQuantity)
+    if data.qualityCheck == "failed":
+        update["status"] = "rejected"
+        update["qualityRejectedAt"] = datetime.utcnow()
+    updated = await incoming_stock_repository.update({"_id": ObjectId(incoming_id)}, update)
+    if not updated:
+        raise HTTPException(status_code=400, detail="Unable to update incoming quality result")
+
+    order_id = incoming.get("orderId")
+    if order_id:
+        order = await order_repository.get_by_id(str(order_id))
+        if order:
+            source_mode = str(incoming.get("sourceMode") or "")
+            stage = "quality_rejected" if data.qualityCheck == "failed" else (
+                "quality_approved" if source_mode == "farmer_fulfillment_transfer" else "received"
+            )
+            await order_repository.update(
+                {"_id": ObjectId(str(order_id))},
+                {"warehouseFulfillmentStage": stage, "updatedAt": datetime.utcnow()},
+            )
+            await order_repository.append_tracking_event(
+                str(order_id),
+                "warehouse_quality_" + data.qualityCheck,
+                "Warehouse quality check " + ("passed" if data.qualityCheck == "passed" else "failed"),
+                (
+                    "Shipment passed warehouse quality inspection and can now be stored."
+                    if data.qualityCheck == "passed"
+                    else "Shipment failed warehouse quality inspection and is on hold/rejected pending resolution."
+                ),
+                actor_id=str(current_user["_id"]),
+                actor_role="warehouse",
+                metadata={"incomingStockId": incoming_id, "usableQuantity": update.get("usableQuantity")},
+            )
+            try:
+                await NotificationService.send_order_workflow_update(
+                    order,
+                    stage=stage,
+                    title=f"Order #{order.get('orderNumber') or order_id}: warehouse quality updated",
+                    message=(
+                        "Warehouse quality inspection passed. The shipment can now be stored."
+                        if data.qualityCheck == "passed"
+                        else "Warehouse quality inspection failed. The shipment is on hold/rejected."
+                    ),
+                )
+            except Exception:
+                logger.exception("Failed to notify after incoming quality update")
+
+    return {"success": True, "data": await incoming_stock_repository.get_by_id(incoming_id)}
 
 @router.put("/me/incoming/{incoming_id}/store")
 async def store_incoming_stock(
