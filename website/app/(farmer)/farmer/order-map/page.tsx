@@ -593,6 +593,14 @@ export default function FarmerOrderMapPage() {
     [deliveryOutsideOrders]
   );
 
+  // "Remaining" means every eligible packed customer-delivery order that the
+  // farmer has not explicitly selected, not merely the orders outside the
+  // active radius/route filter.
+  const remainingAutomaticOrders = useMemo(
+    () => routeCandidates.filter((stop) => !selectedRouteIds.includes(getStopId(stop))),
+    [routeCandidates, selectedRouteIds]
+  );
+
   const mapOrders = useMemo(() => {
     if (mapFilterMode === "radius") {
       const center = farmCoordinates || liveLocation;
@@ -2059,73 +2067,83 @@ export default function FarmerOrderMapPage() {
             <CardDescription>Every order not selected for Farmer Self Delivery is processed automatically after confirmation.</CardDescription>
           </CardHeader>
           <CardContent className="max-h-[520px] space-y-4 overflow-y-auto">
-            {deliveryOutsideOrders.length === 0 ? (
+            {remainingAutomaticOrders.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
-                {mapFilterMode === "route"
-                  ? "No packed orders are outside the selected route."
-                  : `No packed orders are outside ${radiusKm} km.`}
+                {selectedRouteIds.length
+                  ? "All eligible delivery orders are selected for self-delivery. Confirm the selection to finalize this plan."
+                  : "No eligible unselected delivery orders are waiting for automatic routing."}
               </p>
             ) : (
               <div className="space-y-3">
                 <div className="rounded-lg border border-orange-200 bg-orange-50/70 p-3">
                   <p className="text-sm font-semibold text-orange-900">
-                    {deliveryOutsideOrders.length} order{deliveryOutsideOrders.length === 1 ? "" : "s"} will be automatic
+                    {remainingAutomaticOrders.length} remaining order{remainingAutomaticOrders.length === 1 ? "" : "s"} will be automatic
                   </p>
                   <p className="mt-1 text-xs text-orange-700">
-                    These orders are outside the current radius/route filter. After confirmation, every eligible unselected delivery order is routed automatically by distance, including unselected orders inside the filter.
+                    This is every eligible packed customer-delivery order you have not selected for self-delivery — both inside and outside the current radius/route filter. Confirming selection starts automatic distance-based processing for all of them.
                   </p>
                 </div>
-                {deliveryOutsideOrders.map((stop, index) => (
-                  <div key={getStopId(stop)} className="rounded-xl border border-orange-200 bg-white p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-900">#{stop.orderNumber || getStopId(stop)}</p>
-                        <p className="mt-1 text-xs font-medium text-slate-700">{getCustomerDisplayName(stop)}</p>
-                        <p className="mt-1 text-xs text-slate-600">{stop.product || "Items"} · {stop.quantityKg ?? stop.quantity ?? 0} kg</p>
-                        <p className="mt-1 text-xs text-slate-500">{formatAddress(stop)}</p>
-                        {stop.distance != null && (
-                          <p className="mt-1 text-xs font-medium text-orange-700">
-                            {Number(stop.distance).toFixed(1)} km from farm · Outside selected {mapFilterMode === "route" ? "route" : `${radiusKm} km radius`}
-                          </p>
-                        )}
+                {remainingAutomaticOrders.map((stop, index) => {
+                  const isInsideFilter = deliveryInsideIds.has(getStopId(stop));
+                  const scopeLabel = isInsideFilter
+                    ? (mapFilterMode === "route" ? "Along selected route · not selected for self-delivery" : `Within ${radiusKm} km · not selected for self-delivery`)
+                    : (mapFilterMode === "route" ? "Outside selected route · automatic" : `Outside ${radiusKm} km · automatic`);
+                  return (
+                    <div key={getStopId(stop)} className="rounded-xl border border-orange-200 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900">#{stop.orderNumber || getStopId(stop)}</p>
+                          <p className="mt-1 text-xs font-medium text-slate-700">{getCustomerDisplayName(stop)}</p>
+                          <p className="mt-1 text-xs text-slate-600">{stop.product || "Items"} · {stop.quantityKg ?? stop.quantity ?? 0} kg</p>
+                          <p className="mt-1 text-xs text-slate-500">{formatAddress(stop)}</p>
+                          {stop.distance != null ? (
+                            <p className="mt-1 text-xs font-medium text-orange-700">
+                              {Number(stop.distance).toFixed(1)} km from farm · {scopeLabel}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs font-medium text-amber-700">
+                              Location unavailable · routing will remain pending until a valid customer location is resolved.
+                            </p>
+                          )}
+                        </div>
+                        <Badge variant="warning">Automatic</Badge>
                       </div>
-                      <Badge variant="warning">Automatic</Badge>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 <div className="flex min-h-[180px] items-center justify-center p-4">
-                <div className="w-full max-w-md rounded-2xl border-2 border-dashed border-orange-300 bg-orange-50/70 p-6 text-center shadow-sm">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-orange-100 text-2xl">
-                    ⚡
-                  </div>
-                  <h3 className="mt-4 text-base font-bold text-orange-900">
-                    Automatic Processing
-                  </h3>
-                  <p className="mt-2 text-sm font-medium text-orange-800">
-                    {Math.max(0, routeCandidates.length - selectedRouteIds.length)} remaining packed order{Math.max(0, routeCandidates.length - selectedRouteIds.length) === 1 ? "" : "s"} will be processed automatically.
-                  </p>
-                  <p className="mt-2 text-xs leading-5 text-orange-700">
-                    After you click <strong>Confirm Selection</strong>, you do not need to select these orders or give any additional permission.
-                    The system will automatically continue the delivery workflow.
-                  </p>
-                  <div className="mt-5 space-y-2 text-left">
-                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                      <p className="text-xs font-bold text-blue-900">Nearby</p>
-                      <p className="mt-1 text-xs text-blue-800">
-                        Farmer → Local Hub → Delivery Partner → Customer
-                      </p>
+                  <div className="w-full max-w-md rounded-2xl border-2 border-dashed border-orange-300 bg-orange-50/70 p-6 text-center shadow-sm">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-orange-100 text-2xl">
+                      ⚡
                     </div>
-                    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
-                      <p className="text-xs font-bold text-violet-900">Long Distance</p>
-                      <p className="mt-1 text-xs text-violet-800">
-                        Farmer → Warehouse → Local Hub → Delivery Partner → Customer
-                      </p>
+                    <h3 className="mt-4 text-base font-bold text-orange-900">
+                      Automatic Processing
+                    </h3>
+                    <p className="mt-2 text-sm font-medium text-orange-800">
+                      {remainingAutomaticOrders.length} remaining packed order{remainingAutomaticOrders.length === 1 ? "" : "s"} will be processed automatically.
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-orange-700">
+                      After you click <strong>Confirm Selection</strong>, you do not need to select these orders or give any additional permission.
+                      The system will automatically continue the delivery workflow.
+                    </p>
+                    <div className="mt-5 space-y-2 text-left">
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                        <p className="text-xs font-bold text-blue-900">Nearby</p>
+                        <p className="mt-1 text-xs text-blue-800">
+                          Farmer → Local Hub → Delivery Partner → Customer
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                        <p className="text-xs font-bold text-violet-900">Long Distance</p>
+                        <p className="mt-1 text-xs text-violet-800">
+                          Farmer → Warehouse → Local Hub → Delivery Partner → Customer
+                        </p>
+                      </div>
                     </div>
+                    <p className="mt-4 text-[11px] font-medium text-orange-600">
+                      Distance is checked automatically for every remaining order.
+                    </p>
                   </div>
-                  <p className="mt-4 text-[11px] font-medium text-orange-600">
-                    Distance is checked automatically for every remaining order.
-                  </p>
-                </div>
                 </div>
               </div>
             )}
