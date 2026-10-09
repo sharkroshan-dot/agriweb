@@ -2481,6 +2481,11 @@ async def update_collection_status(collection_id: str, collection_status: str = 
     job = await warehouse_collection_repository.get_by_id(collection_id)
     if not warehouse or not job or str(job.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Collection job not found")
+    if job.get("pickupRouteId"):
+        raise HTTPException(
+            status_code=409,
+            detail="This pickup is managed by its assigned delivery partner. View progress in Farm Collection; update the stop from the delivery partner's Pickup Routes page.",
+        )
     allowed = {
         "team_assigned": {"en_route"}, "en_route": {"arrived_at_farm"},
         "arrived_at_farm": {"collected"}, "collected": {"departed_farm"},
