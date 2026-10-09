@@ -3404,7 +3404,25 @@ async def create_self_delivery_plan(
             continue
 
         try:
-            route_result = await apply_partner_route(order, partner_route, body.radius)
+            # Supply the resolved farm and customer coordinates to the routing
+            # service. Older checkout orders may have address text but no
+            # coordinates on the order document; without this normalized copy,
+            # warehouse allocation and the farm collection pickup location would
+            # be created without reliable endpoints.
+            routing_order = dict(order)
+            routing_order["farmLocation"] = routing_order.get("farmLocation") or {
+                "lat": farm["lat"],
+                "lng": farm["lng"],
+                "address": farm.get("address") or farm.get("farmAddress") or "",
+                "name": farm.get("name") or "Farm",
+            }
+            routing_order["deliveryAddress"] = {
+                **(addr if isinstance(addr, dict) else {}),
+                "lat": lat,
+                "lng": lng,
+                "location": {"lat": lat, "lng": lng},
+            }
+            route_result = await apply_partner_route(routing_order, partner_route, body.radius)
             refreshed = await order_repository.get_by_id(oid) or order
 
             # Nearby orders can go to the local hub and then the delivery
