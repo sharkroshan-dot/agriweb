@@ -26,7 +26,7 @@ from app.repositories.delivery_job_repository import delivery_job_repository, JO
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
-from app.services.warehouse_collection_service import serialize_collection
+from app.services.warehouse_collection_service import ensure_collection_job, serialize_collection
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.services.warehouse_pickup_route_service import build_smart_routes, serialize_route, assign_route
@@ -1718,7 +1718,90 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
-    jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), status)
+
+    warehouse_id = str(warehouse["_id"])
+    warehouse_oid = ObjectId(warehouse_id)
+
+    # Repair older packed-transfer records that have an incoming-stock row but
+    # no collection-queue row. This keeps the warehouse queue resilient if a
+    # previous route attempt partially completed.
+    pending_packed_incoming = await incoming_stock_repository.find_many({
+        "warehouseId": warehouse_oid,
+        "sourceMode": "farmer_fulfillment_transfer",
+        "readyForPickup": True,
+        "deletedAt": None,
+    }, skip=0, limit=500, sort=[("createdAt", 1)])
+    for incoming in pending_packed_incoming:
+        try:
+            await ensure_collection_job(
+                incoming,
+                collection_type="packed_orders_transfer",
+                source_mode="farmer_fulfillment_transfer",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to repair packed-transfer collection job",
+                extra={"warehouseId": warehouse_id, "incomingStockId": str(incoming.get("_id"))},
+            )
+
+    # The authenticated warehouse user is the reliable notification recipient:
+    # get_warehouse_by_manager() has already resolved this manager to this warehouse.
+    # Ensure every ready packed-transfer task has one in-app notification even
+    # when its original routing notification was skipped or its recipient mapping
+    # was outdated. The order+user lookup prevents notifications every poll.
+    jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, None)
+    notifications_collection = MongoDB.get_collection("notifications")
+    manager_user_id = ObjectId(str(current_user["_id"]))
+    for job in jobs:
+        if (
+            str(job.get("collectionType") or "") != "packed_orders_transfer"
+            or str(job.get("status") or "") != "ready_for_pickup"
+            or not job.get("orderId")
+        ):
+            continue
+        order_id = str(job["orderId"])
+        try:
+            existing_notification = await notifications_collection.find_one({
+                "userId": manager_user_id,
+                "data.type": "farmer_fulfillment_pickup_ready",
+                "data.orderId": order_id,
+            })
+            if existing_notification:
+                continue
+            order = await order_repository.get_by_id(order_id)
+            order_number = (order or {}).get("orderNumber") or order_id
+            incoming_id = str(job.get("incomingStockId") or "")
+            await NotificationService.create_in_app_notification(
+                str(current_user["_id"]),
+                NotificationType.WAREHOUSE,
+                f"Packed order #{order_number} ready for pickup",
+                (
+                    "Long-distance Farmer Fulfillment is ready for farm collection. "
+                    "Open Warehouse → Incoming Stock → Farm Collection Queue and assign "
+                    "a pickup team. The packed shipment must be physically collected "
+                    "and marked Arrived Warehouse before receiving."
+                ),
+                data={
+                    "type": "farmer_fulfillment_pickup_ready",
+                    "orderId": order_id,
+                    "orderNumber": order_number,
+                    "warehouseId": warehouse_id,
+                    "incomingStockIds": [incoming_id] if incoming_id else [],
+                    "collectionJobIds": [str(job["_id"])],
+                    "url": "/incoming",
+                    "actionUrl": "/incoming",
+                },
+                priority=NotificationPriority.HIGH,
+                mandatory=True,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to ensure warehouse pickup notification",
+                extra={"orderId": order_id, "warehouseId": warehouse_id},
+            )
+
+    if status and status != "all":
+        jobs = [job for job in jobs if str(job.get("status") or "") == status]
     return {"success": True, "data": {"collections": [serialize_collection(x) for x in jobs]}}
 
 
