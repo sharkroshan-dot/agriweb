@@ -131,7 +131,7 @@ export default function WarehouseCollectionsPage() {
         assignmentMode,
         ...(assignmentMode === "assign_team" ? { deliveryPartnerId: selectedTeam.deliveryPartnerId } : {}),
       });
-      const message = response?.data?.message || `Pickup planning completed for ${selectedCollectionIds.length} selected job(s).`;
+      const message = response?.message || response?.data?.message || `Pickup planning completed for ${selectedCollectionIds.length} selected job(s).`;
       toast.success(message);
       setSelectedCollectionIds([]);
       await Promise.all([refetch(), refetchTeams()]);
