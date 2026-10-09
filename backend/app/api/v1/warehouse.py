@@ -165,10 +165,18 @@ async def get_farmer_fulfillment_transfers(
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
+    warehouse_id = str(warehouse["_id"])
+    warehouse_oid = ObjectId(warehouse_id)
+    # Support both legacy single-warehouse fields and allocation-based
+    # multi-warehouse orders. Some existing records store IDs as strings.
     query: Dict[str, Any] = {
         "$or": [
-            {"warehouseId": ObjectId(str(warehouse["_id"]))},
-            {"warehouseIds": ObjectId(str(warehouse["_id"]))},
+            {"warehouseId": warehouse_oid},
+            {"warehouseId": warehouse_id},
+            {"warehouseIds": warehouse_oid},
+            {"warehouseIds": warehouse_id},
+            {"warehouseAllocations.warehouseId": warehouse_oid},
+            {"warehouseAllocations.warehouseId": warehouse_id},
         ],
         "logisticsMode": {"$in": [
             "farmer_to_warehouse_to_local_hub_to_delivery_partner",
