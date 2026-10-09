@@ -224,6 +224,7 @@ async def get_farmer_fulfillment_transfers(
             "allSourcePortionsStored": False,
         }
         order_stage = str(order.get("warehouseFulfillmentStage") or "awaiting_warehouse_receipt")
+        source_legs = []
         if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
             legs_collection = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
             legs = await legs_collection.find({
