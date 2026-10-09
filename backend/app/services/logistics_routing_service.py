@@ -59,7 +59,16 @@ def distance_km(a: Any, b: Any) -> Optional[float]:
 async def nearest_warehouse(origin: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     docs = await MongoDB.get_collection("warehouses").find({
         "deletedAt": None,
-        "status": {"$in": ["active", "approved", "operational"]},
+        "$or": [
+            {"status": {"$in": ["active", "approved", "operational"]}},
+            {
+                "isActive": True,
+                "$or": [
+                    {"status": {"$exists": False}},
+                    {"status": None},
+                ],
+            },
+        ],
     }).to_list(length=100)
     candidates = []
     for doc in docs:
@@ -102,7 +111,16 @@ async def allocate_farmer_fulfillment_warehouses(
     """
     warehouses = await MongoDB.get_collection("warehouses").find({
         "deletedAt": None,
-        "status": {"$in": ["active", "approved", "operational"]},
+        "$or": [
+            {"status": {"$in": ["active", "approved", "operational"]}},
+            {
+                "isActive": True,
+                "$or": [
+                    {"status": {"$exists": False}},
+                    {"status": None},
+                ],
+            },
+        ],
     }).to_list(length=200)
 
     if not warehouses:
