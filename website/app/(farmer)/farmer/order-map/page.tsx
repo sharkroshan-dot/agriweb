@@ -596,6 +596,17 @@ export default function FarmerOrderMapPage() {
     [routeCandidates, selectedRouteIds]
   );
 
+  // An empty applied radius/route is not a dead end. In that case zero
+  // orders are assigned to farmer self-delivery and every remaining eligible
+  // packed delivery order is sent through automatic distance routing.
+  const emptyScopeAutomaticFallback =
+    remainingAutomaticOrders.length > 0 &&
+    deliveryInsideOrders.length === 0 &&
+    (selfDeliveryMethod === "radius"
+      ? mapFilterMode === "radius"
+      : mapFilterMode === "route" && Boolean(routeDestination));
+  const canConfirmDeliveryPlan = selectedRouteIds.length > 0 || emptyScopeAutomaticFallback;
+
   const mapOrders = useMemo(() => {
     if (mapFilterMode === "radius") {
       const center = farmCoordinates || liveLocation;
@@ -881,9 +892,16 @@ export default function FarmerOrderMapPage() {
     // Confirming the plan is the single delivery decision point. Every
     // selected order goes to self-delivery; all other eligible orders are
     // automatically classified by distance.
-    if (!selectedRouteIds.length) {
-      toast.error("Select at least one order for Farmer Self Delivery before confirming.");
+    if (!selectedRouteIds.length && !emptyScopeAutomaticFallback) {
+      toast.error(
+        selfDeliveryMethod === "route"
+          ? "Calculate a route first, or select at least one order along the route."
+          : "Apply a radius with no matching orders to automatically process all remaining orders, or select an order for Farmer Self Delivery."
+      );
       return;
+    }
+    if (emptyScopeAutomaticFallback) {
+      toast("No eligible orders in this radius/route. All remaining eligible orders will be processed automatically.", { icon: "⚡", duration: 6000 });
     }
     deliverSelectedMutation.mutate();
   };
@@ -1335,9 +1353,9 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!deliveryInsideOrders.some((stop) => !isPickup(stop) && !isDone(stop) && stop?.assignment === "unassigned")}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Visible Orders
                   </Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length === 0}>
-                    {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
-                    Confirm Selection
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !canConfirmDeliveryPlan}>
+                    {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : emptyScopeAutomaticFallback ? <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
+                    {emptyScopeAutomaticFallback ? "Process All Remaining Orders" : "Confirm Selection"}
                   </Button>
                 </>
               )}
@@ -1544,9 +1562,9 @@ export default function FarmerOrderMapPage() {
               <Navigation className="mr-1.5 h-4 w-4" />
               Preview Route
             </Button>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length === 0 || !routeDestination}>
-              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
-              Confirm Selection
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || !canConfirmDeliveryPlan}>
+              {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : emptyScopeAutomaticFallback ? <RefreshCw className="mr-1.5 h-4 w-4" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
+              {emptyScopeAutomaticFallback ? "Process All Remaining Orders" : "Confirm Selection"}
             </Button>
           </div>
         </CardHeader>
