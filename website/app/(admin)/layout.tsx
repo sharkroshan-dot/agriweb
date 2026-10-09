@@ -27,11 +27,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      <div className="flex flex-1 overflow-hidden">
+    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col bg-slate-50">
+      <div className="flex flex-1 min-w-0 overflow-hidden">
         <AdminSidebar />
-        <main className="flex-1 overflow-y-auto px-4 py-6 md:px-8">
-          <div className="mx-auto min-h-full max-w-7xl">{children}</div>
+        <main className="min-w-0 flex-1 overflow-y-auto bg-slate-50 px-4 py-5 sm:px-6 lg:px-8 xl:py-7">
+          <div className="mx-auto min-h-full w-full max-w-[1440px]">{children}</div>
         </main>
       </div>
     </div>
