@@ -3073,17 +3073,17 @@ async def create_self_delivery_plan(
 
     orders = eligible_orders
 
-    if body.method == "route" and not body.destination:
-        raise HTTPException(
-            status_code=400,
-            detail="A route destination is required when Route mode is selected.",
-        )
-
     selected_ids = {str(x).strip() for x in body.orderIds if str(x).strip()}
-    if not selected_ids:
+
+    # When the selected radius/route contains no orders, an empty explicit
+    # self-delivery selection is valid: all eligible packed delivery orders
+    # remain in the automatic distance-routing queue below. A route destination
+    # is required only when the farmer selected one or more orders to deliver
+    # personally along that route.
+    if body.method == "route" and selected_ids and not body.destination:
         raise HTTPException(
             status_code=400,
-            detail="Select at least one order for Farmer Self Delivery before confirming the delivery plan.",
+            detail="A route destination is required when selecting orders for Farmer Self Delivery.",
         )
     eligible_ids = {str(order["_id"]) for order in orders}
     stale_ids = sorted(selected_ids - eligible_ids)
