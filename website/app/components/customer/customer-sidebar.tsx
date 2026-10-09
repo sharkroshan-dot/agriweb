@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
