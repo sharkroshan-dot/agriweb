@@ -41,8 +41,9 @@ const navigation: Record<Role, Item[]> = {
   warehouse: [
     { label: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
     { label: "Pickup Partners", href: "/pickup-team", icon: Users },
-    { label: "Incoming", href: "/incoming", icon: ArrowDownToLine },
     { label: "Collections", href: "/collections", icon: Truck },
+    { label: "Pickup Routes", href: "/pickup-routes", icon: Route },
+    { label: "Incoming", href: "/incoming", icon: ArrowDownToLine },
     { label: "Farmer Fulfillment", href: "/warehouse/farmer-fulfillment", icon: Route },
     { label: "Stock", href: "/stock", icon: Boxes },
     { label: "Packing", href: "/packing", icon: Package },
