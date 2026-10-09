@@ -83,6 +83,7 @@ function MapWithMarkers({ markers }: { markers: { id: string; lat: number; lng: 
 }
 
 export default function FarmerOrdersPage() {
+  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [showBulkSummary, setShowBulkSummary] = useState(false);
