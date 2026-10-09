@@ -16,7 +16,6 @@ import { Button } from "../ui/button";
 const navSections = [
   {
     title: "Overview",
-    description: "Warehouse workspace and status.",
     items: [
       { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
       { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
@@ -25,7 +24,6 @@ const navSections = [
   },
   {
     title: "Shared Pickup & Receiving",
-    description: "These first steps are shared by bulk stock and farmer-packed transfer orders.",
     items: [
       { name: "Farm Collection", href: "/collections", icon: Truck },
       { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
@@ -33,7 +31,6 @@ const navSections = [
   },
   {
     title: "Farmer Fulfillment Orders",
-    description: "Farmer-packed orders: receive and store without repacking, then transfer to the local hub. Multi-warehouse orders must be consolidated first.",
     items: [
       { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
       { name: "Multi-Warehouse Consolidation", href: "/warehouse/consolidation", icon: Boxes },
@@ -41,7 +38,6 @@ const navSections = [
   },
   {
     title: "Warehouse Fulfillment Orders",
-    description: "Bulk stock: inspect, store, allocate to customer orders, pack, then dispatch.",
     items: [
       { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
       { name: "Stock Management", href: "/stock", icon: Package },
@@ -52,7 +48,6 @@ const navSections = [
   },
   {
     title: "Warehouse Management",
-    description: "",
     items: [
       { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
       { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
@@ -108,7 +103,6 @@ export function WarehouseSidebar() {
             <section key={section.title} aria-label={section.title}>
               <div className="mb-2 px-2">
                 <h2 className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{section.title}</h2>
-                {section.description && <p className="mt-1 px-0 text-[11px] leading-4 text-slate-500">{section.description}</p>}
               </div>
               <div className="space-y-1">
                 {section.items.map((item) => {
@@ -134,8 +128,7 @@ export function WarehouseSidebar() {
         </nav>
 
         <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-4">
-          <p className="text-sm font-semibold text-slate-800">Not sure what comes next?</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">Open the workflow control center to review the order stages and current warehouse queues.</p>
+          <p className="text-sm font-semibold text-slate-800">Warehouse Workflow</p>
           <Button asChild size="sm" className="mt-3 w-full"><Link href="/warehouse/workflow"><ClipboardCheck className="mr-2 h-4 w-4" />My Workflow</Link></Button>
         </div>
 
