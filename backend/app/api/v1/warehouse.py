@@ -204,11 +204,37 @@ async def get_farmer_fulfillment_transfers(
             "warehouseId": ObjectId(str(warehouse["_id"])),
             "deletedAt": None,
         }, skip=0, limit=1000)
+        logistics_mode = str(order.get("logisticsMode") or "")
+        order_stage = str(order.get("warehouseFulfillmentStage") or "awaiting_warehouse_receipt")
+        if logistics_mode in (
+            "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+        ):
+            # Derive the displayed stage from this warehouse's own incoming
+            # lines. The parent order is shared across warehouses, so one
+            # warehouse storing its portion must not make every warehouse's
+            # portion look ready for dispatch.
+            if incoming and all(str(x.get("status") or "") == "stored" for x in incoming):
+                order_stage = "stored"
+            elif incoming and any(not x.get("arrivedWarehouseAt") for x in incoming):
+                order_stage = "awaiting_warehouse_receipt"
+            elif incoming and any(str(x.get("status") or "") in ("scheduled", "in_transit") for x in incoming):
+                order_stage = "warehouse_arrived"
+            elif incoming and all(
+                str(x.get("status") or "") in ("received", "stored")
+                and str(x.get("qualityCheck") or "") == "passed"
+                for x in incoming
+            ):
+                order_stage = "quality_approved"
+            elif incoming and any(str(x.get("status") or "") == "received" for x in incoming):
+                order_stage = "received_transfer"
+
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber"),
             "orderStatus": order.get("orderStatus"),
-            "stage": order.get("warehouseFulfillmentStage") or "awaiting_farmer_confirmation",
+            "stage": order_stage,
+            "logisticsMode": logistics_mode,
             "warehouseId": str(warehouse["_id"]),
             "warehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
             "farmerId": str(order["farmerId"]) if order.get("farmerId") else None,
@@ -226,7 +252,10 @@ async def get_farmer_fulfillment_transfers(
                 "status": x.get("status"),
                 "expectedQuantity": float(x.get("quantity") or 0),
                 "receivedQuantity": float(x.get("quantityReceived") or 0),
+                "usableQuantity": float(x.get("usableQuantity") or 0),
                 "qualityCheck": x.get("qualityCheck"),
+                "sourceMode": x.get("sourceMode"),
+                "arrivedWarehouseAt": x.get("arrivedWarehouseAt"),
                 "packingRequired": bool(x.get("packingRequired", True)),
             } for x in incoming],
             "outgoing": [{
