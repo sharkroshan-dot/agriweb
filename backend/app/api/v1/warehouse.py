@@ -1825,7 +1825,11 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     pending_packed_incoming = await incoming_stock_repository.find_many({
         "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
         "sourceMode": "farmer_fulfillment_transfer",
-        "readyForPickup": True,
+        "$or": [
+            {"readyForPickup": True},
+            {"transferReadyForPickup": True},
+            {"warehouseTransferReadyForPickup": True},
+        ],
         "deletedAt": None,
     }, skip=0, limit=500, sort=[("createdAt", 1)])
     for incoming in pending_packed_incoming:
