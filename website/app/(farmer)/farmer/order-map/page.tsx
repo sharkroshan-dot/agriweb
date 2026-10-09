@@ -362,10 +362,10 @@ export default function FarmerOrderMapPage() {
   // Split each radius bucket into unassigned (still actionable) vs already
   // assigned so the farmer can see at a glance which orders still need a
   // delivery method - especially the far "risky" ones awaiting a partner.
-  const withinUnassigned = within.filter((o) => o.assignment === "unassigned");
-  const withinAssigned = within.filter((o) => o.assignment !== "unassigned");
-  const outsideUnassigned = outside.filter((o) => o.assignment === "unassigned");
-  const outsideAssigned = outside.filter((o) => o.assignment !== "unassigned");
+  const withinUnassigned = within.filter((o) => !isPickup(o) && o.assignment === "unassigned");
+  const withinAssigned = within.filter((o) => !isPickup(o) && o.assignment !== "unassigned");
+  const outsideUnassigned = outside.filter((o) => !isPickup(o) && o.assignment === "unassigned");
+  const outsideAssigned = outside.filter((o) => !isPickup(o) && o.assignment !== "unassigned");
   const withinActionStats = confirmStats(withinUnassigned);
   const outsideActionStats = confirmStats(outsideUnassigned);
 
@@ -484,6 +484,13 @@ export default function FarmerOrderMapPage() {
       .sort((a, b) => (a.distance ?? 9999) - (b.distance ?? 9999));
   }, [within, outside, unlocated]);
 
+  // Customer-pickup orders remain visible for the farmer, but do not enter
+  // the self-delivery or delivery-partner distance decision.
+  const pickupOrders = useMemo(
+    () => packedOrders.filter((stop) => isPickup(stop)),
+    [packedOrders]
+  );
+
   const selectedStop =
     packedOrders.find((stop) => getStopId(stop) === selectedStopId) || packedOrders[0] || null;
 
@@ -506,6 +513,7 @@ export default function FarmerOrderMapPage() {
       packedOrders.filter(
         (stop) =>
           !isDone(stop) &&
+          !isPickup(stop) &&
           String(stop?.assignment || "unassigned").toLowerCase() === "unassigned" &&
           !stop?.deliveryPartnerId &&
           !stop?.partnerRequested &&
@@ -2065,7 +2073,7 @@ export default function FarmerOrderMapPage() {
                     {deliveryOutsideOrders.length} order{deliveryOutsideOrders.length === 1 ? "" : "s"} will be automatic
                   </p>
                   <p className="mt-1 text-xs text-orange-700">
-                    These orders cannot be selected for Farmer Self Delivery. After you confirm the one selected order, every order listed here is automatically routed by distance.
+                    These orders are outside the current radius/route filter. After confirmation, every eligible unselected delivery order is routed automatically by distance, including unselected orders inside the filter.
                   </p>
                 </div>
                 {deliveryOutsideOrders.map((stop, index) => (
@@ -2125,6 +2133,29 @@ export default function FarmerOrderMapPage() {
           </CardContent>
         </Card>
       </div>
+
+      {pickupOrders.length > 0 && (
+        <Card className="border-sky-200">
+          <CardHeader>
+            <CardTitle className="text-sky-800">Customer Pickup Orders ({pickupOrders.length})</CardTitle>
+            <CardDescription>
+              Packed customer-pickup orders remain visible for tracking but are not selected for Farmer Self Delivery and are never routed through delivery partners.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="max-h-[320px] space-y-3 overflow-y-auto">
+            {pickupOrders.map((stop, index) => (
+              <OrderCard
+                key={getStopId(stop)}
+                stop={stop}
+                index={index + 1}
+                selected={getStopId(stop) === selectedStopId}
+                onSelect={() => setSelectedStopId(getStopId(stop))}
+                readOnly
+              />
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {unlocated.length > 0 && (
         <Card>
