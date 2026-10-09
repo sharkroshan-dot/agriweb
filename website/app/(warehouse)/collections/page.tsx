@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ArrowRight,
   CheckCircle2,
   Clock3,
   MapPin,
@@ -32,14 +31,6 @@ const STATUS = [
   ["departed_farm", "Departed"],
   ["arrived_warehouse", "At Warehouse"],
 ] as const;
-
-const NEXT: Record<string, string | undefined> = {
-  team_assigned: "en_route",
-  en_route: "arrived_at_farm",
-  arrived_at_farm: "collected",
-  collected: "departed_farm",
-  departed_farm: "arrived_warehouse",
-};
 
 const label = (value: string) => STATUS.find(([key]) => key === value)?.[1] || value.replace(/_/g, " ");
 
@@ -143,18 +134,6 @@ export default function WarehouseCollectionsPage() {
   };
 
 
-
-  const advance = async (job: any) => {
-    const next = NEXT[job.status];
-    if (!next) return;
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/status`, undefined, { params: { status: next } });
-      toast.success(label(next));
-      await refetch();
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to update collection");
-    }
-  };
 
   return (
     <div className="space-y-6">
