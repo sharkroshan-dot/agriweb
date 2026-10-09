@@ -21,6 +21,12 @@ const labels: Record<string,string> = {
   ready_for_dispatch:"Ready for Local Hub",
   local_hub_transfer_pending:"Local Hub Transfer Pending",
   ready_for_consolidation:"Ready for Consolidation",
+  consolidation_waiting_for_sources:"Waiting for Source Warehouses",
+  consolidation_in_transit:"Warehouse Portions In Transit",
+  consolidation_portions_received:"Portions Received — Complete Consolidation",
+  consolidated:"Consolidated — Send to Local Hub",
+  hub_handoff_pending:"In Transit to Local Hub",
+  local_hub_ready:"Local Hub Received — Delivery Partner Ready",
 };
 
 export default function FarmerFulfillmentTransfersPage() {
@@ -32,17 +38,29 @@ export default function FarmerFulfillmentTransfersPage() {
   });
   const rows=data?.data?.transfers||[];
 
-  const handoff=async(order:any)=>{
+  const runTransferAction=async(order:any,action:"dispatch"|"receiveConsolidation"|"completeConsolidation"|"handoffLocalHub"|"confirmHubReceipt")=>{
+    const routes={
+      dispatch: order.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+        ? "dispatch-to-consolidation" : "dispatch-to-local-hub",
+      receiveConsolidation: "receive-at-consolidation",
+      completeConsolidation: "complete-consolidation",
+      handoffLocalHub: "handoff-local-hub",
+      confirmHubReceipt: "receive-local-hub",
+    } as const;
+    const messages={
+      dispatch: order.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+        ? "Farmer-packed portion dispatched to consolidation" : "Farmer-packed order dispatched to the local hub",
+      receiveConsolidation: "Warehouse portions received at consolidation",
+      completeConsolidation: "Consolidation completed",
+      handoffLocalHub: "Consolidated order sent to the local hub",
+      confirmHubReceipt: "Local hub receipt confirmed; delivery job opened",
+    } as const;
     try{
-      setBusy(order.id);
-      const multi = order.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
-      const endpoint = multi
-        ? "/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-consolidation"
-        : "/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-local-hub";
-      await api.post(endpoint);
-      toast.success(multi ? "Farmer-packed portion dispatched to consolidation" : "Farmer-packed order dispatched to the local hub");
+      setBusy(order.id+":"+action);
+      await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/"+routes[action]);
+      toast.success(messages[action]);
       await refetch();
-    }catch(e:any){toast.error(e?.message||"Unable to dispatch to local hub");}
+    }catch(e:any){toast.error(e?.message||"Unable to update farmer fulfillment transfer");}
     finally{setBusy(null);}
   };
 
