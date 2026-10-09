@@ -1633,6 +1633,8 @@ class PickupTeamApplicationRequest(BaseModel):
 class PickupRouteCreateRequest(BaseModel):
     collectionIds: List[str] = Field(default_factory=list)
     maxWeightKg: float = Field(0, ge=0)
+    assignmentMode: str = Field("offer", pattern="^(offer|auto_assign|assign_team)$")
+    deliveryPartnerId: Optional[str] = None
 
 
 class PickupRouteAssignRequest(BaseModel):
@@ -1722,33 +1724,144 @@ async def create_pickup_routes(
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
-    jobs = await warehouse_collection_repository.get_by_warehouse(str(warehouse["_id"]), "ready_for_pickup")
+
+    warehouse_id = str(warehouse["_id"])
+    jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, "ready_for_pickup")
+    # A ready job can still be attached to an open partner offer. Do not plan it twice.
+    jobs = [job for job in jobs if not job.get("pickupRouteId")]
     if data.collectionIds:
-        selected = set(data.collectionIds)
-        jobs = [j for j in jobs if str(j["_id"]) in selected]
+        requested_ids = set(data.collectionIds)
+        selected_jobs = [job for job in jobs if str(job.get("_id")) in requested_ids]
+        if len(selected_jobs) != len(requested_ids):
+            raise HTTPException(
+                status_code=409,
+                detail="Some selected jobs are no longer ready for pickup or already belong to a route. Refresh the queue and try again.",
+            )
+        jobs = selected_jobs
     if not jobs:
-        raise HTTPException(status_code=400, detail="No ready-for-pickup farms are available")
-    route_groups = await build_smart_routes(warehouse, jobs, None, data.maxWeightKg)
+        raise HTTPException(status_code=400, detail="No unplanned ready-for-pickup farms are available")
+
+    members = await warehouse_pickup_team_repository.get_approved_members(warehouse_id)
+    selected_membership = None
+    if data.assignmentMode == "assign_team":
+        if not data.deliveryPartnerId:
+            raise HTTPException(status_code=422, detail="Select an approved pickup team")
+        selected_membership = await warehouse_pickup_team_repository.get_membership(
+            warehouse_id, data.deliveryPartnerId
+        )
+        if not selected_membership:
+            raise HTTPException(status_code=400, detail="This pickup team is not approved for this warehouse")
+        team_capacity = float(selected_membership.get("capacity") or 0)
+        if team_capacity <= 0:
+            raise HTTPException(status_code=400, detail="Selected pickup team has no registered carrying capacity")
+        route_capacity = data.maxWeightKg or team_capacity
+        if route_capacity > team_capacity:
+            route_capacity = team_capacity
+    elif data.assignmentMode == "auto_assign":
+        if not members:
+            raise HTTPException(status_code=400, detail="Approve at least one pickup team before using automatic assignment")
+        capacities = []
+        for member in members:
+            try:
+                value = float(member.get("capacity") or 0)
+                if value > 0:
+                    capacities.append(value)
+            except (TypeError, ValueError):
+                pass
+        if not capacities:
+            raise HTTPException(status_code=400, detail="Approved pickup teams need registered vehicle capacities")
+        route_capacity = min(data.maxWeightKg, max(capacities)) if data.maxWeightKg > 0 else max(capacities)
+    else:
+        capacities = []
+        for member in members:
+            try:
+                value = float(member.get("capacity") or 0)
+                if value > 0:
+                    capacities.append(value)
+            except (TypeError, ValueError):
+                pass
+        route_capacity = min(data.maxWeightKg, max(capacities)) if data.maxWeightKg > 0 and capacities else data.maxWeightKg
+        if route_capacity <= 0 and capacities:
+            route_capacity = max(capacities)
+
+    if route_capacity > 0:
+        overweight = [
+            job for job in jobs
+            if float(job.get("quantity") or 0) > route_capacity
+        ]
+        if overweight:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{len(overweight)} selected job(s) exceed the {route_capacity:g} kg vehicle capacity. Choose a larger vehicle or split the pickup.",
+            )
+
+    route_groups = await build_smart_routes(warehouse, jobs, None, route_capacity)
+    if not route_groups:
+        raise HTTPException(status_code=400, detail="Unable to create routes for the selected collection jobs")
+
+    assignments = []
+    if data.assignmentMode == "assign_team":
+        assignments = [selected_membership for _ in route_groups]
+    elif data.assignmentMode == "auto_assign":
+        # A team already assigned to an active route should not receive another
+        # concurrent route. Route capacity is checked per team before any records
+        # are created, so the request fails atomically on capacity/team mismatch.
+        existing_routes = await warehouse_pickup_route_repository.get_by_warehouse(warehouse_id)
+        busy_partner_ids = [
+            str(route.get("deliveryPartnerId"))
+            for route in existing_routes
+            if route.get("deliveryPartnerId")
+            and route.get("status") in {"assigned", "in_progress", "en_route", "collecting"}
+        ]
+        try:
+            from app.services.warehouse_pickup_route_service import select_route_team_assignments
+            assignments = select_route_team_assignments(route_groups, members, busy_partner_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     created = []
     route_date = datetime.utcnow().strftime("%Y-%m-%d")
-    for group in route_groups:
+    for index, group in enumerate(route_groups):
         route_id = await warehouse_pickup_route_repository.create_route({
             "warehouseId": warehouse["_id"],
             "routeDate": route_date,
             "status": "offered",
             "deliveryPartnerId": None,
-            "routeNumber": f"PR-{datetime.utcnow().strftime('%Y%m%d')}-{len(created)+1:02d}",
+            "assignmentMode": data.assignmentMode,
+            "routeNumber": f"PR-{datetime.utcnow().strftime('%Y%m%d')}-{index+1:02d}",
             "stops": group["stops"],
             "totalStops": group["totalStops"],
             "totalQuantity": group["totalQuantity"],
             "createdBy": ObjectId(str(current_user["_id"])),
         })
-        if route_id:
-            route_doc = await warehouse_pickup_route_repository.get_by_id(route_id)
-            members = await warehouse_pickup_team_repository.get_approved_members(str(warehouse["_id"]))
+        if not route_id:
+            logger.error("Failed to save pickup route for warehouse %s", warehouse_id)
+            continue
+
+        route_doc = await warehouse_pickup_route_repository.get_by_id(route_id)
+        # Reserve each job while a partner offer is open, too. It stays in
+        # Ready for Pickup until a partner accepts, but cannot be planned twice.
+        for stop in group.get("stops") or []:
+            await warehouse_collection_repository.update_job(
+                str(stop["collectionId"]),
+                {"pickupRouteId": ObjectId(route_id), "pickupRouteStatus": "offered"},
+            )
+
+        if data.assignmentMode in {"assign_team", "auto_assign"}:
+            membership = dict(assignments[index])
+            membership["deliveryPartnerUserId"] = str(
+                membership.get("userId") or membership.get("deliveryPartnerUserId") or ""
+            )
+            route_doc["assignedBy"] = ObjectId(str(current_user["_id"]))
+            assigned = await assign_route(route_doc, membership)
+            if assigned:
+                route_doc = assigned
+        else:
             if members:
-                # Approved pickup partners get the exclusive first-accept route offer.
-                await warehouse_pickup_route_repository.update_route(route_id, {"assignmentMode": "pickup_partner"})
+                # Approved pickup partners receive an exclusive first-accept offer.
+                await warehouse_pickup_route_repository.update_route(
+                    route_id, {"assignmentMode": "pickup_partner"}
+                )
                 for member in members:
                     try:
                         user_id = str(member.get("userId") or "")
@@ -1762,10 +1875,11 @@ async def create_pickup_routes(
                     except Exception:
                         logger.exception("Failed to notify pickup partner about route offer")
             else:
-                # No approved pickup partner: publish the same route as a normal
-                # delivery marketplace job. Eligibility is based on availability,
-                # verification and remaining vehicle capacity.
-                await warehouse_pickup_route_repository.update_route(route_id, {"assignmentMode": "delivery_marketplace"})
+                # Without approved pickup partners, publish the route to the
+                # delivery marketplace using its normal eligibility/capacity checks.
+                await warehouse_pickup_route_repository.update_route(
+                    route_id, {"assignmentMode": "delivery_marketplace"}
+                )
                 warehouse_point = (warehouse.get("location") or {}).get("coordinates") or [0, 0]
                 first_stop_point = ((group.get("stops") or [{}])[0].get("pickupLocation") or {}).get("coordinates") or warehouse_point
                 eligible = await eligible_partners_for_job(
@@ -1774,7 +1888,7 @@ async def create_pickup_routes(
                     float(group.get("totalQuantity") or 0),
                     job_type="warehouse_pickup",
                 )
-                job_doc = build_warehouse_pickup_job(route_doc, warehouse, [p["id"] for p in eligible])
+                job_doc = build_warehouse_pickup_job(route_doc, warehouse, [partner["id"] for partner in eligible])
                 job_id = await delivery_job_repository.create_job(job_doc)
                 if job_id:
                     for partner in eligible:
@@ -1783,13 +1897,21 @@ async def create_pickup_routes(
                                 await NotificationService.send_custom_notification(
                                     str(partner["userId"]),
                                     f"Warehouse pickup job {route_doc.get('routeNumber', route_id)} is available: {group.get('totalStops', 0)} farms, {group.get('totalQuantity', 0)} kg.",
-                                    title="New Warehouse Pickup Job",
                                     data={"type": "warehouse_pickup_job", "jobId": job_id, "routeId": route_id},
                                 )
                         except Exception:
                             logger.exception("Failed to notify delivery partner about warehouse pickup job")
-            created.append(serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)))
-    return {"success": True, "data": {"routes": created}, "message": f"{len(created)} pickup route(s) created"}
+
+        created.append(serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)))
+
+    if not created:
+        raise HTTPException(status_code=500, detail="No pickup routes could be saved")
+    message = {
+        "offer": "Pickup routes created and offered to eligible partners",
+        "auto_assign": "Pickup routes planned and assigned to approved teams",
+        "assign_team": "Pickup routes planned and assigned to the selected team",
+    }[data.assignmentMode]
+    return {"success": True, "data": {"routes": created}, "message": f"{message} ({len(created)} route(s))"}
 
 
 @router.get("/me/pickup-routes")
