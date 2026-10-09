@@ -51,7 +51,11 @@ export default function WarehouseCollectionsPage() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["warehouseCollectionsPage"],
     queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
-    refetchInterval: 15000,
+    // Delivery partners own route progress. Poll frequently so every farm card
+    // reflects their latest stop update without a manual page refresh.
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 
   const { data: teamsData, refetch: refetchTeams } = useQuery({
@@ -259,7 +263,12 @@ export default function WarehouseCollectionsPage() {
                       <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || job.farmerId || "—"} {job.orderId ? <>· Order #{String(job.orderId).slice(-8)}</> : ""}</p>
                       {job.batchId && <p className="mt-1 text-xs text-muted-foreground">Batch: {String(job.batchId).slice(-12)}</p>}
                     </div>
-                    <div className="rounded-xl border bg-white px-4 py-3 text-right"><p className="text-xs text-muted-foreground">Quantity</p><p className="text-lg font-bold">{job.quantity || 0} kg</p><p className="text-xs text-muted-foreground">{job.packageCount || 1} package(s)</p></div>
+                    <div className="rounded-xl border bg-white px-4 py-3 text-right">
+                      <p className="text-xs text-muted-foreground">Expected Quantity</p>
+                      <p className="text-lg font-bold">{job.quantity || 0} kg</p>
+                      {job.actualCollectedQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {job.actualCollectedQuantity} kg</p>}
+                      <p className="text-xs text-muted-foreground">{job.packageCount || 1} package(s)</p>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-5">
