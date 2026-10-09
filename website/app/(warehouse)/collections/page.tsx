@@ -241,7 +241,7 @@ export default function WarehouseCollectionsPage() {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        {job.status === "ready_for_pickup" && !job.pickupRouteId && <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
+                        {["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId && <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
                           <input
                             type="checkbox"
                             aria-label={`Select ${job.farmerName || job.orderId || "collection job"}`}
