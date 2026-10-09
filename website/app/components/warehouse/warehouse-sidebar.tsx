@@ -33,8 +33,8 @@ export function WarehouseSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="hidden w-64 border-r bg-muted/20 md:block">
-      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4">
+    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
+      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto px-3 py-5">
         <div className="mb-6 rounded-lg bg-primary/5 p-4 border border-primary/20">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -64,8 +64,8 @@ export function WarehouseSidebar() {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
-                  isActive ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
+                  isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                 )}
               >
                 <div className="flex items-center gap-3">
