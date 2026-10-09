@@ -3254,7 +3254,8 @@ async def get_my_warehouse_pickup_jobs(
             job_data["warehouseName"] = display_route.get("warehouseName") or job_data.get("warehouseName") or "Assigned warehouse"
             job_data["totalStops"] = display_route.get("totalStops") or len(job_data["farmStops"])
             job_data["totalQuantity"] = display_route.get("totalQuantity") or job_data.get("totalQuantity") or 0
-        job_data["pickupName"] = _human_text(job_data.get("pickupName")) or "Farm pickup route"
+        pickup_name = str(job_data.get("pickupName") or "").strip()
+        job_data["pickupName"] = pickup_name if pickup_name and not ObjectId.is_valid(pickup_name) else "Farm pickup route"
         return job_data
 
     open_jobs = [await add_route_display(job) for job in open_jobs]
