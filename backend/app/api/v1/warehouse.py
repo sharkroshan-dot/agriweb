@@ -1852,19 +1852,38 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                         },
                     )
                     matched_incoming = await incoming_stock_repository.get_by_id(str(matched_incoming["_id"])) or matched_incoming
-                if (
+                matched_is_ready = bool(
                     matched_incoming
                     and (
                         matched_incoming.get("readyForPickup")
                         or matched_incoming.get("transferReadyForPickup")
                         or matched_incoming.get("warehouseTransferReadyForPickup")
                     )
-                ):
-                    await ensure_collection_job(
+                )
+                should_show_unassigned_pickup = bool(
+                    matched_incoming
+                    and not_yet_collected
+                    and (
+                        matched_is_ready
+                        or (
+                            recovered_legacy_assignment
+                            and not can_mark_recovered_ready
+                            and matched_incoming.get("pickupResolutionStatus") == "capacity_review"
+                        )
+                    )
+                )
+                if should_show_unassigned_pickup:
+                    recovered_job = await ensure_collection_job(
                         matched_incoming,
                         collection_type="packed_orders_transfer",
                         source_mode="farmer_fulfillment_transfer",
                     )
+                    if recovered_job and matched_incoming.get("pickupResolutionStatus") == "capacity_review":
+                        await warehouse_collection_repository.update_job(str(recovered_job["_id"]), {
+                            "pickupResolutionStatus": "capacity_review",
+                            "pickupResolutionMessage": matched_incoming.get("pickupResolutionMessage")
+                                or "Additional configured warehouse capacity is required before a pickup team can be assigned.",
+                        })
                 continue
 
             farmer_ref = order.get("farmerId") or order.get("farmer_id")
@@ -1927,6 +1946,7 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     pending_packed_incoming = await incoming_stock_repository.find_many({
         "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
         "sourceMode": "farmer_fulfillment_transfer",
+        "status": "scheduled",
         "$or": [
             {"readyForPickup": True},
             {"transferReadyForPickup": True},
