@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any, List
 from bson import ObjectId
 from datetime import datetime
+from app.database.mongodb import MongoDB
 from app.repositories.warehouse_repository import warehouse_repository
 from app.repositories.warehouse_stock_repository import warehouse_stock_repository
 from app.repositories.incoming_stock_repository import incoming_stock_repository
@@ -446,6 +447,40 @@ class WarehouseService:
                     {"warehouseFulfillmentStage": "stored", "updatedAt": datetime.utcnow()},
                 )
                 await order_repository.append_tracking_event(str(incoming["orderId"]), "stock_stored", "Stock stored at warehouse", "Quality-approved stock has been stored and is ready for order allocation.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"])})
+
+                # If this warehouse is also the consolidation point, it has no
+                # physical inter-warehouse leg to dispatch. Mark that local leg
+                # received only after every packed line has been stored here.
+                order = await order_repository.get_by_id(str(incoming["orderId"]))
+                is_local_consolidation = bool(
+                    order
+                    and str(order.get("logisticsMode") or "") == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+                    and str(order.get("consolidationWarehouseId") or "") == str(warehouse_id)
+                )
+                if is_local_consolidation:
+                    local_rows = await incoming_stock_repository.find_many({
+                        "orderId": ObjectId(str(incoming["orderId"])),
+                        "warehouseId": ObjectId(str(warehouse_id)),
+                        "sourceMode": "farmer_fulfillment_transfer",
+                        "deletedAt": None,
+                    }, skip=0, limit=1000)
+                    if local_rows and all(str(row.get("status") or "") == "stored" for row in local_rows):
+                        now = datetime.utcnow()
+                        await MongoDB.get_collection("farmer_fulfillment_transfer_legs").update_many(
+                            {
+                                "orderId": ObjectId(str(incoming["orderId"])),
+                                "sourceWarehouseId": ObjectId(str(warehouse_id)),
+                                "destinationWarehouseId": ObjectId(str(warehouse_id)),
+                                "legType": "warehouse_to_consolidation",
+                                "status": "pending",
+                                "deletedAt": None,
+                            },
+                            {"$set": {
+                                "status": "received_at_consolidation",
+                                "receivedAtConsolidation": now,
+                                "updatedAt": now,
+                            }},
+                        )
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after storage")
 
