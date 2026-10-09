@@ -87,7 +87,7 @@ export default function WarehouseCollectionsPage() {
     return {
       total: source.length,
       ready: source.filter((x: any) => x.status === "ready_for_pickup" && !x.pickupRouteId).length,
-      planned: source.filter((x: any) => Boolean(x.pickupRouteId)).length,
+      planned: new Set(source.filter((x: any) => Boolean(x.pickupRouteId) && x.status !== "arrived_warehouse").map((x: any) => String(x.pickupRouteId))).size,
       waiting: source.filter((x: any) => x.status === "scheduled").length,
       active: source.filter((x: any) => !["ready_for_pickup", "arrived_warehouse"].includes(x.status)).length,
       warehouse: source.filter((x: any) => x.status === "arrived_warehouse").length,
@@ -284,7 +284,7 @@ export default function WarehouseCollectionsPage() {
                         </label>}
                         <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>{isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}</Badge>
                         <Badge variant="outline">{label(job.status)}</Badge>
-                        {job.pickupRouteId && <Badge className="bg-violet-100 text-violet-800">Route Planned</Badge>}
+                        {job.pickupRouteId && job.status !== "arrived_warehouse" && <Badge className="bg-violet-100 text-violet-800">Route Planned</Badge>}
                       </div>
                       <CardTitle className="mt-2 text-base">{job.productName || job.productId || "Farm Product"}</CardTitle>
                       <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || job.farmerId || "—"} {job.orderId ? <>· Order #{String(job.orderId).slice(-8)}</> : ""}</p>
