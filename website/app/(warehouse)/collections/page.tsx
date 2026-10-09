@@ -259,7 +259,7 @@ export default function WarehouseCollectionsPage() {
                         <Badge variant="outline">{label(job.status)}</Badge>
                         {job.pickupRouteId && job.status !== "arrived_warehouse" && <Badge className="bg-violet-100 text-violet-800">{job.routeNumber ? `Route ${job.routeNumber}` : "Route Planned"}</Badge>}
                       </div>
-                      <CardTitle className="mt-2 text-base">{job.productName || job.productId || "Farm Product"}</CardTitle>
+                      <CardTitle className="mt-2 text-base">{job.productName || "Product details unavailable"}</CardTitle>
                       <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || "Farmer details unavailable"} {job.orderNumber ? <>· {job.orderNumber === "Order reference unavailable" ? job.orderNumber : `Order ${job.orderNumber}`}</> : ""}</p>
                       {job.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {job.batchNumber}</p>}
                     </div>
