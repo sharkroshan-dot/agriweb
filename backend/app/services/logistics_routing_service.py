@@ -60,7 +60,10 @@ async def nearest_warehouse(origin: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     docs = await MongoDB.get_collection("warehouses").find({
         "deletedAt": None,
         "$or": [
-            {"status": {"$in": ["active", "approved", "operational"]}},
+            {
+                "status": {"$in": ["active", "approved", "operational"]},
+                "isActive": {"$ne": False},
+            },
             {
                 "isActive": True,
                 "$or": [
@@ -112,7 +115,10 @@ async def allocate_farmer_fulfillment_warehouses(
     warehouses = await MongoDB.get_collection("warehouses").find({
         "deletedAt": None,
         "$or": [
-            {"status": {"$in": ["active", "approved", "operational"]}},
+            {
+                "status": {"$in": ["active", "approved", "operational"]},
+                "isActive": {"$ne": False},
+            },
             {
                 "isActive": True,
                 "$or": [
