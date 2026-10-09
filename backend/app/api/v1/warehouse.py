@@ -20,7 +20,7 @@ from app.schemas.warehouse import (
 )
 from app.services.warehouse_service import WarehouseService
 from app.services.user_service import UserService
-from app.services.logistics_routing_service import apply_partner_route
+from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses
 from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
@@ -1728,6 +1728,106 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
 
     warehouse_id = str(warehouse["_id"])
     warehouse_oid = ObjectId(warehouse_id)
+
+    # Heal long-distance Farmer Order Map decisions that were saved before a
+    # warehouse could be selected. Earlier versions only selected records with
+    # a status field, while project-created warehouses can be active with no
+    # status field. If the order has no allocation and no transfer stock yet,
+    # safely allocate it now so the warehouse queue, transfer screen and
+    # notification workflow have a real source-of-truth record.
+    try:
+        pending_assignment_orders = await order_repository.find_many({
+            "$and": [
+                {"deletedAt": None},
+                {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
+                {"$or": [
+                    {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
+                    {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+                ]},
+                {"$or": [
+                    {"deliveryDecision": "long_distance"},
+                    {"deliveryPartnerRoute": "long_distance"},
+                    {"logisticsMode": {"$in": [
+                        "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                        "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+                    ]}},
+                ]},
+            ],
+        }, skip=0, limit=500, sort=[("orderDate", -1), ("createdAt", -1)])
+    except Exception:
+        logger.exception("Failed to inspect older long-distance Farmer Fulfillment orders")
+        pending_assignment_orders = []
+
+    for pending_order in pending_assignment_orders:
+        if (
+            pending_order.get("selfDelivery")
+            or pending_order.get("deliveryPartnerId")
+            or pending_order.get("partnerRequested")
+            or str(pending_order.get("deliveryDecision") or "").lower() == "self_delivery"
+        ):
+            continue
+        if pending_order.get("warehouseAllocations"):
+            continue
+
+        pending_order_id = pending_order.get("_id")
+        if not pending_order_id:
+            continue
+        existing_transfer_rows = await incoming_stock_repository.find_many({
+            "orderId": {"$in": [pending_order_id, str(pending_order_id)]},
+            "sourceMode": "farmer_fulfillment_transfer",
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        if existing_transfer_rows:
+            # Other recovery paths below repair these rows without reallocating
+            # any shipment that may already have physical progress.
+            continue
+
+        origin = (
+            pending_order.get("farmLocation")
+            or pending_order.get("originLocation")
+            or pending_order.get("pickupLocation")
+            or {}
+        )
+        raw_destination = pending_order.get("deliveryAddress") or {}
+        destination = (
+            raw_destination.get("location")
+            or raw_destination.get("deliveryLocation")
+            or raw_destination.get("geo")
+            or raw_destination
+            if isinstance(raw_destination, dict)
+            else {}
+        )
+        try:
+            allocation_result = await allocate_farmer_fulfillment_warehouses(
+                pending_order,
+                origin,
+                destination,
+            )
+            allocation_ids = [ObjectId(str(x)) for x in allocation_result["warehouseIds"]]
+            update_fields = {
+                "warehouseIds": allocation_ids,
+                "warehouseCount": allocation_result["warehouseCount"],
+                "warehouseAllocations": allocation_result["allocations"],
+                "warehouseId": ObjectId(str(allocation_result["warehouseIds"][0])) if len(allocation_result["warehouseIds"]) == 1 else None,
+                "consolidationId": ObjectId(str(allocation_result["consolidationId"])),
+                "consolidationWarehouseId": ObjectId(str(allocation_result["consolidationWarehouse"]["id"])),
+                "consolidationWarehouseName": allocation_result["consolidationWarehouse"]["name"],
+                "consolidationStatus": "collecting_from_warehouses",
+                "transferStatus": "warehouse_consolidation_pending",
+                "logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+                "warehouseFulfillmentStage": "awaiting_warehouse_receipt",
+                "warehouseCollectionStatus": "ready_for_pickup",
+                "updatedAt": datetime.utcnow(),
+            }
+            if allocation_result.get("localHub"):
+                update_fields["nearbyFulfillmentLocationId"] = ObjectId(str(allocation_result["localHub"]["id"]))
+                update_fields["nearbyFulfillmentLocation"] = allocation_result["localHub"]
+            await order_repository.update({"_id": pending_order_id}, update_fields)
+        except Exception:
+            logger.exception(
+                "Could not repair a previously routed long-distance Farmer Fulfillment order",
+                extra={"orderId": str(pending_order_id), "warehouseId": warehouse_id},
+            )
 
     # Rebuild missing packed-transfer incoming rows from persisted warehouse
     # allocations. This repairs route attempts that saved allocation metadata
