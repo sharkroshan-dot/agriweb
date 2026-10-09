@@ -99,8 +99,8 @@ export function WarehouseSidebar() {
                 key={item.name}
                 href={item.href}
                 className={cn(
-                  "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                  isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-slate-100"
+                  "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
+                  isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 )}
               >
                 <div className="flex items-center gap-3">
