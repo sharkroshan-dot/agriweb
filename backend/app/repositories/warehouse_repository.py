@@ -79,17 +79,26 @@ class WarehouseRepository(BaseRepository):
             # Existing databases may contain either ObjectId or string user
             # references. Resolve both formats so legacy warehouse profiles
             # continue to work after the manager schema was standardized.
+            manager_refs = [manager_object_id, manager_id]
             warehouse = await self.find_one({
                 "$or": [
-                    {"managerId": {"$in": [manager_object_id, manager_id]}},
-                    {"userId": {"$in": [manager_object_id, manager_id]}},
+                    {"managerId": {"$in": manager_refs}},
+                    {"manager_id": {"$in": manager_refs}},
+                    {"userId": {"$in": manager_refs}},
+                    {"user_id": {"$in": manager_refs}},
+                    {"ownerId": {"$in": manager_refs}},
+                    {"owner_id": {"$in": manager_refs}},
+                    {"assignedManagerId": {"$in": manager_refs}},
                 ],
                 "deletedAt": None
             })
 
             # Repair legacy records on first successful lookup so all future
-            # warehouse operations use the canonical managerId.
-            if warehouse and warehouse.get("managerId") != manager_object_id:
+            # warehouse operations use the canonical managerId/userId fields.
+            if warehouse and (
+                str(warehouse.get("managerId") or "") != manager_id
+                or str(warehouse.get("userId") or "") != manager_id
+            ):
                 await self.update(
                     {"_id": warehouse["_id"]},
                     {"managerId": manager_object_id, "userId": manager_object_id},
