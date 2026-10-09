@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional, Tuple
 from datetime import datetime
 from bson import ObjectId
 from app.database.mongodb import MongoDB
+from app.services.warehouse_collection_service import ensure_collection_job
 
 
 def is_packed_farmer_order(order: Dict[str, Any]) -> bool:
@@ -290,7 +291,7 @@ async def allocate_farmer_fulfillment_warehouses(
         wid = ObjectId(str(allocation["warehouseId"]))
         pid = ObjectId(str(allocation["productId"])) if allocation.get("productId") and ObjectId.is_valid(str(allocation["productId"])) else allocation.get("productId")
         vid = ObjectId(str(allocation["variantId"])) if allocation.get("variantId") and ObjectId.is_valid(str(allocation["variantId"])) else None
-        await incoming_collection.insert_one({
+        incoming_doc = {
             "warehouseId": wid,
             "productId": pid,
             "variantId": vid,
@@ -308,7 +309,13 @@ async def allocate_farmer_fulfillment_warehouses(
             "transferReadyForPickup": True,
             "warehouseTransferReadyForPickup": True,
             "warehouseTransferReadyAt": now,
-            "status": "in_transit",
+            # The packed shipment is ready for collection, but is not in
+            # physical transit until the collection team marks it collected.
+            "readyForPickup": True,
+            "readyForPickupAt": now,
+            "pickupLocation": origin or order.get("farmLocation") or order.get("originLocation") or order.get("pickupLocation") or {},
+            "farmLocation": origin or {},
+            "status": "scheduled",
             "sourceMode": "farmer_fulfillment_transfer",
             "consolidationId": consolidation_id,
             "consolidationWarehouseId": consolidation["_id"],
@@ -316,7 +323,17 @@ async def allocate_farmer_fulfillment_warehouses(
             "createdAt": now,
             "updatedAt": now,
             "deletedAt": None,
-        })
+        }
+        incoming_result = await incoming_collection.insert_one(incoming_doc)
+        incoming_doc["_id"] = incoming_result.inserted_id
+        # Create the warehouse-side farm collection task tied to this incoming
+        # stock line. It appears in Farm Collection Queue and progresses
+        # ready_for_pickup -> team_assigned -> ... -> arrived_warehouse.
+        await ensure_collection_job(
+            incoming_doc,
+            collection_type="packed_orders_transfer",
+            source_mode="farmer_fulfillment_transfer",
+        )
 
 
     return {
@@ -504,6 +521,13 @@ async def apply_partner_route(
 
     # Warehouse Fulfillment: nearby means the partner collects directly from
     # the warehouse; long-distance means warehouse -> local hub -> partner.
+    if not warehouse_route and mode == "long_distance":
+        # The route decision creates farm-pickup collection work first. The
+        # warehouse must not appear to have received the package until its
+        # collection lifecycle reaches arrived_warehouse.
+        update["warehouseFulfillmentStage"] = "awaiting_warehouse_receipt"
+        update["warehouseCollectionStatus"] = "ready_for_pickup"
+
     if warehouse_route and mode == "nearby":
         update["nearbyFulfillmentRequired"] = False
         update["nearbyFulfillmentLocationId"] = None
