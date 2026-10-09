@@ -61,7 +61,7 @@ async def nearest_warehouse(origin: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "deletedAt": None,
         "$or": [
             {
-                "status": {"$in": ["active", "approved", "operational"]},
+                "status": {"$regex": "^(active|approved|operational)$", "$options": "i"},
                 "isActive": {"$ne": False},
             },
             {
@@ -116,7 +116,7 @@ async def allocate_farmer_fulfillment_warehouses(
         "deletedAt": None,
         "$or": [
             {
-                "status": {"$in": ["active", "approved", "operational"]},
+                "status": {"$regex": "^(active|approved|operational)$", "$options": "i"},
                 "isActive": {"$ne": False},
             },
             {
