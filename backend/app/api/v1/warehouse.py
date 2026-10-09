@@ -201,6 +201,37 @@ async def get_farmer_fulfillment_transfers(
         query, skip=0, limit=200,
         sort=[("orderDate", -1), ("createdAt", -1), ("updatedAt", -1), ("_id", -1)],
     )
+
+    # If the incoming transfer row exists but an older order is missing its
+    # assignment/logistics metadata, use that physical warehouse record as the
+    # authoritative link so the transfers page still shows the real shipment.
+    transfer_incoming_rows = await incoming_stock_repository.find_many({
+        "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
+        "sourceMode": "farmer_fulfillment_transfer",
+        "deletedAt": None,
+    }, skip=0, limit=2000, sort=[("createdAt", -1)])
+    known_order_ids = {str(item.get("_id")) for item in orders if item.get("_id")}
+    for incoming_row in transfer_incoming_rows:
+        linked_order_id = str(incoming_row.get("orderId") or "")
+        if not linked_order_id or linked_order_id in known_order_ids:
+            continue
+        linked_order = await order_repository.get_by_id(linked_order_id)
+        if not linked_order:
+            continue
+        linked_method = str(
+            linked_order.get("fulfillmentMethod")
+            or linked_order.get("fulfillment_route")
+            or ""
+        ).strip().lower()
+        linked_status = str(linked_order.get("orderStatus") or linked_order.get("status") or "").lower()
+        if (
+            linked_method not in ("farmer", "farm_direct")
+            or linked_status in ("delivered", "completed", "cancelled", "refunded")
+        ):
+            continue
+        orders.append(linked_order)
+        known_order_ids.add(linked_order_id)
+
     result = []
     for order in orders:
         outgoing = await outgoing_stock_repository.find_many({
