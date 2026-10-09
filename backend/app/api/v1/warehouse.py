@@ -1730,6 +1730,13 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
             "$or": [
                 {"warehouseAllocations.warehouseId": warehouse_oid},
                 {"warehouseAllocations.warehouseId": warehouse_id},
+                {
+                    "$and": [
+                        {"warehouseId": {"$in": [warehouse_oid, warehouse_id]}},
+                        {"logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner"},
+                        {"deliveryDecision": "long_distance"},
+                    ]
+                },
             ],
             "logisticsMode": {"$in": [
                 "farmer_to_warehouse_to_local_hub_to_delivery_partner",
@@ -1750,8 +1757,40 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
             item for item in (order.get("warehouseAllocations") or [])
             if str(item.get("warehouseId") or "") == warehouse_id
         ]
+        recovered_legacy_assignment = False
+        if (
+            not allocations
+            and str(order.get("logisticsMode") or "") == "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+            and str(order.get("warehouseId") or "") == warehouse_id
+            and str(order.get("deliveryDecision") or "") == "long_distance"
+            and str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct")
+        ):
+            # Older/partially failed route decisions can persist the selected
+            # nearest warehouse before allocation metadata is saved. Recover the
+            # incoming rows for this warehouse, but only mark them ready when
+            # the warehouse still has enough configured free capacity.
+            allocations = [{
+                "warehouseId": warehouse_oid,
+                "warehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Warehouse",
+                "productId": item.get("productId"),
+                "variantId": item.get("variantId"),
+                "productName": item.get("productName") or item.get("name") or "Product",
+                "quantity": float(item.get("quantity") or 0),
+                "unit": item.get("unit") or "kg",
+                "batchNumber": item.get("batchNumber"),
+            } for item in (order.get("items") or []) if float(item.get("quantity") or 0) > 0]
+            recovered_legacy_assignment = bool(allocations)
         if not allocations:
             continue
+
+        expected_recovery_quantity = sum(float(item.get("quantity") or 0) for item in allocations)
+        total_capacity = float(warehouse.get("totalCapacity") or 0)
+        used_capacity = float(warehouse.get("usedCapacity") or 0)
+        capacity_available = total_capacity - used_capacity
+        can_mark_recovered_ready = (
+            not recovered_legacy_assignment
+            or (total_capacity > 0 and capacity_available + 1e-9 >= expected_recovery_quantity)
+        )
         existing_incoming = await incoming_stock_repository.find_many({
             "orderId": order_id,
             "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
@@ -1784,7 +1823,7 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                     or matched_incoming.get("transferReadyForPickup")
                     or matched_incoming.get("warehouseTransferReadyForPickup")
                 )
-                if not is_ready and not_yet_collected:
+                if not is_ready and not_yet_collected and can_mark_recovered_ready:
                     await incoming_stock_repository.update(
                         {"_id": matched_incoming["_id"]},
                         {
@@ -1793,6 +1832,20 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                             "warehouseTransferReadyForPickup": True,
                             "readyForPickupAt": datetime.utcnow(),
                             "warehouseTransferReadyAt": datetime.utcnow(),
+                            "packingRequired": False,
+                            "warehousePackingRequired": False,
+                            "pickupResolutionStatus": "ready_for_pickup",
+                            "pickupResolutionMessage": None,
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
+                    matched_incoming = await incoming_stock_repository.get_by_id(str(matched_incoming["_id"])) or matched_incoming
+                elif recovered_legacy_assignment and not can_mark_recovered_ready and not is_ready and not_yet_collected:
+                    await incoming_stock_repository.update(
+                        {"_id": matched_incoming["_id"]},
+                        {
+                            "pickupResolutionStatus": "capacity_review",
+                            "pickupResolutionMessage": "The order was routed here, but this warehouse does not have enough configured free capacity to safely accept the full shipment yet.",
                             "packingRequired": False,
                             "warehousePackingRequired": False,
                             "updatedAt": datetime.utcnow(),
@@ -1832,11 +1885,13 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 "warehouseTransferType": "packed_order_transfer",
                 "packingRequired": False,
                 "warehousePackingRequired": False,
-                "transferReadyForPickup": True,
-                "warehouseTransferReadyForPickup": True,
-                "warehouseTransferReadyAt": datetime.utcnow(),
-                "readyForPickup": True,
-                "readyForPickupAt": datetime.utcnow(),
+                "transferReadyForPickup": can_mark_recovered_ready,
+                "warehouseTransferReadyForPickup": can_mark_recovered_ready,
+                "warehouseTransferReadyAt": datetime.utcnow() if can_mark_recovered_ready else None,
+                "readyForPickup": can_mark_recovered_ready,
+                "readyForPickupAt": datetime.utcnow() if can_mark_recovered_ready else None,
+                "pickupResolutionStatus": "ready_for_pickup" if can_mark_recovered_ready else "capacity_review",
+                "pickupResolutionMessage": None if can_mark_recovered_ready else "The order was routed here, but this warehouse does not have enough configured free capacity to safely accept the full shipment yet.",
                 "pickupLocation": order.get("farmLocation") or order.get("originLocation") or order.get("pickupLocation") or {},
                 "farmLocation": order.get("farmLocation") or order.get("originLocation") or {},
                 "status": "scheduled",
@@ -1850,11 +1905,16 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
                 repaired_incoming = await incoming_stock_repository.get_by_id(str(incoming_id)) if incoming_id else None
                 if repaired_incoming:
-                    await ensure_collection_job(
+                    recovered_job = await ensure_collection_job(
                         repaired_incoming,
                         collection_type="packed_orders_transfer",
                         source_mode="farmer_fulfillment_transfer",
                     )
+                    if recovered_job and not can_mark_recovered_ready:
+                        await warehouse_collection_repository.update_job(str(recovered_job["_id"]), {
+                            "pickupResolutionStatus": "capacity_review",
+                            "pickupResolutionMessage": "This routed order needs additional warehouse capacity before a pickup team can be assigned.",
+                        })
             except Exception:
                 logger.exception(
                     "Failed to rebuild incoming packed transfer from persisted allocation",
