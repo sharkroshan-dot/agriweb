@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AdminSidebar } from "../components/admin/admin-sidebar";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
+import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -29,6 +30,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
+      <RoleMobileNav role="admin" />
       <div className="flex flex-1 overflow-hidden">
         <AdminSidebar />
         <main className="site-main flex-1 overflow-y-auto px-4 py-6 md:px-8">
