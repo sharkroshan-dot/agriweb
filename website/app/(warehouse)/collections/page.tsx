@@ -260,8 +260,8 @@ export default function WarehouseCollectionsPage() {
                         {job.pickupRouteId && job.status !== "arrived_warehouse" && <Badge className="bg-violet-100 text-violet-800">{job.routeNumber ? `Route ${job.routeNumber}` : "Route Planned"}</Badge>}
                       </div>
                       <CardTitle className="mt-2 text-base">{job.productName || job.productId || "Farm Product"}</CardTitle>
-                      <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || "Farmer details unavailable"} {job.orderNumber ? <>· Order {job.orderNumber}</> : ""}</p>
-                      {job.batchId && <p className="mt-1 text-xs text-muted-foreground">Batch: {String(job.batchId).slice(-12)}</p>}
+                      <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || "Farmer details unavailable"} {job.orderNumber ? <>· {job.orderNumber === "Order reference unavailable" ? job.orderNumber : `Order ${job.orderNumber}`}</> : ""}</p>
+                      {job.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {job.batchNumber}</p>}
                     </div>
                     <div className="rounded-xl border bg-white px-4 py-3 text-right">
                       <p className="text-xs text-muted-foreground">Expected Quantity</p>
