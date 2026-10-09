@@ -95,7 +95,7 @@ export default function WarehouseIncomingPage() {
   }, [incomingData, searchTerm]);
 
 
-  const { data: collectionData, refetch: refetchCollections } = useQuery({
+  const { data: collectionData, refetch: refetchCollections, isError: isCollectionsError, error: collectionsError } = useQuery({
     queryKey: ["warehouseCollections"],
     queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
     refetchInterval: 10000,
@@ -270,7 +270,7 @@ export default function WarehouseIncomingPage() {
             <div><h2 className="font-semibold text-emerald-950">Farm Collection Queue</h2><p className="text-sm text-emerald-800">Collect both bulk warehouse-fulfillment stock and already-packed long-distance farmer orders. Packed transfer orders are never repacked.</p></div>
             <Badge variant="outline" className="w-fit border-emerald-200 bg-white">{collectionList.length} collection jobs</Badge>
           </div>
-          {collectionList.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No farm collection requests are waiting. When a long-distance Farmer Fulfillment route is confirmed, its source warehouse pickup request will appear here automatically.</p> : <div className="mt-4 space-y-3">{collectionList.map((job: any) => {
+          {isCollectionsError ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><p className="font-medium text-red-900">Could not load Farm Collection Queue</p><p className="mt-1 text-sm text-red-800">{collectionsError instanceof Error ? collectionsError.message : "Warehouse collection queue request failed. Check that this login is linked to the assigned warehouse and the backend is running."}</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void refetchCollections()}>Retry queue</Button></div> : collectionList.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No farm collection requests are waiting. When a long-distance Farmer Fulfillment route is confirmed, its source warehouse pickup request will appear here automatically.</p> : <div className="mt-4 space-y-3">{collectionList.map((job: any) => {
             const next = job.status === "team_assigned" ? "en_route" : job.status === "en_route" ? "arrived_at_farm" : job.status === "arrived_at_farm" ? "collected" : job.status === "collected" ? "departed_farm" : job.status === "departed_farm" ? "arrived_warehouse" : null;
             const typeLabel = job.collectionType === "packed_orders_transfer" ? "Packed customer orders · Long distance" : "Bulk harvest · Warehouse fulfillment";
             const statusLabel = job.pickupResolutionStatus === "capacity_review" ? "Capacity Review" : collectionStatusLabels[job.status] || job.status;
