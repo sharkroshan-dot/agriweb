@@ -34,6 +34,8 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         "pickupLocation": incoming.get("pickupLocation") or incoming.get("farmLocation") or {},
         "batchId": incoming.get("batchId"),
         "warehousePackingRequired": packing_required,
+        "pickupResolutionStatus": incoming.get("pickupResolutionStatus"),
+        "pickupResolutionMessage": incoming.get("pickupResolutionMessage"),
         "readyAt": incoming.get("readyForPickupAt") or incoming.get("warehouseTransferReadyAt") or datetime.utcnow(),
     }
 
