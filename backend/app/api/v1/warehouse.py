@@ -31,7 +31,7 @@ from app.repositories.warehouse_collection_repository import warehouse_collectio
 from app.services.warehouse_collection_service import ensure_collection_job, serialize_collection
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
-from app.services.warehouse_pickup_route_service import build_smart_routes, serialize_route, assign_route
+from app.services.warehouse_pickup_route_service import build_smart_routes, serialize_route, assign_route, enrich_pickup_route_display
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationPriority, NotificationType
 import logging
@@ -2179,7 +2179,10 @@ async def get_pickup_routes(
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]), date or datetime.utcnow().strftime("%Y-%m-%d"))
-    return {"success": True, "data": {"routes": [serialize_route(x) for x in routes]}}
+    display_routes = []
+    for route in routes:
+        display_routes.append(await enrich_pickup_route_display(route))
+    return {"success": True, "data": {"routes": display_routes}}
 
 
 @router.put("/me/pickup-routes/{route_id}/assign")
@@ -2200,7 +2203,7 @@ async def assign_pickup_route(
     membership["deliveryPartnerUserId"] = str(membership.get("userId") or membership.get("deliveryPartnerUserId"))
     route["assignedBy"] = ObjectId(str(current_user["_id"]))
     updated = await assign_route(route, membership)
-    return {"success": True, "data": serialize_route(updated), "message": "Pickup route assigned to approved team member"}
+    return {"success": True, "data": await enrich_pickup_route_display(updated), "message": "Pickup route assigned to approved team member"}
 
 
 @router.put("/me/collections/{collection_id}/assign")
