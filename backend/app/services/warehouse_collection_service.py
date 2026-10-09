@@ -58,6 +58,24 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
     return await warehouse_collection_repository.get_by_id(job_id) if job_id else None
 
 
+def _serialize_mongo_values(value: Any) -> Any:
+    """Recursively convert BSON ObjectIds before returning API response data.
+
+    Collection records can contain ObjectIds inside nested fields such as
+    pickupLocation. Converting only known top-level IDs leaves FastAPI/Pydantic
+    unable to serialize those nested values.
+    """
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _serialize_mongo_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_serialize_mongo_values(item) for item in value]
+    if isinstance(value, tuple):
+        return [_serialize_mongo_values(item) for item in value]
+    return value
+
+
 def serialize_collection(job: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(job)
     for key in ("id", "_id", "warehouseId", "incomingStockId", "orderId", "farmerId", "productId", "variantId", "collectionTeamId"):
@@ -70,4 +88,4 @@ def serialize_collection(job: Dict[str, Any]) -> Dict[str, Any]:
     result["isPackedTransfer"] = result.get("collectionType") == "packed_orders_transfer"
     result["warehousePackingRequired"] = bool(result.get("packingRequired", True)) and not result["isPackedTransfer"]
     result["isBulkHarvest"] = result.get("collectionType") == "bulk_harvest"
-    return result
+    return _serialize_mongo_values(result)
