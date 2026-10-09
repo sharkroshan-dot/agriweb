@@ -3468,6 +3468,8 @@ async def create_self_delivery_plan(
     return {
         "success": True,
         "data": {
+            # The Order Map checks this marker to detect a stale backend process.
+            "routingValidationVersion": "farmer-packing-v2",
             "method": body.method,
             "selfDeliveryOrderIds": selected_results,
             "selfDeliveryCount": len(selected_results),
