@@ -6,6 +6,7 @@ import { ArrowRight, CheckCircle2, PackageCheck, RefreshCw, Truck, Warehouse } f
 import { PrefetchLink as Link } from "../../../components/shared/prefetch-link";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 
