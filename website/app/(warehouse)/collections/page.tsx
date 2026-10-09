@@ -86,7 +86,7 @@ export default function WarehouseCollectionsPage() {
     const source = data?.data?.collections || [];
     return {
       total: source.length,
-      ready: source.filter((x: any) => x.status === "ready_for_pickup" && !x.pickupRouteId).length,
+      ready: source.filter((x: any) => ["ready_for_pickup", "team_assigned"].includes(x.status) && !x.pickupRouteId).length,
       planned: new Set(source.filter((x: any) => Boolean(x.pickupRouteId) && x.status !== "arrived_warehouse").map((x: any) => String(x.pickupRouteId))).size,
       waiting: source.filter((x: any) => x.status === "scheduled").length,
       active: source.filter((x: any) => !["ready_for_pickup", "arrived_warehouse"].includes(x.status)).length,
@@ -94,7 +94,7 @@ export default function WarehouseCollectionsPage() {
     };
   }, [data]);
 
-  const readyVisibleJobs = jobs.filter((job: any) => job.status === "ready_for_pickup" && !job.pickupRouteId);
+  const readyVisibleJobs = jobs.filter((job: any) => ["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId);
   const selectedVisibleIds = readyVisibleJobs.map((job: any) => String(job.id || job._id));
   const allVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.every((id: string) => selectedCollectionIds.includes(id));
 
@@ -142,17 +142,7 @@ export default function WarehouseCollectionsPage() {
     }
   };
 
-  const assignCollectionTeam = async (job: any) => {
-    const teamId = window.prompt("Enter collection team ID/name", job.collectionTeamId || "");
-    if (!teamId?.trim()) return;
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/assign`, { teamId: teamId.trim() });
-      toast.success("Collection team assigned");
-      await refetch();
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to assign collection team");
-    }
-  };
+
 
   const advance = async (job: any) => {
     const next = NEXT[job.status];
@@ -186,7 +176,7 @@ export default function WarehouseCollectionsPage() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {[
           ["Total Jobs", counts.total, Package],
-          ["Ready for Pickup", counts.ready, Clock3],
+          ["Available for Planning", counts.ready, Clock3],
           ["Selected", selectedCollectionIds.length, CheckCircle2],
           ["Routes Planned", counts.planned, Route],
           ["At Warehouse", counts.warehouse, Warehouse],
@@ -207,7 +197,7 @@ export default function WarehouseCollectionsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-lg">Bulk Actions</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">Select ready jobs once, then plan routes and assign the pickup work in one action.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Select available jobs once, then plan routes and assign the pickup work in one action.</p>
             </div>
             <Button type="button" variant="outline" onClick={toggleVisibleSelection} disabled={readyVisibleJobs.length === 0}>
               {allVisibleSelected ? "Clear visible selection" : "Select all visible"}
@@ -217,7 +207,7 @@ export default function WarehouseCollectionsPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-muted-foreground">Ready for pickup</p>
+              <p className="text-xs text-muted-foreground">Available for planning</p>
               <p className="mt-1 text-2xl font-bold">{counts.ready}</p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
@@ -315,13 +305,19 @@ export default function WarehouseCollectionsPage() {
                       <p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Packing Verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse Packing Required: No" : "Packing Required: Yes · Farmer Verification: " + (job.packingVerified ? "Complete" : "Pending")}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      {!job.pickupRouteId && ["ready_for_pickup", "team_assigned"].includes(job.status) && <Button onClick={() => window.location.href="/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
-                      {!job.pickupRouteId && ["ready_for_pickup", "team_assigned"].includes(job.status) && <Button variant="outline" onClick={() => assignCollectionTeam(job)}><User className="mr-2 h-4 w-4" />{job.status === "team_assigned" ? "Change Collection Team" : "Assign Collection Team"}</Button>}
                       {job.pickupRouteId ? (
-                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 sm:max-w-[380px]">
-                          Tracking is read-only here. The assigned pickup partner updates En Route, At Farm, Collected, Departed and At Warehouse from Pickup Routes.
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 sm:max-w-[420px]">
+                          Tracking is read-only here. The assigned pickup partner updates En Route, At Farm, Collected and Departed from Delivery Partner → Pickup Routes. Warehouse arrival is recorded when the partner returns the route.
                         </div>
-                      ) : NEXT[job.status] ? <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button> : null}
+                      ) : job.collectionTeamId ? (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:max-w-[420px]">
+                          This older assignment has no pickup route yet. Select this job in Bulk Actions to create its route and move tracking to the pickup partner.
+                        </div>
+                      ) : ["ready_for_pickup", "team_assigned"].includes(job.status) ? (
+                        <p className="text-xs text-muted-foreground">Select this job above, then use Bulk Actions to plan and assign its pickup route.</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Collection progress is shown here for monitoring.</p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
