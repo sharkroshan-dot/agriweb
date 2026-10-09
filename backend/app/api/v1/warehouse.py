@@ -1852,7 +1852,13 @@ async def create_pickup_routes(
         for stop in group.get("stops") or []:
             await warehouse_collection_repository.update_job(
                 str(stop["collectionId"]),
-                {"pickupRouteId": ObjectId(route_id), "pickupRouteStatus": "offered"},
+                {
+                    "pickupRouteId": ObjectId(route_id),
+                    "pickupRouteStatus": "offered",
+                    "status": "ready_for_pickup",
+                    "collectionTeamId": None,
+                    "teamAssignedAt": None,
+                },
             )
 
         if data.assignmentMode in {"assign_team", "auto_assign"}:
