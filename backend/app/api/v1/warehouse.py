@@ -1789,6 +1789,7 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
         logger.exception("Failed to inspect older long-distance Farmer Fulfillment orders")
         pending_assignment_orders = []
 
+    unassigned_transfer_items: List[Dict[str, Any]] = []
     for pending_order in pending_assignment_orders:
         if (
             pending_order.get("selfDelivery")
@@ -1854,11 +1855,32 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 update_fields["nearbyFulfillmentLocationId"] = ObjectId(str(allocation_result["localHub"]["id"]))
                 update_fields["nearbyFulfillmentLocation"] = allocation_result["localHub"]
             await order_repository.update({"_id": pending_order_id}, update_fields)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Could not repair a previously routed long-distance Farmer Fulfillment order",
                 extra={"orderId": str(pending_order_id), "warehouseId": warehouse_id},
             )
+            unassigned_transfer_items.append({
+                "id": str(pending_order_id),
+                "orderId": str(pending_order_id),
+                "orderNumber": pending_order.get("orderNumber") or str(pending_order_id),
+                "stage": "warehouse_assignment_pending",
+                "status": "warehouse_assignment_pending",
+                "isUnassigned": True,
+                "message": str(exc)[:500] or "No eligible warehouse could be allocated to this packed order.",
+                "items": [{
+                    "productName": item.get("productName") or item.get("name") or "Product",
+                    "quantity": float(item.get("quantity") or 0),
+                    "unit": item.get("unit") or "kg",
+                    "productId": str(item.get("productId") or ""),
+                    "variantId": str(item.get("variantId") or "") or None,
+                } for item in (pending_order.get("items") or [])],
+                "logisticsMode": str(pending_order.get("logisticsMode") or "long_distance_pending"),
+                "incoming": [],
+                "outgoing": [],
+                "warehouseAllocations": [],
+                "isConsolidationWarehouse": False,
+            })
 
     # Rebuild missing packed-transfer incoming rows from persisted warehouse
     # allocations. This repairs route attempts that saved allocation metadata
@@ -2199,7 +2221,10 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 logger.exception("Failed to enrich collection card with order details", extra={"orderId": order_id})
         serialized_jobs.append(item)
 
-    return {"success": True, "data": {"collections": serialized_jobs}}
+    return {"success": True, "data": {
+        "collections": serialized_jobs,
+        "unassignedTransfers": unassigned_transfer_items,
+    }}
 
 
 @router.put("/me/collections/{collection_id}/assign")
