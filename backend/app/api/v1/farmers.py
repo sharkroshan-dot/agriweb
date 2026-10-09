@@ -1629,10 +1629,43 @@ async def get_my_route(
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery", "ready_for_pickup"]
     workflow_ids = _parse_workflow_order_ids(orderIds)
-    route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
-    if workflow_ids: route_query["_id"] = {"$in": workflow_ids}
-    orders = await order_repository.find_many(route_query)
-    orders = orders or []
+    route_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": active_statuses},
+        "deletedAt": None,
+        "deliveryType": DeliveryType.DELIVERY.value,
+        "fulfillmentMethod": "farmer",
+        "fulfillmentStage": {"$in": ["packed", "dispatched"]},
+        "deliveryResponsibility": "farmer",
+        "selfDelivery": True,
+    }
+    if workflow_ids:
+        route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(route_query) or []
+
+    # Customer-pickup orders do not travel through the farmer/partner delivery
+    # route, but the route workspace also hosts their separate OTP/QR pickup
+    # confirmation card. Keep them visible without requiring selfDelivery.
+    pickup_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": "ready_for_pickup",
+        "deletedAt": None,
+        "deliveryType": DeliveryType.PICKUP.value,
+        "fulfillmentMethod": "farmer",
+    }
+    if workflow_ids:
+        pickup_query["_id"] = {"$in": workflow_ids}
+    pickup_orders = await order_repository.find_many(pickup_query) or []
+    pickup_orders = [
+        order for order in pickup_orders
+        if str(order.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
+        or bool(order.get("packingComplete"))
+    ]
+    existing_route_ids = {str(order.get("_id")) for order in orders}
+    orders.extend(
+        order for order in pickup_orders
+        if str(order.get("_id")) not in existing_route_ids
+    )
 
     farm = await _get_farm_origin(farmer_id)
 
@@ -1696,7 +1729,26 @@ async def get_my_route(
             "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
-    stops.sort(key=lambda s: s["distance"])
+    # Fresh priority is recalculated for every stop just above. Urgent orders
+    # execute first, then high, then normal; deadline and distance break ties.
+    def _route_execution_key(stop: dict):
+        deadline = stop.get("deliveryDeadline")
+        if isinstance(deadline, datetime):
+            deadline_key = deadline.replace(tzinfo=None)
+        elif isinstance(deadline, str):
+            try:
+                deadline_key = datetime.fromisoformat(deadline.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                deadline_key = datetime.max
+        else:
+            deadline_key = datetime.max
+        return (
+            -int(stop.get("priority") or 1),
+            deadline_key,
+            float(stop.get("distance") or 0),
+        )
+
+    stops.sort(key=_route_execution_key)
     total_duration = round(total_distance / 25 * 60 + len(stops) * 10, 0)
     summary = {
         "totalDistance": round(total_distance, 2),
