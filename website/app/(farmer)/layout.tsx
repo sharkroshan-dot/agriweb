@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { FarmerSidebar } from "../components/farmer/farmer-sidebar";
-import { Header } from "../components/common/header";
 import { Footer } from "../components/common/footer";
 import ChatWidget from "../components/shared/chat-widget";
 
@@ -30,12 +29,11 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
   }
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <Header />
-      <div className="flex flex-1 pt-16">
+    <div className="flex min-h-[calc(100vh-3.5rem)] flex-col">
+      <div className="flex min-w-0 flex-1">
         <FarmerSidebar />
-        <main className="flex-1 overflow-x-hidden px-4 py-6 md:px-8">
-          <div className="mx-auto max-w-7xl">{children}</div>
+        <main className="min-w-0 flex-1 overflow-x-hidden bg-slate-50 px-4 py-5 sm:px-6 lg:px-8 xl:py-7">
+          <div className="mx-auto w-full max-w-[1440px]">{children}</div>
         </main>
       </div>
       <Footer />
