@@ -2011,7 +2011,29 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
 
     if status and status != "all":
         jobs = [job for job in jobs if str(job.get("status") or "") == status]
-    return {"success": True, "data": {"collections": [serialize_collection(x) for x in jobs]}}
+
+    serialized_jobs = []
+    for job in jobs:
+        item = serialize_collection(job)
+        order_id = str(job.get("orderId") or "")
+        if order_id:
+            try:
+                linked_order = await order_repository.get_by_id(order_id)
+                if linked_order:
+                    item["orderNumber"] = linked_order.get("orderNumber")
+                    item["orderStatus"] = linked_order.get("orderStatus")
+                    item["productLines"] = [{
+                        "productName": line.get("productName") or line.get("name") or "Product",
+                        "quantity": float(line.get("quantity") or 0),
+                        "unit": line.get("unit") or "kg",
+                    } for line in (linked_order.get("items") or [])]
+                    if not item.get("farmerName"):
+                        item["farmerName"] = linked_order.get("farmerName")
+            except Exception:
+                logger.exception("Failed to enrich collection card with order details", extra={"orderId": order_id})
+        serialized_jobs.append(item)
+
+    return {"success": True, "data": {"collections": serialized_jobs}}
 
 
 @router.put("/me/collections/{collection_id}/assign")
