@@ -5,7 +5,7 @@ import { PrefetchLink as Link } from "../shared/prefetch-link";
 import {
   LayoutDashboard, Package, PackageCheck, ArrowDown, ArrowUp, Truck, Warehouse,
   Snowflake, ArrowLeftRight, BarChart, CreditCard, Settings, AlertTriangle,
-  ClipboardCheck, MessageSquare, Boxes, Route,
+  ClipboardCheck, MessageSquare, Boxes, Route, Bell,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -30,6 +30,7 @@ const navItems = [
   { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
   { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
   { name: "Payments", href: "/warehouse/payments", icon: CreditCard },
+  { name: "Notifications", href: "/notifications", icon: Bell },
   { name: "Settings", href: "/warehouse/settings", icon: Settings },
 ];
 
