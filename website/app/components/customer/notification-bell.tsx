@@ -106,9 +106,26 @@ export function NotificationBell() {
     try {
       const response = await api.get(`/notifications/detail/${notification.id}`);
       const detail = (response as any)?.data?.notification;
-      setSelectedNotification(detail || notification);
+      const item = detail || notification;
+      setSelectedNotification({
+        ...item,
+        actionUrl: item.actionUrl || item.data?.actionUrl || item.data?.url,
+        actionLabel: item.actionLabel || (
+          item.data?.type === "farmer_fulfillment_pickup_ready"
+            ? "Open Farm Collection Queue"
+            : undefined
+        ),
+      });
     } catch {
-      setSelectedNotification(notification);
+      setSelectedNotification({
+        ...notification,
+        actionUrl: notification.actionUrl || notification.data?.actionUrl || notification.data?.url,
+        actionLabel: notification.actionLabel || (
+          notification.data?.type === "farmer_fulfillment_pickup_ready"
+            ? "Open Farm Collection Queue"
+            : undefined
+        ),
+      });
     }
 
     setOpen(false);
