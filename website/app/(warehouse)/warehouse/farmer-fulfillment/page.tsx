@@ -11,9 +11,12 @@ import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 
 const labels: Record<string,string> = {
-  awaiting_warehouse_receipt:"Awaiting Warehouse Receipt",
-  received_transfer:"Received — Verify & Store",
+  awaiting_warehouse_receipt:"Awaiting Farm Pickup",
+  collection_team_assigned:"Collection Team Assigned",
+  warehouse_arrived:"Arrived at Warehouse — Receive & Inspect",
+  received_transfer:"Received — Quality Check",
   partial_received:"Partially Received",
+  quality_approved:"Quality Approved — Store Stock",
   stored:"Stored — Ready for Handoff",
   ready_for_dispatch:"Ready for Local Hub",
   local_hub_transfer_pending:"Local Hub Transfer Pending",
@@ -53,7 +56,7 @@ export default function FarmerFulfillmentTransfersPage() {
     <div className="space-y-4">{rows.map((o:any)=><Card key={o.id} className="overflow-hidden"><CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {o.items?.length||0} item line(s)</p></div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader><CardContent className="space-y-4">
       <div className="grid gap-3 md:grid-cols-4"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Receive</p><p className="mt-1 font-medium">{o.incoming?.filter((x:any)=>x.status==="received"||x.status==="stored").length||0} received</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Quality</p><p className="mt-1 font-medium">{o.incoming?.filter((x:any)=>x.qualityCheck==="passed").length||0} approved</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Stored</p><p className="mt-1 font-medium">{o.incoming?.filter((x:any)=>x.status==="stored").length||0} stored</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Destination</p><p className="mt-1 font-medium">{o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "Consolidation Warehouse" : "Local Hub"}</p></div></div>
       <div className="flex flex-wrap gap-2">{(o.items||[]).map((i:any)=><Badge key={i.productId+"-"+(i.variantId||"")} variant="secondary">{i.productName}: {i.quantity} {i.unit}</Badge>)}</div>
-      <div className="flex flex-wrap justify-end gap-2">{["received_transfer","partial_received","awaiting_warehouse_receipt","quality_approved"].includes(o.stage)&&<Button asChild variant="outline"><Link href="/incoming"><Truck className="mr-2 h-4 w-4"/>Open Receiving / Quality</Link></Button>}{["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>handoff(o)} disabled={busy===o.id}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id?"Dispatching…":o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "Send to Consolidation" : "Send to Local Hub"}</Button>}{o.stage==="local_hub_transfer_pending"&&<Badge className="self-center"><CheckCircle2 className="mr-1 h-3 w-3"/>In transit to local hub</Badge>}</div>
+      <div className="flex flex-wrap justify-end gap-2">{["warehouse_arrived","received_transfer","partial_received","quality_approved"].includes(o.stage)&&<Button asChild variant="outline"><Link href="/incoming"><Truck className="mr-2 h-4 w-4"/>Open Receiving / Quality</Link></Button>}{["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>handoff(o)} disabled={busy===o.id}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id?"Dispatching…":o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ? "Send to Consolidation" : "Send to Local Hub"}</Button>}{o.stage==="local_hub_transfer_pending"&&<Badge className="self-center"><CheckCircle2 className="mr-1 h-3 w-3"/>In transit to local hub</Badge>}</div>
     </CardContent></Card>)}</div>}
   </div>;
 }
