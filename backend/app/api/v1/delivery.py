@@ -2437,7 +2437,7 @@ async def pickup_team_warehouses(current_user: dict = Depends(get_current_user))
     # Older warehouse records may not have isActive populated. Include those legacy
     # records, but continue excluding warehouses explicitly deactivated by an admin.
     warehouses = await warehouse_repository.find_many({"deletedAt": None}, skip=0, limit=500, sort=[("name", 1)])
-    selectable = [w for w in warehouses if w.get("isActive") is not False and w.get("deletedAt") is None]
+    selectable = [w for w in warehouses if (w.get("isActive") is None or bool(w.get("isActive"))) and w.get("deletedAt") is None]
     return {"success": True, "data": {"warehouses": [{
         "id": str(w["_id"]),
         "name": w.get("name") or w.get("warehouseName") or "Warehouse",
