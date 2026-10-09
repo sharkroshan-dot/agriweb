@@ -1859,9 +1859,10 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
         order_id = str(job["orderId"])
         try:
             existing_notification = await notifications_collection.find_one({
-                "userId": manager_user_id,
+                "userId": {"$in": [manager_user_id, str(current_user["_id"])]},
                 "data.type": "farmer_fulfillment_pickup_ready",
                 "data.orderId": order_id,
+                "deletedAt": None,
             })
             if existing_notification:
                 continue
