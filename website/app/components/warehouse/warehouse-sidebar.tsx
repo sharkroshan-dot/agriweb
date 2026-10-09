@@ -5,7 +5,7 @@ import { PrefetchLink as Link } from "../shared/prefetch-link";
 import {
   LayoutDashboard, Package, PackageCheck, ArrowDown, ArrowUp, Truck, Warehouse,
   Snowflake, ArrowLeftRight, BarChart, CreditCard, Settings, AlertTriangle,
-  ClipboardCheck, MessageSquare, Boxes, Route, Bell,
+  ClipboardCheck, MessageSquare, Boxes, Route, Bell, Users,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -25,6 +25,7 @@ const navSections = [
   {
     title: "Shared Pickup & Receiving",
     items: [
+      { name: "Pickup Partners", href: "/warehouse/pickup-team", icon: Users },
       { name: "Farm Collection", href: "/collections", icon: Truck },
       { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
     ],
