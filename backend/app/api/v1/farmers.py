@@ -2453,18 +2453,18 @@ async def get_my_delivery_map(
     # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
-    # IMPORTANT: Keep this criterion identical to the Packing & Checking
-    # page. That page builds its Farmer Fulfillment list from fulfillmentMethod
-    # and considers an order packed when stage is packed/dispatched or the
-    # persisted packingComplete flag is true. Do not add deliveryType,
-    # warehouseId, fulfillmentSource, orderStatus, or coordinate requirements
-    # here: those extra filters were causing packed orders to disappear from
-    # the map even though they were visible in the Packed tab.
+    # The Order Map handles customer-delivery orders that are packed and
+    # still awaiting a delivery decision. Pickup-at-farm orders and terminal
+    # orders stay out of the delivery-partner/self-delivery planning queue.
+    # Keep the same eligibility rules in POST /self-delivery-plan below.
     orders = [
         o for o in orders
         if str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower()
         in ("farmer", "farm_direct")
-        and str(o.get("orderStatus") or o.get("status") or "").lower() != "cancelled"
+        and str(o.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
+        == DeliveryType.DELIVERY.value.lower()
+        and str(o.get("orderStatus") or o.get("status") or "").lower()
+        not in _FINISHED_DELIVERY_STATUSES
         and not bool(o.get("packingCancelled"))
         and (
             str(o.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
@@ -2473,10 +2473,8 @@ async def get_my_delivery_map(
         and not bool(o.get("deliveryPartnerId"))
         and not bool(o.get("partnerRequested"))
         and not bool(o.get("selfDelivery"))
-        # Order Map is an assignment queue only. Once the delivery decision
-        # has been finalized (self / nearby / long-distance), the order leaves
-        # this queue and continues in its own downstream workflow.
-        and str(o.get("deliveryDecision") or "").lower() not in ("self_delivery", "nearby", "long_distance")
+        and str(o.get("deliveryDecision") or "").lower()
+        not in ("self_delivery", "nearby", "long_distance")
     ]
 
     # Index delivery jobs without re-reading every order from MongoDB. The
@@ -3013,14 +3011,18 @@ async def create_self_delivery_plan(
             fulfillment_stage in ("packed", "dispatched")
             or bool(order.get("packingComplete"))
         )
+        delivery_type = str(order.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
+        delivery_decision = str(order.get("deliveryDecision") or "").lower()
         if (
             fulfillment_method in ("farmer", "farm_direct")
-            and order_status != "cancelled"
+            and delivery_type == DeliveryType.DELIVERY.value.lower()
+            and order_status not in _FINISHED_DELIVERY_STATUSES
             and not bool(order.get("packingCancelled"))
             and is_packed
             and not bool(order.get("deliveryPartnerId"))
             and not bool(order.get("partnerRequested"))
             and not bool(order.get("selfDelivery"))
+            and delivery_decision not in ("self_delivery", "nearby", "long_distance")
         ):
             eligible_orders.append(order)
 
@@ -3032,18 +3034,23 @@ async def create_self_delivery_plan(
             detail="A route destination is required when Route mode is selected.",
         )
 
-    selected_ids = {str(x) for x in body.orderIds}
-    # Farmer Self Delivery is intentionally limited to one explicit order.
-    # Every other eligible packed order, including orders inside the same
-    # radius/route, must continue through automatic distance-based processing.
-    if len(selected_ids) > 1:
+    selected_ids = {str(x).strip() for x in body.orderIds if str(x).strip()}
+    if not selected_ids:
         raise HTTPException(
             status_code=400,
-            detail="Select only one order for Farmer Self Delivery. All other orders are processed automatically.",
+            detail="Select at least one order for Farmer Self Delivery before confirming the delivery plan.",
         )
-    # The assignment workflow requires one explicit Farmer Self Delivery
-    # order. Every other eligible packed order is then processed automatically
-    # by the nearby/long-distance workflow.
+    eligible_ids = {str(order["_id"]) for order in orders}
+    stale_ids = sorted(selected_ids - eligible_ids)
+    if stale_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Some selected orders are no longer eligible for delivery planning. Refresh the Order Map and select again.",
+                "orderIds": stale_ids,
+            },
+        )
+
     # Load customer profile addresses as a fallback for older checkout records
     # that do not contain delivery coordinates.
     customer_ids = {str(o.get("customerId")) for o in orders if o.get("customerId")}
@@ -3084,25 +3091,31 @@ async def create_self_delivery_plan(
             },
         )
 
-    if not selected_ids:
-        raise HTTPException(
-            status_code=400,
-            detail="Select one order for Farmer Self Delivery before confirming the delivery plan.",
-        )
-
-    # Exactly one order is selected for Farmer Self Delivery. Every other
-    # eligible packed order continues automatically into the distance-based
-    # delivery-partner routing below.
+    # Process every explicitly selected order as Farmer Self Delivery. The
+    # remaining set is independent of the active radius/route filter.
     selected_results = []
+    skipped_partner = []
     for order in selected:
         oid = str(order["_id"])
         active = await delivery_assignment_repository.get_by_order_id(oid)
         if active and active.get("status") in ("accepted", "picked_up", "in_transit"):
+            skipped_partner.append({
+                "orderId": oid,
+                "reason": "A delivery partner has already accepted or collected this order.",
+            })
             continue
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh priority for self-delivery order %s", oid, exc_info=True)
         ok = await order_repository.reclaim_for_self_delivery(
             oid, farmer_id, _ACTIVE_DELIVERY_STATUSES
         )
         if not ok:
+            skipped_partner.append({
+                "orderId": oid,
+                "reason": "Order could not be claimed for self-delivery; refresh and review its current status.",
+            })
             continue
         await delivery_assignment_repository.cancel_by_order_id(
             oid, "Farmer selected this order for self delivery"
@@ -3140,14 +3153,29 @@ async def create_self_delivery_plan(
             orderNumber=order.get("orderNumber", ""),
         )
 
-    # Every packed order that the farmer did NOT explicitly select now enters
-    # the delivery-partner branch. The radius/route selection is only a filter:
-    # it never selects orders for self delivery. Once the farmer confirms the
-    # selection, the remaining orders are classified by physical distance.
+    # Every eligible packed delivery order not explicitly selected above is
+    # automatically classified, irrespective of whether the UI filter showed
+    # it inside/outside a radius or along/off the selected route.
     partner_results = []
+    pending_resource_results = []
     nearby_count = 0
     long_distance_count = 0
-    skipped_partner = []
+
+    # Recalculate perishable priority before dispatch, then process urgent and
+    # high-priority deadlines before normal orders. This is a fresh execution
+    # check, separate from the priority badge shown on the map.
+    for order in remaining:
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh priority for automatic order %s", order.get("_id"), exc_info=True)
+    remaining.sort(
+        key=lambda item: (
+            -int(item.get("priority") or 1),
+            (item.get("deliveryDeadline").replace(tzinfo=None)
+             if isinstance(item.get("deliveryDeadline"), datetime) else datetime.max),
+        )
+    )
 
     for order in remaining:
         oid = str(order["_id"])
@@ -3181,12 +3209,16 @@ async def create_self_delivery_plan(
             distance_km = fallback_distance
             partner_route = "nearby" if distance_km <= body.radius else "long_distance"
         else:
-            # Do not stop the farmer's confirmed plan because an old order
-            # lacks coordinates. Put it into the conservative long-distance
-            # automatic handoff; the logistics resource remains pending until
-            # a valid warehouse/location is available.
-            distance_km = None
-            partner_route = "long_distance"
+            # A distance decision cannot be made honestly without coordinates
+            # or a trusted stored distance. Leave the order unassigned and tell
+            # the farmer what must be corrected instead of fabricating a
+            # long-distance route.
+            skipped_partner.append({
+                "orderId": oid,
+                "reason": "Customer location unavailable. Add or correct the delivery address and retry.",
+                "needsLocation": True,
+            })
+            continue
 
         try:
             route_result = await apply_partner_route(order, partner_route, body.radius)
@@ -3204,6 +3236,13 @@ async def create_self_delivery_plan(
                 nearby_count += 1
             else:
                 long_distance_count += 1
+
+            if resource_pending:
+                pending_resource_results.append({
+                    "orderId": oid,
+                    "route": partner_route,
+                    "reason": "The distance decision was saved, but a required warehouse or local hub is not available yet.",
+                })
 
             partner_results.append({
                 "orderId": oid,
@@ -3255,6 +3294,8 @@ async def create_self_delivery_plan(
             "automaticNearbyOrderIds": automatic_nearby_ids,
             "automaticLongDistanceOrderIds": automatic_long_distance_ids,
             "partnerResults": partner_results,
+            "pendingResources": pending_resource_results,
+            "pendingResourceOrderIds": [item["orderId"] for item in pending_resource_results],
             "skipped": skipped_partner,
             "remainingOrderIds": [str(o["_id"]) for o in remaining],
             "radius": body.radius,
