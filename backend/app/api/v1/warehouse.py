@@ -449,6 +449,88 @@ async def get_farmer_fulfillment_transfers(
                 "dispatchDate": x.get("dispatchDate"),
             } for x in outgoing],
         })
+    # Keep failed/unfinished warehouse assignment visible instead of treating
+    # a persisted long-distance decision as if no order existed. These are
+    # informational rows only; they do not get collection-team actions until a
+    # real source warehouse and safe quantity allocation have been established.
+    pending_unassigned = await order_repository.find_many({
+        "$and": [
+            {"deletedAt": None},
+            {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
+            {"$or": [
+                {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
+                {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+            ]},
+            {"$or": [
+                {"deliveryDecision": "long_distance"},
+                {"deliveryPartnerRoute": "long_distance"},
+                {"logisticsMode": {"$in": [
+                    "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                    "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+                    "long_distance_pending",
+                ]}},
+            ]},
+        ],
+    }, skip=0, limit=200, sort=[("orderDate", -1), ("createdAt", -1)])
+    result_order_ids = {str(item.get("id")) for item in result}
+    for pending_order in pending_unassigned:
+        pending_id = str(pending_order.get("_id") or "")
+        if not pending_id or pending_id in result_order_ids:
+            continue
+        if pending_order.get("warehouseAllocations") or pending_order.get("warehouseIds") or pending_order.get("warehouseId"):
+            continue
+        if (
+            pending_order.get("selfDelivery")
+            or pending_order.get("deliveryPartnerId")
+            or pending_order.get("partnerRequested")
+        ):
+            continue
+        any_transfer_incoming = await incoming_stock_repository.find_many({
+            "orderId": {"$in": [ObjectId(pending_id), pending_id]},
+            "sourceMode": "farmer_fulfillment_transfer",
+            "deletedAt": None,
+        }, skip=0, limit=1)
+        if any_transfer_incoming:
+            continue
+        lines = [{
+            "productId": str(line.get("productId") or ""),
+            "variantId": str(line.get("variantId")) if line.get("variantId") else None,
+            "productName": line.get("productName") or line.get("name") or "Product",
+            "quantity": float(line.get("quantity") or 0),
+            "unit": line.get("unit") or "kg",
+        } for line in (pending_order.get("items") or [])]
+        result.append({
+            "id": pending_id,
+            "orderNumber": pending_order.get("orderNumber") or pending_id,
+            "orderStatus": pending_order.get("orderStatus"),
+            "stage": "warehouse_assignment_pending",
+            "logisticsMode": str(pending_order.get("logisticsMode") or "long_distance_pending"),
+            "isUnassigned": True,
+            "isConsolidationWarehouse": False,
+            "warehouseName": None,
+            "warehouseId": None,
+            "farmerId": str(pending_order.get("farmerId")) if pending_order.get("farmerId") else None,
+            "farmerName": pending_order.get("farmerName"),
+            "message": "The Farmer Order Map decision is saved, but no source warehouse has been assigned yet. Check warehouse active status, configured capacity, and farm/customer location data.",
+            "items": lines,
+            "incoming": [],
+            "outgoing": [],
+            "warehouseAllocations": [],
+            "consolidation": {
+                "isConsolidationWarehouse": False,
+                "canReceive": False,
+                "canComplete": False,
+                "canHandoffLocalHub": False,
+                "canConfirmHubReceipt": False,
+                "hubTransferStatus": None,
+                "totalLegs": 0,
+                "inTransitLegs": 0,
+                "receivedLegs": 0,
+                "allSourcePortionsStored": False,
+            },
+        })
+        result_order_ids.add(pending_id)
+
     return {"success": True, "data": {"transfers": result}}
 
 
