@@ -583,14 +583,9 @@ export default function FarmerOrderMapPage() {
   }, [routeCandidates, mapFilterMode, routeMatches, farmCoordinates, liveLocation, radiusKm]);
 
   const deliveryInsideOrders = deliveryScopeLists.inside;
-  const deliveryOutsideOrders = deliveryScopeLists.outside;
   const deliveryInsideIds = useMemo(
     () => new Set(deliveryInsideOrders.map((stop) => getStopId(stop))),
     [deliveryInsideOrders]
-  );
-  const deliveryOutsideIds = useMemo(
-    () => new Set(deliveryOutsideOrders.map((stop) => getStopId(stop))),
-    [deliveryOutsideOrders]
   );
 
   // "Remaining" means every eligible packed customer-delivery order that the
@@ -2083,7 +2078,7 @@ export default function FarmerOrderMapPage() {
                     This is every eligible packed customer-delivery order you have not selected for self-delivery — both inside and outside the current radius/route filter. Confirming selection starts automatic distance-based processing for all of them.
                   </p>
                 </div>
-                {remainingAutomaticOrders.map((stop, index) => {
+                {remainingAutomaticOrders.map((stop) => {
                   const isInsideFilter = deliveryInsideIds.has(getStopId(stop));
                   const scopeLabel = isInsideFilter
                     ? (mapFilterMode === "route" ? "Along selected route · not selected for self-delivery" : `Within ${radiusKm} km · not selected for self-delivery`)
