@@ -354,8 +354,11 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             )
             product = await product_by_id(product_id or order_item.get("productId"))
             farmer = await farmer_by_id(job.get("farmerId") or stop.get("farmerId"))
+            job_farmer_name = _human_text(job.get("farmerName"))
+            if job_farmer_name in ("Farmer", "Farm", "Unknown Farmer"):
+                job_farmer_name = None
             farmer_name = (
-                _human_text(job.get("farmerName"))
+                job_farmer_name
                 or _human_text((farmer or {}).get("farmName"))
                 or _human_text((farmer or {}).get("ownerName"))
                 or _human_text((farmer or {}).get("name"))
@@ -366,8 +369,11 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             if not farmer_name and _human_text(stop.get("farmerName")) not in (None, "Farmer"):
                 farmer_name = _human_text(stop.get("farmerName"))
             farmer_name = farmer_name or "Farmer details unavailable"
+            job_product_name = _human_text(job.get("productName"))
+            if job_product_name in ("Farm Product", "Product", "Product details unavailable"):
+                job_product_name = None
             product_name = (
-                _human_text(job.get("productName"))
+                job_product_name
                 or _human_text((product or {}).get("name"))
                 or _human_text((product or {}).get("productName"))
                 or _human_text((product or {}).get("title"))
