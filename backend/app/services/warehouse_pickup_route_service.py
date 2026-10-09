@@ -313,6 +313,10 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         or _human_text((warehouse or {}).get("warehouseName"))
         or "Assigned warehouse"
     )
+    route_number = _human_text(result.get("routeNumber"))
+    if route_number and route_number.isdigit():
+        route_number = f"Pickup Route {route_number}"
+    result["routeNumber"] = route_number or "Pickup Route"
 
     partner_id = str(result.get("deliveryPartnerId") or "")
     partner = await delivery_repository.get_by_id(partner_id) if ObjectId.is_valid(partner_id) else None
@@ -357,7 +361,11 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
                 or _human_text((farmer or {}).get("name"))
             )
             farmer_user = await user_by_id((farmer or {}).get("userId") or job.get("farmerId"))
-            farmer_name = farmer_name or _person_name(farmer_user) or "Farmer details unavailable"
+            if not farmer_name:
+                farmer_name = _person_name(farmer_user)
+            if not farmer_name and _human_text(stop.get("farmerName")) not in (None, "Farmer"):
+                farmer_name = _human_text(stop.get("farmerName"))
+            farmer_name = farmer_name or "Farmer details unavailable"
             product_name = (
                 _human_text(job.get("productName"))
                 or _human_text((product or {}).get("name"))
