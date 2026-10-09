@@ -272,7 +272,10 @@ async def allocate_farmer_fulfillment_warehouses(
             "productName": allocation["productName"],
             "quantity": allocation["quantity"],
             "unit": allocation["unit"],
-            "status": "pending" if str(allocation["warehouseId"]) != str(consolidation["_id"]) else "received",
+            # Every portion starts pending. A source warehouse that is
+            # also the consolidation warehouse is marked received there only
+            # after its incoming packed shipment has been received and stored.
+            "status": "pending",
             "createdAt": now,
             "updatedAt": now,
             "deletedAt": None,
