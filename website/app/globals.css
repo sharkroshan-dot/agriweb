@@ -277,3 +277,56 @@ button { -webkit-tap-highlight-color: transparent; }
     transition-duration: 0.01ms !important;
   }
 }
+
+
+
+/* AgriConnect shared UI kit: reusable, role-agnostic page primitives. */
+@layer components {
+  .ag-page { @apply mx-auto w-full max-w-[1440px] space-y-6 px-4 py-5 sm:px-6 sm:py-7 lg:px-8; }
+  .ag-page-header { @apply flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between; }
+  .ag-page-title { @apply text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl; }
+  .ag-page-description { @apply mt-1 max-w-3xl text-sm leading-6 text-slate-600; }
+  .ag-primary-action { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50; }
+  .ag-secondary-action { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50; }
+  .ag-panel { @apply min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5; }
+  .ag-panel-heading { @apply flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between; }
+  .ag-panel-title { @apply text-base font-semibold tracking-tight text-slate-900; }
+  .ag-panel-description { @apply text-sm leading-5 text-slate-500; }
+  .ag-kpi-grid { @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4; }
+  .ag-kpi { @apply min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm; }
+  .ag-kpi-label { @apply text-sm font-medium text-slate-500; }
+  .ag-kpi-value { @apply mt-2 text-2xl font-bold tracking-tight text-slate-900; }
+  .ag-kpi-hint { @apply mt-1 text-xs leading-5 text-slate-500; }
+  .ag-toolbar { @apply flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4; }
+  .ag-filter-row { @apply flex flex-wrap items-center gap-2; }
+  .ag-form-grid { @apply grid grid-cols-1 gap-4 md:grid-cols-2; }
+  .ag-field { @apply grid min-w-0 gap-1.5; }
+  .ag-label { @apply text-sm font-semibold text-slate-700; }
+  .ag-help { @apply text-xs leading-5 text-slate-500; }
+  .ag-input { @apply min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 disabled:bg-slate-100 disabled:text-slate-500; }
+  .ag-table-wrap { @apply w-full overflow-x-auto rounded-2xl border border-slate-200 bg-white; }
+  .ag-table { @apply w-full min-w-[640px] border-collapse text-left text-sm; }
+  .ag-table thead { @apply bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500; }
+  .ag-table th { @apply whitespace-nowrap px-4 py-3; }
+  .ag-table td { @apply border-t border-slate-100 px-4 py-3 align-middle text-slate-700; }
+  .ag-table tbody tr:hover { @apply bg-slate-50/80; }
+  .ag-status { @apply inline-flex min-h-6 items-center rounded-full border px-2.5 py-1 text-xs font-semibold leading-none; }
+  .ag-status-success { @apply border-emerald-200 bg-emerald-50 text-emerald-800; }
+  .ag-status-pending { @apply border-amber-200 bg-amber-50 text-amber-800; }
+  .ag-status-info { @apply border-sky-200 bg-sky-50 text-sky-800; }
+  .ag-status-danger { @apply border-rose-200 bg-rose-50 text-rose-800; }
+  .ag-empty-state { @apply flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center; }
+  .ag-empty-title { @apply text-sm font-semibold text-slate-900; }
+  .ag-empty-description { @apply mt-1 max-w-md text-sm leading-6 text-slate-500; }
+  .ag-workflow-steps { @apply grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4; }
+  .ag-workflow-step { @apply min-w-0 rounded-xl border border-slate-200 bg-white p-3; }
+  .ag-workflow-step-current { @apply border-emerald-300 bg-emerald-50/70; }
+  .ag-sticky-actions { @apply sticky bottom-0 z-20 -mx-4 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:p-0 sm:backdrop-blur-none; }
+}
+.site-content { min-width: 0; }
+.site-content :is(button, input, select, textarea) { max-width: 100%; }
+.site-content :is(button, a) { -webkit-tap-highlight-color: transparent; }
+@media (max-width: 640px) {
+  .site-content :is(.page-toolbar, .page-header, .toolbar) { align-items: stretch; }
+  .site-content :is(.stat-grid, .dashboard-grid) { gap: .75rem; }
+}
