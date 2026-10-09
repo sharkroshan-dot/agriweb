@@ -3241,11 +3241,30 @@ async def get_my_warehouse_pickup_jobs(
         coords = (job.get("pickupLocation") or {}).get("coordinates") or []
         dist = _haversine_km(point["lat"], point["lng"], coords[1], coords[0]) if len(coords) >= 2 else None
         open_jobs.append(serialize_job_for_partner(job, distance_from_partner=dist, reveal=False))
-    accepted = [
-        serialize_job_for_partner(job, reveal=True)
-        for job in await delivery_job_repository.get_jobs_for_partner(str(profile["_id"]))
-        if job.get("jobType") == "warehouse_pickup"
-    ]
+    # Enrich pickup marketplace cards from their authoritative route stops so
+    # partner views use current farmer/product/order/address names rather than
+    # the stale or ID-based snapshot on the delivery job.
+    async def add_route_display(job_data: dict) -> dict:
+        route_id = str(job_data.get("routeId") or "")
+        route = await warehouse_pickup_route_repository.get_by_id(route_id) if ObjectId.is_valid(route_id) else None
+        if route:
+            display_route = await enrich_pickup_route_display(route)
+            job_data["farmStops"] = display_route.get("stops") or []
+            job_data["routeNumber"] = display_route.get("routeNumber") or job_data.get("routeNumber") or "Pickup Route"
+            job_data["warehouseName"] = display_route.get("warehouseName") or job_data.get("warehouseName") or "Assigned warehouse"
+            job_data["totalStops"] = display_route.get("totalStops") or len(job_data["farmStops"])
+            job_data["totalQuantity"] = display_route.get("totalQuantity") or job_data.get("totalQuantity") or 0
+        job_data["pickupName"] = _human_text(job_data.get("pickupName")) or "Farm pickup route"
+        return job_data
+
+    open_jobs = [await add_route_display(job) for job in open_jobs]
+    accepted = []
+    for job in await delivery_job_repository.get_jobs_for_partner(str(profile["_id"])):
+        if job.get("jobType") != "warehouse_pickup":
+            continue
+        accepted.append(
+            await add_route_display(serialize_job_for_partner(job, reveal=True))
+        )
     return {"success": True, "data": {"openJobs": open_jobs, "acceptedJobs": accepted, "radius": radius}}
 
 
