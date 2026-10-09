@@ -2453,16 +2453,15 @@ async def get_my_delivery_map(
     # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
-    # The Order Map handles customer-delivery orders that are packed and
-    # still awaiting a delivery decision. Pickup-at-farm orders and terminal
-    # orders stay out of the delivery-partner/self-delivery planning queue.
-    # Keep the same eligibility rules in POST /self-delivery-plan below.
+    # Keep every active packed Farmer Fulfillment order visible on the map.
+    # Customer-pickup orders are displayed in their own section by the UI;
+    # the self-delivery-plan API below excludes them from delivery routing.
+    # Terminal orders and orders already assigned a delivery decision are
+    # excluded from the fresh delivery-decision queue.
     orders = [
         o for o in orders
         if str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower()
         in ("farmer", "farm_direct")
-        and str(o.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
-        == DeliveryType.DELIVERY.value.lower()
         and str(o.get("orderStatus") or o.get("status") or "").lower()
         not in _FINISHED_DELIVERY_STATUSES
         and not bool(o.get("packingCancelled"))
@@ -3071,8 +3070,23 @@ async def create_self_delivery_plan(
         if oid in selected_ids:
             addr = order.get("deliveryAddress") or {}
             lat, lng = await _stop_coords(addr, oid)
-            if lat is None:
-                invalid_selected.append({"orderId": oid, "reason": "Customer location unavailable"})
+            if lat is None or lng is None:
+                customer = customer_profiles.get(str(order.get("customerId"))) or {}
+                for candidate in (
+                    customer.get("deliveryAddress"),
+                    customer.get("shippingAddress"),
+                    customer.get("address"),
+                    customer.get("location"),
+                ):
+                    if isinstance(candidate, dict):
+                        lat, lng = await _stop_coords(candidate, oid)
+                    if lat is not None and lng is not None:
+                        break
+            if lat is None or lng is None:
+                invalid_selected.append({
+                    "orderId": oid,
+                    "reason": "Customer location unavailable. Add or correct the delivery address before selecting this order for self-delivery.",
+                })
                 continue
             distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
             if body.method == "radius" and distance_km > body.radius:
