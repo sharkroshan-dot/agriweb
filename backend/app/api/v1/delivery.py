@@ -2434,8 +2434,15 @@ class WarehousePickupApplication(BaseModel):
 async def pickup_team_warehouses(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can apply for warehouse pickup teams")
-    warehouses = await warehouse_repository.find_many({"isActive": True, "deletedAt": None}, skip=0, limit=200, sort=[("name", 1)])
-    return {"success": True, "data": {"warehouses": [{"id": str(w["_id"]), "name": w.get("name"), "address": w.get("address") or {}} for w in warehouses]}}
+    # Older warehouse records may not have isActive populated. Include those legacy
+    # records, but continue excluding warehouses explicitly deactivated by an admin.
+    warehouses = await warehouse_repository.find_many({"deletedAt": None}, skip=0, limit=500, sort=[("name", 1)])
+    selectable = [w for w in warehouses if w.get("isActive") is not False and w.get("deletedAt") is None]
+    return {"success": True, "data": {"warehouses": [{
+        "id": str(w["_id"]),
+        "name": w.get("name") or w.get("warehouseName") or "Warehouse",
+        "address": w.get("address") or {},
+    } for w in selectable]}}
 
 
 @router.get("/me/pickup-team")
