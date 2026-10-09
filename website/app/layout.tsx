@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import { Providers } from "./(customer)/providers";
 import { Header } from "./components/common/header";
+import { NavigationProgress } from "./components/shared/navigation-progress";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -17,6 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} min-h-screen bg-slate-50 text-slate-900 antialiased`} suppressHydrationWarning>
         <Providers>
+          <NavigationProgress />
           <Header />
           <div className="min-h-screen">{children}</div>
           <Toaster
