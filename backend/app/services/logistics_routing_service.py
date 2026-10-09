@@ -338,10 +338,17 @@ async def apply_partner_route(
       packed -> self delivery -> Dispatch -> Farmer -> Customer.
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
-    if str(order.get("fulfillmentMethod") or "") == "farmer":
-        if str(order.get("fulfillmentStage") or "").lower() not in ("packed", "dispatched"):
+    if str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct"):
+        fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+        # Match the Order Map and Confirm Selection eligibility rule: a
+        # persisted packingComplete flag is valid evidence of packing for
+        # legacy orders whose fulfillmentStage has not been normalized yet.
+        is_packed = fulfillment_stage in ("packed", "dispatched") or bool(order.get("packingComplete"))
+        if not is_packed:
             raise ValueError("Farmer order must be packed before delivery routing.")
-        if str(order.get("orderStatus") or "").lower() in ("cancelled", "delivered"):
+        if str(order.get("orderStatus") or order.get("status") or "").lower() in (
+            "cancelled", "delivered", "picked_up", "refunded", "completed"
+        ):
             raise ValueError("Farmer order is no longer eligible for delivery routing.")
 
     items = order.get("items") or []
