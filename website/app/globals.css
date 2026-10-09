@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   --brand-emerald: #059669;
   --brand-emerald-dark: #047857;
   --brand-emerald-soft: #ecfdf5;
@@ -10,40 +11,32 @@
   --brand-danger: #dc2626;
   --surface: #ffffff;
   --surface-muted: #f8fafc;
+  --background: #f8fafc;
   --border: #e2e8f0;
   --foreground: #0f172a;
+  --muted: #64748b;
   --muted-foreground: #64748b;
   --radius-control: 0.75rem;
   --radius-card: 1rem;
-  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.08);
-
-  color-scheme: light;
-  --brand-emerald: #059669;
-  --brand-emerald-dark: #047857;
-  --brand-emerald-soft: #ecfdf5;
-  --background: #f7faf8;
-  --foreground: #0f172a;
-  --border: #e2e8f0;
-  --muted: #64748b;
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 8% 0%, rgba(16,185,129,.10), transparent 28rem),
-    radial-gradient(circle at 92% 8%, rgba(14,165,233,.07), transparent 24rem),
-    linear-gradient(180deg, #fbfefc 0%, #f4f8f6 100%);
+  background: #f8fafc;
   color: var(--foreground);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 * { box-sizing: border-box; }
 a { text-decoration: none; }
 ::selection { background: rgba(16,185,129,.18); color:#065f46; }
 button,input,textarea,select { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
-:focus-visible { outline: 2px solid rgba(16,185,129,.75); outline-offset: 2px; }
+:focus-visible { outline: 3px solid rgba(5,150,105,.65); outline-offset: 2px; }
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
@@ -64,7 +57,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .page-title { font-size:clamp(1.5rem,2vw,2rem); font-weight:800; letter-spacing:-.025em; color:#0f172a; }
   .page-subtitle { margin-top:5px; font-size:.9rem; color:#64748b; line-height:1.55; }
   .section-title { font-size:1.1rem; font-weight:750; letter-spacing:-.01em; color:#0f172a; }
-  .surface { border:1px solid #e2e8f0; background:rgba(255,255,255,.88); box-shadow:0 8px 30px rgba(15,23,42,.05); backdrop-filter:blur(12px); }
+  .surface { border:1px solid #e2e8f0; border-radius:16px; background:#fff; box-shadow:0 1px 3px rgba(15,23,42,.05); }
   .interactive-lift { transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease; }
   .interactive-lift:hover { transform:translateY(-2px); box-shadow:0 14px 36px rgba(15,23,42,.09); border-color:#cbd5e1; }
   .dashboard-grid { display:grid; gap:16px; grid-template-columns:repeat(12,minmax(0,1fr)); }
@@ -218,5 +211,56 @@ button { -webkit-tap-highlight-color: transparent; }
     .farmer-workspace {
       --workspace-gap: 14px;
     }
+  }
+}
+
+
+/* Consistent, quiet surfaces and usable controls across role dashboards. */
+@layer components {
+  .site-main {
+    background: #f8fafc;
+  }
+
+  .ui-card {
+    border-color: #e2e8f0;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.045);
+  }
+
+  .ui-control {
+    min-height: 40px;
+  }
+
+  @media (max-width: 767px) {
+    .page-container {
+      padding: 20px 16px 32px;
+    }
+
+    .form-section {
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .page-toolbar {
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .site-content table {
+      display: block;
+      max-width: 100%;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
