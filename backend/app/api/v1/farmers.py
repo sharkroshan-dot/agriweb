@@ -2556,9 +2556,28 @@ async def get_my_delivery_map(
     delivered_orders = await order_repository.find_many(delivered_filter)
     delivered_orders = delivered_orders or []
 
+    # Keep automatically decided long-distance Farmer Fulfillment orders
+    # visible after they leave the fresh-decision queue. The farmer needs a
+    # persistent place to inspect warehouse allocation and pending handoffs.
+    long_distance_orders = await order_repository.find_many({
+        "farmerId": ObjectId(farmer_id),
+        "deletedAt": None,
+        "deliveryType": {"$ne": DeliveryType.PICKUP.value},
+        "orderStatus": {"$nin": list(_FINISHED_DELIVERY_STATUSES)},
+        "$or": [
+            {"deliveryDecision": "long_distance"},
+            {"deliveryPartnerRoute": "long_distance"},
+        ],
+    }) or []
+    long_distance_orders = [
+        o for o in long_distance_orders
+        if str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower()
+        in ("farmer", "farm_direct")
+    ]
+
     customer_ids = {
         str(o.get("customerId"))
-        for o in (orders + delivered_orders)
+        for o in (orders + delivered_orders + long_distance_orders)
         if o.get("customerId")
     }
     customers = {}
@@ -2589,6 +2608,45 @@ async def get_my_delivery_map(
         for order in orders
     ])
     _annotate_physical_stops(payloads)
+
+    long_distance_payloads = await asyncio.gather(*[
+        _map_order_payload(
+            order, farm, center, radius, customers=customers,
+            refresh_coords=False,
+        )
+        for order in long_distance_orders
+    ])
+    for payload, order in zip(long_distance_payloads, long_distance_orders):
+        allocations = []
+        for allocation in (order.get("warehouseAllocations") or []):
+            if not isinstance(allocation, dict):
+                continue
+            allocations.append({
+                "warehouseId": str(allocation.get("warehouseId") or ""),
+                "warehouseName": allocation.get("warehouseName") or "Warehouse",
+                "productName": allocation.get("productName") or "Product",
+                "quantity": float(allocation.get("quantity") or 0),
+                "unit": allocation.get("unit") or "kg",
+                "batchNumber": allocation.get("batchNumber"),
+            })
+        warehouse_ids = order.get("warehouseIds") or []
+        payload.update({
+            "deliveryDecision": "long_distance",
+            "deliveryDecisionStatus": order.get("deliveryDecisionStatus"),
+            "transferStatus": order.get("transferStatus") or order.get("deliveryDecisionStatus") or "warehouse_transfer_pending",
+            "logisticsMode": order.get("logisticsMode") or "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "warehouseCount": int(order.get("warehouseCount") or len(warehouse_ids) or len({
+                str(a.get("warehouseId")) for a in allocations if a.get("warehouseId")
+            })),
+            "warehouseAllocations": allocations,
+            "consolidationWarehouseName": order.get("consolidationWarehouseName"),
+            "finalLocalHub": (
+                order.get("nearbyFulfillmentLocation")
+                if isinstance(order.get("nearbyFulfillmentLocation"), dict)
+                else None
+            ),
+            "routeSetupError": order.get("partnerRouteSetupError"),
+        })
 
     within = [p for p in payloads if p["inRadius"]]
     outside = [p for p in payloads if not p["inRadius"] and p["distance"] is not None]
@@ -2659,6 +2717,7 @@ async def get_my_delivery_map(
             "outsideRadius": outside,
             "unlocated": unlocated,
             "delivered": delivered_payloads,
+            "longDistanceOrders": long_distance_payloads,
             "partners": partners,
         },
     }
