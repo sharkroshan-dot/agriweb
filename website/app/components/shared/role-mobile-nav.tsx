@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PrefetchLink as Link } from "./prefetch-link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
 import {
