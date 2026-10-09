@@ -1479,7 +1479,7 @@ _ACTIVE_DELIVERY_STATUSES = [
     "dispatched",
     "in_transit",
 ]
-_FINISHED_DELIVERY_STATUSES = ("delivered", "picked_up", "cancelled", "refunded", "failed")
+_FINISHED_DELIVERY_STATUSES = ("delivered", "picked_up", "cancelled", "refunded", "completed")
 _ROUTE_COMPLETABLE_STATUSES = ("ready_for_delivery", "ready_for_pickup")
 _DELIVERED_WINDOWS = ("today", "week", "month", "year", "all")
 
