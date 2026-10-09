@@ -169,23 +169,30 @@ async def get_farmer_fulfillment_transfers(
     warehouse_oid = ObjectId(warehouse_id)
     # Support both legacy single-warehouse fields and allocation-based
     # multi-warehouse orders. Some existing records store IDs as strings.
+    warehouse_refs = [warehouse_oid, warehouse_id]
     query: Dict[str, Any] = {
-        "$or": [
-            {"warehouseId": warehouse_oid},
-            {"warehouseId": warehouse_id},
-            {"warehouseIds": warehouse_oid},
-            {"warehouseIds": warehouse_id},
-            {"warehouseAllocations.warehouseId": warehouse_oid},
-            {"warehouseAllocations.warehouseId": warehouse_id},
-            {"consolidationWarehouseId": warehouse_oid},
-            {"consolidationWarehouseId": warehouse_id},
+        "$and": [
+            {"deletedAt": None},
+            {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
+            {"$or": [
+                {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
+                {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+            ]},
+            {"$or": [
+                {"deliveryDecision": "long_distance"},
+                {"deliveryPartnerRoute": "long_distance"},
+                {"logisticsMode": {"$in": [
+                    "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                    "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+                ]}},
+            ]},
+            {"$or": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"warehouseIds": {"$in": warehouse_refs}},
+                {"warehouseAllocations.warehouseId": {"$in": warehouse_refs}},
+                {"consolidationWarehouseId": {"$in": warehouse_refs}},
+            ]},
         ],
-        "logisticsMode": {"$in": [
-            "farmer_to_warehouse_to_local_hub_to_delivery_partner",
-            "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
-        ]},
-        "deletedAt": None,
-        "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
     }
     if status_filter:
         query["warehouseFulfillmentStage"] = status_filter
@@ -1726,24 +1733,32 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     # allocations. This repairs route attempts that saved allocation metadata
     # but stopped before creating every incoming-stock record.
     try:
-        assigned_orders = await order_repository.find_many({
-            "$or": [
-                {"warehouseAllocations.warehouseId": warehouse_oid},
-                {"warehouseAllocations.warehouseId": warehouse_id},
-                {
-                    "$and": [
-                        {"warehouseId": {"$in": [warehouse_oid, warehouse_id]}},
-                        {"logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner"},
-                        {"deliveryDecision": "long_distance"},
-                    ]
-                },
-            ],
-            "logisticsMode": {"$in": [
+        warehouse_refs = [warehouse_oid, warehouse_id]
+        expected_farmer_methods = [
+            {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
+            {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+        ]
+        long_distance_markers = [
+            {"deliveryDecision": "long_distance"},
+            {"deliveryPartnerRoute": "long_distance"},
+            {"logisticsMode": {"$in": [
                 "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                 "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
-            ]},
-            "deletedAt": None,
-            "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
+            ]}},
+        ]
+        warehouse_assignments = [
+            {"warehouseAllocations.warehouseId": {"$in": warehouse_refs}},
+            {"warehouseIds": {"$in": warehouse_refs}},
+            {"warehouseId": {"$in": warehouse_refs}},
+        ]
+        assigned_orders = await order_repository.find_many({
+            "$and": [
+                {"deletedAt": None},
+                {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
+                {"$or": expected_farmer_methods},
+                {"$or": long_distance_markers},
+                {"$or": warehouse_assignments},
+            ],
         }, skip=0, limit=500, sort=[("orderDate", -1), ("createdAt", -1)])
     except Exception:
         logger.exception("Failed to inspect warehouse allocations for pickup-queue repair", extra={"warehouseId": warehouse_id})
