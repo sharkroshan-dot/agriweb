@@ -1751,7 +1751,10 @@ async def create_pickup_routes(
         )
         if not selected_membership:
             raise HTTPException(status_code=400, detail="This pickup team is not approved for this warehouse")
-        team_capacity = float(selected_membership.get("capacity") or 0)
+        try:
+            team_capacity = float(selected_membership.get("capacity") or 0)
+        except (TypeError, ValueError):
+            team_capacity = 0
         if team_capacity <= 0:
             raise HTTPException(status_code=400, detail="Selected pickup team has no registered carrying capacity")
         route_capacity = data.maxWeightKg or team_capacity
@@ -2456,6 +2459,11 @@ async def assign_collection_team(collection_id: str, data: CollectionTeamAssignm
     job = await warehouse_collection_repository.get_by_id(collection_id)
     if not warehouse or not job or str(job.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Collection job not found")
+    if job.get("pickupRouteId"):
+        raise HTTPException(
+            status_code=409,
+            detail="This collection job already belongs to a pickup route. Assign or manage the entire route instead.",
+        )
     if job.get("status") not in ("ready_for_pickup", "team_assigned"):
         raise HTTPException(status_code=400, detail="Collection job is not waiting for team assignment")
     await warehouse_collection_repository.update_job(collection_id, {"collectionTeamId": data.teamId, "status": "team_assigned", "teamAssignedAt": datetime.utcnow()})
