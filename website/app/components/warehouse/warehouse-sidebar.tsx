@@ -13,25 +13,55 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/api/client";
 import { Button } from "../ui/button";
 
-const navItems = [
-  { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
-  { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
-  { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
-  { name: "Stock Management", href: "/stock", icon: Package },
-  { name: "Farm Collection", href: "/collections", icon: Truck },
-  { name: "Customer Orders", href: "/warehouse/orders", icon: ClipboardCheck },
-  { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
-  { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
-  { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
-  { name: "Order Packing", href: "/packing", icon: PackageCheck },
-  { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
-  { name: "Consolidation", href: "/warehouse/consolidation", icon: Boxes },
-  { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
-  { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
-  { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
-  { name: "Payments", href: "/warehouse/payments", icon: CreditCard },
-  { name: "Notifications", href: "/notifications", icon: Bell },
-  { name: "Settings", href: "/warehouse/settings", icon: Settings },
+const navSections = [
+  {
+    title: "Overview",
+    description: "Warehouse workspace and status.",
+    items: [
+      { name: "My Workflow", href: "/warehouse/workflow", icon: ClipboardCheck },
+      { name: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
+      { name: "Messages", href: "/warehouse/messages", icon: MessageSquare },
+    ],
+  },
+  {
+    title: "Shared Pickup & Receiving",
+    description: "These first steps are shared by bulk stock and farmer-packed transfer orders.",
+    items: [
+      { name: "Farm Collection", href: "/collections", icon: Truck },
+      { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
+    ],
+  },
+  {
+    title: "Farmer Fulfillment Orders",
+    description: "Farmer-packed orders: receive and store without repacking, then transfer to the local hub. Multi-warehouse orders must be consolidated first.",
+    items: [
+      { name: "Farmer Fulfillment Transfers", href: "/warehouse/farmer-fulfillment", icon: Route },
+      { name: "Multi-Warehouse Consolidation", href: "/warehouse/consolidation", icon: Boxes },
+    ],
+  },
+  {
+    title: "Warehouse Fulfillment Orders",
+    description: "Bulk stock: inspect, store, allocate to customer orders, pack, then dispatch.",
+    items: [
+      { name: "Quality Inspection", href: "/warehouse/quality-inspection", icon: ClipboardCheck },
+      { name: "Stock Management", href: "/stock", icon: Package },
+      { name: "Customer Orders", href: "/warehouse/orders", icon: PackageCheck },
+      { name: "Order Packing", href: "/packing", icon: PackageCheck },
+      { name: "Outgoing / Dispatch", href: "/outgoing", icon: ArrowUp },
+    ],
+  },
+  {
+    title: "Warehouse Management",
+    description: "",
+    items: [
+      { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
+      { name: "Transfers", href: "/transfers", icon: ArrowLeftRight },
+      { name: "Analytics", href: "/warehouse/analytics", icon: BarChart },
+      { name: "Payments", href: "/warehouse/payments", icon: CreditCard },
+      { name: "Notifications", href: "/notifications", icon: Bell },
+      { name: "Settings", href: "/warehouse/settings", icon: Settings },
+    ],
+  },
 ];
 
 export function WarehouseSidebar() {
@@ -73,43 +103,40 @@ export function WarehouseSidebar() {
           </div>
         </div>
 
-        <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Work Queue</div>
-        <nav className="space-y-1.5">
-          {navItems.slice(0, 12).map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link key={item.name} href={item.href} className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
-                isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-              )}>
-                <item.icon className="h-4.5 w-4.5" />
-                <span>{item.name}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="my-5 border-t border-slate-200" />
-        <div className="mb-2 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Warehouse Management</div>
-        <nav className="space-y-1.5">
-          {navItems.slice(12).map((item) => {
-            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
-            return (
-              <Link key={item.name} href={item.href} className={cn(
-                "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
-                isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
-              )}>
-                <item.icon className="h-4.5 w-4.5" />
-                <span>{item.name}</span>
-              </Link>
-            );
-          })}
+        <nav aria-label="Warehouse navigation" className="space-y-5">
+          {navSections.map((section) => (
+            <section key={section.title} aria-label={section.title}>
+              <div className="mb-2 px-2">
+                <h2 className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{section.title}</h2>
+                {section.description && <p className="mt-1 px-0 text-[11px] leading-4 text-slate-500">{section.description}</p>}
+              </div>
+              <div className="space-y-1">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
+                        isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
+                      )}
+                    >
+                      <item.icon className="h-4.5 w-4.5 shrink-0" />
+                      <span>{item.name}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
         </nav>
 
         <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-4">
-          <p className="text-sm font-semibold text-slate-800">Need to receive stock?</p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">Start a farm collection, then verify it in Receiving.</p>
-          <Button asChild size="sm" className="mt-3 w-full"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection</Link></Button>
+          <p className="text-sm font-semibold text-slate-800">Not sure what comes next?</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Open the workflow control center to review the order stages and current warehouse queues.</p>
+          <Button asChild size="sm" className="mt-3 w-full"><Link href="/warehouse/workflow"><ClipboardCheck className="mr-2 h-4 w-4" />My Workflow</Link></Button>
         </div>
 
         {lowStock !== null && lowStock > 0 && (
