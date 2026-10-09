@@ -1760,16 +1760,58 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
         }, skip=0, limit=1000)
         # Match identical product/variant allocation rows one-by-one so recovery
         # remains idempotent even if a line occurs more than once on an order.
-        existing_keys = [
-            (str(item.get("productId") or ""), str(item.get("variantId") or ""))
-            for item in existing_incoming
-        ]
+        existing_lines = list(existing_incoming)
         for allocation in allocations:
             product_id = str(allocation.get("productId") or "")
             variant_id = str(allocation.get("variantId") or "")
             key = (product_id, variant_id)
-            if key in existing_keys:
-                existing_keys.remove(key)
+            match_index = next((
+                index for index, item in enumerate(existing_lines)
+                if (str(item.get("productId") or ""), str(item.get("variantId") or "")) == key
+            ), None)
+            if match_index is not None:
+                matched_incoming = existing_lines.pop(match_index)
+                # A legacy scheduled line may exist without today's ready flags.
+                # Restore eligibility only before collection starts; never rewind
+                # a shipment that has been collected or reached the warehouse.
+                not_yet_collected = (
+                    str(matched_incoming.get("status") or "scheduled") == "scheduled"
+                    and not matched_incoming.get("collectedAt")
+                    and not matched_incoming.get("arrivedWarehouseAt")
+                )
+                is_ready = bool(
+                    matched_incoming.get("readyForPickup")
+                    or matched_incoming.get("transferReadyForPickup")
+                    or matched_incoming.get("warehouseTransferReadyForPickup")
+                )
+                if not is_ready and not_yet_collected:
+                    await incoming_stock_repository.update(
+                        {"_id": matched_incoming["_id"]},
+                        {
+                            "readyForPickup": True,
+                            "transferReadyForPickup": True,
+                            "warehouseTransferReadyForPickup": True,
+                            "readyForPickupAt": datetime.utcnow(),
+                            "warehouseTransferReadyAt": datetime.utcnow(),
+                            "packingRequired": False,
+                            "warehousePackingRequired": False,
+                            "updatedAt": datetime.utcnow(),
+                        },
+                    )
+                    matched_incoming = await incoming_stock_repository.get_by_id(str(matched_incoming["_id"])) or matched_incoming
+                if (
+                    matched_incoming
+                    and (
+                        matched_incoming.get("readyForPickup")
+                        or matched_incoming.get("transferReadyForPickup")
+                        or matched_incoming.get("warehouseTransferReadyForPickup")
+                    )
+                ):
+                    await ensure_collection_job(
+                        matched_incoming,
+                        collection_type="packed_orders_transfer",
+                        source_mode="farmer_fulfillment_transfer",
+                    )
                 continue
 
             farmer_ref = order.get("farmerId") or order.get("farmer_id")
