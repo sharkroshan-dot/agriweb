@@ -132,6 +132,10 @@ async function request<T = any>(method: HttpMethod, path: string, options: ApiRe
         response = await fetch(url, {
           method,
           headers,
+          credentials: "include",
+          // Keep the fallback attempt under the same deadline as the first
+          // request; otherwise a network failure can leave a page waiting.
+          signal: controller.signal,
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
         });
       } catch {
