@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowDownToLine,
-  ArrowLeftRight,
   BarChart3,
   Boxes,
   CalendarDays,
