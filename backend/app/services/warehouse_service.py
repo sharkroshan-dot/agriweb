@@ -309,7 +309,7 @@ class WarehouseService:
     @staticmethod
     async def receive_incoming(
         incoming_id: str,
-        quantity: int,
+        quantity: float,
         quality_check: str,
         notes: Optional[str] = None,
         warehouse_id: Optional[str] = None,
@@ -412,16 +412,18 @@ class WarehouseService:
             "warehouseId": ObjectId(warehouse_id),
             "productId": ObjectId(str(incoming["productId"])),
             "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
-            "quantity": int(usable),
-            "reservedQuantity": int(usable) if is_packed_transfer else 0,
+            "quantity": float(usable) if is_packed_transfer else int(usable),
+            "reservedQuantity": float(usable) if is_packed_transfer else 0,
             "batchNumber": incoming.get("batchNumber"),
             "storageType": incoming.get("storageType", "ambient"),
             "holdReason": "farmer_fulfillment_transfer" if is_packed_transfer else None,
         }
         if existing_stock:
-            stock_update = {"quantity": int(existing_stock.get("quantity", 0)) + int(usable)}
+            stock_update = {
+                "quantity": float(existing_stock.get("quantity", 0) or 0) + (float(usable) if is_packed_transfer else int(usable))
+            }
             if is_packed_transfer:
-                stock_update["reservedQuantity"] = int(existing_stock.get("reservedQuantity", 0) or 0) + int(usable)
+                stock_update["reservedQuantity"] = float(existing_stock.get("reservedQuantity", 0) or 0) + float(usable)
             await warehouse_stock_repository.update_stock(str(existing_stock["_id"]), stock_update)
         else:
             if not await warehouse_stock_repository.create_stock(stock_data):
