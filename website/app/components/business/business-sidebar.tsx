@@ -94,7 +94,7 @@ export function BusinessSidebar() {
         <nav className="space-y-4">
           {navGroups.map((group) => (
             <div key={group.label}>
-              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
+              <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{group.label}</p>
               <div className="space-y-1">
                 {group.items.map((item) => {
                   const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
