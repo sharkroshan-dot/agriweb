@@ -23,8 +23,6 @@ const statusColors: Record<string, string> = {
   rejected: "bg-red-500/10 text-red-600 border-red-500/20",
 };
 
-const collectionStatusLabels: Record<string, string> = { ready_for_pickup: "Ready for Pickup", team_assigned: "Team Assigned", en_route: "Team En Route", arrived_at_farm: "Arrived at Farm", collected: "Collected", departed_farm: "Departed Farm", arrived_warehouse: "Arrived Warehouse" };
-
 const statusLabels: Record<string, string> = {
   scheduled: "Scheduled",
   in_transit: "In Transit",
@@ -95,32 +93,6 @@ export default function WarehouseIncomingPage() {
   }, [incomingData, searchTerm]);
 
 
-  const { data: collectionData, refetch: refetchCollections, isError: isCollectionsError, error: collectionsError } = useQuery({
-    queryKey: ["warehouseCollections"],
-    queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
-    refetchInterval: 10000,
-    refetchOnWindowFocus: true,
-  });
-  const collectionList = collectionData?.data?.collections || [];
-  const unassignedTransfers = collectionData?.data?.unassignedTransfers || [];
-
-  const assignCollectionTeam = async (job: any) => {
-    const teamId = window.prompt("Enter collection team ID/name", job.collectionTeamId || "");
-    if (!teamId?.trim()) return;
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/assign`, { teamId: teamId.trim() });
-      toast.success("Collection team assigned");
-      await refetchCollections();
-    } catch (error: any) { toast.error(error?.message || "Failed to assign collection team"); }
-  };
-
-  const advanceCollection = async (job: any, nextStatus: string) => {
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/status`, undefined, { params: { status: nextStatus } });
-      toast.success(collectionStatusLabels[nextStatus] || "Collection updated");
-      await Promise.all([refetchCollections(), refetch()]);
-    } catch (error: any) { toast.error(error?.message || "Failed to update collection"); }
-  };
 
   const updateIncomingForm = (field: keyof typeof incomingForm, value: string) => {
     setIncomingForm((current) => ({ ...current, [field]: value }));
@@ -243,7 +215,7 @@ export default function WarehouseIncomingPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">Manage incoming shipments</p></div></div>
+        <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">Receive shipments after farm collection; inspect and store accepted stock.</p></div></div>
         {[1, 2, 3, 4].map((i) => <div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />)}
       </div>
     );
@@ -254,7 +226,7 @@ export default function WarehouseIncomingPage() {
       <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Incoming is the warehouse receiving stage.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Farm Collection brings the shipment to the warehouse. Staff then Receive → Quality Check → Store. Do not mark a collection as received until the physical shipment has arrived.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => { void Promise.all([refetch(), refetchCollections()]); }}><RefreshCw className="h-4 w-4" /></Button></div>
+        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -265,49 +237,8 @@ export default function WarehouseIncomingPage() {
         </div>
       </div>
 
-      <Card className="border-emerald-100 bg-emerald-50/40">
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="font-semibold text-emerald-950">Farm Collection Queue</h2><p className="text-sm text-emerald-800">Collect both bulk warehouse-fulfillment stock and already-packed long-distance farmer orders. Packed transfer orders are never repacked.</p></div>
-            <div className="flex flex-wrap gap-2"><Badge variant="outline" className="w-fit border-emerald-200 bg-white">{collectionList.length} pickup jobs</Badge>{unassignedTransfers.length > 0 && <Badge variant="outline" className="w-fit border-amber-300 bg-amber-50 text-amber-800">{unassignedTransfers.length} need warehouse allocation</Badge>}</div>
-          </div>
-          {isCollectionsError ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><p className="font-medium text-red-900">Could not load Farm Collection Queue</p><p className="mt-1 text-sm text-red-800">{collectionsError instanceof Error ? collectionsError.message : "Warehouse collection queue request failed. Check that this login is linked to the assigned warehouse and the backend is running."}</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void refetchCollections()}>Retry queue</Button></div> : collectionList.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No farm collection requests are waiting. When a long-distance Farmer Fulfillment route is confirmed, its source warehouse pickup request will appear here automatically.</p> : <div className="mt-4 space-y-3">{collectionList.map((job: any) => {
-            const next = job.status === "team_assigned" ? "en_route" : job.status === "en_route" ? "arrived_at_farm" : job.status === "arrived_at_farm" ? "collected" : job.status === "collected" ? "departed_farm" : job.status === "departed_farm" ? "arrived_warehouse" : null;
-            const typeLabel = job.collectionType === "packed_orders_transfer" ? "Packed customer orders · Long distance" : "Bulk harvest · Warehouse fulfillment";
-            const statusLabel = job.pickupResolutionStatus === "capacity_review" ? "Capacity Review" : collectionStatusLabels[job.status] || job.status;
-            return <div key={job.id} className="rounded-lg border bg-white p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{typeLabel}</span><Badge variant="outline" className={job.pickupResolutionStatus === "capacity_review" ? "border-amber-300 bg-amber-50 text-amber-800" : ""}>{statusLabel}</Badge></div><div className="mt-1 text-sm text-muted-foreground">Quantity: <span className="font-medium text-foreground">{job.quantity || 0} {job.unit || "kg"}</span> · Farmer: {job.farmerName || job.farmerId || "Unknown"}{job.orderNumber || job.orderId ? ` · Order: ${job.orderNumber || job.orderId}` : ""}</div>{Array.isArray(job.productLines) && job.productLines.length > 0 && <p className="mt-1 text-sm text-slate-600">Products: {job.productLines.map((line: any) => `${line.productName} · ${line.quantity} ${line.unit || "kg"}`).join(", ")}</p>}{job.pickupResolutionMessage && <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs leading-5 text-amber-900">{job.pickupResolutionMessage}</p>}{job.status === "scheduled" && !job.pickupResolutionMessage && <p className="mt-2 text-xs text-muted-foreground">This request is scheduled but not yet ready for team assignment.</p>}</div><div className="flex flex-wrap gap-2">{job.status === "ready_for_pickup" && <Button size="sm" onClick={() => assignCollectionTeam(job)}>Assign Collection Team</Button>}{next && <Button size="sm" variant="outline" onClick={() => advanceCollection(job, next)}>{collectionStatusLabels[next]}</Button>}</div></div></div>;
-          })}</div>}
-        </CardContent>
-      </Card>
-
-      {unassignedTransfers.length > 0 && (
-        <Card className="border-amber-200 bg-amber-50/60">
-          <CardContent className="p-5 sm:p-6">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-              <div className="min-w-0 flex-1">
-                <h2 className="font-semibold text-amber-950">Long-distance orders awaiting warehouse allocation</h2>
-                <p className="mt-1 text-sm text-amber-900">These orders were confirmed in the Farmer Order Map, but the system could not create a safe warehouse assignment. They are not Ready for Pickup yet, so a pickup team cannot be assigned until the issue below is resolved.</p>
-              </div>
-            </div>
-            <div className="mt-4 space-y-3">
-              {unassignedTransfers.map((item: any) => (
-                <div key={item.id || item.orderId} className="rounded-lg border border-amber-200 bg-white p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold text-slate-900">Order #{item.orderNumber || item.orderId}</p>
-                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">Assignment Pending</Badge>
-                  </div>
-                  {Array.isArray(item.items) && item.items.length > 0 && <p className="mt-2 text-sm text-slate-700">Products: {item.items.map((line: any) => `${line.productName} · ${line.quantity} ${line.unit || "kg"}`).join(", ")}</p>}
-                  <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm leading-5 text-amber-950">{item.message || "No eligible warehouse could be allocated. Check warehouse active status, configured capacity and the order's packed quantities."}</p>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {incomingList.length === 0 ? (
-        <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Farm collection requests will appear here after the farmer confirms the product is ready."}</p></Card>
+        <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
         <div className="space-y-4">{incomingList.map((item: any) => {
           const productName = item.productName || item.productId || "Incoming product";
