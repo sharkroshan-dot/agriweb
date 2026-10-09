@@ -303,7 +303,7 @@ async def allocate_farmer_fulfillment_warehouses(
             "variantId": vid,
             "productName": allocation.get("productName") or "Product",
             "unit": allocation.get("unit") or "kg",
-            "farmerId": ObjectId(str(order.get("farmerId"))) if order.get("farmerId") else None,
+            "farmerId": ObjectId(str(order.get("farmerId") or order.get("farmer_id"))) if ObjectId.is_valid(str(order.get("farmerId") or order.get("farmer_id") or "")) else None,
             "orderId": order["_id"],
             # Preserve the allocated quantity exactly; farmer-packed orders may
             # contain fractional weights (for example 2.5 kg).
@@ -356,9 +356,22 @@ async def allocate_farmer_fulfillment_warehouses(
     warehouse_by_id = {str(w.get("_id")): w for w in warehouses}
     for warehouse_key, lines in collection_jobs_by_warehouse.items():
         source_warehouse = warehouse_by_id.get(warehouse_key) or {}
-        manager_id = source_warehouse.get("managerId") or source_warehouse.get("manager_id")
+        # Older warehouse records may link the manager through userId rather than managerId.
+        # Route-time notifications should resolve the same account that warehouse login resolves.
+        manager_id = (
+            source_warehouse.get("managerId")
+            or source_warehouse.get("manager_id")
+            or source_warehouse.get("userId")
+            or source_warehouse.get("user_id")
+        )
         if not manager_id or not ObjectId.is_valid(str(manager_id)):
+            import logging
+            logging.getLogger(__name__).warning(
+                "Skipping farmer-fulfillment pickup notification: warehouse manager ID is missing or invalid",
+                extra={"orderId": str(order["_id"]), "warehouseId": warehouse_key},
+            )
             continue
+        manager_id = str(ObjectId(str(manager_id)))
         item_summary = ", ".join(
             f"{line['productName']} {line['quantity']:g} {line['unit']}"
             for line in lines
@@ -379,6 +392,8 @@ async def allocate_farmer_fulfillment_warehouses(
                     "orderId": str(order["_id"]),
                     "orderNumber": order.get("orderNumber"),
                     "warehouseId": warehouse_key,
+                    "url": "/incoming",
+                    "actionUrl": "/incoming",
                     "incomingStockIds": [line["incomingStockId"] for line in lines],
                     "collectionJobIds": [line["collectionJobId"] for line in lines if line["collectionJobId"]],
                     "logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
