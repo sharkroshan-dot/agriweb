@@ -1750,7 +1750,23 @@ async def update_collection_status(collection_id: str, collection_status: str = 
                 )
     elif job.get("orderId"):
         stage_map = {"en_route": "collection_en_route", "arrived_at_farm": "collection_arrived", "collected": "collected", "departed_farm": "collection_departed"}
-        await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, {"warehouseCollectionStatus": collection_status, "warehouseFulfillmentStage": stage_map[collection_status], "updatedAt": datetime.utcnow()})
+        order_update = {
+            "warehouseCollectionStatus": collection_status,
+            "warehouseFulfillmentStage": stage_map[collection_status],
+            "updatedAt": datetime.utcnow(),
+        }
+        if (
+            str(job.get("collectionType") or "") == "packed_orders_transfer"
+            and collection_status in ("collected", "departed_farm")
+        ):
+            # This is the first physical dispatch point for a long-distance
+            # farmer-packed order; choosing a route alone must not mark it sent.
+            order_update.update({
+                "fulfillmentStage": "dispatched",
+                "deliveryDispatchStatus": "in_transit_to_warehouse",
+                "deliveryDispatchAt": datetime.utcnow(),
+            })
+        await order_repository.update({"_id": ObjectId(str(job["orderId"]))}, order_update)
         await order_repository.append_tracking_event(str(job["orderId"]), f"collection_{collection_status}", {"en_route":"Collection team en route","arrived_at_farm":"Collection team arrived at farm","collected":"Product collected from farm","departed_farm":"Collection team departed farm"}[collection_status], "Warehouse collection progress updated.", actor_id=str(current_user["_id"]), actor_role="warehouse")
         updated_order = await order_repository.get_by_id(str(job["orderId"]))
         if updated_order:
