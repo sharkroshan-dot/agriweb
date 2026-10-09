@@ -1,25 +1,29 @@
 "use client";
 
 import NextLink from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useRef, type ComponentProps, type FocusEvent, type MouseEvent } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, type ComponentProps, type FocusEvent, type MouseEvent } from "react";
 
 type Props = ComponentProps<typeof NextLink>;
 
 /**
- * Prefetch a local route as soon as a navigation link is hovered or focused.
- * This warms Next.js route assets before the user clicks without preloading
- * every page (which can overload a large role-based dashboard).
+ * Prefetch a local route on hover/focus, then show immediate navigation
+ * feedback on click while the destination route and its data load.
  */
-export function PrefetchLink({ href, prefetch = true, onMouseEnter, onFocus, ...props }: Props) {
+export function PrefetchLink({ href, prefetch = true, onMouseEnter, onFocus, onClick, ...props }: Props) {
   const router = useRouter();
-  const prefetched = useRef(false);
+  const pathname = usePathname();
+  const prefetched = useRef<string | null>(null);
 
   const warmRoute = useCallback(() => {
-    if (prefetched.current || typeof href !== "string" || !href.startsWith("/")) return;
-    prefetched.current = true;
+    if (typeof href !== "string" || !href.startsWith("/") || prefetched.current === href) return;
+    prefetched.current = href;
     router.prefetch(href);
   }, [href, router]);
+
+  useEffect(() => {
+    if (prefetched.current !== href) prefetched.current = null;
+  }, [href]);
 
   const handleMouseEnter = (event: MouseEvent<HTMLAnchorElement>) => {
     onMouseEnter?.(event);
@@ -31,6 +35,22 @@ export function PrefetchLink({ href, prefetch = true, onMouseEnter, onFocus, ...
     warmRoute();
   };
 
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    onClick?.(event);
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey || event.ctrlKey || event.shiftKey || event.altKey ||
+      (props.target && props.target !== "_self") ||
+      props.download !== undefined
+    ) return;
+
+    if (typeof href === "string" && href.startsWith("/") && href.split(/[?#]/, 1)[0] !== pathname) {
+      window.dispatchEvent(new Event("agri:navigation-start"));
+      warmRoute();
+    }
+  };
+
   return (
     <NextLink
       {...props}
@@ -38,6 +58,7 @@ export function PrefetchLink({ href, prefetch = true, onMouseEnter, onFocus, ...
       prefetch={prefetch}
       onMouseEnter={handleMouseEnter}
       onFocus={handleFocus}
+      onClick={handleClick}
     />
   );
 }
