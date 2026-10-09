@@ -377,7 +377,7 @@ async def allocate_farmer_fulfillment_warehouses(
             for line in lines
         )
         try:
-            await NotificationService.create_in_app_notification(
+            created_notification = await NotificationService.create_in_app_notification(
                 str(manager_id),
                 NotificationType.WAREHOUSE,
                 f"Packed order #{order.get('orderNumber') or str(order['_id'])} ready for pickup",
@@ -401,6 +401,12 @@ async def allocate_farmer_fulfillment_warehouses(
                 priority=NotificationPriority.HIGH,
                 mandatory=True,
             )
+            if not created_notification:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Warehouse pickup notification was not persisted",
+                    extra={"orderId": str(order["_id"]), "warehouseId": warehouse_key, "managerId": manager_id},
+                )
         except Exception:
             # A notification failure must not erase the route or the pickup job.
             import logging
