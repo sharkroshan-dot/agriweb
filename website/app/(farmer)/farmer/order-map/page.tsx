@@ -1352,7 +1352,7 @@ export default function FarmerOrderMapPage() {
           <CardContent>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <SummaryStat label="Self Delivery" value={String(lastPlanResult.selfCount)} tone="emerald" />
-              <SummaryStat label="Auto Processed" value={String(lastPlanResult.automaticCount ?? lastPlanResult.partnerCount)} tone="blue" />
+              <SummaryStat label="Automatic Routes Decided" value={String(lastPlanResult.automaticCount ?? lastPlanResult.partnerCount)} tone="blue" />
               <SummaryStat label="Nearby → Partner" value={String(lastPlanResult.automaticNearbyCount ?? lastPlanResult.nearbyCount)} tone="blue" />
               <SummaryStat label="Long Distance → Warehouse" value={String(lastPlanResult.automaticLongDistanceCount ?? lastPlanResult.longDistanceCount)} tone="violet" />
               <SummaryStat label="Waiting for Resources" value={String(lastPlanResult.pendingResources?.length ?? 0)} tone="orange" />
@@ -1966,7 +1966,7 @@ export default function FarmerOrderMapPage() {
                     </>
                   )}
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    {!isDone(selectedStop) && isPickup(selectedStop) && (
+                    {!isDone(selectedStop) && isPickup(selectedStop) && getStatus(selectedStop) === "ready_for_pickup" && (
                       <Button
                         className="flex-1"
                         onClick={() => {
@@ -1976,6 +1976,11 @@ export default function FarmerOrderMapPage() {
                         <CheckCircle className="mr-1.5 h-4 w-4" />
                         Open Pickup Verification
                       </Button>
+                    )}
+                    {!isDone(selectedStop) && isPickup(selectedStop) && getStatus(selectedStop) !== "ready_for_pickup" && (
+                      <p className="flex-1 rounded-lg border border-sky-100 bg-sky-50 p-3 text-xs text-sky-800">
+                        Pickup verification becomes available after packing is complete and the order status is Ready for Pickup. Current status: {getStatus(selectedStop).replace(/_/g, " ") || "unknown"}.
+                      </p>
                     )}
                     {!isDone(selectedStop) && !isPickup(selectedStop) && (
                       <p className="flex-1 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
