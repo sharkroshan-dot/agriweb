@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { WarehouseSidebar } from "../components/warehouse/warehouse-sidebar";
 import { Footer } from "../components/common/footer";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
+import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 import { AppPresence } from "../components/chat/app-presence";
 
 export default function WarehouseLayout({
@@ -36,6 +37,7 @@ export default function WarehouseLayout({
   return (
     <div className="flex min-h-screen flex-col">
       <AppPresence />
+      <RoleMobileNav role="warehouse" />
       <div className="flex flex-1 bg-transparent">
         <WarehouseSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
