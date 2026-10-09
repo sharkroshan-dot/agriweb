@@ -3315,7 +3315,12 @@ async def create_self_delivery_plan(
                 "distanceKm": round(distance_km, 2) if distance_km is not None else None,
                 "route": partner_route,
                 "deliveryJob": job,
-                "deliveryDecisionStatus": "partner_pending" if partner_route == "nearby" else "warehouse_transfer_pending",
+                "deliveryDecisionStatus": (
+                    "hub_handoff_pending" if resource_pending and partner_route == "nearby"
+                    else "warehouse_transfer_pending" if resource_pending and partner_route == "long_distance"
+                    else "partner_pending" if partner_route == "nearby"
+                    else "warehouse_transfer_pending"
+                ),
                 **(route_result or {}),
             })
             _notify_delivery_map(
