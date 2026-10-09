@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Clock, ExternalLink, X } from "lucide-react";
 import { api } from "../../lib/api/client";
+import toast from "react-hot-toast";
 import { resolveBackendUrl } from "../../lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Separator } from "../ui/separator";
@@ -96,6 +97,19 @@ export function NotificationBell() {
 
   const unreadCount = (countData as any)?.data?.count ?? 0;
   const notifications: any[] = (listData as any)?.data?.notifications ?? [];
+  const previousUnreadCount = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!countData) return;
+    if (previousUnreadCount.current === null) {
+      previousUnreadCount.current = unreadCount;
+      return;
+    }
+    if (isWarehouseUser && unreadCount > previousUnreadCount.current) {
+      toast.success("New warehouse notification received. Open the bell to view it.");
+    }
+    previousUnreadCount.current = unreadCount;
+  }, [countData, unreadCount, isWarehouseUser]);
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
