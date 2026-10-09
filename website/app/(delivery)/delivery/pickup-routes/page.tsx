@@ -10,6 +10,27 @@ import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 import { useState } from "react";
 
+const routeStatusLabel = (value: string) => ({
+  offered: "Waiting for partner",
+  assigned: "Assigned to you",
+  started: "Pickup in progress",
+  departed_farm: "All farms departed",
+  completed: "Route completed",
+  returned_to_warehouse: "Returned to warehouse",
+} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const stopStatusLabel = (value: string) => ({
+  pending: "Waiting for pickup",
+  ready_for_pickup: "Ready for pickup",
+  team_assigned: "Assigned to pickup partner",
+  en_route: "On the way to farm",
+  started: "Pickup started",
+  arrived_at_farm: "Arrived at farm",
+  collected: "Collected",
+  departed_farm: "Departed farm",
+  arrived_warehouse: "At warehouse",
+} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 export default function DeliveryPickupRoutesPage() {
   const offersQ = useQuery({
     queryKey: ["myPickupOffers"],
@@ -115,8 +136,10 @@ export default function DeliveryPickupRoutesPage() {
                     <div key={stop.collectionId || i} className="flex items-center gap-3 rounded-lg bg-slate-50 p-3">
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">{i + 1}</span>
                       <div>
-                        <p className="text-sm font-medium">{stop.farmerName || "Farm"}</p>
-                        <p className="text-xs text-muted-foreground">{stop.productName || "Farm Product"} · {stop.quantity || 0} kg</p>
+                        <p className="text-sm font-medium">{stop.farmerName || "Farmer details unavailable"}</p>
+                        <p className="text-xs text-muted-foreground">{stop.productName || "Product details unavailable"} · {stop.quantity || 0} kg</p>
+                        {stop.orderNumber && <p className="mt-1 text-xs text-muted-foreground">{stop.orderNumber === "Order reference unavailable" ? stop.orderNumber : `Order ${stop.orderNumber}`}</p>}
+                        <p className="mt-1 text-xs text-muted-foreground">{stop.pickupAddress || "Farm address not provided"}</p>
                       </div>
                     </div>
                   ))}
@@ -208,8 +231,11 @@ export default function DeliveryPickupRoutesPage() {
                       <div key={s.collectionId} className="flex items-center gap-3 rounded-lg bg-slate-50 p-3">
                         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</span>
                         <div>
-                          <p className="text-sm font-medium">{s.farmerName}</p>
-                          <p className="text-xs text-muted-foreground">{s.productName} · {s.quantity} kg</p>
+                          <p className="text-sm font-medium">{s.farmerName || "Farmer details unavailable"}</p>
+                          <p className="text-xs text-muted-foreground">{s.productName || "Product details unavailable"} · Expected {s.quantity || 0} kg</p>
+                          {s.orderNumber && <p className="mt-1 text-xs text-muted-foreground">{s.orderNumber === "Order reference unavailable" ? s.orderNumber : `Order ${s.orderNumber}`}</p>}
+                          {s.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {s.batchNumber}</p>}
+                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
                         </div>
                       </div>
                     ))}
@@ -235,10 +261,11 @@ export default function DeliveryPickupRoutesPage() {
             <CardHeader className="border-b bg-slate-50/70">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <CardTitle>🚚 {r.routeNumber}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">{r.totalStops} farms · {r.totalQuantity || 0} kg</p>
+                  <CardTitle>🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">{r.totalStops || 0} farm stops · {r.totalQuantity || 0} kg</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Destination: {r.warehouseName || "Assigned warehouse"}</p>
                 </div>
-                <Badge><CheckCircle2 className="mr-1 h-3 w-3" /> {String(r.status).replace(/_/g, " ")}</Badge>
+                <Badge><CheckCircle2 className="mr-1 h-3 w-3" /> {routeStatusLabel(String(r.status || "assigned"))}</Badge>
               </div>
             </CardHeader>
             <CardContent className="p-5">
@@ -248,21 +275,24 @@ export default function DeliveryPickupRoutesPage() {
               {r.status === "assigned" && <Button className="mb-5" onClick={() => act(r, "started")}><Navigation className="mr-2 h-4 w-4" /> Start Pickup Route</Button>}
               <div className="space-y-3">
                 {(r.stops || []).map((s: any, i: number) => {
-                  const active = ["pending", "started", "en_route", "arrived_at_farm", "collected"].includes(String(s.status || "pending"));
+                  const active = ["pending", "started", "team_assigned", "ready_for_pickup", "en_route", "arrived_at_farm", "collected"].includes(String(s.status || "pending"));
                   return (
                     <div key={s.collectionId} className="rounded-xl border p-4">
                       <div className="flex gap-3">
                         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700">{i + 1}</div>
                         <div className="min-w-0 flex-1">
-                          <p className="font-semibold">{s.farmerName}</p>
-                          <p className="text-sm text-muted-foreground">{s.productName} · Expected {s.quantity} kg</p>
-                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> Farm pickup location</p>
+                          <p className="font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
+                          <p className="text-sm text-muted-foreground">{s.productName || "Product details unavailable"} · Expected {s.quantity || 0} kg</p>
+                          {s.orderNumber && <p className="mt-1 text-xs text-muted-foreground">{s.orderNumber === "Order reference unavailable" ? s.orderNumber : `Order ${s.orderNumber}`}</p>}
+                          {s.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {s.batchNumber}</p>}
+                          {s.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {s.actualQuantity} kg</p>}
+                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
                         </div>
-                        <Badge variant="outline">{String(s.status || "pending").replace(/_/g, " ")}</Badge>
+                        <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
                       </div>
                       {r.status !== "assigned" && active && (
                         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                          {s.status === "pending" && <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>Arrived at Farm</Button>}
+                          {["pending", "started", "team_assigned", "ready_for_pickup", "en_route"].includes(String(s.status || "")) && <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>Arrived at Farm</Button>}
                           {s.status === "arrived_at_farm" && <><Input className="sm:w-40" type="number" min="0.01" step="0.01" placeholder="Actual kg *" value={actual[s.collectionId] || ""} onChange={e => setActual({ ...actual, [s.collectionId]: e.target.value })} aria-label={`Actual quantity collected from ${s.farmerName || "farm"} in kg`} /><Button disabled={!actual[s.collectionId] || !Number.isFinite(Number(actual[s.collectionId])) || Number(actual[s.collectionId]) <= 0} onClick={() => act(r, "collected", s.collectionId)}><CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Collection</Button></>}
                           {s.status === "collected" && <Button onClick={() => act(r, "departed_farm", s.collectionId)}>Depart Farm</Button>}
                         </div>
