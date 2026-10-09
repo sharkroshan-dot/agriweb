@@ -317,7 +317,11 @@ export default function WarehouseCollectionsPage() {
                     <div className="flex flex-col gap-2 sm:flex-row">
                       {!job.pickupRouteId && ["ready_for_pickup", "team_assigned"].includes(job.status) && <Button onClick={() => window.location.href="/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
                       {!job.pickupRouteId && ["ready_for_pickup", "team_assigned"].includes(job.status) && <Button variant="outline" onClick={() => assignCollectionTeam(job)}><User className="mr-2 h-4 w-4" />{job.status === "team_assigned" ? "Change Collection Team" : "Assign Collection Team"}</Button>}
-                      {NEXT[job.status] && <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
+                      {job.pickupRouteId ? (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 sm:max-w-[380px]">
+                          Tracking is read-only here. The assigned pickup partner updates En Route, At Farm, Collected, Departed and At Warehouse from Pickup Routes.
+                        </div>
+                      ) : NEXT[job.status] ? <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button> : null}
                     </div>
                   </div>
                 </CardContent>
