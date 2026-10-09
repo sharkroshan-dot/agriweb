@@ -1754,7 +1754,7 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
             continue
         existing_incoming = await incoming_stock_repository.find_many({
             "orderId": order_id,
-            "warehouseId": warehouse_oid,
+            "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
             "sourceMode": "farmer_fulfillment_transfer",
             "deletedAt": None,
         }, skip=0, limit=1000)
@@ -1823,7 +1823,7 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     # no collection-queue row. This keeps the warehouse queue resilient if a
     # previous route attempt partially completed.
     pending_packed_incoming = await incoming_stock_repository.find_many({
-        "warehouseId": warehouse_oid,
+        "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
         "sourceMode": "farmer_fulfillment_transfer",
         "readyForPickup": True,
         "deletedAt": None,
