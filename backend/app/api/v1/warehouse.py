@@ -1895,6 +1895,15 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
             # Other recovery paths below repair these rows without reallocating
             # any shipment that may already have physical progress.
             continue
+        in_transit_leg = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find_one({
+            "orderId": pending_order_id,
+            "status": "in_transit",
+            "deletedAt": None,
+        })
+        if in_transit_leg:
+            # Never rebuild allocation metadata around a transfer that may
+            # already be physically moving between warehouses.
+            continue
 
         origin = (
             pending_order.get("farmLocation")
