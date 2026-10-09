@@ -25,7 +25,7 @@ const navSections = [
   {
     title: "Shared Pickup & Receiving",
     items: [
-      { name: "Pickup Partners", href: "/warehouse/pickup-team", icon: Users },
+      { name: "Pickup Partners", href: "/pickup-team", icon: Users },
       { name: "Farm Collection", href: "/collections", icon: Truck },
       { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
     ],
