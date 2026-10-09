@@ -667,25 +667,27 @@ export default function FarmerOrderMapPage() {
     setSelectedStopId(null);
   };
 
-  // Farmer Self Delivery is an explicit choice for ONE order only.
-  // Once an order is selected, every other packed order remains automatic,
-  // even when it is inside the same radius/route.
+  // Selection is always explicit. Radius/Route only filters the list; the
+  // farmer may choose any number of eligible orders for self-delivery.
   const toggleSelectedOrder = (orderId: string) => {
-    setSelectedRouteIds((current) => {
-      if (current.includes(orderId)) return [];
-      if (current.length > 0) {
-        toast("Only one order can be selected for Farmer Self Delivery. All other orders will be processed automatically.", { icon: "⚡" });
-        return current;
-      }
-      return [orderId];
-    });
+    setSelectedRouteIds((current) =>
+      current.includes(orderId)
+        ? current.filter((id) => id !== orderId)
+        : [...current, orderId]
+    );
   };
 
   const selectVisibleOrdersForSelfDelivery = () => {
-    const first = mapOrders.find((stop) => !isDone(stop) && stop?.assignment === "unassigned");
-    if (!first) return;
-    toggleSelectedOrder(getStopId(first));
-    toast.success("One order selected for Farmer Self Delivery. All other orders will be automatic.");
+    const visibleIds = mapOrders
+      .filter((stop) => !isDone(stop) && !isPickup(stop) && stop?.assignment === "unassigned")
+      .map((stop) => getStopId(stop))
+      .filter(Boolean);
+    if (!visibleIds.length) {
+      toast("There are no eligible visible delivery orders to select.", { icon: "ℹ️" });
+      return;
+    }
+    setSelectedRouteIds((current) => Array.from(new Set([...current, ...visibleIds])));
+    toast.success(visibleIds.length + " visible order" + (visibleIds.length === 1 ? "" : "s") + " explicitly selected for Farmer Self Delivery.");
   };
 
   const toggleRouteOrder = toggleSelectedOrder;
@@ -828,18 +830,31 @@ export default function FarmerOrderMapPage() {
       const automaticOrderIds = asArray(result.automaticOrderIds).map((id) => String(id)).filter(Boolean);
       const automaticNearbyOrderIds = asArray(result.automaticNearbyOrderIds).map((id) => String(id)).filter(Boolean);
       const automaticLongDistanceOrderIds = asArray(result.automaticLongDistanceOrderIds).map((id) => String(id)).filter(Boolean);
+      const skipped = asArray(result.skipped);
+      const pendingResources = asArray(result.pendingResources);
       setConfirmedOrderIds(confirmedIds);
       setLastPlanResult({
         selfCount,
         partnerCount,
         nearbyCount,
         longDistanceCount,
-        automaticCount: automaticOrderIds.length || partnerCount,
-        automaticNearbyCount: automaticNearbyOrderIds.length || nearbyCount,
-        automaticLongDistanceCount: automaticLongDistanceOrderIds.length || longDistanceCount,
-        skipped: result.skipped || [],
+        automaticCount: automaticOrderIds.length,
+        automaticNearbyCount: automaticNearbyOrderIds.length,
+        automaticLongDistanceCount: automaticLongDistanceOrderIds.length,
+        skipped,
+        pendingResources,
       });
-      toast.success(`Delivery plan confirmed: ${selfCount} self · ${nearbyCount} nearby partner · ${longDistanceCount} warehouse route`);
+      if (skipped.length || pendingResources.length) {
+        toast(
+          "Plan partially completed: " + selfCount + " self-delivery, " + partnerCount +
+          " automatically routed, " + skipped.length + " need review, " +
+          pendingResources.length + " waiting for logistics resources.",
+          { icon: "⚠️", duration: 7000 }
+        );
+      } else {
+        toast.success("Delivery plan confirmed: " + selfCount + " self · " + nearbyCount +
+          " nearby partner · " + longDistanceCount + " warehouse route");
+      }
       setSelectedRouteIds([]);
       refreshAll();
     },
@@ -847,11 +862,11 @@ export default function FarmerOrderMapPage() {
   });
 
   const deliverSelected = () => {
-    // Confirming the plan is the single delivery decision point. The farmer
-    // must select exactly one order for self delivery; every unselected
-    // eligible packed order is automatically routed by distance.
-    if (selectedRouteIds.length !== 1) {
-      toast.error("Select exactly one order for Farmer Self Delivery before confirming.");
+    // Confirming the plan is the single delivery decision point. Every
+    // selected order goes to self-delivery; all other eligible orders are
+    // automatically classified by distance.
+    if (!selectedRouteIds.length) {
+      toast.error("Select at least one order for Farmer Self Delivery before confirming.");
       return;
     }
     deliverSelectedMutation.mutate();
@@ -1317,10 +1332,10 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant={mapFilterMode === "all" ? "default" : "outline"} onClick={showAllMapOrders}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> All Orders
                   </Button>
-                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!withinUnassigned.length || selectedRouteIds.length > 0}>
-                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select One Visible
+                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!mapOrders.some((stop) => !isPickup(stop) && !isDone(stop) && stop?.assignment === "unassigned")}>
+                    <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Visible Orders
                   </Button>
-                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length !== 1}>
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length === 0}>
                     {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserCheck className="mr-1.5 h-3.5 w-3.5" />}
                     Confirm Selection
                   </Button>
@@ -1335,7 +1350,7 @@ export default function FarmerOrderMapPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base text-emerald-900">Delivery Plan Confirmed</CardTitle>
             <CardDescription className="text-emerald-800">
-              The selected orders were assigned to Farmer Self Delivery. Every remaining packed order was automatically processed through the distance decision and delivery-partner workflow.
+              Selected orders were assigned to Farmer Self Delivery. Every other eligible packed delivery order was evaluated for automatic distance routing; review any pending or skipped orders below.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -1344,11 +1359,22 @@ export default function FarmerOrderMapPage() {
               <SummaryStat label="Auto Processed" value={String(lastPlanResult.automaticCount ?? lastPlanResult.partnerCount)} tone="blue" />
               <SummaryStat label="Nearby → Partner" value={String(lastPlanResult.automaticNearbyCount ?? lastPlanResult.nearbyCount)} tone="blue" />
               <SummaryStat label="Long Distance → Warehouse" value={String(lastPlanResult.automaticLongDistanceCount ?? lastPlanResult.longDistanceCount)} tone="violet" />
+              <SummaryStat label="Waiting for Resources" value={String(lastPlanResult.pendingResources?.length ?? 0)} tone="orange" />
             </div>
-            {lastPlanResult.skipped?.length > 0 && (
-              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                {lastPlanResult.skipped.length} order{lastPlanResult.skipped.length === 1 ? "" : "s"} could not be routed automatically. Review the order location or logistics resources and retry.
+            {lastPlanResult.pendingResources?.length > 0 && (
+              <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900">
+                {lastPlanResult.pendingResources.length} order{lastPlanResult.pendingResources.length === 1 ? " is" : "s are"} classified for partner delivery, but a required warehouse/local hub is not available yet. These orders are pending handoff, not ready for final delivery.
               </p>
+            )}
+            {lastPlanResult.skipped?.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <p className="font-semibold">{lastPlanResult.skipped.length} order action{lastPlanResult.skipped.length === 1 ? "" : "s"} need attention.</p>
+                <ul className="mt-1 list-disc pl-4">
+                  {lastPlanResult.skipped.slice(0, 8).map((item: any) => (
+                    <li key={String(item.orderId)}>{String(item.orderNumber || item.orderId || "Order")}: {String(item.reason || "Could not complete automatically")}</li>
+                  ))}
+                </ul>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -1485,10 +1511,14 @@ export default function FarmerOrderMapPage() {
           <div className="flex flex-wrap gap-2">
             {routeMatches.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => {
-                const first = routeMatches[0];
-                if (first) toggleSelectedOrder(getStopId(first));
-              }} disabled={selectedRouteIds.length > 0}>
-                Select One Route Order
+                const ids = routeMatches
+                  .filter((stop) => !isPickup(stop) && !isDone(stop) && stop?.assignment === "unassigned")
+                  .map((stop) => getStopId(stop))
+                  .filter(Boolean);
+                setSelectedRouteIds((current) => Array.from(new Set([...current, ...ids])));
+                if (ids.length) toast.success(ids.length + " orders along this route explicitly selected for self-delivery.");
+              }}>
+                Select Route Orders
               </Button>
             )}
             <Button size="sm" variant="ghost" onClick={() => setSelectedRouteIds([])} disabled={!selectedRouteIds.length}>
@@ -1502,7 +1532,7 @@ export default function FarmerOrderMapPage() {
               <Navigation className="mr-1.5 h-4 w-4" />
               Preview Route
             </Button>
-            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length !== 1 || !routeDestination}>
+            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length === 0 || !routeDestination}>
               {deliverSelectedMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <UserCheck className="mr-1.5 h-4 w-4" />}
               Confirm Selection
             </Button>
@@ -1638,7 +1668,7 @@ export default function FarmerOrderMapPage() {
                     type="button"
                     onClick={() => {
                       setSelectedStopId(id);
-                      if (!selectedRouteIds.length || selectedRouteIds.includes(id)) toggleRouteOrder(id);
+                      if (!isPickup(stop) && !isDone(stop)) toggleRouteOrder(id);
                     }}
                     className={`rounded-lg border p-3 text-left transition ${checked ? "border-blue-500 bg-blue-50" : "bg-white hover:bg-slate-50"}`}
                   >
@@ -1799,7 +1829,7 @@ export default function FarmerOrderMapPage() {
                         type="button"
                         onClick={() => {
                           setSelectedStopId(orderId);
-                          if (!selectedRouteIds.length || selectedRouteIds.includes(orderId)) toggleSelectedOrder(orderId);
+                          if (!isPickup(order) && !isDone(order)) toggleSelectedOrder(orderId);
                         }}
                         className={`w-full rounded-xl border p-3 text-left transition ${
                           checked ? "border-emerald-500 bg-emerald-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
@@ -1832,14 +1862,17 @@ export default function FarmerOrderMapPage() {
                     </span>
                     <span className="text-slate-500">1 route stop</span>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">Only the selected order is Farmer Self Delivery. All other orders at this location are automatic.</p>
+                  <p className="mt-1 text-[11px] text-slate-500">Every explicitly selected eligible delivery order is self-delivery. Unselected orders are automatic.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-t pt-3">
-                  <Button size="sm" variant="outline" disabled={selectedRouteIds.length > 0} onClick={() => {
-                    const first = selectedLocationGroup.orders[0];
-                    if (first) toggleSelectedOrder(getStopId(first));
-                  }}>Select One Order</Button>
+                  <Button size="sm" variant="outline" onClick={() => {
+                    const ids = selectedLocationGroup.orders
+                      .filter((order) => !isPickup(order) && !isDone(order))
+                      .map((order) => getStopId(order))
+                      .filter(Boolean);
+                    setSelectedRouteIds((current) => Array.from(new Set([...current, ...ids])));
+                  }}>Select Eligible Orders Here</Button>
                   <Button size="sm" variant="ghost" onClick={() => {
                     const ids = selectedLocationGroup.orders.map((order) => getStopId(order)).filter(Boolean);
                     setSelectedRouteIds((current) => current.filter((id) => !ids.includes(id)));
@@ -1865,7 +1898,7 @@ export default function FarmerOrderMapPage() {
           <Card className="xl:sticky xl:top-4 border-slate-200 shadow-sm">
             <CardHeader className="border-b bg-white py-4">
               <CardTitle className="text-base">Order Details</CardTitle>
-              <CardDescription>Review the order. Select this order for Farmer Self Delivery; every other order is automatic.</CardDescription>
+              <CardDescription>Review the order. Explicitly select eligible delivery orders for self-delivery; the rest are processed automatically.</CardDescription>
             </CardHeader>
             <CardContent>
               {!selectedStop ? (
@@ -1912,15 +1945,13 @@ export default function FarmerOrderMapPage() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <p className="text-xs font-semibold text-blue-900">Delivery selection</p>
-                            <p className="text-[11px] text-blue-700">Select this packed order only if you will deliver it yourself.</p>
+                            <p className="text-[11px] text-blue-700">Select this packed delivery order if you will deliver it yourself.</p>
                           </div>
                           <Button
                             size="sm"
                             variant={selectedRouteIds.includes(getStopId(selectedStop)) ? "default" : "outline"}
-                            onClick={() => {
-                              const id = getStopId(selectedStop);
-                              if (!selectedRouteIds.length || selectedRouteIds.includes(id)) toggleSelectedOrder(id);
-                            }}
+                            disabled={isPickup(selectedStop) || isDone(selectedStop)}
+                            onClick={() => toggleSelectedOrder(getStopId(selectedStop))}
                           >
                             {selectedRouteIds.includes(getStopId(selectedStop)) ? "Selected for Self Delivery" : "Select for Self Delivery"}
                           </Button>
@@ -1929,8 +1960,7 @@ export default function FarmerOrderMapPage() {
                       <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
                         <p className="text-xs font-semibold text-emerald-900">Delivery workflow</p>
                         <p className="mt-1 text-[11px] leading-5 text-emerald-800">
-                          If you select this order, it will go through Farmer Self Delivery after you confirm the selection.
-                          Orders you do not select are automatically processed by distance and sent through the Nearby or Long Distance delivery-partner workflow.
+                          Every selected order goes through Farmer Self Delivery after confirmation. Every eligible delivery order you do not select is automatically classified by distance and sent through the Nearby or Long Distance partner workflow, even when it appears inside the current filter.
                         </p>
                       </div>
                     </>
@@ -1985,14 +2015,14 @@ export default function FarmerOrderMapPage() {
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold text-emerald-800">
-                      Select One Order for Self Delivery
+                      Select Orders for Self Delivery
                     </p>
                     <Badge variant="success">
                       {deliveryInsideOrders.filter((stop) => selectedRouteIds.includes(getStopId(stop))).length} selected
                     </Badge>
                   </div>
                   <p className="mt-1 text-xs text-emerald-700">
-                    Select at most one order for Farmer Self Delivery. Every other packed order is automatically processed, even if it is within the same radius or route.
+                    Select any eligible customer-delivery orders you will deliver yourself. Filters never assign orders. Every unselected eligible order is processed automatically, including orders inside this radius or route.
                   </p>
                 </div>
                 <div className="space-y-3">
