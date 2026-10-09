@@ -1722,6 +1722,103 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     warehouse_id = str(warehouse["_id"])
     warehouse_oid = ObjectId(warehouse_id)
 
+    # Rebuild missing packed-transfer incoming rows from persisted warehouse
+    # allocations. This repairs route attempts that saved allocation metadata
+    # but stopped before creating every incoming-stock record.
+    try:
+        assigned_orders = await order_repository.find_many({
+            "$or": [
+                {"warehouseAllocations.warehouseId": warehouse_oid},
+                {"warehouseAllocations.warehouseId": warehouse_id},
+            ],
+            "logisticsMode": {"$in": [
+                "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+            ]},
+            "deletedAt": None,
+            "orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]},
+        }, skip=0, limit=500, sort=[("orderDate", -1), ("createdAt", -1)])
+    except Exception:
+        logger.exception("Failed to inspect warehouse allocations for pickup-queue repair", extra={"warehouseId": warehouse_id})
+        assigned_orders = []
+
+    for order in assigned_orders:
+        order_id = order.get("_id")
+        if not order_id:
+            continue
+        allocations = [
+            item for item in (order.get("warehouseAllocations") or [])
+            if str(item.get("warehouseId") or "") == warehouse_id
+        ]
+        if not allocations:
+            continue
+        existing_incoming = await incoming_stock_repository.find_many({
+            "orderId": order_id,
+            "warehouseId": warehouse_oid,
+            "sourceMode": "farmer_fulfillment_transfer",
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        # Match identical product/variant allocation rows one-by-one so recovery
+        # remains idempotent even if a line occurs more than once on an order.
+        existing_keys = [
+            (str(item.get("productId") or ""), str(item.get("variantId") or ""))
+            for item in existing_incoming
+        ]
+        for allocation in allocations:
+            product_id = str(allocation.get("productId") or "")
+            variant_id = str(allocation.get("variantId") or "")
+            key = (product_id, variant_id)
+            if key in existing_keys:
+                existing_keys.remove(key)
+                continue
+
+            farmer_ref = order.get("farmerId") or order.get("farmer_id")
+            product_oid = ObjectId(product_id) if ObjectId.is_valid(product_id) else allocation.get("productId")
+            variant_oid = ObjectId(variant_id) if ObjectId.is_valid(variant_id) else None
+            incoming_doc = {
+                "warehouseId": warehouse_oid,
+                "productId": product_oid,
+                "variantId": variant_oid,
+                "productName": allocation.get("productName") or "Product",
+                "unit": allocation.get("unit") or "kg",
+                "farmerId": ObjectId(str(farmer_ref)) if ObjectId.is_valid(str(farmer_ref or "")) else None,
+                "orderId": order_id,
+                "quantity": float(allocation.get("quantity") or 0),
+                "quantityReceived": 0,
+                "usableQuantity": 0,
+                "qualityCheck": "pending",
+                "warehouseTransferType": "packed_order_transfer",
+                "packingRequired": False,
+                "warehousePackingRequired": False,
+                "transferReadyForPickup": True,
+                "warehouseTransferReadyForPickup": True,
+                "warehouseTransferReadyAt": datetime.utcnow(),
+                "readyForPickup": True,
+                "readyForPickupAt": datetime.utcnow(),
+                "pickupLocation": order.get("farmLocation") or order.get("originLocation") or order.get("pickupLocation") or {},
+                "farmLocation": order.get("farmLocation") or order.get("originLocation") or {},
+                "status": "scheduled",
+                "sourceMode": "farmer_fulfillment_transfer",
+                "consolidationId": order.get("consolidationId"),
+                "consolidationWarehouseId": order.get("consolidationWarehouseId"),
+                "batchNumber": allocation.get("batchNumber"),
+                "deletedAt": None,
+            }
+            try:
+                incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
+                repaired_incoming = await incoming_stock_repository.get_by_id(str(incoming_id)) if incoming_id else None
+                if repaired_incoming:
+                    await ensure_collection_job(
+                        repaired_incoming,
+                        collection_type="packed_orders_transfer",
+                        source_mode="farmer_fulfillment_transfer",
+                    )
+            except Exception:
+                logger.exception(
+                    "Failed to rebuild incoming packed transfer from persisted allocation",
+                    extra={"orderId": str(order_id), "warehouseId": warehouse_id, "productId": product_id},
+                )
+
     # Repair older packed-transfer records that have an incoming-stock row but
     # no collection-queue row. This keeps the warehouse queue resilient if a
     # previous route attempt partially completed.
