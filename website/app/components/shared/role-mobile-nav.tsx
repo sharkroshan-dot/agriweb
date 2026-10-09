@@ -6,6 +6,7 @@ import type { ComponentType } from "react";
 import {
   ArrowDownToLine,
   ArrowLeftRight,
+  Bell,
   BarChart3,
   Boxes,
   CalendarDays,
@@ -41,9 +42,11 @@ const navigation: Record<Role, Item[]> = {
     { label: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
     { label: "Incoming", href: "/incoming", icon: ArrowDownToLine },
     { label: "Collections", href: "/collections", icon: Truck },
+    { label: "Farmer Fulfillment", href: "/warehouse/farmer-fulfillment", icon: Route },
     { label: "Stock", href: "/stock", icon: Boxes },
     { label: "Packing", href: "/packing", icon: Package },
     { label: "Transfers", href: "/transfers", icon: ArrowLeftRight },
+    { label: "Notifications", href: "/notifications", icon: Bell },
   ],
   delivery: [
     { label: "Dashboard", href: "/delivery/dashboard", icon: LayoutDashboard },
