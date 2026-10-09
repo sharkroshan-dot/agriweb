@@ -26,14 +26,14 @@ class WarehouseCollectionRepository(BaseRepository):
             return None
 
     async def get_by_warehouse(self, warehouse_id: str, status: Optional[str] = None, limit: int = 500) -> List[Dict[str, Any]]:
-        query = {"warehouseId": ObjectId(warehouse_id), "deletedAt": None}
+        query = {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}, "deletedAt": None}
         if status and status != "all":
             query["status"] = status
         return await self.find_many(query, skip=0, limit=limit, sort=[("createdAt", 1)])
 
     async def get_by_incoming(self, incoming_id: str) -> Optional[Dict[str, Any]]:
         try:
-            return await self.find_one({"incomingStockId": ObjectId(incoming_id), "deletedAt": None})
+            return await self.find_one({"incomingStockId": {"$in": [ObjectId(incoming_id), incoming_id]}, "deletedAt": None})
         except Exception:
             return None
 
