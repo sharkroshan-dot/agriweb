@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import {
