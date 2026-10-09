@@ -27,6 +27,8 @@ const labels: Record<string,string> = {
   consolidated:"Consolidated — Send to Local Hub",
   hub_handoff_pending:"In Transit to Local Hub",
   local_hub_ready:"Local Hub Received — Delivery Partner Ready",
+  source_portion_in_transit:"Warehouse Portion In Transit",
+  source_portion_received_at_consolidation:"Portion Received at Consolidation",
 };
 
 export default function FarmerFulfillmentTransfersPage() {
