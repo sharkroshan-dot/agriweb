@@ -443,7 +443,7 @@ export default function FarmerRoutePage() {
     if (stop.deliveryType !== "pickup") {
       const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer.");
       if (!otp) return;
-      if (!/^\\d{6}$/.test(otp.trim())) {
+      if (!/^\d{6}$/.test(otp.trim())) {
         toast.error("Enter the customer's 6-digit delivery OTP.");
         return;
       }
