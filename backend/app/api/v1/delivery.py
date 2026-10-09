@@ -2655,60 +2655,195 @@ async def update_my_pickup_route_status(
     notes: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
+    """Pickup partner is the source of truth for route and farm-stop progress."""
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can update pickup routes")
+
     profile = await _get_or_create_partner(str(current_user["_id"]))
+    partner_id = str(profile["_id"])
     route = await warehouse_pickup_route_repository.get_by_id(route_id)
-    if not route or str(route.get("deliveryPartnerId")) != str(profile["_id"]):
+    if not route or str(route.get("deliveryPartnerId")) != partner_id:
         raise HTTPException(status_code=404, detail="Pickup route not found")
-    allowed = {
-        "assigned": {"started"},
-        "started": {"arrived_at_farm"},
-        "arrived_at_farm": {"collected"},
-        "collected": {"departed_farm"},
-        "departed_farm": {"arrived_at_farm", "completed"},
-        "completed": {"returned_to_warehouse"},
-    }
-    current = str(route.get("status") or "assigned")
-    if route_status not in allowed.get(current, set()):
-        raise HTTPException(status_code=400, detail=f"Invalid route transition: {current} -> {route_status}")
-    if route_status == "completed":
-        stops = route.get("stops") or []
-        if not stops or any(str(s.get("status")) != "departed_farm" for s in stops):
-            raise HTTPException(status_code=400, detail="Complete the collection at every farm before completing the route")
-    update = {"status": route_status}
-    if route_status == "started":
-        update["startedAt"] = datetime.utcnow()
-    if route_status == "completed":
-        update["completedAt"] = datetime.utcnow()
-    if route_status == "returned_to_warehouse":
-        update["returnedAt"] = datetime.utcnow()
-        # The physical return creates warehouse Incoming Stock records. The
-        # warehouse must explicitly Receive -> Quality Check -> Store.
-    if collectionId:
+
+    now = datetime.utcnow()
+    stops = route.get("stops") or []
+
+    async def sync_order_status(job: dict, collection_status: str, collected_quantity: Optional[float] = None):
+        order_id = str(job.get("orderId") or "")
+        if not order_id or not ObjectId.is_valid(order_id):
+            return
+        stage_map = {
+            "en_route": "collection_en_route",
+            "arrived_at_farm": "collection_arrived",
+            "collected": "collected",
+            "departed_farm": "collection_departed",
+            "arrived_warehouse": "warehouse_arrived",
+        }
+        order_update = {
+            "warehouseCollectionStatus": collection_status,
+            "warehouseFulfillmentStage": stage_map.get(collection_status, collection_status),
+            "updatedAt": datetime.utcnow(),
+        }
+        if str(job.get("collectionType") or "") == "packed_orders_transfer" and collection_status in ("collected", "departed_farm"):
+            order_update.update({
+                "fulfillmentStage": "dispatched",
+                "deliveryDispatchStatus": "in_transit_to_warehouse",
+                "deliveryDispatchAt": datetime.utcnow(),
+            })
+        await order_repository.update({"_id": ObjectId(order_id)}, order_update)
+        titles = {
+            "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
+            "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
+            "collected": ("Shipment collected from farm", f"The pickup partner recorded {collected_quantity:g} kg collected." if collected_quantity is not None else "The shipment was collected from the farm."),
+            "departed_farm": ("Pickup partner departed farm", "The pickup partner has departed the farm with the collected shipment."),
+            "arrived_warehouse": ("Shipment arrived at warehouse", "The pickup route returned to the warehouse. Receiving and quality inspection are now required."),
+        }
+        title, message = titles[collection_status]
+        await order_repository.append_tracking_event(
+            order_id,
+            f"collection_{collection_status}",
+            title,
+            message,
+            actor_id=str(current_user["_id"]),
+            actor_role="delivery",
+            metadata={"routeId": route_id, "collectionId": str(job.get("_id"))},
+        )
+        refreshed = await order_repository.get_by_id(order_id)
+        if refreshed:
+            try:
+                await NotificationService.send_order_workflow_update(
+                    refreshed,
+                    stage=stage_map.get(collection_status, collection_status),
+                    title=f"Order #{refreshed.get('orderNumber') or order_id}: {title.lower()}",
+                    message=message,
+                    actor_role="delivery",
+                )
+            except Exception:
+                logger.exception("Unable to notify about pickup route progress")
+
+    # Route-wide actions are distinct from farm-stop actions. Starting a route
+    # marks all assigned collection cards En Route, without overwriting a stop.
+    if collectionId is None and route_status == "started":
+        current = str(route.get("status") or "assigned")
+        if current != "assigned":
+            raise HTTPException(status_code=400, detail=f"Invalid route transition: {current} -> started")
+        await warehouse_pickup_route_repository.update_route(route_id, {
+            "status": "started",
+            "startedAt": now,
+        })
+        for stop in stops:
+            collection_id = str(stop.get("collectionId") or "")
+            if not ObjectId.is_valid(collection_id):
+                continue
+            job = await warehouse_collection_repository.get_by_id(collection_id)
+            if not job or str(job.get("pickupRouteId")) != route_id:
+                continue
+            await warehouse_collection_repository.update_job(collection_id, {
+                "status": "en_route",
+                "enRouteAt": now,
+            })
+            await sync_order_status(job, "en_route")
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        return {"success": True, "data": serialize_route(updated), "message": "Pickup route started"}
+
+    # Each stop update is owned by the assigned pickup partner. It changes only
+    # that farm's status; the route remains started until every stop is departed.
+    if collectionId is not None:
+        if route_status not in ("arrived_at_farm", "collected", "departed_farm"):
+            raise HTTPException(status_code=400, detail="This action must update a farm stop, not the whole route")
+        if str(route.get("status") or "") not in ("started", "arrived_at_farm", "collected", "departed_farm"):
+            raise HTTPException(status_code=400, detail="Start the pickup route before updating farm stops")
+        if not ObjectId.is_valid(collectionId):
+            raise HTTPException(status_code=400, detail="Invalid collection stop ID")
         job = await warehouse_collection_repository.get_by_id(collectionId)
-        if not job or str(job.get("pickupRouteId")) != route_id or str(job.get("collectionTeamId")) != str(profile["_id"]):
+        if (
+            not job
+            or str(job.get("pickupRouteId") or "") != route_id
+            or str(job.get("collectionTeamId") or "") != partner_id
+        ):
             raise HTTPException(status_code=404, detail="Route collection stop not found")
-        if route_status in ("arrived_at_farm", "collected", "departed_farm"):
-            status_map = {"arrived_at_farm": "arrived_at_farm", "collected": "collected", "departed_farm": "departed_farm"}
-            stop_update = {"status": status_map[route_status]}
-            if route_status == "collected":
-                stop_update["collectedAt"] = datetime.utcnow()
-                if actualQuantity is not None:
-                    stop_update["actualCollectedQuantity"] = actualQuantity
-                    stop_update["quantityVariance"] = actualQuantity - float(job.get("quantity") or 0)
-                if notes:
-                    stop_update["collectionNotes"] = notes
-            await warehouse_collection_repository.update_job(collectionId, stop_update)
-            for stop in route.get("stops") or []:
-                if str(stop.get("collectionId")) == collectionId:
-                    stop["status"] = route_status
-                    if actualQuantity is not None:
-                        stop["actualQuantity"] = actualQuantity
-            update["stops"] = route.get("stops") or []
-    await warehouse_pickup_route_repository.update_route(route_id, update)
+
+        current_job_status = str(job.get("status") or "")
+        allowed_stop_transitions = {
+            "arrived_at_farm": {"team_assigned", "en_route"},
+            "collected": {"arrived_at_farm"},
+            "departed_farm": {"collected"},
+        }
+        if current_job_status not in allowed_stop_transitions[route_status]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid farm stop transition: {current_job_status} -> {route_status}",
+            )
+        if route_status == "collected" and (actualQuantity is None or actualQuantity <= 0):
+            raise HTTPException(status_code=400, detail="Enter the actual collected quantity (kg) before confirming collection")
+        stop_update: Dict[str, Any] = {"status": route_status}
+        if route_status == "arrived_at_farm":
+            stop_update["arrivedAtFarmAt"] = now
+        if route_status == "collected":
+            stop_update.update({
+                "collectedAt": now,
+                "actualCollectedQuantity": actualQuantity,
+                "quantityVariance": float(actualQuantity) - float(job.get("quantity") or 0),
+            })
+            if notes:
+                stop_update["collectionNotes"] = notes
+        if route_status == "departed_farm":
+            stop_update["departedFarmAt"] = now
+        await warehouse_collection_repository.update_job(collectionId, stop_update)
+
+        for stop in stops:
+            if str(stop.get("collectionId") or "") == collectionId:
+                stop["status"] = route_status
+                if route_status == "collected":
+                    stop["actualQuantity"] = actualQuantity
+        all_departed = bool(stops) and all(str(stop.get("status") or "") == "departed_farm" for stop in stops)
+        route_update = {
+            "stops": stops,
+            "status": "departed_farm" if all_departed else "started",
+        }
+        if all_departed:
+            route_update["allStopsDepartedAt"] = now
+        await warehouse_pickup_route_repository.update_route(route_id, route_update)
+        await sync_order_status(job, route_status, actualQuantity if route_status == "collected" else None)
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        message = "All farms departed. Complete the pickup route." if all_departed else f"Farm stop {route_status.replace('_', ' ')}"
+        return {"success": True, "data": serialize_route(updated), "message": message}
+
+    # Completion is enabled only after every farm has been marked departed.
+    if route_status == "completed":
+        if str(route.get("status") or "") != "departed_farm" or not stops or any(
+            str(stop.get("status") or "") != "departed_farm" for stop in stops
+        ):
+            raise HTTPException(status_code=400, detail="Complete collection at every farm before completing the route")
+        await warehouse_pickup_route_repository.update_route(route_id, {
+            "status": "completed",
+            "completedAt": now,
+        })
+        return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route completed"}
+
+    # The partner confirms physical return; this creates incoming-stock records.
     if route_status == "returned_to_warehouse":
+        if str(route.get("status") or "") != "completed":
+            raise HTTPException(status_code=400, detail="Complete all farm pickups before returning the route to the warehouse")
+        await warehouse_pickup_route_repository.update_route(route_id, {
+            "status": "returned_to_warehouse",
+            "returnedAt": now,
+        })
         incoming_rows = await WarehouseService.create_pickup_route_incoming(route_id)
+        arrived_at = datetime.utcnow()
+        for incoming in incoming_rows:
+            collection_id = str(incoming.get("collectionId") or "")
+            if not ObjectId.is_valid(collection_id):
+                continue
+            job = await warehouse_collection_repository.get_by_id(collection_id)
+            if not job:
+                continue
+            update_job = {"status": "arrived_warehouse", "arrivedWarehouseAt": arrived_at}
+            if incoming.get("_id"):
+                update_job["incomingStockId"] = incoming["_id"]
+            await warehouse_collection_repository.update_job(collection_id, update_job)
+            await sync_order_status(job, "arrived_warehouse")
+
         warehouse = await warehouse_repository.get_by_id(str(route.get("warehouseId")))
         if warehouse:
             manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
@@ -2721,8 +2856,11 @@ async def update_my_pickup_route_status(
                         data={"type": "warehouse_pickup_arrived", "routeId": route_id, "incomingCount": len(incoming_rows)},
                     )
                 except Exception:
-                    pass
-    return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": f"Pickup route {route_status.replace('_', ' ')}"}
+                    logger.exception("Unable to notify warehouse manager that pickup returned")
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        return {"success": True, "data": serialize_route(updated), "message": "Pickup returned to warehouse"}
+
+    raise HTTPException(status_code=400, detail=f"Unsupported route action: {route_status}")
 
 
 @router.get("/me/route")
