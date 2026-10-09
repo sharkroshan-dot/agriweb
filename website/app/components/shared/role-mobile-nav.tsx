@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ComponentType } from "react";
 import { usePathname } from "next/navigation";
 import {
   ArrowDownToLine,
@@ -24,7 +25,7 @@ type Role = "farmer" | "warehouse" | "delivery" | "business" | "admin";
 type Item = {
   label: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
 };
 
 const navigation: Record<Role, Item[]> = {
