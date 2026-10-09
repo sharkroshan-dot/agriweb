@@ -177,6 +177,8 @@ async def get_farmer_fulfillment_transfers(
             {"warehouseIds": warehouse_id},
             {"warehouseAllocations.warehouseId": warehouse_oid},
             {"warehouseAllocations.warehouseId": warehouse_id},
+            {"consolidationWarehouseId": warehouse_oid},
+            {"consolidationWarehouseId": warehouse_id},
         ],
         "logisticsMode": {"$in": [
             "farmer_to_warehouse_to_local_hub_to_delivery_partner",
@@ -205,7 +207,49 @@ async def get_farmer_fulfillment_transfers(
             "deletedAt": None,
         }, skip=0, limit=1000)
         logistics_mode = str(order.get("logisticsMode") or "")
+        is_consolidation_warehouse = (
+            logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+            and str(order.get("consolidationWarehouseId") or "") == warehouse_id
+        )
+        consolidation = {
+            "isConsolidationWarehouse": is_consolidation_warehouse,
+            "canReceive": False,
+            "canComplete": False,
+            "canHandoffLocalHub": False,
+            "totalLegs": 0,
+            "inTransitLegs": 0,
+            "receivedLegs": 0,
+            "allSourcePortionsStored": False,
+        }
         order_stage = str(order.get("warehouseFulfillmentStage") or "awaiting_warehouse_receipt")
+        if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+            legs = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+                "orderId": order["_id"],
+                "destinationWarehouseId": warehouse_oid,
+                "legType": "warehouse_to_consolidation",
+                "deletedAt": None,
+            }).to_list(length=1000) if is_consolidation_warehouse else []
+            all_source_incoming = await incoming_stock_repository.find_many({
+                "orderId": order["_id"],
+                "sourceMode": "farmer_fulfillment_transfer",
+                "deletedAt": None,
+            }, skip=0, limit=1000) if is_consolidation_warehouse else []
+            legs_received = bool(legs) and all(
+                str(x.get("status") or "") == "received_at_consolidation" for x in legs
+            )
+            all_source_stored = bool(all_source_incoming) and all(
+                str(x.get("status") or "") == "stored" for x in all_source_incoming
+            )
+            in_transit_legs = [x for x in legs if str(x.get("status") or "") == "in_transit"]
+            consolidation.update({
+                "canReceive": bool(in_transit_legs),
+                "canComplete": legs_received and all_source_stored and str(order.get("consolidationStatus") or "") != "consolidated",
+                "canHandoffLocalHub": str(order.get("consolidationStatus") or "") == "consolidated",
+                "totalLegs": len(legs),
+                "inTransitLegs": len(in_transit_legs),
+                "receivedLegs": sum(1 for x in legs if str(x.get("status") or "") == "received_at_consolidation"),
+                "allSourcePortionsStored": all_source_stored,
+            })
         if logistics_mode in (
             "farmer_to_warehouse_to_local_hub_to_delivery_partner",
             "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
@@ -229,12 +273,28 @@ async def get_farmer_fulfillment_transfers(
             elif incoming and any(str(x.get("status") or "") == "received" for x in incoming):
                 order_stage = "received_transfer"
 
+        if is_consolidation_warehouse:
+            if str(order.get("consolidationStatus") or "") == "consolidated":
+                order_stage = "consolidated"
+            elif consolidation["totalLegs"] and consolidation["receivedLegs"] == consolidation["totalLegs"]:
+                order_stage = "consolidation_portions_received"
+            elif consolidation["inTransitLegs"]:
+                order_stage = "consolidation_in_transit"
+            else:
+                order_stage = "consolidation_waiting_for_sources"
+
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber"),
             "orderStatus": order.get("orderStatus"),
             "stage": order_stage,
             "logisticsMode": logistics_mode,
+            "isConsolidationWarehouse": is_consolidation_warehouse,
+            "consolidation": consolidation,
+            "consolidationStatus": order.get("consolidationStatus"),
+            "consolidationWarehouseId": str(order.get("consolidationWarehouseId")) if order.get("consolidationWarehouseId") else None,
+            "consolidationWarehouseName": order.get("consolidationWarehouseName"),
+            "localHubName": (order.get("nearbyFulfillmentLocation") or {}).get("name"),
             "warehouseId": str(warehouse["_id"]),
             "warehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
             "farmerId": str(order["farmerId"]) if order.get("farmerId") else None,
@@ -247,9 +307,27 @@ async def get_farmer_fulfillment_transfers(
                 "quantity": float(x.get("quantity") or 0),
                 "unit": x.get("unit") or "kg",
             } for x in (order.get("items") or [])],
+            "warehouseAllocations": [{
+                "warehouseId": str(x.get("warehouseId")),
+                "warehouseName": x.get("warehouseName") or "Warehouse",
+                "productId": str(x.get("productId")),
+                "variantId": str(x.get("variantId")) if x.get("variantId") else None,
+                "productName": x.get("productName") or "Product",
+                "quantity": float(x.get("quantity") or 0),
+                "unit": x.get("unit") or "kg",
+            } for x in (order.get("warehouseAllocations") or [])],
             "incoming": [{
                 "id": str(x["_id"]),
                 "status": x.get("status"),
+                "productId": str(x.get("productId")),
+                "variantId": str(x.get("variantId")) if x.get("variantId") else None,
+                "productName": x.get("productName") or next((
+                    item.get("productName") or item.get("name")
+                    for item in (order.get("items") or [])
+                    if str(item.get("productId")) == str(x.get("productId"))
+                    and str(item.get("variantId") or "") == str(x.get("variantId") or "")
+                ), "Product"),
+                "unit": x.get("unit") or "kg",
                 "expectedQuantity": float(x.get("quantity") or 0),
                 "receivedQuantity": float(x.get("quantityReceived") or 0),
                 "usableQuantity": float(x.get("usableQuantity") or 0),
