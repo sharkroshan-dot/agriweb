@@ -80,6 +80,18 @@ export default function WarehouseCollectionsPage() {
     };
   }, [data]);
 
+  const assignCollectionTeam = async (job: any) => {
+    const teamId = window.prompt("Enter collection team ID/name", job.collectionTeamId || "");
+    if (!teamId?.trim()) return;
+    try {
+      await api.put(`/warehouse/me/collections/${job.id}/assign`, { teamId: teamId.trim() });
+      toast.success("Collection team assigned");
+      await refetch();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to assign collection team");
+    }
+  };
+
   const advance = async (job: any) => {
     const next = NEXT[job.status];
     if (!next) return;
@@ -172,7 +184,8 @@ export default function WarehouseCollectionsPage() {
                       <p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Packing Verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse Packing Required: No" : "Packing Required: Yes · Farmer Verification: " + (job.packingVerified ? "Complete" : "Pending")}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      {job.status === "ready_for_pickup" && <Button onClick={() => window.location.href="/warehouse/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
+                      {["ready_for_pickup", "team_assigned"].includes(job.status) && <Button onClick={() => window.location.href="/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
+                      {["ready_for_pickup", "team_assigned"].includes(job.status) && <Button variant="outline" onClick={() => assignCollectionTeam(job)}><User className="mr-2 h-4 w-4" />{job.status === "team_assigned" ? "Change Collection Team" : "Assign Collection Team"}</Button>}
                       {NEXT[job.status] && <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
                     </div>
                   </div>
