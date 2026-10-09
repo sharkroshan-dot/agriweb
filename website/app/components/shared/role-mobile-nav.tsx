@@ -40,7 +40,7 @@ const navigation: Record<Role, Item[]> = {
   ],
   warehouse: [
     { label: "Dashboard", href: "/warehouse/dashboard", icon: LayoutDashboard },
-    { label: "Pickup Partners", href: "/warehouse/pickup-team", icon: Users },
+    { label: "Pickup Partners", href: "/pickup-team", icon: Users },
     { label: "Incoming", href: "/incoming", icon: ArrowDownToLine },
     { label: "Collections", href: "/collections", icon: Truck },
     { label: "Farmer Fulfillment", href: "/warehouse/farmer-fulfillment", icon: Route },
