@@ -41,10 +41,7 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
     if existing:
         # Reconcile stale scheduled jobs when the associated shipment has since
         # been marked ready. Do not reset a team-assigned or in-progress pickup.
-        updates = {
-            key: value for key, value in job_fields.items()
-            if key not in ("warehouseId", "incomingStockId", "orderId", "farmerId", "productId", "variantId", "quantity", "packageCount", "pickupLocation", "batchId", "readyAt")
-        }
+        updates = dict(job_fields)
         if ready_for_pickup and str(existing.get("status") or "scheduled") in ("", "scheduled"):
             updates["status"] = COLLECTION_READY
         if updates:
