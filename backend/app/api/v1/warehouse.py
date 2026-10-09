@@ -175,8 +175,8 @@ async def get_farmer_fulfillment_transfers(
             {"deletedAt": None},
             {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
             {"$or": [
-                {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
-                {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+                {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
+                {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
             ]},
             {"$or": [
                 {"deliveryDecision": "long_distance"},
@@ -458,8 +458,8 @@ async def get_farmer_fulfillment_transfers(
             {"deletedAt": None},
             {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
             {"$or": [
-                {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
-                {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+                {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
+                {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
             ]},
             {"$or": [
                 {"deliveryDecision": "long_distance"},
@@ -1854,8 +1854,8 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 {"deletedAt": None},
                 {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
                 {"$or": [
-                    {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
-                    {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+                    {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
+                    {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 ]},
                 {"$or": [
                     {"deliveryDecision": "long_distance"},
@@ -1974,8 +1974,8 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
     try:
         warehouse_refs = [warehouse_oid, warehouse_id]
         expected_farmer_methods = [
-            {"fulfillmentMethod": {"$in": ["farmer", "farm_direct"]}},
-            {"fulfillment_route": {"$in": ["farmer", "farm_direct"]}},
+            {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
+            {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
         ]
         long_distance_markers = [
             {"deliveryDecision": "long_distance"},
