@@ -29,7 +29,7 @@ from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_t
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 from app.services.warehouse_service import WarehouseService
-from app.services.warehouse_pickup_route_service import serialize_route, enrich_route_assignment
+from app.services.warehouse_pickup_route_service import serialize_route, enrich_route_assignment, enrich_pickup_route_display
 from app.repositories.wallet_repository import wallet_repository, wallet_transaction_repository
 from app.repositories.withdrawal_repository import withdrawal_repository
 from app.repositories.cash_settlement_repository import cash_settlement_repository
@@ -2524,7 +2524,7 @@ async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
             "claimed_by_other"
         )
         route["canAccept"] = route["claimState"] == "open"
-        enriched.append(serialize_route(route))
+        enriched.append(await enrich_pickup_route_display(route))
     return {"success": True, "data": {"routes": enriched}}
 
 
@@ -2579,7 +2579,7 @@ async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_cu
                 status_code=409,
                 detail={
                     "message": "This pickup route was already accepted by another pickup partner.",
-                    "route": serialize_route(latest),
+                    "route": await enrich_pickup_route_display(latest),
                 },
             )
         raise HTTPException(status_code=409, detail="This pickup route was already accepted by another pickup partner")
@@ -2629,7 +2629,7 @@ async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_cu
             )
     return {
         "success": True,
-        "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)),
+        "data": await enrich_pickup_route_display(await warehouse_pickup_route_repository.get_by_id(route_id)),
         "message": "Pickup route accepted successfully",
     }
 
@@ -2643,7 +2643,10 @@ async def get_my_pickup_routes(
         raise HTTPException(status_code=403, detail="Only delivery partners can access pickup routes")
     profile = await _get_or_create_partner(str(current_user["_id"]))
     routes = await warehouse_pickup_route_repository.get_by_partner(str(profile["_id"]), date or datetime.utcnow().strftime("%Y-%m-%d"))
-    return {"success": True, "data": {"routes": [serialize_route(x) for x in routes]}}
+    display_routes = []
+    for route in routes:
+        display_routes.append(await enrich_pickup_route_display(route))
+    return {"success": True, "data": {"routes": display_routes}}
 
 
 @router.put("/me/pickup-routes/{route_id}/status")
@@ -2744,7 +2747,7 @@ async def update_my_pickup_route_status(
             })
             await sync_order_status(job, "en_route")
         updated = await warehouse_pickup_route_repository.get_by_id(route_id)
-        return {"success": True, "data": serialize_route(updated), "message": "Pickup route started"}
+        return {"success": True, "data": await enrich_pickup_route_display(updated), "message": "Pickup route started"}
 
     # Each stop update is owned by the assigned pickup partner. It changes only
     # that farm's status; the route remains started until every stop is departed.
@@ -2807,7 +2810,7 @@ async def update_my_pickup_route_status(
         await sync_order_status(job, route_status, actualQuantity if route_status == "collected" else None)
         updated = await warehouse_pickup_route_repository.get_by_id(route_id)
         message = "All farms departed. Complete the pickup route." if all_departed else f"Farm stop {route_status.replace('_', ' ')}"
-        return {"success": True, "data": serialize_route(updated), "message": message}
+        return {"success": True, "data": await enrich_pickup_route_display(updated), "message": message}
 
     # Completion is enabled only after every farm has been marked departed.
     if route_status == "completed":
@@ -2819,7 +2822,7 @@ async def update_my_pickup_route_status(
             "status": "completed",
             "completedAt": now,
         })
-        return {"success": True, "data": serialize_route(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route completed"}
+        return {"success": True, "data": await enrich_pickup_route_display(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route completed"}
 
     # The partner confirms physical return; this creates incoming-stock records.
     if route_status == "returned_to_warehouse":
@@ -2858,7 +2861,7 @@ async def update_my_pickup_route_status(
                 except Exception:
                     logger.exception("Unable to notify warehouse manager that pickup returned")
         updated = await warehouse_pickup_route_repository.get_by_id(route_id)
-        return {"success": True, "data": serialize_route(updated), "message": "Pickup returned to warehouse"}
+        return {"success": True, "data": await enrich_pickup_route_display(updated), "message": "Pickup returned to warehouse"}
 
     raise HTTPException(status_code=400, detail=f"Unsupported route action: {route_status}")
 
@@ -3342,7 +3345,7 @@ async def accept_delivery_job(
             "success": True,
             "data": {
                 "job": serialize_job_for_partner(job, reveal=True),
-                "route": serialize_route(claimed_route),
+                "route": await enrich_pickup_route_display(claimed_route),
             },
             "message": "Warehouse pickup route accepted successfully",
         }
