@@ -330,3 +330,93 @@ button { -webkit-tap-highlight-color: transparent; }
   .site-content :is(.page-toolbar, .page-header, .toolbar) { align-items: stretch; }
   .site-content :is(.stat-grid, .dashboard-grid) { gap: .75rem; }
 }
+
+
+/* Cross-role consistency: customer, farmer, delivery, warehouse, business and admin. */
+@layer components {
+  .role-workspace {
+    min-width: 0;
+    color: #0f172a;
+  }
+
+  .role-workspace h1 {
+    color: #0f172a;
+    font-size: clamp(1.5rem, 2vw, 2rem);
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+  }
+
+  .role-workspace h2 {
+    color: #0f172a;
+    font-size: 1.05rem;
+    font-weight: 750;
+    line-height: 1.35;
+    letter-spacing: -0.015em;
+  }
+
+  .role-workspace h3 {
+    color: #1e293b;
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .role-workspace [class*="rounded-lg"][class*="border"],
+  .role-workspace [class*="rounded-xl"][class*="border"],
+  .role-workspace [class*="rounded-2xl"][class*="border"] {
+    border-color: #e2e8f0;
+  }
+
+  .role-workspace input,
+  .role-workspace textarea,
+  .role-workspace select {
+    min-width: 0;
+    border-radius: 0.75rem;
+  }
+
+  .role-workspace button {
+    min-height: 40px;
+  }
+
+  .role-workspace table {
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.9rem;
+    background: #fff;
+  }
+
+  .role-workspace th {
+    background: #f8fafc;
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.035em;
+  }
+
+  .role-workspace th,
+  .role-workspace td {
+    border-bottom: 1px solid #f1f5f9;
+    padding: 0.75rem 0.9rem;
+  }
+
+  .role-workspace tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .role-workspace tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  @media (max-width: 767px) {
+    .role-workspace button {
+      max-width: 100%;
+    }
+
+    .role-workspace :is(.flex.items-center.justify-between, .flex.justify-between) {
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+  }
+}
