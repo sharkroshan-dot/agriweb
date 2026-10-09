@@ -225,12 +225,19 @@ async def get_farmer_fulfillment_transfers(
         }
         order_stage = str(order.get("warehouseFulfillmentStage") or "awaiting_warehouse_receipt")
         if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
-            legs = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
+            legs_collection = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+            legs = await legs_collection.find({
                 "orderId": order["_id"],
                 "destinationWarehouseId": warehouse_oid,
                 "legType": "warehouse_to_consolidation",
                 "deletedAt": None,
             }).to_list(length=1000) if is_consolidation_warehouse else []
+            source_legs = await legs_collection.find({
+                "orderId": order["_id"],
+                "sourceWarehouseId": warehouse_oid,
+                "legType": "warehouse_to_consolidation",
+                "deletedAt": None,
+            }).to_list(length=1000) if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" else []
             all_source_incoming = await incoming_stock_repository.find_many({
                 "orderId": order["_id"],
                 "sourceMode": "farmer_fulfillment_transfer",
@@ -282,6 +289,20 @@ async def get_farmer_fulfillment_transfers(
             elif incoming and any(str(x.get("status") or "") == "received" for x in incoming):
                 order_stage = "received_transfer"
 
+        if (
+            logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+            and not is_consolidation_warehouse
+            and incoming
+            and all(str(x.get("status") or "") == "stored" for x in incoming)
+            and source_legs
+            and all(str(x.get("status") or "") in ("in_transit", "received_at_consolidation") for x in source_legs)
+        ):
+            order_stage = (
+                "source_portion_received_at_consolidation"
+                if all(str(x.get("status") or "") == "received_at_consolidation" for x in source_legs)
+                else "source_portion_in_transit"
+            )
+
         if is_consolidation_warehouse:
             consolidation_status = str(order.get("consolidationStatus") or "")
             # When the consolidation warehouse is also a source warehouse,
@@ -327,6 +348,15 @@ async def get_farmer_fulfillment_transfers(
             "logisticsMode": logistics_mode,
             "isConsolidationWarehouse": is_consolidation_warehouse,
             "consolidation": consolidation,
+            "sourceTransfer": {
+                "legCount": len(source_legs),
+                "inTransitLegs": sum(1 for x in source_legs if str(x.get("status") or "") == "in_transit"),
+                "receivedLegs": sum(1 for x in source_legs if str(x.get("status") or "") == "received_at_consolidation"),
+                "dispatched": bool(source_legs) and all(
+                    str(x.get("status") or "") in ("in_transit", "received_at_consolidation")
+                    for x in source_legs
+                ),
+            },
             "consolidationStatus": order.get("consolidationStatus"),
             "consolidationWarehouseId": str(order.get("consolidationWarehouseId")) if order.get("consolidationWarehouseId") else None,
             "consolidationWarehouseName": order.get("consolidationWarehouseName"),
