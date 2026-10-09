@@ -1868,7 +1868,7 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
             order = await order_repository.get_by_id(order_id)
             order_number = (order or {}).get("orderNumber") or order_id
             incoming_id = str(job.get("incomingStockId") or "")
-            await NotificationService.create_in_app_notification(
+            created_notification = await NotificationService.create_in_app_notification(
                 str(current_user["_id"]),
                 NotificationType.WAREHOUSE,
                 f"Packed order #{order_number} ready for pickup",
@@ -1891,6 +1891,11 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 priority=NotificationPriority.HIGH,
                 mandatory=True,
             )
+            if not created_notification:
+                logger.warning(
+                    "Warehouse pickup notification was not persisted",
+                    extra={"orderId": order_id, "warehouseId": warehouse_id, "managerId": str(current_user["_id"])},
+                )
         except Exception:
             logger.exception(
                 "Failed to ensure warehouse pickup notification",
