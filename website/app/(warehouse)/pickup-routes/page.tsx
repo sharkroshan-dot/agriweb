@@ -9,6 +9,31 @@ import { Badge } from "../../components/ui/badge";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
+const routeStatusLabel = (value: string) => ({
+  offered: "Waiting for partner",
+  assigned: "Assigned to partner",
+  started: "Pickup in progress",
+  arrived_at_farm: "At farm",
+  collected: "Collection recorded",
+  departed_farm: "All farms departed",
+  completed: "Route completed",
+  returned_to_warehouse: "Returned to warehouse",
+  received: "Received",
+  stored: "Stored in inventory",
+} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+const stopStatusLabel = (value: string) => ({
+  pending: "Waiting for pickup",
+  ready_for_pickup: "Ready for pickup",
+  team_assigned: "Team assigned",
+  en_route: "On the way",
+  started: "Pickup started",
+  arrived_at_farm: "Arrived at farm",
+  collected: "Collected",
+  departed_farm: "Departed farm",
+  arrived_warehouse: "At warehouse",
+} as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+
 export default function PickupRoutesPage() {
   const routesQ = useQuery({
     queryKey: ["warehousePickupRoutes"],
@@ -87,7 +112,7 @@ export default function PickupRoutesPage() {
           <Card className="p-12 text-center">
             <Route className="mx-auto h-12 w-12 text-muted-foreground" />
             <h2 className="mt-4 font-semibold">No pickup routes today</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Create routes from collections that are READY FOR PICKUP.</p>
+            <p className="mt-2 text-sm text-muted-foreground">Use Farm Collection to select eligible pickups and plan routes. Route numbers, farm names, addresses and quantities are shown on each route.</p>
           </Card>
         ) : routes.map((r: any) => (
           <Card key={r.id} className="overflow-hidden">
@@ -97,7 +122,7 @@ export default function PickupRoutesPage() {
                   <CardTitle className="text-base">🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">{r.totalStops} farms · {r.totalQuantity || 0} kg</p>
                 </div>
-                <Badge>{String(r.status || "offered").replace(/_/g, " ")}</Badge>
+                <Badge>{routeStatusLabel(String(r.status || "offered"))}</Badge>
               </div>
             </CardHeader>
             <CardContent className="p-5">
@@ -115,11 +140,14 @@ export default function PickupRoutesPage() {
                   <div key={s.collectionId} className="flex items-start gap-3 rounded-xl border p-3">
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</div>
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium">{s.farmerName}</p>
-                      <p className="text-sm text-muted-foreground">{s.productName} · {s.quantity} kg</p>
-                      <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> Pickup location</p>
+                      <p className="font-medium">{s.farmerName || "Farmer details unavailable"}</p>
+                      <p className="text-sm text-muted-foreground">{s.productName || "Product details unavailable"} · Expected {s.quantity || 0} kg</p>
+                      {s.orderNumber && <p className="mt-1 text-xs text-muted-foreground">{s.orderNumber === "Order reference unavailable" ? s.orderNumber : `Order ${s.orderNumber}`}</p>}
+                      {s.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {s.batchNumber}</p>}
+                      {s.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actually collected: {s.actualQuantity} kg</p>}
+                      <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
                     </div>
-                    <Badge variant="outline">{String(s.status || "pending").replace(/_/g, " ")}</Badge>
+                    <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
                   </div>
                 ))}
               </div>
