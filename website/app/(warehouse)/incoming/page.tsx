@@ -102,6 +102,7 @@ export default function WarehouseIncomingPage() {
     refetchOnWindowFocus: true,
   });
   const collectionList = collectionData?.data?.collections || [];
+  const unassignedTransfers = collectionData?.data?.unassignedTransfers || [];
 
   const assignCollectionTeam = async (job: any) => {
     const teamId = window.prompt("Enter collection team ID/name", job.collectionTeamId || "");
@@ -268,7 +269,7 @@ export default function WarehouseIncomingPage() {
         <CardContent className="p-5 sm:p-6">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div><h2 className="font-semibold text-emerald-950">Farm Collection Queue</h2><p className="text-sm text-emerald-800">Collect both bulk warehouse-fulfillment stock and already-packed long-distance farmer orders. Packed transfer orders are never repacked.</p></div>
-            <Badge variant="outline" className="w-fit border-emerald-200 bg-white">{collectionList.length} collection jobs</Badge>
+            <div className="flex flex-wrap gap-2"><Badge variant="outline" className="w-fit border-emerald-200 bg-white">{collectionList.length} pickup jobs</Badge>{unassignedTransfers.length > 0 && <Badge variant="outline" className="w-fit border-amber-300 bg-amber-50 text-amber-800">{unassignedTransfers.length} need warehouse allocation</Badge>}</div>
           </div>
           {isCollectionsError ? <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4"><p className="font-medium text-red-900">Could not load Farm Collection Queue</p><p className="mt-1 text-sm text-red-800">{collectionsError instanceof Error ? collectionsError.message : "Warehouse collection queue request failed. Check that this login is linked to the assigned warehouse and the backend is running."}</p><Button className="mt-3" variant="outline" size="sm" onClick={() => void refetchCollections()}>Retry queue</Button></div> : collectionList.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No farm collection requests are waiting. When a long-distance Farmer Fulfillment route is confirmed, its source warehouse pickup request will appear here automatically.</p> : <div className="mt-4 space-y-3">{collectionList.map((job: any) => {
             const next = job.status === "team_assigned" ? "en_route" : job.status === "en_route" ? "arrived_at_farm" : job.status === "arrived_at_farm" ? "collected" : job.status === "collected" ? "departed_farm" : job.status === "departed_farm" ? "arrived_warehouse" : null;
@@ -278,6 +279,32 @@ export default function WarehouseIncomingPage() {
           })}</div>}
         </CardContent>
       </Card>
+
+      {unassignedTransfers.length > 0 && (
+        <Card className="border-amber-200 bg-amber-50/60">
+          <CardContent className="p-5 sm:p-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div className="min-w-0 flex-1">
+                <h2 className="font-semibold text-amber-950">Long-distance orders awaiting warehouse allocation</h2>
+                <p className="mt-1 text-sm text-amber-900">These orders were confirmed in the Farmer Order Map, but the system could not create a safe warehouse assignment. They are not Ready for Pickup yet, so a pickup team cannot be assigned until the issue below is resolved.</p>
+              </div>
+            </div>
+            <div className="mt-4 space-y-3">
+              {unassignedTransfers.map((item: any) => (
+                <div key={item.id || item.orderId} className="rounded-lg border border-amber-200 bg-white p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-900">Order #{item.orderNumber || item.orderId}</p>
+                    <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">Assignment Pending</Badge>
+                  </div>
+                  {Array.isArray(item.items) && item.items.length > 0 && <p className="mt-2 text-sm text-slate-700">Products: {item.items.map((line: any) => `${line.productName} · ${line.quantity} ${line.unit || "kg"}`).join(", ")}</p>}
+                  <p className="mt-2 rounded-md bg-amber-50 p-2 text-sm leading-5 text-amber-950">{item.message || "No eligible warehouse could be allocated. Check warehouse active status, configured capacity and the order's packed quantities."}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {incomingList.length === 0 ? (
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Farm collection requests will appear here after the farmer confirms the product is ready."}</p></Card>
