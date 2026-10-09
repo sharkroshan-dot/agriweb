@@ -6,6 +6,8 @@ from bson import ObjectId
 from app.database.mongodb import MongoDB
 from app.api.v1.auth import get_current_user
 from app.repositories.warehouse_repository import warehouse_repository
+from app.repositories.farmer_repository import farmer_repository
+from app.repositories.delivery_repository import delivery_repository
 from app.repositories.order_repository import order_repository
 from app.repositories.outgoing_stock_repository import outgoing_stock_repository
 from app.repositories.incoming_stock_repository import incoming_stock_repository
@@ -97,6 +99,225 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
 # ---------------------------------------------------------------------------
 # Warehouse fulfillment control plane
 # ---------------------------------------------------------------------------
+
+@router.get("/me/collections", response_model=dict)
+async def get_my_collections(
+    status_filter: Optional[str] = Query("all", alias="status"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return warehouse collection jobs with human-readable related entity details."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can access farm collections")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+
+    warehouse_id = str(warehouse["_id"])
+    jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
+    products_collection = MongoDB.get_collection("products")
+
+    order_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    farmer_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    user_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    partner_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    route_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+
+    def readable(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text or ObjectId.is_valid(text):
+            return None
+        return text
+
+    async def get_user(user_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        key = str(user_id or "")
+        if not key or not ObjectId.is_valid(key):
+            return None
+        if key not in user_cache:
+            user_cache[key] = await UserService.get_user_by_id(key)
+        return user_cache[key]
+
+    async def get_order(order_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        key = str(order_id or "")
+        if not key or not ObjectId.is_valid(key):
+            return None
+        if key not in order_cache:
+            order_cache[key] = await order_repository.get_by_id(key)
+        return order_cache[key]
+
+    async def get_product(product_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        key = str(product_id or "")
+        if not key or not ObjectId.is_valid(key):
+            return None
+        if key not in product_cache:
+            product_cache[key] = await products_collection.find_one({"_id": ObjectId(key), "deletedAt": None})
+            if not product_cache[key]:
+                # Some legacy records store references as strings.
+                product_cache[key] = await products_collection.find_one({"_id": key, "deletedAt": None})
+        return product_cache[key]
+
+    async def get_farmer(farmer_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        key = str(farmer_id or "")
+        if not key or not ObjectId.is_valid(key):
+            return None
+        if key not in farmer_cache:
+            profile = await farmer_repository.get_by_user_id(key)
+            if not profile:
+                profile = await farmer_repository.get_by_id(key)
+            farmer_cache[key] = profile
+        return farmer_cache[key]
+
+    async def display_name_for_profile(profile: Optional[Dict[str, Any]], default: str) -> str:
+        if not profile:
+            return default
+        for key in ("farmName", "ownerName", "fullName", "name", "displayName"):
+            candidate = readable(profile.get(key))
+            if candidate:
+                return candidate
+        owner_user = await get_user(str(profile.get("userId") or ""))
+        if owner_user:
+            candidate = " ".join(
+                part for part in (
+                    readable(owner_user.get("firstName")),
+                    readable(owner_user.get("lastName")),
+                ) if part
+            )
+            if candidate:
+                return candidate
+            for key in ("name", "displayName", "email"):
+                candidate = readable(owner_user.get(key))
+                if candidate:
+                    return candidate
+        return default
+
+    result: List[Dict[str, Any]] = []
+    for job in jobs:
+        item = serialize_collection(job)
+        order = await get_order(str(job.get("orderId") or ""))
+        order_items = (order or {}).get("items") or []
+        product_id = str(job.get("productId") or "")
+        order_item = next(
+            (
+                value for value in order_items
+                if product_id and str(value.get("productId") or value.get("product_id") or "") == product_id
+            ),
+            order_items[0] if order_items else {},
+        )
+        product = await get_product(product_id or str(order_item.get("productId") or ""))
+        farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
+        profile_name = await display_name_for_profile(farmer_profile, "")
+        farmer_user_id = str((farmer_profile or {}).get("userId") or job.get("farmerId") or "")
+        farmer_user = await get_user(farmer_user_id)
+
+        farmer_name = readable(job.get("farmerName")) or profile_name
+        if not farmer_name and farmer_user:
+            farmer_name = " ".join(
+                part for part in (
+                    readable(farmer_user.get("firstName")),
+                    readable(farmer_user.get("lastName")),
+                ) if part
+            )
+            farmer_name = farmer_name or readable(farmer_user.get("name")) or readable(farmer_user.get("displayName"))
+        farmer_name = farmer_name or "Farmer details unavailable"
+
+        product_name = (
+            readable(job.get("productName"))
+            or readable((product or {}).get("name"))
+            or readable((product or {}).get("productName"))
+            or readable((product or {}).get("title"))
+            or readable(order_item.get("productName"))
+            or readable(order_item.get("name"))
+            or "Product details unavailable"
+        )
+        order_number = (
+            readable((order or {}).get("orderNumber"))
+            or readable((order or {}).get("orderNo"))
+            or readable((order or {}).get("referenceNumber"))
+        )
+        if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#")):
+            order_number = f"ORD-{order_number}"
+
+        team_id = str(job.get("collectionTeamId") or "")
+        team = None
+        if team_id and ObjectId.is_valid(team_id):
+            if team_id not in partner_cache:
+                partner_cache[team_id] = await delivery_repository.get_by_id(team_id)
+            team = partner_cache[team_id]
+        team_user = await get_user(str((team or {}).get("userId") or ""))
+        team_name = None
+        if team_user:
+            team_name = " ".join(
+                part for part in (
+                    readable(team_user.get("firstName")),
+                    readable(team_user.get("lastName")),
+                ) if part
+            ) or readable(team_user.get("name")) or readable(team_user.get("displayName"))
+        team_name = team_name or readable((team or {}).get("name"))
+        team_name = team_name or ("Assigned pickup partner" if team_id else "Not assigned")
+
+        route_id = str(job.get("pickupRouteId") or "")
+        route = None
+        if route_id and ObjectId.is_valid(route_id):
+            if route_id not in route_cache:
+                route_cache[route_id] = await warehouse_pickup_route_repository.get_by_id(route_id)
+            route = route_cache[route_id]
+
+        pickup_location = job.get("pickupLocation") or {}
+        pickup_address = None
+        for key in ("address", "formattedAddress", "farmAddress", "streetAddress"):
+            pickup_address = readable(pickup_location.get(key)) if isinstance(pickup_location, dict) else None
+            if pickup_address:
+                break
+        if not pickup_address and farmer_profile:
+            address = farmer_profile.get("farmAddress") or farmer_profile.get("address") or {}
+            if isinstance(address, dict):
+                address_parts = [
+                    readable(address.get(key))
+                    for key in ("addressLine1", "addressLine2", "street", "village", "city", "district", "state", "pincode")
+                ]
+                pickup_address = ", ".join(part for part in address_parts if part) or None
+            else:
+                pickup_address = readable(address)
+            if not pickup_address:
+                address_parts = [
+                    readable(farmer_profile.get(key))
+                    for key in ("farmCity", "farmDistrict", "farmState", "farmPincode")
+                ]
+                pickup_address = ", ".join(part for part in address_parts if part) or None
+
+        item.update({
+            "farmerName": farmer_name,
+            "productName": product_name,
+            "orderNumber": order_number,
+            "collectionTeamName": team_name,
+            "collectionTeamVehicleType": readable((team or {}).get("vehicleType")),
+            "collectionTeamVehicleNumber": readable((team or {}).get("vehicleNumber")),
+            "routeNumber": readable((route or {}).get("routeNumber")),
+            "pickupAddress": pickup_address or "Farm address not provided",
+            "warehouseName": readable(warehouse.get("name")) or readable(warehouse.get("warehouseName")) or "Assigned warehouse",
+            "actualCollectedQuantity": job.get("actualCollectedQuantity"),
+        })
+        result.append(item)
+
+    return {
+        "success": True,
+        "data": {
+            "collections": result,
+            "counts": {
+                "total": len(result),
+                "readyForPickup": sum(1 for x in result if x.get("status") == "ready_for_pickup"),
+                "assigned": sum(1 for x in result if x.get("status") == "team_assigned"),
+                "enRoute": sum(1 for x in result if x.get("status") == "en_route"),
+                "atFarm": sum(1 for x in result if x.get("status") == "arrived_at_farm"),
+                "collected": sum(1 for x in result if x.get("status") == "collected"),
+                "departed": sum(1 for x in result if x.get("status") == "departed_farm"),
+                "atWarehouse": sum(1 for x in result if x.get("status") == "arrived_warehouse"),
+            },
+        },
+    }
+
 
 @router.get("/me/workflow")
 async def get_warehouse_workflow(current_user: dict = Depends(get_current_user)):
