@@ -45,7 +45,7 @@ from app.repositories.delivery_job_repository import (
     JOB_NO_PARTNER_FOUND,
 )
 from app.services.farmer_settings_service import farmer_settings_service
-from app.services.logistics_routing_service import apply_partner_route
+from app.services.logistics_routing_service import apply_partner_route, is_packed_farmer_order
 from app.services.delivery_priority_service import calculate_order_delivery_priority
 from app.ai.models.route_optimization import route_optimization_model
 from collections import Counter
@@ -2517,10 +2517,7 @@ async def get_my_delivery_map(
         and str(o.get("orderStatus") or o.get("status") or "").lower()
         not in _FINISHED_DELIVERY_STATUSES
         and not bool(o.get("packingCancelled"))
-        and (
-            str(o.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
-            or bool(o.get("packingComplete"))
-        )
+        and is_packed_farmer_order(o)
         and not bool(o.get("deliveryPartnerId"))
         and not bool(o.get("partnerRequested"))
         and not bool(o.get("selfDelivery"))
@@ -3058,10 +3055,7 @@ async def create_self_delivery_plan(
         ).lower()
         fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
 
-        is_packed = (
-            fulfillment_stage in ("packed", "dispatched")
-            or bool(order.get("packingComplete"))
-        )
+        is_packed = is_packed_farmer_order(order)
         delivery_type = str(order.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
         delivery_decision = str(order.get("deliveryDecision") or "").lower()
         if (
@@ -3245,6 +3239,70 @@ async def create_self_delivery_plan(
 
     for order in remaining:
         oid = str(order["_id"])
+
+        # The map and initial plan may have been loaded before a concurrent
+        # packing/status update, and legacy records may contain string flags.
+        # Re-read the authoritative order immediately before making a route
+        # decision so we never route a stale snapshot.
+        current_order = await order_repository.get_by_id(oid)
+        if not current_order:
+            skipped_partner.append({
+                "orderId": oid,
+                "orderNumber": order.get("orderNumber"),
+                "reason": "Order no longer exists. Refresh the Order Map.",
+            })
+            continue
+
+        current_method = str(
+            current_order.get("fulfillmentMethod")
+            or current_order.get("fulfillment_route")
+            or ""
+        ).strip().lower()
+        current_status = str(
+            current_order.get("orderStatus") or current_order.get("status") or ""
+        ).strip().lower()
+        current_decision = str(current_order.get("deliveryDecision") or "").strip().lower()
+        is_terminal = current_status in _FINISHED_DELIVERY_STATUSES
+        already_claimed = (
+            bool(current_order.get("deliveryPartnerId"))
+            or bool(current_order.get("partnerRequested"))
+            or bool(current_order.get("selfDelivery"))
+            or current_decision in ("self_delivery", "nearby", "long_distance")
+        )
+
+        if (
+            current_method not in ("farmer", "farm_direct")
+            or str(current_order.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
+                != DeliveryType.DELIVERY.value.lower()
+            or is_terminal
+            or bool(current_order.get("packingCancelled"))
+            or already_claimed
+        ):
+            skipped_partner.append({
+                "orderId": oid,
+                "orderNumber": current_order.get("orderNumber"),
+                "reason": "Order state changed after the map loaded; it is no longer eligible for automatic delivery routing. Refresh the Order Map.",
+                "fulfillmentStage": current_order.get("fulfillmentStage"),
+                "packingComplete": current_order.get("packingComplete"),
+                "orderStatus": current_status,
+                "deliveryDecision": current_decision or None,
+            })
+            continue
+
+        if not is_packed_farmer_order(current_order):
+            skipped_partner.append({
+                "orderId": oid,
+                "orderNumber": current_order.get("orderNumber"),
+                "reason": "Packing is incomplete. Finish Packing & Checking and mark the order Packing Complete before delivery routing.",
+                "fulfillmentStage": current_order.get("fulfillmentStage") or "missing",
+                "packingComplete": current_order.get("packingComplete", False),
+                "orderStatus": current_status,
+            })
+            continue
+
+        # Use the reloaded source of truth for distance, route, and delivery
+        # persistence, instead of the stale map snapshot.
+        order = current_order
         addr = order.get("deliveryAddress") or {}
         lat, lng = await _stop_coords(addr, oid)
 
