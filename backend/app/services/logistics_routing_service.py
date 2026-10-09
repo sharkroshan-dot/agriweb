@@ -295,6 +295,8 @@ async def allocate_farmer_fulfillment_warehouses(
             "warehouseId": wid,
             "productId": pid,
             "variantId": vid,
+            "productName": allocation.get("productName") or "Product",
+            "unit": allocation.get("unit") or "kg",
             "farmerId": ObjectId(str(order.get("farmerId"))) if order.get("farmerId") else None,
             "orderId": order["_id"],
             # Preserve the allocated quantity exactly; farmer-packed orders may
