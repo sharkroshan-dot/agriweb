@@ -9,6 +9,7 @@ import { Footer } from "../components/common/footer";
 import ChatWidget from "../components/shared/chat-widget";
 import { AppPresence } from "../components/chat/app-presence";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
+import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 
 
 export default function FarmerLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,7 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
   return (
     <div className="flex min-h-screen flex-col">
       <AppPresence />
+      <RoleMobileNav role="farmer" />
       <div className="flex flex-1 bg-transparent">
         <FarmerSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 lg:px-7">
