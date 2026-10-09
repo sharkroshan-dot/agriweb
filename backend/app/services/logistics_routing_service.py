@@ -545,10 +545,20 @@ async def apply_partner_route(
         update["transferStatus"] = "hub_handoff_pending"
         update["logisticsMode"] = "warehouse_to_local_hub_to_delivery_partner"
 
-    # Partner delivery begins with the Dispatch handoff. Packing is already
-    # complete; this transition is intentionally created only after the
-    # distance-based delivery decision and route resources are available.
-    if not warehouse_route:
+    # A long-distance farmer-packed order is not dispatched merely because
+    # distance routing was chosen. It remains packed/in processing until the
+    # farm collection team physically collects it for the warehouse transfer.
+    # Warehouse dispatch and final delivery-job creation happen at their own
+    # later handoff steps.
+    if not warehouse_route and mode == "long_distance":
+        update["fulfillmentStage"] = "packed"
+        update["orderStatus"] = "processing"
+        update["dispatchReadyChecklistComplete"] = False
+        update["deliveryDispatchStatus"] = "pending"
+        update["deliveryDispatchAt"] = None
+        update["warehouseFulfillmentStage"] = "awaiting_warehouse_receipt"
+        update["warehouseCollectionStatus"] = "ready_for_pickup"
+    elif not warehouse_route:
         dispatch_at = datetime.utcnow()
         update["fulfillmentStage"] = "dispatched"
         update["orderStatus"] = "ready_for_delivery"
@@ -566,7 +576,7 @@ async def apply_partner_route(
     # transfer point. The farmer has already packed the individual order, so
     # the warehouse must never create another packing task for this route.
     multi_warehouse = None
-    if mode == "long_distance" and str(order.get("fulfillmentMethod") or "") == "farmer":
+    if mode == "long_distance" and str(order.get("fulfillmentMethod") or "").lower() in ("farmer", "farm_direct"):
         multi_warehouse = await allocate_farmer_fulfillment_warehouses(
             order,
             origin,
