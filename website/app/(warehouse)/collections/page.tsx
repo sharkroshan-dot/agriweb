@@ -131,7 +131,6 @@ export default function WarehouseCollectionsPage() {
         assignmentMode,
         ...(assignmentMode === "assign_team" ? { deliveryPartnerId: selectedTeam.deliveryPartnerId } : {}),
       });
-      const plannedRoutes = response?.data?.routes || [];
       const message = response?.data?.message || `Pickup planning completed for ${selectedCollectionIds.length} selected job(s).`;
       toast.success(message);
       setSelectedCollectionIds([]);
@@ -316,8 +315,8 @@ export default function WarehouseCollectionsPage() {
                       <p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Packing Verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse Packing Required: No" : "Packing Required: Yes · Farmer Verification: " + (job.packingVerified ? "Complete" : "Pending")}</p>
                     </div>
                     <div className="flex flex-col gap-2 sm:flex-row">
-                      {["ready_for_pickup", "team_assigned"].includes(job.status) && <Button onClick={() => window.location.href="/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
-                      {["ready_for_pickup", "team_assigned"].includes(job.status) && <Button variant="outline" onClick={() => assignCollectionTeam(job)}><User className="mr-2 h-4 w-4" />{job.status === "team_assigned" ? "Change Collection Team" : "Assign Collection Team"}</Button>}
+                      {!job.pickupRouteId && ["ready_for_pickup", "team_assigned"].includes(job.status) && <Button onClick={() => window.location.href="/pickup-routes"}><Route className="mr-2 h-4 w-4" />Plan Pickup Routes</Button>}
+                      {!job.pickupRouteId && ["ready_for_pickup", "team_assigned"].includes(job.status) && <Button variant="outline" onClick={() => assignCollectionTeam(job)}><User className="mr-2 h-4 w-4" />{job.status === "team_assigned" ? "Change Collection Team" : "Assign Collection Team"}</Button>}
                       {NEXT[job.status] && <Button variant={job.status === "arrived_at_farm" ? "default" : "outline"} onClick={() => advance(job)}>{isPackedTransfer && job.status === "arrived_at_farm" ? "Receive Transfer" : label(NEXT[job.status] || "")}<ArrowRight className="ml-2 h-4 w-4" /></Button>}
                     </div>
                   </div>
