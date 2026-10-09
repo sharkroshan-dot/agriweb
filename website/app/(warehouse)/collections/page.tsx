@@ -257,10 +257,10 @@ export default function WarehouseCollectionsPage() {
                         </label>}
                         <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>{isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}</Badge>
                         <Badge variant="outline">{label(job.status)}</Badge>
-                        {job.pickupRouteId && job.status !== "arrived_warehouse" && <Badge className="bg-violet-100 text-violet-800">Route Planned</Badge>}
+                        {job.pickupRouteId && job.status !== "arrived_warehouse" && <Badge className="bg-violet-100 text-violet-800">{job.routeNumber ? `Route ${job.routeNumber}` : "Route Planned"}</Badge>}
                       </div>
                       <CardTitle className="mt-2 text-base">{job.productName || job.productId || "Farm Product"}</CardTitle>
-                      <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || job.farmerId || "—"} {job.orderId ? <>· Order #{String(job.orderId).slice(-8)}</> : ""}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || "Farmer details unavailable"} {job.orderNumber ? <>· Order {job.orderNumber}</> : ""}</p>
                       {job.batchId && <p className="mt-1 text-xs text-muted-foreground">Batch: {String(job.batchId).slice(-12)}</p>}
                     </div>
                     <div className="rounded-xl border bg-white px-4 py-3 text-right">
@@ -273,9 +273,9 @@ export default function WarehouseCollectionsPage() {
                 </CardHeader>
                 <CardContent className="p-5">
                   <div className="mb-5 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Pickup</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><MapPin className="h-3.5 w-3.5 text-emerald-600" /> Farm location</p></div>
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Collection Team</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><User className="h-3.5 w-3.5 text-emerald-600" /> {job.collectionTeamId || "Not assigned"}</p></div>
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Next destination</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><Warehouse className="h-3.5 w-3.5 text-emerald-600" /> {warehouseName}</p></div>
+                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Pickup</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><MapPin className="h-3.5 w-3.5 text-emerald-600" /> {job.pickupAddress || "Farm address not provided"}</p></div>
+                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Collection Team</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><User className="h-3.5 w-3.5 text-emerald-600" /> {job.collectionTeamName || (job.collectionTeamId ? "Assigned pickup partner" : "Not assigned")}{job.collectionTeamVehicleNumber ? ` · ${job.collectionTeamVehicleNumber}` : ""}</p></div>
+                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Next destination</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><Warehouse className="h-3.5 w-3.5 text-emerald-600" /> {job.warehouseName || warehouseName || "Assigned warehouse"}</p></div>
                   </div>
 
                   <div className="mb-5 overflow-x-auto pb-2">
