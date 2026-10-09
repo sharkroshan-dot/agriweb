@@ -11,10 +11,13 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
     """Create one farm collection job for an incoming stock record."""
     if not incoming or not incoming.get("_id") or not incoming.get("warehouseId"):
         return None
-    existing = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
-    if existing:
-        return existing
-    job_id = await warehouse_collection_repository.create_job({
+    ready_for_pickup = bool(
+        incoming.get("readyForPickup")
+        or incoming.get("transferReadyForPickup")
+        or incoming.get("warehouseTransferReadyForPickup")
+    )
+    packing_required = bool(incoming.get("packingRequired", True))
+    job_fields = {
         "warehouseId": incoming["warehouseId"],
         "incomingStockId": incoming["_id"],
         "orderId": incoming.get("orderId"),
@@ -25,15 +28,34 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         "packageCount": int(incoming.get("packageCount", 1) or 1),
         "collectionType": collection_type,
         "sourceMode": source_mode,
-        "packingRequired": bool(incoming.get("packingRequired", True)),
-        "packingVerified": incoming.get("packingRequired") is False or bool(incoming.get("packingVerified")),
-        "readyForPickup": bool(incoming.get("readyForPickup")),
+        "packingRequired": packing_required,
+        "packingVerified": (not packing_required) or bool(incoming.get("packingVerified")),
+        "readyForPickup": ready_for_pickup,
         "pickupLocation": incoming.get("pickupLocation") or incoming.get("farmLocation") or {},
         "batchId": incoming.get("batchId"),
-        "warehousePackingRequired": bool(incoming.get("packingRequired", True)),
-        "status": COLLECTION_READY if incoming.get("readyForPickup") else "scheduled",
-        "readyAt": incoming.get("readyForPickupAt") or datetime.utcnow(),
-    })
+        "warehousePackingRequired": packing_required,
+        "readyAt": incoming.get("readyForPickupAt") or incoming.get("warehouseTransferReadyAt") or datetime.utcnow(),
+    }
+
+    existing = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
+    if existing:
+        # Reconcile stale scheduled jobs when the associated shipment has since
+        # been marked ready. Do not reset a team-assigned or in-progress pickup.
+        updates = {
+            key: value for key, value in job_fields.items()
+            if key not in ("warehouseId", "incomingStockId", "orderId", "farmerId", "productId", "variantId", "quantity", "packageCount", "pickupLocation", "batchId", "readyAt")
+        }
+        if ready_for_pickup and str(existing.get("status") or "scheduled") in ("", "scheduled"):
+            updates["status"] = COLLECTION_READY
+        if updates:
+            await warehouse_collection_repository.update_job(str(existing["_id"]), updates)
+            refreshed = await warehouse_collection_repository.get_by_id(str(existing["_id"]))
+            if refreshed:
+                return refreshed
+        return existing
+
+    job_fields["status"] = COLLECTION_READY if ready_for_pickup else "scheduled"
+    job_id = await warehouse_collection_repository.create_job(job_fields)
     return await warehouse_collection_repository.get_by_id(job_id) if job_id else None
 
 
