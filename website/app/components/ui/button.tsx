@@ -16,7 +16,7 @@ const variantStyles={
   secondary:"bg-slate-100 text-slate-700 hover:bg-slate-200",
   success:"bg-emerald-700 text-white hover:bg-emerald-800",
   warning:"bg-amber-500 text-slate-950 shadow-sm hover:bg-amber-600",
-  link:"h-auto rounded-md bg-transparent p-0 text-emerald-700 underline-offset-4 hover:underline",
+  link:"min-h-0 h-auto rounded-md bg-transparent p-0 text-emerald-700 underline-offset-4 hover:underline",
 };
 const sizeStyles={default:"px-4 py-2.5",sm:"px-3 py-2 text-xs",lg:"px-6 py-3",icon:"h-10 w-10 p-0"};
 export function Button({className,variant="default",size="default",asChild=false,...props}:ButtonProps){
