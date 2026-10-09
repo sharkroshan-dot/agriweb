@@ -248,7 +248,7 @@ export default function DeliveryPickupRoutesPage() {
               {r.status === "assigned" && <Button className="mb-5" onClick={() => act(r, "started")}><Navigation className="mr-2 h-4 w-4" /> Start Pickup Route</Button>}
               <div className="space-y-3">
                 {(r.stops || []).map((s: any, i: number) => {
-                  const active = s.status === "pending" || s.status === "started";
+                  const active = ["pending", "started", "en_route", "arrived_at_farm", "collected"].includes(String(s.status || "pending"));
                   return (
                     <div key={s.collectionId} className="rounded-xl border p-4">
                       <div className="flex gap-3">
@@ -263,7 +263,7 @@ export default function DeliveryPickupRoutesPage() {
                       {r.status !== "assigned" && active && (
                         <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                           {s.status === "pending" && <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>Arrived at Farm</Button>}
-                          {s.status === "arrived_at_farm" && <><Input className="sm:w-40" type="number" placeholder="Actual kg" value={actual[s.collectionId] || ""} onChange={e => setActual({ ...actual, [s.collectionId]: e.target.value })} /><Button onClick={() => act(r, "collected", s.collectionId)}><CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Collection</Button></>}
+                          {s.status === "arrived_at_farm" && <><Input className="sm:w-40" type="number" min="0.01" step="0.01" placeholder="Actual kg *" value={actual[s.collectionId] || ""} onChange={e => setActual({ ...actual, [s.collectionId]: e.target.value })} aria-label={`Actual quantity collected from ${s.farmerName || "farm"} in kg`} /><Button disabled={!actual[s.collectionId] || !Number.isFinite(Number(actual[s.collectionId])) || Number(actual[s.collectionId]) <= 0} onClick={() => act(r, "collected", s.collectionId)}><CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Collection</Button></>}
                           {s.status === "collected" && <Button onClick={() => act(r, "departed_farm", s.collectionId)}>Depart Farm</Button>}
                         </div>
                       )}
