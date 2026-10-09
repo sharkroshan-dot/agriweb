@@ -115,9 +115,11 @@ async def get_my_collections(
     warehouse_id = str(warehouse["_id"])
     jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
     products_collection = MongoDB.get_collection("products")
+    batches_collection = MongoDB.get_collection("batches")
 
     order_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     product_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    batch_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     farmer_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     user_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     partner_cache: Dict[str, Optional[Dict[str, Any]]] = {}
@@ -157,6 +159,14 @@ async def get_my_collections(
                 # Some legacy records store references as strings.
                 product_cache[key] = await products_collection.find_one({"_id": key, "deletedAt": None})
         return product_cache[key]
+
+    async def get_batch(batch_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        key = str(batch_id or "")
+        if not key or not ObjectId.is_valid(key):
+            return None
+        if key not in batch_cache:
+            batch_cache[key] = await batches_collection.find_one({"_id": ObjectId(key), "deletedAt": None})
+        return batch_cache[key]
 
     async def get_farmer(farmer_id: Optional[str]) -> Optional[Dict[str, Any]]:
         key = str(farmer_id or "")
@@ -206,6 +216,7 @@ async def get_my_collections(
             order_items[0] if order_items else {},
         )
         product = await get_product(product_id or str(order_item.get("productId") or ""))
+        batch = await get_batch(str(job.get("batchId") or ""))
         farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
         profile_name = await display_name_for_profile(farmer_profile, "")
         farmer_user_id = str((farmer_profile or {}).get("userId") or job.get("farmerId") or "")
@@ -238,6 +249,8 @@ async def get_my_collections(
         )
         if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#")):
             order_number = f"ORD-{order_number}"
+        if not order_number and job.get("orderId"):
+            order_number = "Order reference unavailable"
 
         team_id = str(job.get("collectionTeamId") or "")
         team = None
@@ -291,6 +304,12 @@ async def get_my_collections(
             "farmerName": farmer_name,
             "productName": product_name,
             "orderNumber": order_number,
+            "batchNumber": (
+                readable(job.get("batchNumber"))
+                or readable((batch or {}).get("lotNumber"))
+                or readable((batch or {}).get("batchNumber"))
+                or readable((batch or {}).get("name"))
+            ),
             "collectionTeamName": team_name,
             "collectionTeamVehicleType": readable((team or {}).get("vehicleType")),
             "collectionTeamVehicleNumber": readable((team or {}).get("vehicleNumber")),
