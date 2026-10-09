@@ -1958,6 +1958,10 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                     "variantId": str(item.get("variantId") or "") or None,
                 } for item in (pending_order.get("items") or [])],
                 "logisticsMode": str(pending_order.get("logisticsMode") or "long_distance_pending"),
+                "assignedWarehouseIds": list(dict.fromkeys([
+                    *([str(pending_order.get("warehouseId"))] if pending_order.get("warehouseId") else []),
+                    *([str(x) for x in (pending_order.get("warehouseIds") or []) if x]),
+                ])),
                 "incoming": [],
                 "outgoing": [],
                 "warehouseAllocations": [],
@@ -2303,9 +2307,13 @@ async def get_collection_queue(status: Optional[str] = None, current_user: dict 
                 logger.exception("Failed to enrich collection card with order details", extra={"orderId": order_id})
         serialized_jobs.append(item)
 
+    visible_unassigned_transfers = [
+        item for item in unassigned_transfer_items
+        if not item.get("assignedWarehouseIds") or warehouse_id in item.get("assignedWarehouseIds", [])
+    ]
     return {"success": True, "data": {
         "collections": serialized_jobs,
-        "unassignedTransfers": unassigned_transfer_items,
+        "unassignedTransfers": visible_unassigned_transfers,
     }}
 
 
