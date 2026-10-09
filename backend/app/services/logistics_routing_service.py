@@ -5,6 +5,8 @@ from datetime import datetime
 from bson import ObjectId
 from app.database.mongodb import MongoDB
 from app.services.warehouse_collection_service import ensure_collection_job
+from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationPriority, NotificationType
 
 
 def is_packed_farmer_order(order: Dict[str, Any]) -> bool:
@@ -286,6 +288,7 @@ async def allocate_farmer_fulfillment_warehouses(
     # Create one packed-transfer incoming record per warehouse allocation.
     # These are receiving records, not warehouse packing tasks.
     incoming_collection = MongoDB.get_collection("incoming_stock")
+    collection_jobs_by_warehouse: Dict[str, list] = {}
     await incoming_collection.update_many(
         {"orderId": order["_id"], "sourceMode": "farmer_fulfillment_transfer", "deletedAt": None},
         {"$set": {"deletedAt": now, "updatedAt": now}},
@@ -334,11 +337,62 @@ async def allocate_farmer_fulfillment_warehouses(
         # Create the warehouse-side farm collection task tied to this incoming
         # stock line. It appears in Farm Collection Queue and progresses
         # ready_for_pickup -> team_assigned -> ... -> arrived_warehouse.
-        await ensure_collection_job(
+        collection_job = await ensure_collection_job(
             incoming_doc,
             collection_type="packed_orders_transfer",
             source_mode="farmer_fulfillment_transfer",
         )
+        collection_jobs_by_warehouse.setdefault(str(wid), []).append({
+            "incomingStockId": str(incoming_doc["_id"]),
+            "collectionJobId": str(collection_job.get("_id")) if collection_job and collection_job.get("_id") else None,
+            "productName": allocation.get("productName") or "Product",
+            "quantity": float(allocation["quantity"]),
+            "unit": allocation.get("unit") or "kg",
+        })
+
+    # Notify each assigned warehouse once, after its pickup queue records
+    # exist. The warehouse manager still chooses/assigns the collection team;
+    # the system never auto-assigns a human pickup team.
+    warehouse_by_id = {str(w.get("_id")): w for w in warehouses}
+    for warehouse_key, lines in collection_jobs_by_warehouse.items():
+        source_warehouse = warehouse_by_id.get(warehouse_key) or {}
+        manager_id = source_warehouse.get("managerId") or source_warehouse.get("manager_id")
+        if not manager_id or not ObjectId.is_valid(str(manager_id)):
+            continue
+        item_summary = ", ".join(
+            f"{line['productName']} {line['quantity']:g} {line['unit']}"
+            for line in lines
+        )
+        try:
+            await NotificationService.create_in_app_notification(
+                str(manager_id),
+                NotificationType.WAREHOUSE,
+                f"Packed order #{order.get('orderNumber') or str(order['_id'])} ready for pickup",
+                (
+                    f"Long-distance Farmer Fulfillment is ready for farm collection. "
+                    f"Allocated items: {item_summary}. Open Warehouse → Incoming Stock → "
+                    f"Farm Collection Queue and assign a pickup team. The shipment must "
+                    f"be physically collected and marked Arrived Warehouse before receiving."
+                ),
+                data={
+                    "type": "farmer_fulfillment_pickup_ready",
+                    "orderId": str(order["_id"]),
+                    "orderNumber": order.get("orderNumber"),
+                    "warehouseId": warehouse_key,
+                    "incomingStockIds": [line["incomingStockId"] for line in lines],
+                    "collectionJobIds": [line["collectionJobId"] for line in lines if line["collectionJobId"]],
+                    "logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+                },
+                priority=NotificationPriority.HIGH,
+                mandatory=True,
+            )
+        except Exception:
+            # A notification failure must not erase the route or the pickup job.
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to notify warehouse manager of farmer-packed pickup",
+                extra={"orderId": str(order["_id"]), "warehouseId": warehouse_key},
+            )
 
 
     return {
