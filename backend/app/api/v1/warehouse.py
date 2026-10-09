@@ -284,7 +284,31 @@ async def get_farmer_fulfillment_transfers(
 
         if is_consolidation_warehouse:
             consolidation_status = str(order.get("consolidationStatus") or "")
-            if consolidation_status in ("hub_handoff_pending", "local_hub_ready"):
+            # When the consolidation warehouse is also a source warehouse,
+            # its own packed shipment must still pass collection, receipt,
+            # quality and storage before the consolidation action is offered.
+            if incoming and any(not x.get("arrivedWarehouseAt") for x in incoming):
+                order_stage = "awaiting_warehouse_receipt"
+            elif incoming and all(str(x.get("status") or "") == "stored" for x in incoming):
+                if consolidation_status in ("hub_handoff_pending", "local_hub_ready"):
+                    order_stage = consolidation_status
+                elif consolidation_status == "consolidated":
+                    order_stage = "consolidated"
+                elif consolidation["totalLegs"] and consolidation["receivedLegs"] == consolidation["totalLegs"]:
+                    order_stage = "consolidation_portions_received"
+                else:
+                    order_stage = "consolidation_waiting_for_sources"
+            elif incoming and all(
+                str(x.get("status") or "") in ("received", "stored")
+                and str(x.get("qualityCheck") or "") == "passed"
+                for x in incoming
+            ):
+                order_stage = "quality_approved"
+            elif incoming and any(str(x.get("status") or "") == "received" for x in incoming):
+                order_stage = "received_transfer"
+            elif incoming:
+                order_stage = "warehouse_arrived"
+            elif consolidation_status in ("hub_handoff_pending", "local_hub_ready"):
                 order_stage = consolidation_status
             elif consolidation_status == "consolidated":
                 order_stage = "consolidated"
