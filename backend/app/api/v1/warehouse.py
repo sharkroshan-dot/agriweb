@@ -216,6 +216,8 @@ async def get_farmer_fulfillment_transfers(
             "canReceive": False,
             "canComplete": False,
             "canHandoffLocalHub": False,
+            "canConfirmHubReceipt": False,
+            "hubTransferStatus": None,
             "totalLegs": 0,
             "inTransitLegs": 0,
             "receivedLegs": 0,
@@ -241,10 +243,17 @@ async def get_farmer_fulfillment_transfers(
                 str(x.get("status") or "") == "stored" for x in all_source_incoming
             )
             in_transit_legs = [x for x in legs if str(x.get("status") or "") == "in_transit"]
+            hub_transfer = await MongoDB.get_collection("farmer_fulfillment_hub_transfers").find_one({
+                "orderId": order["_id"],
+                "deletedAt": None,
+            }) if is_consolidation_warehouse else None
+            consolidation_status = str(order.get("consolidationStatus") or "")
             consolidation.update({
                 "canReceive": bool(in_transit_legs),
-                "canComplete": legs_received and all_source_stored and str(order.get("consolidationStatus") or "") != "consolidated",
-                "canHandoffLocalHub": str(order.get("consolidationStatus") or "") == "consolidated",
+                "canComplete": legs_received and all_source_stored and consolidation_status != "consolidated",
+                "canHandoffLocalHub": consolidation_status == "consolidated",
+                "canConfirmHubReceipt": consolidation_status == "hub_handoff_pending" and str((hub_transfer or {}).get("status") or "") == "in_transit",
+                "hubTransferStatus": (hub_transfer or {}).get("status"),
                 "totalLegs": len(legs),
                 "inTransitLegs": len(in_transit_legs),
                 "receivedLegs": sum(1 for x in legs if str(x.get("status") or "") == "received_at_consolidation"),
@@ -274,7 +283,10 @@ async def get_farmer_fulfillment_transfers(
                 order_stage = "received_transfer"
 
         if is_consolidation_warehouse:
-            if str(order.get("consolidationStatus") or "") == "consolidated":
+            consolidation_status = str(order.get("consolidationStatus") or "")
+            if consolidation_status in ("hub_handoff_pending", "local_hub_ready"):
+                order_stage = consolidation_status
+            elif consolidation_status == "consolidated":
                 order_stage = "consolidated"
             elif consolidation["totalLegs"] and consolidation["receivedLegs"] == consolidation["totalLegs"]:
                 order_stage = "consolidation_portions_received"
