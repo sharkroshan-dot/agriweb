@@ -678,6 +678,10 @@ export default function FarmerOrderMapPage() {
   // Selection is always explicit. Radius/Route only filters the list; the
   // farmer may choose any number of eligible orders for self-delivery.
   const toggleSelectedOrder = (orderId: string) => {
+    if (!deliveryInsideIds.has(orderId)) {
+      toast("This order is outside the active radius/route selection scope and will remain automatic.", { icon: "⚡" });
+      return;
+    }
     setSelectedRouteIds((current) =>
       current.includes(orderId)
         ? current.filter((id) => id !== orderId)
@@ -686,7 +690,7 @@ export default function FarmerOrderMapPage() {
   };
 
   const selectVisibleOrdersForSelfDelivery = () => {
-    const visibleIds = mapOrders
+    const visibleIds = deliveryInsideOrders
       .filter((stop) => !isDone(stop) && !isPickup(stop) && stop?.assignment === "unassigned")
       .map((stop) => getStopId(stop))
       .filter(Boolean);
@@ -1324,7 +1328,7 @@ export default function FarmerOrderMapPage() {
                   <Button size="sm" variant={mapFilterMode === "all" ? "default" : "outline"} onClick={showAllMapOrders}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> All Orders
                   </Button>
-                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!mapOrders.some((stop) => !isPickup(stop) && !isDone(stop) && stop?.assignment === "unassigned")}>
+                  <Button size="sm" variant="outline" onClick={selectVisibleOrdersForSelfDelivery} disabled={!deliveryInsideOrders.some((stop) => !isPickup(stop) && !isDone(stop) && stop?.assignment === "unassigned")}>
                     <ListChecks className="mr-1.5 h-3.5 w-3.5" /> Select Visible Orders
                   </Button>
                   <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={deliverSelected} disabled={deliverSelectedMutation.isPending || selectedRouteIds.length === 0}>
@@ -1860,7 +1864,7 @@ export default function FarmerOrderMapPage() {
                 <div className="flex flex-wrap gap-2 border-t pt-3">
                   <Button size="sm" variant="outline" onClick={() => {
                     const ids = selectedLocationGroup.orders
-                      .filter((order) => !isPickup(order) && !isDone(order))
+                      .filter((order) => !isPickup(order) && !isDone(order) && deliveryInsideIds.has(getStopId(order)))
                       .map((order) => getStopId(order))
                       .filter(Boolean);
                     setSelectedRouteIds((current) => Array.from(new Set([...current, ...ids])));
@@ -1942,10 +1946,14 @@ export default function FarmerOrderMapPage() {
                           <Button
                             size="sm"
                             variant={selectedRouteIds.includes(getStopId(selectedStop)) ? "default" : "outline"}
-                            disabled={isPickup(selectedStop) || isDone(selectedStop)}
+                            disabled={isPickup(selectedStop) || isDone(selectedStop) || !deliveryInsideIds.has(getStopId(selectedStop))}
                             onClick={() => toggleSelectedOrder(getStopId(selectedStop))}
                           >
-                            {selectedRouteIds.includes(getStopId(selectedStop)) ? "Selected for Self Delivery" : "Select for Self Delivery"}
+                            {selectedRouteIds.includes(getStopId(selectedStop))
+                              ? "Selected for Self Delivery"
+                              : !deliveryInsideIds.has(getStopId(selectedStop))
+                                ? "Outside Selection Scope — Automatic"
+                                : "Select for Self Delivery"}
                           </Button>
                         </div>
                       </div>
