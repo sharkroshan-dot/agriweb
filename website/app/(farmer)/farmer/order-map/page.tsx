@@ -1370,7 +1370,14 @@ export default function FarmerOrderMapPage() {
                 <p className="font-semibold">{lastPlanResult.skipped.length} order action{lastPlanResult.skipped.length === 1 ? "" : "s"} need attention.</p>
                 <ul className="mt-1 list-disc pl-4">
                   {lastPlanResult.skipped.slice(0, 8).map((item: any) => (
-                    <li key={String(item.orderId)}>{String(item.orderNumber || item.orderId || "Order")}: {String(item.reason || "Could not complete automatically")}</li>
+                    <li key={String(item.orderId)}>
+                      <span>{String(item.orderNumber || item.orderId || "Order")}: {String(item.reason || "Could not complete automatically")}</span>
+                      {(item.fulfillmentStage !== undefined || item.packingComplete !== undefined || item.orderStatus !== undefined) && (
+                        <span className="mt-1 block font-mono text-[11px] text-amber-800">
+                          Current state: stage={String(item.fulfillmentStage ?? "unknown")} · packingComplete={String(item.packingComplete ?? "unset")} · status={String(item.orderStatus ?? "unknown")}
+                        </span>
+                      )}
+                    </li>
                   ))}
                 </ul>
               </div>
