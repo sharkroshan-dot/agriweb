@@ -14,7 +14,7 @@ export default function WarehouseConsolidationPage(){
   const {data,isLoading,refetch}=useQuery({queryKey:["warehouseConsolidations"],queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),refetchInterval:15000});
   const rows=data?.data?.consolidations||[];
   const receive=async(id:string)=>{try{setBusy(id);await api.post("/warehouse/me/farmer-fulfillment/"+id+"/receive-at-consolidation");toast.success("Warehouse portions received at consolidation");await refetch();}catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}finally{setBusy(null);}};
-  const handoff=async(id:string)=>{try{setBusy(id);await api.post("/warehouse/me/farmer-fulfillment/"+id+"/handoff-local-hub");toast.success("Complete order handed to the local hub");await refetch();}catch(e:any){toast.error(e?.message||"Local hub handoff failed");}finally{setBusy(null);}};
+  const handoff=async(id:string)=>{try{setBusy(id);await api.post("/warehouse/me/farmer-fulfillment/"+id+"/handoff-local-hub");toast.success("Complete order dispatched to the local hub. Confirm receipt in the local-hub receiving workflow before final partner assignment.");await refetch();}catch(e:any){toast.error(e?.message||"Local hub dispatch failed");}finally{setBusy(null);}};
   const complete=async(id:string)=>{
     try{setBusy(id);await api.post("/warehouse/me/farmer-fulfillment/"+id+"/complete-consolidation");toast.success("Complete order sent to local hub");await refetch();}
     catch(e:any){toast.error(e?.message||"Consolidation handoff failed");}finally{setBusy(null);}
