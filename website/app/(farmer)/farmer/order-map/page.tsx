@@ -858,6 +858,7 @@ export default function FarmerOrderMapPage() {
         automaticLongDistanceCount: automaticLongDistanceOrderIds.length,
         skipped,
         pendingResources,
+        routingValidationVersion: String(result.routingValidationVersion || ""),
       });
       if (skipped.length || pendingResources.length) {
         toast(
@@ -1360,6 +1361,11 @@ export default function FarmerOrderMapPage() {
               <SummaryStat label="Long Distance → Warehouse" value={String(lastPlanResult.automaticLongDistanceCount ?? lastPlanResult.longDistanceCount)} tone="violet" />
               <SummaryStat label="Waiting for Resources" value={String(lastPlanResult.pendingResources?.length ?? 0)} tone="orange" />
             </div>
+            {lastPlanResult.routingValidationVersion !== "farmer-packing-v2" && (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900">
+                <strong>Backend version mismatch.</strong> The delivery API did not return the current packing-validation marker. The website and backend may be running different code versions. Pull the latest branch and restart/redeploy the FastAPI backend before testing this workflow again.
+              </p>
+            )}
             {lastPlanResult.pendingResources?.length > 0 && (
               <p className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-xs text-orange-900">
                 {lastPlanResult.pendingResources.length} order{lastPlanResult.pendingResources.length === 1 ? " is" : "s are"} classified for partner delivery, but a required warehouse/local hub is not available yet. These orders are pending handoff, not ready for final delivery.
