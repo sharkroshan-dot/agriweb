@@ -9,7 +9,7 @@ from app.repositories.warehouse_collection_repository import (
 
 async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, source_mode: str) -> Optional[Dict[str, Any]]:
     """Create one farm collection job for an incoming stock record."""
-    if not incoming or not incoming.get("_id") or not incoming.get("warehouseId") or not incoming.get("farmerId"):
+    if not incoming or not incoming.get("_id") or not incoming.get("warehouseId"):
         return None
     existing = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
     if existing:
