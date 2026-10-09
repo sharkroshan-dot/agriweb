@@ -34,7 +34,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex flex-1 overflow-hidden">
         <AdminSidebar />
         <main className="site-main flex-1 overflow-y-auto px-4 py-6 md:px-8">
-          <div className="site-content mx-auto w-full max-w-[1440px]"><WorkflowGuide role="admin" />{children}</div>
+          <div className="site-content role-workspace mx-auto w-full max-w-[1440px]"><WorkflowGuide role="admin" />{children}</div>
         </main>
       </div>
     </div>
