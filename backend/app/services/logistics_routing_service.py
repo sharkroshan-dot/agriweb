@@ -6,6 +6,23 @@ from bson import ObjectId
 from app.database.mongodb import MongoDB
 
 
+def is_packed_farmer_order(order: Dict[str, Any]) -> bool:
+    """Use one packing rule across the delivery map and routing service.
+
+    A normalized packed/dispatched stage is authoritative. The boolean flag
+    supports legacy packed orders whose stage was not migrated. String values
+    are parsed explicitly so values such as "false" are not treated as truthy.
+    """
+    stage = str(order.get("fulfillmentStage") or "").strip().lower()
+    if stage in ("packed", "dispatched"):
+        return True
+
+    packing_complete = order.get("packingComplete")
+    if packing_complete is True:
+        return True
+    return str(packing_complete or "").strip().lower() in ("true", "1", "yes")
+
+
 def _point(value: Any) -> Optional[Tuple[float, float]]:
     if not isinstance(value, dict):
         return None
@@ -339,11 +356,8 @@ async def apply_partner_route(
     """
     mode = "nearby" if route_mode == "nearby" else "long_distance"
     if str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct"):
-        fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
-        # Match the Order Map and Confirm Selection eligibility rule: a
-        # persisted packingComplete flag is valid evidence of packing for
-        # legacy orders whose fulfillmentStage has not been normalized yet.
-        is_packed = fulfillment_stage in ("packed", "dispatched") or bool(order.get("packingComplete"))
+        # The Order Map, plan endpoint, and routing service share this rule.
+        is_packed = is_packed_farmer_order(order)
         if not is_packed:
             raise ValueError("Farmer order must be packed before delivery routing.")
         if str(order.get("orderStatus") or order.get("status") or "").lower() in (
