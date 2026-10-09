@@ -41,6 +41,46 @@ def _serialize_route(route: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def select_route_team_assignments(
+    route_groups: List[Dict[str, Any]],
+    memberships: List[Dict[str, Any]],
+    busy_partner_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Choose one approved, capacity-suitable pickup team per route.
+
+    Each team is assigned at most one route in this batch. Teams already carrying
+    an active route are excluded. Best-fit selection avoids wasting the largest
+    vehicles on small routes.
+    """
+    busy = {str(value) for value in (busy_partner_ids or [])}
+    available = []
+    for member in memberships:
+        partner_id = str(member.get("deliveryPartnerId") or "")
+        try:
+            capacity = float(member.get("capacity") or 0)
+        except (TypeError, ValueError):
+            capacity = 0
+        if partner_id and capacity > 0 and partner_id not in busy:
+            item = dict(member)
+            item["_assignmentCapacity"] = capacity
+            available.append(item)
+
+    assignments: List[Dict[str, Any]] = []
+    for group in route_groups:
+        required = float(group.get("totalQuantity") or 0)
+        suitable = [member for member in available if member["_assignmentCapacity"] >= required]
+        if not suitable:
+            raise ValueError(
+                f"No unassigned approved pickup team has enough capacity for a "
+                f"{required:g} kg route. Offer routes to partners or review vehicle capacity."
+            )
+        chosen = min(suitable, key=lambda member: member["_assignmentCapacity"])
+        available.remove(chosen)
+        chosen.pop("_assignmentCapacity", None)
+        assignments.append(chosen)
+    return assignments
+
+
 async def build_smart_routes(
     warehouse: Dict[str, Any],
     jobs: List[Dict[str, Any]],
