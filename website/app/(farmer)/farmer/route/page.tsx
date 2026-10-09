@@ -343,9 +343,17 @@ export default function FarmerRoutePage() {
 
   const startMutation = useMutation({
     mutationFn: () => api.put(`/farmers/me/route/start${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
+      const updatedStops = Number(res?.data?.updatedStops ?? res?.updatedStops ?? 0);
+      if (!updatedStops) {
+        toast(
+          "No delivery stops were dispatched. Customer pickup orders must be completed with the customer's pickup code or QR.",
+          { icon: "📦", duration: 6500 }
+        );
+        return;
+      }
       setStarted(true);
-      toast.success("Route started! Stops are marked as self-delivery.");
+      toast.success("Route started! Delivery stops are dispatched; priority is refreshed before execution.");
     },
     onError: () => toast.error("Failed to start route"),
   });
