@@ -1689,7 +1689,7 @@ async def schedule_incoming(
 @router.put("/me/incoming/{incoming_id}/receive")
 async def receive_incoming_stock(
     incoming_id: str,
-    quantity: int = Query(..., gt=0),
+    quantity: float = Query(..., gt=0),
     quality_check: str = Query(..., pattern="^(pending|passed|failed)$"),
     usable_quantity: Optional[float] = Query(None, ge=0, alias="usableQuantity"),
     notes: Optional[str] = None,
@@ -1706,6 +1706,20 @@ async def receive_incoming_stock(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Warehouse not found"
         )
+    # A packed Farmer Fulfillment transfer may be received only after its
+    # farm-collection workflow confirms physical arrival at this warehouse.
+    incoming_record = await incoming_stock_repository.get_by_id(incoming_id)
+    if (
+        incoming_record
+        and str(incoming_record.get("warehouseId")) == str(warehouse["_id"])
+        and str(incoming_record.get("sourceMode") or "") == "farmer_fulfillment_transfer"
+        and not incoming_record.get("arrivedWarehouseAt")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This farmer-packed shipment has not arrived at the warehouse yet. Complete Farm Collection → Arrived Warehouse first.",
+        )
+
     incoming = await WarehouseService.receive_incoming(
         incoming_id,
         quantity,
