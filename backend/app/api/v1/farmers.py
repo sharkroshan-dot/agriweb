@@ -3328,7 +3328,62 @@ async def create_self_delivery_plan(
             )
         except Exception as exc:
             logger.exception("Failed to route remaining order %s through delivery partner flow", oid)
-            skipped_partner.append({"orderId": oid, "reason": str(exc)})
+            # apply_partner_route persists the distance decision before building
+            # multi-warehouse transfer legs. If downstream setup fails after
+            # that commit, do not hide the order as a generic skipped result:
+            # preserve an explicit pending handoff and surface it in the UI.
+            if any(str(item.get("orderId")) == oid for item in partner_results):
+                # The route result was already recorded; only a later event
+                # notification failed, so do not duplicate the result.
+                continue
+            try:
+                persisted_order = await order_repository.get_by_id(oid) or order
+            except Exception:
+                persisted_order = order
+            persisted_decision = str(persisted_order.get("deliveryDecision") or "").lower()
+            if persisted_decision == partner_route:
+                reason = "Route decision saved, but logistics setup needs attention: " + str(exc)[:500]
+                pending_status = (
+                    "hub_handoff_pending" if partner_route == "nearby"
+                    else "warehouse_transfer_pending"
+                )
+                transfer_status = (
+                    "hub_handoff_pending" if partner_route == "nearby"
+                    else "warehouse_consolidation_pending"
+                )
+                try:
+                    await MongoDB.get_collection("orders").update_one(
+                        {"_id": persisted_order["_id"]},
+                        {"$set": {
+                            "deliveryDecisionStatus": pending_status,
+                            "transferStatus": transfer_status,
+                            "partnerAssignmentOpen": False,
+                            "partnerRouteSetupError": str(exc)[:1000],
+                            "updatedAt": datetime.utcnow(),
+                        }},
+                    )
+                except Exception:
+                    logger.exception("Could not persist pending logistics state for order %s", oid)
+                pending_resource_results.append({
+                    "orderId": oid,
+                    "route": partner_route,
+                    "reason": reason,
+                })
+                if partner_route == "nearby":
+                    nearby_count += 1
+                else:
+                    long_distance_count += 1
+                partner_results.append({
+                    "orderId": oid,
+                    "distanceKm": round(distance_km, 2) if distance_km is not None else None,
+                    "route": partner_route,
+                    "deliveryJob": None,
+                    "deliveryDecisionStatus": pending_status,
+                    "resourcePending": True,
+                    "setupError": str(exc)[:500],
+                })
+            else:
+                skipped_partner.append({"orderId": oid, "reason": str(exc)})
 
     partner_count = len(partner_results)
     automatic_order_ids = [str(item["orderId"]) for item in partner_results]
