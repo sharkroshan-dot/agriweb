@@ -198,12 +198,12 @@ async def get_farmer_fulfillment_transfers(
     for order in orders:
         outgoing = await outgoing_stock_repository.find_many({
             "orderId": order["_id"],
-            "warehouseId": ObjectId(str(warehouse["_id"])),
+            "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
             "deletedAt": None,
         }, skip=0, limit=1000)
         incoming = await incoming_stock_repository.find_many({
             "orderId": order["_id"],
-            "warehouseId": ObjectId(str(warehouse["_id"])),
+            "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
             "deletedAt": None,
         }, skip=0, limit=1000)
         logistics_mode = str(order.get("logisticsMode") or "")
