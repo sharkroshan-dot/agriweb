@@ -248,7 +248,7 @@ export default function WarehouseCollectionsPage() {
                         {["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId && <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
                           <input
                             type="checkbox"
-                            aria-label={`Select ${job.farmerName || job.orderId || "collection job"}`}
+                            aria-label={`Select ${job.farmerName || job.productName || "collection job"}`}
                             checked={selectedCollectionIds.includes(String(job.id || job._id))}
                             onChange={(event) => toggleCollectionSelection(String(job.id || job._id), event.target.checked)}
                             className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
