@@ -1106,22 +1106,6 @@ export default function FarmerOrderMapPage() {
     onError: (e: any) => toast.error(getApiError(e)),
   });
 
-  const completeMutation = useMutation({
-    mutationFn: (stop: any) =>
-      api.put(`/farmers/me/route/${getStopId(stop)}/status`, {
-        status: isPickup(stop) ? "picked_up" : "delivered",
-        note: "Farmer completed stop from order map",
-      }),
-    onSuccess: (_data, stop) => {
-      toast.success(`${stop.buyerName || "Order"} completed!`);
-      refreshAll();
-    },
-    onError: () => toast.error("Failed to complete stop"),
-  });
-
-  const handleComplete = (stop: any) => {
-    if (!completeMutation.isPending) completeMutation.mutate(stop);
-  };
 
   const navigateToStop = (stop: any) => {
     const coordinates = getCoordinates(stop);
@@ -1974,19 +1958,21 @@ export default function FarmerOrderMapPage() {
                     </>
                   )}
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    {!isDone(selectedStop) && selectedStop.canComplete !== false && (
+                    {!isDone(selectedStop) && isPickup(selectedStop) && (
                       <Button
                         className="flex-1"
-                        onClick={() => handleComplete(selectedStop)}
-                        disabled={completeMutation.isPending}
+                        onClick={() => {
+                          window.location.href = `/farmer/route?orderIds=${encodeURIComponent(getStopId(selectedStop))}`;
+                        }}
                       >
-                        {completeMutation.isPending ? (
-                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                        ) : (
-                          <CheckCircle className="mr-1.5 h-4 w-4" />
-                        )}
-                        {isPickup(selectedStop) ? "Mark Picked Up" : "Mark Delivered"}
+                        <CheckCircle className="mr-1.5 h-4 w-4" />
+                        Open Pickup Verification
                       </Button>
+                    )}
+                    {!isDone(selectedStop) && !isPickup(selectedStop) && (
+                      <p className="flex-1 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
+                        Delivery completion is recorded from the Route page after customer OTP verification. This map is for delivery decisions, not for bypassing proof of delivery.
+                      </p>
                     )}
                     <Button variant="outline" onClick={() => navigateToStop(selectedStop)}>
                       <Navigation className="mr-1.5 h-4 w-4" />
