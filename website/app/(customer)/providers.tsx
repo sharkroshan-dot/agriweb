@@ -20,7 +20,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 60 * 1000,
             gcTime: 30 * 60 * 1000,
-            refetchOnWindowFocus: "always",
+            refetchOnWindowFocus: true,
             retry: 1,
           },
           mutations: {
