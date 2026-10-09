@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Clock, ExternalLink, X } from "lucide-react";
@@ -48,6 +49,22 @@ export function NotificationBell() {
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const { data: session, status: sessionStatus } = useSession();
+  const sessionUser = session?.user as any;
+  const isWarehouseUser = sessionStatus === "authenticated" && sessionUser?.role === "warehouse";
+
+  // The collection-queue endpoint repairs missed packed-transfer pickup records
+  // and backfills the warehouse manager's in-app notification. Run it from the
+  // shared header for signed-in warehouse users, not only after they discover
+  // and open the Incoming Stock page themselves.
+  useQuery({
+    queryKey: ["warehousePickupNotificationSync", sessionUser?.id || sessionUser?.email || "warehouse"],
+    queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
+    enabled: isWarehouseUser,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    retry: 1,
+  });
 
   useEffect(() => {
     if (!open) return;
