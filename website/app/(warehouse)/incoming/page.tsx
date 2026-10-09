@@ -75,6 +75,8 @@ export default function WarehouseIncomingPage() {
           limit: 50,
         },
       }),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
   });
 
   const incomingList = useMemo(() => {
@@ -96,6 +98,8 @@ export default function WarehouseIncomingPage() {
   const { data: collectionData, refetch: refetchCollections } = useQuery({
     queryKey: ["warehouseCollections"],
     queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
   });
   const collectionList = collectionData?.data?.collections || [];
 
@@ -249,7 +253,7 @@ export default function WarehouseIncomingPage() {
       <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Incoming is the warehouse receiving stage.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Farm Collection brings the shipment to the warehouse. Staff then Receive → Quality Check → Store. Do not mark a collection as received until the physical shipment has arrived.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button></div>
+        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => { void Promise.all([refetch(), refetchCollections()]); }}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
