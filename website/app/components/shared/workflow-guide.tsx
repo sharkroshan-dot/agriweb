@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PrefetchLink as Link } from "./prefetch-link";
 import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Circle, Clock3, Ban, Workflow } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
