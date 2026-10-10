@@ -428,86 +428,164 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     display_stops = []
+    status_rank = {
+        "pending": 0, "ready_for_pickup": 1, "team_assigned": 2,
+        "en_route": 3, "arrived_at_farm": 4, "collected": 5,
+        "departed_farm": 6, "arrived_warehouse": 7,
+    }
+
+    async def enrich_order(order_ref: Dict[str, Any], farm_stop: Dict[str, Any]) -> Dict[str, Any]:
+        order_item_data = dict(order_ref)
+        collection_id = str(order_ref.get("collectionId") or "")
+        job = await warehouse_collection_repository.get_by_id(collection_id) if ObjectId.is_valid(collection_id) else None
+        if not job:
+            order_item_data["farmerName"] = _human_text(order_ref.get("farmerName") or farm_stop.get("farmerName")) or "Farmer details unavailable"
+            order_item_data["productName"] = _human_text(order_ref.get("productName")) or "Product details unavailable"
+            order_item_data["orderNumber"] = _human_text(order_ref.get("orderNumber"))
+            order_item_data["pickupAddress"] = address_text(order_ref.get("pickupLocation") or farm_stop.get("pickupLocation")) or "Farm address not provided"
+            order_item_data["status"] = _human_text(order_ref.get("status")) or "pending"
+            return order_item_data
+
+        order = await order_by_id(job.get("orderId") or order_ref.get("orderId"))
+        items = (order or {}).get("items") or []
+        product_id = job.get("productId") or order_ref.get("productId")
+        order_item = next(
+            (
+                value for value in items
+                if product_id and str(value.get("productId") or value.get("product_id") or "") == str(product_id)
+            ),
+            items[0] if items else {},
+        )
+        product = await product_by_id(product_id or order_item.get("productId"))
+        farmer = await farmer_by_id(job.get("farmerId") or order_ref.get("farmerId") or farm_stop.get("farmerId"))
+        job_farmer_name = _human_text(job.get("farmerName"))
+        if job_farmer_name in ("Farmer", "Farm", "Unknown Farmer"):
+            job_farmer_name = None
+        farmer_name = (
+            job_farmer_name
+            or _human_text((farmer or {}).get("farmName"))
+            or _human_text((farmer or {}).get("ownerName"))
+            or _human_text((farmer or {}).get("name"))
+        )
+        farmer_user = await user_by_id((farmer or {}).get("userId") or job.get("farmerId"))
+        farmer_name = farmer_name or _person_name(farmer_user)
+        if not farmer_name and _human_text(order_ref.get("farmerName")) not in (None, "Farmer"):
+            farmer_name = _human_text(order_ref.get("farmerName"))
+        farmer_name = farmer_name or "Farmer details unavailable"
+
+        job_product_name = _human_text(job.get("productName"))
+        if job_product_name in ("Farm Product", "Product", "Product details unavailable"):
+            job_product_name = None
+        product_name = (
+            job_product_name
+            or _human_text((product or {}).get("name"))
+            or _human_text((product or {}).get("productName"))
+            or _human_text((product or {}).get("title"))
+            or _human_text(order_item.get("productName"))
+            or _human_text(order_item.get("name"))
+            or _human_text(order_ref.get("productName"))
+            or "Product details unavailable"
+        )
+        batch = await batch_by_id(job.get("batchId") or order_ref.get("batchId"))
+        order_number = (
+            _human_text((order or {}).get("orderNumber"))
+            or _human_text((order or {}).get("orderNo"))
+            or _human_text((order or {}).get("referenceNumber"))
+            or _human_text(order_ref.get("orderNumber"))
+        )
+        if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#")):
+            order_number = f"ORD-{order_number}"
+
+        team_id = str(job.get("collectionTeamId") or "")
+        team = await delivery_repository.get_by_id(team_id) if ObjectId.is_valid(team_id) else None
+        team_user = await user_by_id((team or {}).get("userId"))
+        location = job.get("pickupLocation") or order_ref.get("pickupLocation") or farm_stop.get("pickupLocation") or {}
+        address = address_text(location)
+        if not address and farmer:
+            address = address_text(farmer.get("farmAddress") or farmer.get("address"))
+
+        order_item_data.update({
+            "collectionId": str(job.get("_id") or collection_id),
+            "incomingStockId": str(job.get("incomingStockId") or order_ref.get("incomingStockId") or "") or None,
+            "orderId": str(job.get("orderId") or order_ref.get("orderId") or "") or None,
+            "farmerId": str(job.get("farmerId") or order_ref.get("farmerId") or "") or None,
+            "productId": str(job.get("productId") or order_ref.get("productId") or "") or None,
+            "variantId": str(job.get("variantId") or order_ref.get("variantId") or "") or None,
+            "farmerName": farmer_name,
+            "productName": product_name,
+            "orderNumber": order_number or ("Order reference unavailable" if job.get("orderId") else None),
+            "batchNumber": (
+                _human_text(job.get("batchNumber"))
+                or _human_text((batch or {}).get("lotNumber"))
+                or _human_text((batch or {}).get("batchNumber"))
+            ),
+            "pickupAddress": address or "Farm address not provided",
+            "pickupLocation": location,
+            "status": _human_text(job.get("status")) or _human_text(order_ref.get("status")) or "ready_for_pickup",
+            "quantity": float(job.get("quantity") or order_ref.get("quantity") or 0),
+            "actualQuantity": job.get("actualCollectedQuantity", order_ref.get("actualQuantity")),
+            "collectionTeamName": _person_name(team_user) or _human_text((team or {}).get("name")) or "Assigned pickup partner",
+            "collectionType": job.get("collectionType") or order_ref.get("collectionType"),
+            "qualityGrade": job.get("qualityGrade") or order_ref.get("qualityGrade"),
+            "storageType": job.get("storageType") or order_ref.get("storageType") or "ambient",
+        })
+        return order_item_data
+
     for original_stop in result.get("stops") or []:
         stop = dict(original_stop)
-        collection_id = str(stop.get("collectionId") or "")
-        job = await warehouse_collection_repository.get_by_id(collection_id) if ObjectId.is_valid(collection_id) else None
-        if job:
-            order = await order_by_id(job.get("orderId") or stop.get("orderId"))
-            items = (order or {}).get("items") or []
-            product_id = job.get("productId") or stop.get("productId")
-            order_item = next(
-                (
-                    value for value in items
-                    if product_id and str(value.get("productId") or value.get("product_id") or "") == str(product_id)
-                ),
-                items[0] if items else {},
-            )
-            product = await product_by_id(product_id or order_item.get("productId"))
-            farmer = await farmer_by_id(job.get("farmerId") or stop.get("farmerId"))
-            job_farmer_name = _human_text(job.get("farmerName"))
-            if job_farmer_name in ("Farmer", "Farm", "Unknown Farmer"):
-                job_farmer_name = None
-            farmer_name = (
-                job_farmer_name
-                or _human_text((farmer or {}).get("farmName"))
-                or _human_text((farmer or {}).get("ownerName"))
-                or _human_text((farmer or {}).get("name"))
-            )
-            farmer_user = await user_by_id((farmer or {}).get("userId") or job.get("farmerId"))
-            if not farmer_name:
-                farmer_name = _person_name(farmer_user)
-            if not farmer_name and _human_text(stop.get("farmerName")) not in (None, "Farmer"):
-                farmer_name = _human_text(stop.get("farmerName"))
-            farmer_name = farmer_name or "Farmer details unavailable"
-            job_product_name = _human_text(job.get("productName"))
-            if job_product_name in ("Farm Product", "Product", "Product details unavailable"):
-                job_product_name = None
-            product_name = (
-                job_product_name
-                or _human_text((product or {}).get("name"))
-                or _human_text((product or {}).get("productName"))
-                or _human_text((product or {}).get("title"))
-                or _human_text(order_item.get("productName"))
-                or _human_text(order_item.get("name"))
-                or "Product details unavailable"
-            )
-            batch = await batch_by_id(job.get("batchId"))
-            order_number = (
-                _human_text((order or {}).get("orderNumber"))
-                or _human_text((order or {}).get("orderNo"))
-                or _human_text((order or {}).get("referenceNumber"))
-                or _human_text(stop.get("orderNumber"))
-            )
-            if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#")):
-                order_number = f"ORD-{order_number}"
-            team_id = str(job.get("collectionTeamId") or "")
-            team = await delivery_repository.get_by_id(team_id) if ObjectId.is_valid(team_id) else None
-            team_user = await user_by_id((team or {}).get("userId"))
-            location = job.get("pickupLocation") or stop.get("pickupLocation") or {}
-            address = address_text(location)
-            if not address and farmer:
-                address = address_text(farmer.get("farmAddress") or farmer.get("address"))
+        order_refs = stop.get("orders") or [stop]
+        enriched_orders = []
+        seen_collection_ids = set()
+        for order_ref in order_refs:
+            enriched_order = await enrich_order(dict(order_ref), stop)
+            collection_id = str(enriched_order.get("collectionId") or "")
+            if collection_id and collection_id in seen_collection_ids:
+                continue
+            if collection_id:
+                seen_collection_ids.add(collection_id)
+            enriched_orders.append(enriched_order)
+
+        if enriched_orders:
+            statuses = [str(order.get("status") or "pending") for order in enriched_orders]
+            min_status = min(statuses, key=lambda value: status_rank.get(value, 0))
+            if all(value == "departed_farm" for value in statuses):
+                farm_status = "departed_farm"
+            elif all(value in ("collected", "departed_farm") for value in statuses):
+                farm_status = "collected"
+            else:
+                farm_status = min_status
+            product_names = list(dict.fromkeys(
+                str(order.get("productName") or "Product details unavailable") for order in enriched_orders
+            ))
+            addresses = [str(order.get("pickupAddress") or "") for order in enriched_orders]
+            address = next((value for value in addresses if value and value != "Farm address not provided"), None)
+            expected_quantity = sum(float(order.get("quantity") or 0) for order in enriched_orders)
+            known_actual = [
+                float(order["actualQuantity"])
+                for order in enriched_orders if order.get("actualQuantity") is not None
+            ]
             stop.update({
-                "farmerName": farmer_name,
-                "productName": product_name,
-                "orderNumber": order_number or ("Order reference unavailable" if job.get("orderId") else None),
-                "batchNumber": (
-                    _human_text(job.get("batchNumber"))
-                    or _human_text((batch or {}).get("lotNumber"))
-                    or _human_text((batch or {}).get("batchNumber"))
-                ),
-                "pickupAddress": address or "Farm address not provided",
-                "status": _human_text(job.get("status")) or "ready_for_pickup",
-                "actualQuantity": job.get("actualCollectedQuantity", stop.get("actualQuantity")),
-                "collectionTeamName": _person_name(team_user) or _human_text((team or {}).get("name")) or "Assigned pickup partner",
+                "orders": enriched_orders,
+                "collectionIds": [str(order.get("collectionId")) for order in enriched_orders if order.get("collectionId")],
+                "orderIds": [str(order.get("orderId")) for order in enriched_orders if order.get("orderId")],
+                "orderCount": len(enriched_orders),
+                "farmerName": next((order["farmerName"] for order in enriched_orders if order.get("farmerName") != "Farmer details unavailable"), "Farmer details unavailable"),
+                "productName": product_names[0] if len(product_names) == 1 else f"{len(product_names)} product types",
+                "quantity": expected_quantity,
+                "actualQuantity": sum(known_actual) if known_actual else None,
+                "pickupAddress": address or address_text(stop.get("pickupLocation")) or "Farm address not provided",
+                "status": farm_status,
             })
+            stop["collectionId"] = str(enriched_orders[0].get("collectionId") or stop.get("collectionId") or "")
+            stop["orderId"] = str(enriched_orders[0].get("orderId") or stop.get("orderId") or "") or None
+            stop["farmerId"] = str(enriched_orders[0].get("farmerId") or stop.get("farmerId") or "") or None
+            stop["productId"] = str(enriched_orders[0].get("productId") or stop.get("productId") or "") or None
         else:
             stop["farmerName"] = _human_text(stop.get("farmerName")) or "Farmer details unavailable"
             stop["productName"] = _human_text(stop.get("productName")) or "Product details unavailable"
-            stop["orderNumber"] = _human_text(stop.get("orderNumber")) or None
             stop["pickupAddress"] = address_text(stop.get("pickupLocation")) or "Farm address not provided"
             stop["status"] = _human_text(stop.get("status")) or "pending"
+            stop["orders"] = []
         display_stops.append(stop)
     result["stops"] = display_stops
     return serialize_route(result)
