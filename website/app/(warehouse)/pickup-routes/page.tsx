@@ -172,7 +172,6 @@ export default function PickupRoutesPage() {
                             <ExternalLink className="mr-2 h-4 w-4" /> View Orders
                           </Button>
                         </div>
-                        </div>}
                       </div>
                       <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
                     </div>
