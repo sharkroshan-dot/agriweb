@@ -243,7 +243,6 @@ class WarehouseService:
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
-    @staticmethod
     async def create_pickup_route_incoming(route_id: str) -> List[Dict[str, Any]]:
         route = await warehouse_pickup_route_repository.get_by_id(route_id)
         if not route or str(route.get("status")) not in ("completed", "returned_to_warehouse"):
