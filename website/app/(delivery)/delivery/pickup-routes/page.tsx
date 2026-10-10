@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase } from "lucide-react";
+import { MapPin, Route, CheckCircle2, Navigation, Hand, Warehouse, UserCheck, Lock, Truck, Briefcase, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -143,6 +143,7 @@ export default function DeliveryPickupRoutesPage() {
     refetchInterval: 10000,
   });
   const [actual, setActual] = useState<Record<string, string>>({});
+  const [expandedFarmStops, setExpandedFarmStops] = useState<Record<string, boolean>>({});
   const marketplaceQ = useQuery({
     queryKey: ["warehousePickupJobs"],
     queryFn: () => api.get("/delivery/me/pickup-jobs"),
@@ -443,6 +444,9 @@ export default function DeliveryPickupRoutesPage() {
                   }, {});
                   const orderGroups = Object.values(groupedCustomerOrders) as any[];
                   const stopStatus = String(s.status || "pending");
+                  const farmExpansionKey = String(r.id || r.routeNumber || "route") + ":" + String(s.farmKey || s.collectionId || i);
+                  const ordersExpanded = Boolean(expandedFarmStops[farmExpansionKey]);
+                  const ordersPanelId = "farm-orders-" + String(i) + "-" + String(r.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
                   const allOrdersCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
                   const allOrdersDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
                   const allQuantitiesValid = orders.length > 0 && orders.every((order: any) => {
@@ -465,19 +469,27 @@ export default function DeliveryPickupRoutesPage() {
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-900">{s.farmerName || "Farmer details unavailable"}</p>
                             <p className="mt-1 text-sm text-slate-600">{orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"}{orders.length !== orderGroups.length ? ` · ${orders.length} collection items` : ""} · Expected {s.quantity || 0} kg</p>
-                            <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3 w-3 shrink-0" />{s.pickupAddress || "Farm address not provided"}</p>
+                                                 <div className="p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">Order details</p>
+                            <p className="mt-0.5 text-xs text-slate-500">View products, quantities, batch details and collection checks before pickup.</p>
                           </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            aria-expanded={ordersExpanded}
+                            aria-controls={ordersPanelId}
+                            onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [farmExpansionKey]: !previous[farmExpansionKey] }))}
+                          >
+                            {ordersExpanded ? "Hide orders" : "View all " + orderGroups.length + (orderGroups.length === 1 ? " order" : " orders")}
+                            <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${ordersExpanded ? "rotate-180" : ""}`} />
+                          </Button>
                         </div>
-                        <Badge variant="outline">{stopStatusLabel(stopStatus)}</Badge>
-                      </div>
-
-                      <div className="space-y-3 p-4">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-slate-800">Orders from this farm</p>
-                          <span className="text-xs text-slate-500">{orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"}</span>
-                        </div>
-
-                        <div className="divide-y rounded-lg border bg-white">
+                        {ordersExpanded && (
+                          <div id={ordersPanelId} className="mt-3 space-y-3">
+                            <div className="divide-y rounded-lg border bg-white">
                           {orderGroups.map((orderGroup: any, orderIndex: number) => (
                             <div key={orderGroup.key} className="p-3">
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -524,6 +536,18 @@ export default function DeliveryPickupRoutesPage() {
                             </div>
                           ))}
                         </div>
+                          </div>
+                        )}
+order")}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
 
                         <div className="flex flex-wrap items-center gap-2 border-t pt-3">
                           {r.status !== "assigned" && canArriveAtFarm && (
@@ -531,7 +555,12 @@ export default function DeliveryPickupRoutesPage() {
                               <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
                             </Button>
                           )}
-                          {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allOrdersCollected && (
+                          {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !ordersExpanded && !allOrdersCollected && (
+                          <Button variant="outline" onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [farmExpansionKey]: true }))}>
+                            <ChevronDown className="mr-2 h-4 w-4" /> View orders to enter quantities
+                          </Button>
+                        )}
+                        {r.status !== "assigned" && ordersExpanded && stopStatus === "arrived_at_farm" && !allOrdersCollected && (
                             <Button
                               disabled={!allQuantitiesValid}
                               onClick={() => act(
