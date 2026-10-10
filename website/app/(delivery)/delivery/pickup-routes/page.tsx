@@ -315,19 +315,26 @@ export default function DeliveryPickupRoutesPage() {
         <Card className="border-amber-200">
           <CardHeader className="border-b bg-amber-50/70">
             <CardTitle className="flex items-center gap-2 text-base">
-              <Hand className="h-5 w-5" /> Today's Warehouse Pickup Routes
+              <Hand className="h-5 w-5" /> Available Warehouse Pickup Routes
             </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Review the farms and orders before accepting. The first eligible partner to accept a route gets it.
+            </p>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
             {offers.map((r: any) => {
               const mine = r.claimState === "mine";
               const claimedByOther = r.claimState === "claimed_by_other";
+              const offerStops = mergeFarmStopsForDisplay(r.stops || []);
               return (
                 <div key={r.id} className="rounded-xl border p-4">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
-                      <p className="font-semibold">🚚 {r.routeNumber}</p>
-                      <p className="text-sm text-muted-foreground">{mergeFarmStopsForDisplay(r.stops || []).length} farms · {mergeFarmStopsForDisplay(r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {mergeFarmStopsForDisplay(r.stops || []).reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg</p>
+                      <p className="font-semibold">🚚 {r.routeNumber || "Pickup Route"}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {offerStops.length} farms · {offerStops.reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {offerStops.reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">Destination: {r.warehouseName || "Assigned warehouse"}</p>
                     </div>
                     {r.claimState === "open" && (
                       <Button onClick={() => accept(r.id)}>
@@ -337,206 +344,251 @@ export default function DeliveryPickupRoutesPage() {
                   </div>
 
                   {mine && (
-                    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-                      <p className="flex items-center gap-2 font-semibold text-emerald-800">
-                        <UserCheck className="h-4 w-4" /> Route Accepted
-                      </p>
-                      <p className="mt-1 text-sm text-emerald-700">You accepted this route.</p>
-                      <p className="mt-2 text-xs text-emerald-700">Vehicle: {r.deliveryPartnerVehicleType || "Not specified"} · {r.deliveryPartnerVehicleNumber || "Not specified"}</p>
+                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                      <p className="font-semibold"><UserCheck className="mr-2 inline h-4 w-4" /> Route accepted by you</p>
+                      <p className="mt-1 text-xs">Vehicle: {r.deliveryPartnerVehicleType || "Not specified"} · {r.deliveryPartnerVehicleNumber || "Not specified"}</p>
                     </div>
                   )}
-
                   {claimedByOther && (
-                    <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 p-4">
-                      <p className="flex items-center gap-2 font-semibold text-orange-800">
-                        <Lock className="h-4 w-4" /> Route Accepted
-                      </p>
-                      <p className="mt-2 text-sm text-orange-900">
-                        Accepted by: <strong>{r.deliveryPartnerName || "Another pickup partner"}</strong>
-                      </p>
-                      <p className="mt-1 text-sm text-orange-900">
-                        🚚 {r.deliveryPartnerVehicleType || "Vehicle not specified"}
-                      </p>
-                      <p className="text-sm text-orange-900">
-                        {r.deliveryPartnerVehicleNumber || "Vehicle number not specified"}
-                      </p>
-                      <p className="mt-3 text-sm font-medium text-orange-800">⛔ This route has already been accepted by {r.deliveryPartnerName || "another pickup partner"}.</p>
-                      <p className="text-xs text-orange-700">You cannot accept this route.</p>
+                    <div className="mt-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900">
+                      <p className="font-semibold"><Lock className="mr-2 inline h-4 w-4" /> Already accepted by {r.deliveryPartnerName || "another pickup partner"}</p>
+                      <p className="mt-1 text-xs">Vehicle: {r.deliveryPartnerVehicleType || "Not specified"} · {r.deliveryPartnerVehicleNumber || "Not specified"}</p>
                     </div>
                   )}
 
-                  <div className="mt-4 space-y-2">
-                    {mergeFarmStopsForDisplay(r.stops || []).map((s: any, i: number) => {
-                  const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
-                  const groupedCustomerOrders = orders.reduce((groups: Record<string, any>, order: any, orderIndex: number) => {
-                    const readableOrderNumber = String(order.orderNumber || "").trim();
-                    const usableOrderNumber = readableOrderNumber && readableOrderNumber !== "Order reference unavailable";
-                    const key = usableOrderNumber
-                      ? "order-number:" + readableOrderNumber.toLocaleLowerCase()
-                      : order.orderId
-                        ? "order-id:" + String(order.orderId)
-                        : "collection:" + String(order.collectionId || orderIndex);
-                    if (!groups[key]) {
-                      groups[key] = { key, orderNumber: usableOrderNumber ? readableOrderNumber : null, items: [] };
-                    }
-                    groups[key].items.push(order);
-                    return groups;
-                  }, {});
-                  const orderGroups = Object.values(groupedCustomerOrders) as any[];
-                  const stopStatus = String(s.status || "pending");
-                  const farmExpansionKey = String(r.id || r.routeNumber || "route") + ":" + String(s.farmKey || s.collectionId || i);
-                  const ordersExpanded = Boolean(expandedFarmStops[farmExpansionKey]);
-                  const ordersPanelId = "farm-orders-" + String(i) + "-" + String(r.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
-                  const allOrdersCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
-                  const allOrdersDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
-                  const allQuantitiesValid = orders.length > 0 && orders.every((order: any) => {
-                    const orderStatus = String(order.status || "pending");
-                    if (["collected", "departed_farm"].includes(orderStatus)) {
-                      return Number(order.actualQuantity) > 0;
-                    }
-                    return orderStatus === "arrived_at_farm" &&
-                      Boolean(order.collectionId) &&
-                      Boolean(actual[order.collectionId]) &&
-                      Number.isFinite(Number(actual[order.collectionId])) &&
-                      Number(actual[order.collectionId]) > 0;
-                  });
-                  const canArriveAtFarm = ["pending", "ready_for_pickup", "team_assigned", "en_route", "started"].includes(stopStatus);
-                  return (
-                    <div key={s.farmKey || s.collectionId || i} className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
-                      <div className="flex flex-col gap-3 bg-emerald-50/70 p-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="flex min-w-0 gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{i + 1}</div>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-slate-900">{s.farmerName || "Farmer details unavailable"}</p>
-                            <p className="mt-1 text-sm text-slate-600">{orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"} · Expected {s.quantity || 0} kg</p>
-                            <p className="mt-1 flex items-start gap-1 text-xs text-slate-600">
-                              <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
-                              <span>{s.pickupAddress || "Farm address not provided"}</span>
-                            </p>
-                            {s.farmerPhone && (
-                              <p className="mt-1 text-xs text-slate-600">Farm contact: <a className="font-medium text-emerald-800 underline" href={"tel:" + s.farmerPhone}>{s.farmerPhone}</a></p>
-                            )}
+                  <div className="mt-4 space-y-3">
+                    {offerStops.map((stop: any, index: number) => {
+                      const orders = Array.isArray(stop.orders) && stop.orders.length ? stop.orders : [stop];
+                      return (
+                        <div key={stop.farmKey || stop.collectionId || index} className="rounded-lg border bg-slate-50 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold">{stop.farmerName || "Farmer details unavailable"}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{orders.length} orders · Expected {stop.quantity || 0} kg</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{stop.pickupAddress || "Farm address not provided"}</p>
+                            </div>
+                            <Badge variant="outline">{stopStatusLabel(String(stop.status || "pending"))}</Badge>
+                          </div>
+                          <div className="mt-3 divide-y rounded-md border bg-white">
+                            {orders.map((order: any, orderIndex: number) => (
+                              <div key={order.collectionId || order.orderId || orderIndex} className="p-3">
+                                <p className="text-sm font-medium">{order.orderNumber ? "Order " + order.orderNumber : "Order " + (orderIndex + 1)}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">{order.productName || "Product details unavailable"} · {order.quantity || 0} kg</p>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                        <Badge variant="outline">{stopStatusLabel(stopStatus)}</Badge>
-                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
-                      <div className="p-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-800">Order details</p>
-                            <p className="mt-0.5 text-xs text-slate-500">Product, quantity, batch and pickup information for this farm.</p>
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            aria-expanded={ordersExpanded}
-                            aria-controls={ordersPanelId}
-                            onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [farmExpansionKey]: !previous[farmExpansionKey] }))}
-                          >
-                            {ordersExpanded ? "Hide orders" : "View all " + orderGroups.length + (orderGroups.length === 1 ? " order" : " orders")}
-                            <ChevronDown className={"ml-2 h-4 w-4 transition-transform " + (ordersExpanded ? "rotate-180" : "")} />
-                          </Button>
+      {routes.length === 0 ? (
+        <Card className="p-12 text-center">
+          <Route className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h2 className="mt-4 font-semibold">{offers.length ? "No route assigned yet" : "No pickup route assigned"}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {offers.length
+              ? "Accept an available route. If another partner accepts first, the route will become unavailable to you."
+              : "No active pickup routes. Unfinished routes remain visible until they are returned to the warehouse."}
+          </p>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {routes.map((r: any) => {
+            const farmStops = mergeFarmStopsForDisplay(r.stops || []);
+            return (
+              <Card key={r.id}>
+                <CardHeader className="border-b bg-slate-50/70">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <CardTitle>🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {farmStops.length} farms · {farmStops.reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {farmStops.reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">Destination: {r.warehouseName || "Assigned warehouse"}</p>
+                      {routeDayLabel(r) && <p className="mt-1 text-xs text-muted-foreground">Route date: {routeDayLabel(r)}</p>}
+                      {isCarryoverRoute(r) && (
+                        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                          <strong>Continued from a previous day.</strong> This route stays here until pickup and warehouse handover are complete.
                         </div>
+                      )}
+                    </div>
+                    <Badge><CheckCircle2 className="mr-1 h-3 w-3" /> {routeStatusLabel(String(r.status || "assigned"))}</Badge>
+                  </div>
+                </CardHeader>
 
-                        {ordersExpanded && (
-                          <div id={ordersPanelId} className="mt-3 space-y-3">
-                            <div className="divide-y rounded-lg border bg-white">
-                              {orderGroups.map((orderGroup: any, orderIndex: number) => (
-                                <div key={orderGroup.key} className="p-3">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <p className="font-semibold text-slate-900">
-                                      {orderGroup.orderNumber
-                                        ? "Order " + orderGroup.orderNumber
-                                        : "Order " + (orderIndex + 1)}
-                                    </p>
-                                    {orderGroup.items.length > 1 && (
-                                      <span className="text-xs text-slate-500">{orderGroup.items.length} collection items</span>
-                                    )}
-                                  </div>
-                                  <div className="mt-2 divide-y">
+                <CardContent className="p-5">
+                  <div className="mb-5 flex items-center gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+                    <Warehouse className="h-4 w-4" /> This route is assigned to you. Other partners cannot accept it.
+                  </div>
+                  {r.status === "assigned" && (
+                    <Button className="mb-5" onClick={() => act(r, "started")}>
+                      <Navigation className="mr-2 h-4 w-4" /> Start Pickup Route
+                    </Button>
+                  )}
+
+                  <div className="space-y-4">
+                    {farmStops.map((stop: any, stopIndex: number) => {
+                      const orders = Array.isArray(stop.orders) && stop.orders.length ? stop.orders : [stop];
+                      const groupedOrderMap = orders.reduce((groups: Record<string, any>, order: any, orderIndex: number) => {
+                        const orderNumber = String(order.orderNumber || "").trim();
+                        const hasOrderNumber = orderNumber && orderNumber !== "Order reference unavailable";
+                        const key = hasOrderNumber
+                          ? "order-number:" + orderNumber.toLocaleLowerCase()
+                          : order.orderId
+                            ? "order-id:" + String(order.orderId)
+                            : "collection:" + String(order.collectionId || orderIndex);
+                        if (!groups[key]) groups[key] = { key, orderNumber: hasOrderNumber ? orderNumber : null, items: [] };
+                        groups[key].items.push(order);
+                        return groups;
+                      }, {});
+                      const orderGroups = Object.values(groupedOrderMap) as any[];
+                      const stopStatus = String(stop.status || "pending");
+                      const expansionKey = String(r.id || r.routeNumber || "route") + ":" + String(stop.farmKey || stop.collectionId || stopIndex);
+                      const expanded = Boolean(expandedFarmStops[expansionKey]);
+                      const panelId = "farm-orders-" + stopIndex + "-" + String(r.id || "").replace(/[^a-zA-Z0-9_-]/g, "");
+                      const allCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
+                      const allDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
+                      const quantityEntries = orders.filter((order: any) => String(order.status || "") === "arrived_at_farm");
+                      const quantitiesValid = quantityEntries.length > 0 && quantityEntries.every((order: any) =>
+                        Boolean(actual[order.collectionId]) &&
+                        Number.isFinite(Number(actual[order.collectionId])) &&
+                        Number(actual[order.collectionId]) > 0
+                      );
+                      const canArrive = ["pending", "ready_for_pickup", "team_assigned", "en_route", "started"].includes(stopStatus);
+
+                      return (
+                        <section key={stop.farmKey || stop.collectionId || stopIndex} className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                          <div className="flex flex-col gap-3 bg-emerald-50/70 p-4 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="flex min-w-0 gap-3">
+                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{stopIndex + 1}</div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-slate-900">{stop.farmerName || "Farmer details unavailable"}</p>
+                                <p className="mt-1 text-sm text-slate-600">{orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"} · Expected {stop.quantity || 0} kg</p>
+                                <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3 w-3 shrink-0" /><span>{stop.pickupAddress || "Farm address not provided"}</span></p>
+                                {stop.farmerPhone && <p className="mt-1 text-xs text-slate-600">Farm contact: <a className="font-medium text-emerald-800 underline" href={"tel:" + stop.farmerPhone}>{stop.farmerPhone}</a></p>}
+                              </div>
+                            </div>
+                            <Badge variant="outline">{stopStatusLabel(stopStatus)}</Badge>
+                          </div>
+
+                          <div className="p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-800">Order details</p>
+                                <p className="mt-0.5 text-xs text-slate-500">Expand when you are ready to check the orders and record quantities.</p>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                aria-expanded={expanded}
+                                aria-controls={panelId}
+                                onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [expansionKey]: !previous[expansionKey] }))}
+                              >
+                                {expanded ? "Hide orders" : "View all " + orderGroups.length + (orderGroups.length === 1 ? " order" : " orders")}
+                                <ChevronDown className={"ml-2 h-4 w-4 transition-transform " + (expanded ? "rotate-180" : "")} />
+                              </Button>
+                            </div>
+
+                            {expanded && (
+                              <div id={panelId} className="mt-3 divide-y rounded-lg border bg-white">
+                                {orderGroups.map((orderGroup: any, orderIndex: number) => (
+                                  <div key={orderGroup.key} className="p-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="font-semibold text-slate-900">{orderGroup.orderNumber ? "Order " + orderGroup.orderNumber : "Order " + (orderIndex + 1)}</p>
+                                      {orderGroup.items.length > 1 && <span className="text-xs text-slate-500">{orderGroup.items.length} collection items</span>}
+                                    </div>
                                     {orderGroup.items.map((order: any, itemIndex: number) => (
-                                      <div key={order.collectionId || order.orderId || itemIndex} className="py-3 first:pt-0 last:pb-0">
-                                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                                          <div className="min-w-0 flex-1">
-                                            <p className="text-sm font-medium text-slate-800">{order.productName || "Product details unavailable"}</p>
-                                            <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
-                                            {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
-                                            {order.qualityGrade && <p className="mt-1 text-xs text-slate-600">Quality grade: {order.qualityGrade}</p>}
-                                            {order.collectionType && <p className="mt-1 text-xs text-slate-600">Pickup type: {String(order.collectionType).replace(/_/g, " ")}</p>}
-                                            {order.storageType && <p className="mt-1 text-xs text-slate-600">Storage: {String(order.storageType).replace(/_/g, " ")}</p>}
-                                            <p className="mt-1 text-xs text-slate-600">Collection status: {stopStatusLabel(String(order.status || "pending"))}</p>
-                                            {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
-                                          </div>
-                                          {r.status !== "assigned" && order.status === "arrived_at_farm" && (
-                                            <div className="flex items-center gap-2 sm:w-56">
-                                              <label className="shrink-0 text-xs text-slate-600">Actual kg</label>
-                                              <Input
-                                                className="h-9"
-                                                type="number"
-                                                min="0.01"
-                                                step="0.01"
-                                                placeholder="Enter kg *"
-                                                value={actual[order.collectionId] || ""}
-                                                onChange={e => setActual({ ...actual, [order.collectionId]: e.target.value })}
-                                                aria-label={"Actual collected quantity for " + (order.orderNumber || order.productName || "order")}
-                                              />
-                                            </div>
-                                          )}
+                                      <div key={order.collectionId || order.orderId || itemIndex} className="flex flex-col gap-3 border-t py-3 first:border-t-0 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-sm font-medium text-slate-800">{order.productName || "Product details unavailable"}</p>
+                                          <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
+                                          {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
+                                          {order.qualityGrade && <p className="mt-1 text-xs text-slate-600">Quality grade: {order.qualityGrade}</p>}
+                                          {order.collectionType && <p className="mt-1 text-xs text-slate-600">Pickup type: {String(order.collectionType).replace(/_/g, " ")}</p>}
+                                          {order.storageType && <p className="mt-1 text-xs text-slate-600">Storage: {String(order.storageType).replace(/_/g, " ")}</p>}
+                                          <p className="mt-1 text-xs text-slate-600">Status: {stopStatusLabel(String(order.status || "pending"))}</p>
+                                          {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
                                         </div>
+                                        {r.status !== "assigned" && order.status === "arrived_at_farm" && (
+                                          <div className="flex items-center gap-2 sm:w-56">
+                                            <label className="shrink-0 text-xs text-slate-600">Actual kg</label>
+                                            <Input
+                                              className="h-9"
+                                              type="number"
+                                              min="0.01"
+                                              step="0.01"
+                                              placeholder="Enter kg *"
+                                              value={actual[order.collectionId] || ""}
+                                              onChange={(e) => setActual({ ...actual, [order.collectionId]: e.target.value })}
+                                              aria-label={"Actual collected quantity for " + (order.orderNumber || order.productName || "order")}
+                                            />
+                                          </div>
+                                        )}
                                       </div>
                                     ))}
                                   </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3">
+                              {r.status !== "assigned" && canArrive && (
+                                <Button variant="outline" onClick={() => act(r, "arrived_at_farm", stop.collectionId)}>
+                                  <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
+                                </Button>
+                              )}
+                              {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allCollected && !expanded && (
+                                <Button variant="outline" onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [expansionKey]: true }))}>
+                                  <ChevronDown className="mr-2 h-4 w-4" /> View orders to enter quantities
+                                </Button>
+                              )}
+                              {r.status !== "assigned" && expanded && quantityEntries.length > 0 && (
+                                <Button
+                                  disabled={!quantitiesValid}
+                                  onClick={() => act(
+                                    r,
+                                    "collected",
+                                    stop.collectionId,
+                                    Object.fromEntries(quantityEntries.map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
+                                  )}
+                                >
+                                  <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orderGroups.length} Orders Collected
+                                </Button>
+                              )}
+                              {r.status !== "assigned" && allCollected && !allDeparted && (
+                                <Button onClick={() => act(r, "departed_farm", stop.collectionId)}>
+                                  <Truck className="mr-2 h-4 w-4" /> Depart Farm
+                                </Button>
+                              )}
+                              {r.status !== "assigned" && !allCollected && !canArrive && stopStatus !== "arrived_at_farm" && (
+                                <p className="text-xs text-slate-500">Confirm quantities for all outstanding orders before departing this farm.</p>
+                              )}
                             </div>
                           </div>
-                        )}
+                        </section>
+                      );
+                    })}
+                  </div>
 
-                        <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-3">
-                          {r.status !== "assigned" && canArriveAtFarm && (
-                            <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>
-                              <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
-                            </Button>
-                          )}
-                          {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !ordersExpanded && !allOrdersCollected && (
-                            <Button variant="outline" onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [farmExpansionKey]: true }))}>
-                              <ChevronDown className="mr-2 h-4 w-4" /> View orders to enter quantities
-                            </Button>
-                          )}
-                          {r.status !== "assigned" && ordersExpanded && stopStatus === "arrived_at_farm" && !allOrdersCollected && (
-                            <Button
-                              disabled={!allQuantitiesValid}
-                              onClick={() => act(
-                                r,
-                                "collected",
-                                s.collectionId,
-                                Object.fromEntries(orders.filter((order: any) => String(order.status || "") === "arrived_at_farm").map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
-                              )}
-                            >
-                              <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orderGroups.length} Orders Collected
-                            </Button>
-                          )}
-                          {r.status !== "assigned" && allOrdersCollected && !allOrdersDeparted && (
-                            <Button onClick={() => act(r, "departed_farm", s.collectionId)}>
-                              <Truck className="mr-2 h-4 w-4" /> Depart Farm
-                            </Button>
-                          )}
-                          {r.status !== "assigned" && !allOrdersCollected && !canArriveAtFarm && stopStatus !== "arrived_at_farm" && (
-                            <p className="text-xs text-slate-500">Confirm the quantities for the outstanding orders before departing this farm.</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {r.status === "departed_farm" && <Button className="mt-5" onClick={() => act(r, "completed")}>Complete Pickup Route</Button>}
-              {r.status === "completed" && <Button className="mt-5" onClick={() => act(r, "returned_to_warehouse")} >Mark Returned to Warehouse</Button>}
-            </CardContent>
-          </Card>
-        ))
+                  {r.status === "departed_farm" && (
+                    <Button className="mt-5" onClick={() => act(r, "completed")}>Complete Pickup Route</Button>
+                  )}
+                  {r.status === "completed" && (
+                    <Button className="mt-5" onClick={() => act(r, "returned_to_warehouse")}>Mark Returned to Warehouse</Button>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
     </div>
   );
