@@ -1875,6 +1875,8 @@ class PickupRouteCreateRequest(BaseModel):
     maxWeightKg: float = Field(0, ge=0)
     assignmentMode: str = Field("offer", pattern="^(offer|auto_assign|assign_team)$")
     deliveryPartnerId: Optional[str] = None
+    # Optional exact farm-stop sequence. When omitted, use smart automatic routing.
+    manualStopOrder: Optional[List[str]] = None
 
 
 class PickupRouteAssignRequest(BaseModel):
@@ -2044,7 +2046,13 @@ async def create_pickup_routes(
             )
 
     try:
-        route_groups = await build_smart_routes(warehouse, jobs, None, route_capacity)
+        route_groups = await build_smart_routes(
+            warehouse,
+            jobs,
+            None,
+            route_capacity,
+            manual_stop_order=data.manualStopOrder,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not route_groups:
