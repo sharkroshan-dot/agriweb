@@ -456,11 +456,15 @@ export default function DeliveryPickupRoutesPage() {
                       const allCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
                       const allDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
                       const quantityEntries = orders.filter((order: any) => String(order.status || "") === "arrived_at_farm");
-                      const quantitiesValid = quantityEntries.length > 0 && quantityEntries.every((order: any) =>
-                        Boolean(actual[order.collectionId]) &&
-                        Number.isFinite(Number(actual[order.collectionId])) &&
-                        Number(actual[order.collectionId]) > 0
-                      );
+                      const manualQuantityEntries = quantityEntries.filter((order: any) => String(order.collectionType || "") !== "packed_orders_transfer");
+                      const quantitiesValid = quantityEntries.length > 0 && quantityEntries.every((order: any) => {
+                        if (String(order.collectionType || "") === "packed_orders_transfer") {
+                          return Number(order.actualQuantity ?? order.quantity ?? 0) > 0;
+                        }
+                        return Boolean(actual[order.collectionId]) &&
+                          Number.isFinite(Number(actual[order.collectionId])) &&
+                          Number(actual[order.collectionId]) > 0;
+                      });
                       const canArrive = ["pending", "ready_for_pickup", "team_assigned", "en_route", "started"].includes(stopStatus);
 
                       return (
@@ -517,7 +521,12 @@ export default function DeliveryPickupRoutesPage() {
                                           <p className="mt-1 text-xs text-slate-600">Status: {stopStatusLabel(String(order.status || "pending"))}</p>
                                           {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
                                         </div>
-                                        {r.status !== "assigned" && order.status === "arrived_at_farm" && (
+                                        {r.status !== "assigned" && order.status === "arrived_at_farm" && String(order.collectionType || "") === "packed_orders_transfer" && (
+                                            <div className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800 sm:max-w-56">
+                                              Packed quantity verified: {order.actualQuantity ?? order.quantity ?? 0} kg
+                                            </div>
+                                          )}
+                                          {r.status !== "assigned" && order.status === "arrived_at_farm" && String(order.collectionType || "") !== "packed_orders_transfer" && (
                                           <div className="flex items-center gap-2 sm:w-56">
                                             <label className="shrink-0 text-xs text-slate-600">Actual kg</label>
                                             <Input
@@ -557,7 +566,7 @@ export default function DeliveryPickupRoutesPage() {
                                     r,
                                     "collected",
                                     stop.collectionId,
-                                    Object.fromEntries(quantityEntries.map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
+                                    Object.fromEntries(manualQuantityEntries.map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
                                   )}
                                 >
                                   <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orderGroups.length} Orders Collected
