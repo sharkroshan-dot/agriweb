@@ -2902,7 +2902,7 @@ async def update_my_pickup_route_status(
                     if qty is None or float(qty) <= 0:
                         raise HTTPException(
                             status_code=400,
-                            detail="A valid packed quantity is missing for one order at this farm. Recheck packing before confirming collection.",
+                            detail="A valid collection quantity is missing for one order at this farm. Check the packed quantity or enter the measured quantity before confirming collection.",
                         )
                     confirmed_quantities[order_collection_id] = float(qty)
 
