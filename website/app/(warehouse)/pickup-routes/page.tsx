@@ -130,7 +130,7 @@ export default function PickupRoutesPage() {
                     Assignment date: {r.routeDate || (r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "Date unavailable")} · {r.totalStops || (r.stops || []).length} farms · {r.totalOrders || (r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {r.totalQuantity || 0} kg
                   </p>
                 </div>
-                <Badge>{routeStatusLabel(String(r.status || "offered"))}</Badge>
+                <Badge className="px-4 py-2 text-sm font-bold tracking-normal">{routeStatusLabel(String(r.status || "offered"))}</Badge>
               </div>
             </CardHeader>
             <CardContent className="p-5">
@@ -173,7 +173,7 @@ export default function PickupRoutesPage() {
                           </Button>
                         </div>
                       </div>
-                      <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
+                      <Badge variant="outline" className="shrink-0 px-3 py-2 text-sm font-semibold tracking-normal">{stopStatusLabel(String(s.status || "pending"))}</Badge>
                     </div>
                   );
                 })}
@@ -205,7 +205,7 @@ export default function PickupRoutesPage() {
                     </p>
                   )}
                 </div>
-                <Badge variant={r.deliveryPartnerId ? "default" : "outline"}>
+                <Badge variant={r.deliveryPartnerId ? "default" : "outline"} className="shrink-0 px-4 py-2 text-sm font-bold tracking-normal">
                   {r.deliveryPartnerId ? "Assigned" : r.assignmentMode === "delivery_marketplace" ? "Delivery Marketplace" : "Open Offer"}
                 </Badge>
               </div>
