@@ -294,30 +294,82 @@ export default function DeliveryPickupRoutesPage() {
                 <Warehouse className="h-4 w-4" /> This route is exclusively assigned to you. Other partners cannot accept it.
               </div>
               {r.status === "assigned" && <Button className="mb-5" onClick={() => act(r, "started")}><Navigation className="mr-2 h-4 w-4" /> Start Pickup Route</Button>}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {(r.stops || []).map((s: any, i: number) => {
-                  const active = ["pending", "started", "team_assigned", "ready_for_pickup", "en_route", "arrived_at_farm", "collected"].includes(String(s.status || "pending"));
+                  const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
+                  const stopStatus = String(s.status || "pending");
+                  const allOrdersCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
+                  const allOrdersDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
+                  const canArriveAtFarm = ["pending", "ready_for_pickup", "team_assigned", "en_route", "started"].includes(stopStatus);
                   return (
-                    <div key={s.collectionId} className="rounded-xl border p-4">
-                      <div className="flex gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-700">{i + 1}</div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
-                          <p className="text-sm text-muted-foreground">{s.productName || "Product details unavailable"} · Expected {s.quantity || 0} kg</p>
-                          {s.orderNumber && <p className="mt-1 text-xs text-muted-foreground">{s.orderNumber === "Order reference unavailable" ? s.orderNumber : `Order ${s.orderNumber}`}</p>}
-                          {s.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {s.batchNumber}</p>}
-                          {s.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {s.actualQuantity} kg</p>}
-                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
+                    <div key={s.farmKey || s.collectionId || i} className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
+                      <div className="flex flex-col gap-3 bg-emerald-50/70 p-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{i + 1}</div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900">{s.farmerName || "Farmer details unavailable"}</p>
+                            <p className="mt-1 text-sm text-slate-600">{orders.length} {orders.length === 1 ? "order" : "orders"} · Expected {s.quantity || 0} kg</p>
+                            <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3 w-3 shrink-0" />{s.pickupAddress || "Farm address not provided"}</p>
+                          </div>
                         </div>
-                        <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
+                        <Badge variant="outline">{stopStatusLabel(stopStatus)}</Badge>
                       </div>
-                      {r.status !== "assigned" && active && (
-                        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                          {["pending", "started", "team_assigned", "ready_for_pickup", "en_route"].includes(String(s.status || "")) && <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>Arrived at Farm</Button>}
-                          {s.status === "arrived_at_farm" && <><Input className="sm:w-40" type="number" min="0.01" step="0.01" placeholder="Actual kg *" value={actual[s.collectionId] || ""} onChange={e => setActual({ ...actual, [s.collectionId]: e.target.value })} aria-label={`Actual quantity collected from ${s.farmerName || "farm"} in kg`} /><Button disabled={!actual[s.collectionId] || !Number.isFinite(Number(actual[s.collectionId])) || Number(actual[s.collectionId]) <= 0} onClick={() => act(r, "collected", s.collectionId)}><CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Collection</Button></>}
-                          {s.status === "collected" && <Button onClick={() => act(r, "departed_farm", s.collectionId)}>Depart Farm</Button>}
-                        </div>
-                      )}
+
+                      <div className="space-y-3 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders from this farm</p>
+                        {orders.map((order: any, orderIndex: number) => (
+                          <div key={order.collectionId || order.orderId || orderIndex} className="rounded-lg border bg-slate-50 p-3">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-slate-900">
+                                  {order.orderNumber
+                                    ? (order.orderNumber === "Order reference unavailable" ? order.orderNumber : "Order " + order.orderNumber)
+                                    : "Order " + (orderIndex + 1)}
+                                </p>
+                                <p className="mt-1 text-sm text-slate-700">{order.productName || "Product details unavailable"}</p>
+                                <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
+                                {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
+                                {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
+                                <p className="mt-1 text-xs text-slate-600">Status: {stopStatusLabel(String(order.status || "pending"))}</p>
+                              </div>
+                              {r.status !== "assigned" && order.status === "arrived_at_farm" && (
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                  <Input
+                                    className="sm:w-36"
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    placeholder="Actual kg *"
+                                    value={actual[order.collectionId] || ""}
+                                    onChange={e => setActual({ ...actual, [order.collectionId]: e.target.value })}
+                                    aria-label={"Actual quantity collected for " + (order.orderNumber || order.productName || "order")}
+                                  />
+                                  <Button
+                                    disabled={!actual[order.collectionId] || !Number.isFinite(Number(actual[order.collectionId])) || Number(actual[order.collectionId]) <= 0}
+                                    onClick={() => act(r, "collected", order.collectionId)}
+                                  >
+                                    <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Collection
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+
+                        {r.status !== "assigned" && canArriveAtFarm && (
+                          <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>
+                            <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
+                          </Button>
+                        )}
+                        {r.status !== "assigned" && allOrdersCollected && !allOrdersDeparted && (
+                          <Button onClick={() => act(r, "departed_farm", s.collectionId)}>
+                            <Truck className="mr-2 h-4 w-4" /> Depart Farm — All {orders.length} Orders Collected
+                          </Button>
+                        )}
+                        {r.status !== "assigned" && !allOrdersCollected && !canArriveAtFarm && (
+                          <p className="text-xs text-muted-foreground">Confirm the actual quantity for every order at this farm before departing.</p>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
