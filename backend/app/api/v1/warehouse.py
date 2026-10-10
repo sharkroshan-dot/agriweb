@@ -2043,7 +2043,10 @@ async def create_pickup_routes(
                 detail=f"{len(overweight)} selected job(s) exceed the {route_capacity:g} kg vehicle capacity. Choose a larger vehicle or split the pickup.",
             )
 
-    route_groups = await build_smart_routes(warehouse, jobs, None, route_capacity)
+    try:
+        route_groups = await build_smart_routes(warehouse, jobs, None, route_capacity)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not route_groups:
         raise HTTPException(status_code=400, detail="Unable to create routes for the selected collection jobs")
 
@@ -2090,16 +2093,19 @@ async def create_pickup_routes(
         # Reserve each job while a partner offer is open, too. It stays in
         # Ready for Pickup until a partner accepts, but cannot be planned twice.
         for stop in group.get("stops") or []:
-            await warehouse_collection_repository.update_job(
-                str(stop["collectionId"]),
-                {
-                    "pickupRouteId": ObjectId(route_id),
-                    "pickupRouteStatus": "offered",
-                    "status": "ready_for_pickup",
-                    "collectionTeamId": None,
-                    "teamAssignedAt": None,
-                },
-            )
+            for collection_id in (stop.get("collectionIds") or [stop.get("collectionId")]):
+                if not collection_id or not ObjectId.is_valid(str(collection_id)):
+                    continue
+                await warehouse_collection_repository.update_job(
+                    str(collection_id),
+                    {
+                        "pickupRouteId": ObjectId(route_id),
+                        "pickupRouteStatus": "offered",
+                        "status": "ready_for_pickup",
+                        "collectionTeamId": None,
+                        "teamAssignedAt": None,
+                    },
+                )
 
         if data.assignmentMode in {"assign_team", "auto_assign"}:
             membership = dict(assignments[index])
