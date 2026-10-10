@@ -485,6 +485,7 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
         job = await warehouse_collection_repository.get_by_id(collection_id) if ObjectId.is_valid(collection_id) else None
         if not job:
             order_item_data["farmerName"] = _human_text(order_ref.get("farmerName") or farm_stop.get("farmerName")) or "Farmer details unavailable"
+            order_item_data["farmerPhone"] = _human_text(order_ref.get("farmerPhone") or farm_stop.get("farmerPhone"))
             order_item_data["productName"] = _human_text(order_ref.get("productName")) or "Product details unavailable"
             order_item_data["orderNumber"] = _human_text(order_ref.get("orderNumber"))
             order_item_data["pickupAddress"] = address_text(order_ref.get("pickupLocation") or farm_stop.get("pickupLocation")) or "Farm address not provided"
@@ -557,6 +558,13 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             "productId": str(job.get("productId") or order_ref.get("productId") or "") or None,
             "variantId": str(job.get("variantId") or order_ref.get("variantId") or "") or None,
             "farmerName": farmer_name,
+            "farmerPhone": (
+                _human_text((farmer_user or {}).get("phone"))
+                or _human_text((farmer_user or {}).get("phoneNumber"))
+                or _human_text((farmer or {}).get("phone"))
+                or _human_text(order_ref.get("farmerPhone"))
+            ),
+            "farmerEmail": _human_text((farmer_user or {}).get("email")),
             "productName": product_name,
             "orderNumber": order_number or ("Order reference unavailable" if job.get("orderId") else None),
             "batchNumber": (
@@ -615,6 +623,8 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
                 "orderIds": [str(order.get("orderId")) for order in enriched_orders if order.get("orderId")],
                 "orderCount": len(enriched_orders),
                 "farmerName": next((order["farmerName"] for order in enriched_orders if order.get("farmerName") != "Farmer details unavailable"), "Farmer details unavailable"),
+                "farmerPhone": next((order.get("farmerPhone") for order in enriched_orders if order.get("farmerPhone")), None),
+                "farmerEmail": next((order.get("farmerEmail") for order in enriched_orders if order.get("farmerEmail")), None),
                 "productName": product_names[0] if len(product_names) == 1 else f"{len(product_names)} product types",
                 "quantity": expected_quantity,
                 "actualQuantity": sum(known_actual) if known_actual else None,
@@ -706,6 +716,8 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             "orderId": str(orders[0].get("orderId") or stop.get("orderId") or "") or None,
             "productId": str(orders[0].get("productId") or stop.get("productId") or "") or None,
             "farmerName": next((order.get("farmerName") for order in orders if order.get("farmerName") != "Farmer details unavailable"), "Farmer details unavailable"),
+            "farmerPhone": next((order.get("farmerPhone") for order in orders if order.get("farmerPhone")), stop.get("farmerPhone")),
+            "farmerEmail": next((order.get("farmerEmail") for order in orders if order.get("farmerEmail")), stop.get("farmerEmail")),
             "productName": product_names[0] if len(product_names) == 1 else f"{len(product_names)} product types",
             "quantity": sum(float(order.get("quantity") or 0) for order in orders),
             "actualQuantity": sum(actual_quantities) if actual_quantities else None,
