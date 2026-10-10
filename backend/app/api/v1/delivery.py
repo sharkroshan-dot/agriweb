@@ -2671,6 +2671,9 @@ async def update_my_pickup_route_status(
     if not route or str(route.get("deliveryPartnerId")) != partner_id:
         raise HTTPException(status_code=404, detail="Pickup route not found")
 
+    # Normalize legacy routes saved as one stop per order into farm-level stops
+    # before processing actions, not just when formatting the response.
+    route = await enrich_pickup_route_display(route)
     now = datetime.utcnow()
     stops = route.get("stops") or []
 
