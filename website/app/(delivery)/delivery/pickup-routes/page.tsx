@@ -38,6 +38,80 @@ const isCarryoverRoute = (route: any) => {
   return routeDay < todayDay;
 };
 
+const mergeFarmStopsForDisplay = (input: any[]) => {
+  const groups: Record<string, any> = {};
+  const statusRank: Record<string, number> = {
+    pending: 0,
+    ready_for_pickup: 1,
+    team_assigned: 2,
+    en_route: 3,
+    started: 3,
+    arrived_at_farm: 4,
+    collected: 5,
+    departed_farm: 6,
+    arrived_warehouse: 7,
+  };
+  for (const source of input || []) {
+    const name = String(source.farmerName || "").trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const address = String(source.pickupAddress || "").trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const farmId = String(source.farmId || source.farmProfileId || "").trim();
+    const key = name && address && !address.includes("farm address not provided")
+      ? "farm:" + name + "|" + address
+      : farmId
+        ? "farm-id:" + farmId
+        : name
+          ? "farmer:" + name
+          : String(source.farmKey || source.collectionId || Object.keys(groups).length);
+    if (!groups[key]) {
+      groups[key] = {
+        ...source,
+        farmKey: key,
+        orders: [],
+        collectionIds: [],
+      };
+    }
+    const group = groups[key];
+    const knownCollections = new Set(group.collectionIds.map((value: any) => String(value)));
+    const sourceOrders = Array.isArray(source.orders) && source.orders.length ? source.orders : [source];
+    for (const order of sourceOrders) {
+      const collectionId = String(order.collectionId || "");
+      if (collectionId && knownCollections.has(collectionId)) continue;
+      group.orders.push(order);
+      if (collectionId) {
+        group.collectionIds.push(collectionId);
+        knownCollections.add(collectionId);
+      }
+    }
+    group.collectionId = group.collectionId || source.collectionId;
+    group.quantity = Number(group.quantity || 0) + (group === source ? 0 : 0);
+    group.pickupAddress = group.pickupAddress || source.pickupAddress;
+  }
+
+  return Object.values(groups).map((group: any) => {
+    const orders = group.orders || [];
+    const seen = new Set<string>();
+    const uniqueOrders = orders.filter((order: any, index: number) => {
+      const id = String(order.collectionId || "");
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    const rankValues = uniqueOrders.map((order: any) => statusRank[String(order.status || "pending")] ?? 0);
+    const farmStatus = rankValues.length ? uniqueOrders[rankValues.indexOf(Math.min(...rankValues))]?.status || group.status : group.status;
+    return {
+      ...group,
+      orders: uniqueOrders,
+      collectionIds: uniqueOrders.map((order: any) => order.collectionId).filter(Boolean),
+      collectionId: uniqueOrders.find((order: any) => order.collectionId)?.collectionId || group.collectionId,
+      orderCount: uniqueOrders.length,
+      quantity: uniqueOrders.reduce((sum: number, order: any) => sum + Number(order.quantity || 0), 0),
+      actualQuantity: uniqueOrders.reduce((sum: number, order: any) => sum + Number(order.actualQuantity || 0), 0),
+      status: farmStatus,
+    };
+  });
+};
+
 const stopStatusLabel = (value: string) => ({
   pending: "Waiting for pickup",
   ready_for_pickup: "Ready for pickup",
@@ -284,7 +358,7 @@ export default function DeliveryPickupRoutesPage() {
                   )}
 
                   <div className="mt-4 space-y-2">
-                    {(r.stops || []).map((s: any, i: number) => {
+                    {mergeFarmStopsForDisplay(r.stops || []).map((s: any, i: number) => {
                       const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
                       return (
                         <div key={s.farmKey || s.collectionId || i} className="rounded-lg border bg-slate-50 p-3">
@@ -330,7 +404,7 @@ export default function DeliveryPickupRoutesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">{r.totalStops || 0} farm stops · {r.totalQuantity || 0} kg</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{mergeFarmStopsForDisplay(r.stops || []).length} farm stops · {r.totalQuantity || 0} kg</p>
                   <p className="mt-1 text-xs text-muted-foreground">Destination: {r.warehouseName || "Assigned warehouse"}</p>
                   {routeDayLabel(r) && <p className="mt-1 text-xs text-muted-foreground">Route date: {routeDayLabel(r)}</p>}
                   {isCarryoverRoute(r) && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>Continued from a previous day.</strong> This route stays here until you complete the pickup and mark it returned to the warehouse.</div>}
