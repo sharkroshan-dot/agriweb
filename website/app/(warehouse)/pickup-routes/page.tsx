@@ -136,18 +136,33 @@ export default function PickupRoutesPage() {
                 </div>
               )}
               <div className="space-y-3">
-                {(r.stops || []).map((s: any, i: number) => (
-                  <div key={s.collectionId} className="flex items-start gap-3 rounded-xl border p-3">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{s.farmerName || "Farmer details unavailable"}</p>
-                      <p className="text-sm text-muted-foreground">{s.productName || "Product details unavailable"} · Expected {s.quantity || 0} kg</p>
-                      {s.orderNumber && <p className="mt-1 text-xs text-muted-foreground">{s.orderNumber === "Order reference unavailable" ? s.orderNumber : `Order ${s.orderNumber}`}</p>}
-                      {s.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {s.batchNumber}</p>}
-                      {s.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actually collected: {s.actualQuantity} kg</p>}
-                      <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
+                {(r.stops || []).map((s: any, i: number) => {
+                  const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
+                  return (
+                    <div key={s.farmKey || s.collectionId || i} className="overflow-hidden rounded-xl border border-emerald-200">
+                      <div className="flex items-start gap-3 bg-emerald-50/70 p-3">
+                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
+                          <p className="text-sm text-muted-foreground">{orders.length} {orders.length === 1 ? "order" : "orders"} · Expected {s.quantity || 0} kg</p>
+                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
+                        </div>
+                        <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
+                      </div>
+                      <div className="space-y-2 p-3">
+                        {orders.map((order: any, orderIndex: number) => (
+                          <div key={order.collectionId || order.orderId || orderIndex} className="rounded-lg border bg-slate-50 p-3">
+                            <p className="font-medium">{order.orderNumber ? (order.orderNumber === "Order reference unavailable" ? order.orderNumber : "Order " + order.orderNumber) : "Order " + (orderIndex + 1)}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{order.productName || "Product details unavailable"} · Expected {order.quantity || 0} kg</p>
+                            {order.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {order.batchNumber}</p>}
+                            {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actually collected: {order.actualQuantity} kg</p>}
+                            <p className="mt-1 text-xs text-muted-foreground">Status: {stopStatusLabel(String(order.status || "pending"))}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
+                  );
+                })}</Badge>
                   </div>
                 ))}
               </div>
