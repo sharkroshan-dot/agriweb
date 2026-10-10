@@ -2801,50 +2801,66 @@ async def update_my_pickup_route_status(
         farm_jobs = await get_authorized_farm_jobs()
 
         if route_status == "arrived_at_farm":
+            # This action is for the physical farm. Orders already collected or
+            # departed are kept as-is; only unfinished orders at this farm move
+            # to Arrived at Farm.
             allowed_arrival = {"team_assigned", "ready_for_pickup", "en_route", "arrived_at_farm"}
-            invalid = [job for job in farm_jobs if str(job.get("status") or "") not in allowed_arrival]
+            already_advanced = {"collected", "departed_farm"}
+            invalid = [
+                job for job in farm_jobs
+                if str(job.get("status") or "") not in allowed_arrival | already_advanced
+            ]
             if invalid:
-                raise HTTPException(status_code=400, detail="This farm's orders have already progressed beyond arrival")
+                raise HTTPException(
+                    status_code=400,
+                    detail="One or more orders at this farm cannot move to Arrived at Farm from their current status.",
+                )
             for farm_job in farm_jobs:
-                if str(farm_job.get("status") or "") != "arrived_at_farm":
-                    await warehouse_collection_repository.update_job(str(farm_job["_id"]), {
-                        "status": "arrived_at_farm",
-                        "arrivedAtFarmAt": now,
-                    })
-                    await sync_order_status(farm_job, "arrived_at_farm")
-            target_stop["status"] = "arrived_at_farm"
+                current_status = str(farm_job.get("status") or "")
+                if current_status in already_advanced or current_status == "arrived_at_farm":
+                    continue
+                await warehouse_collection_repository.update_job(str(farm_job["_id"]), {
+                    "status": "arrived_at_farm",
+                    "arrivedAtFarmAt": now,
+                })
+                await sync_order_status(farm_job, "arrived_at_farm")
             for order in target_stop.get("orders") or []:
-                order["status"] = "arrived_at_farm"
-                order["arrivedAtFarmAt"] = now
+                if str(order.get("status") or "") not in already_advanced:
+                    order["status"] = "arrived_at_farm"
+                    order["arrivedAtFarmAt"] = now
+            refreshed_jobs = await get_authorized_farm_jobs()
+            refreshed_statuses = [str(value.get("status") or "") for value in refreshed_jobs]
+            if all(value == "departed_farm" for value in refreshed_statuses):
+                target_stop["status"] = "departed_farm"
+            elif all(value in ("collected", "departed_farm") for value in refreshed_statuses):
+                target_stop["status"] = "collected"
+            else:
+                target_stop["status"] = "arrived_at_farm"
 
         elif route_status == "collected":
-            # One farm-level confirmation can submit the actual quantity for
-            # every order at the current farm. Quantities remain per order.
+            # The UI submits quantities only for orders at this farm that still
+            # need collection; orders already collected/departed stay unchanged.
             if actualQuantities is not None:
-                if not actualQuantities:
-                    raise HTTPException(status_code=400, detail="Enter the actual quantity for every order at this farm")
                 farm_jobs_by_id = {str(value.get("_id")): value for value in farm_jobs}
-                missing_ids = [value for value in farm_collection_ids if value not in actualQuantities]
-                unknown_ids = [key for key in actualQuantities if key not in farm_jobs_by_id]
-                if missing_ids or unknown_ids:
+                collectible_ids = [
+                    key for key, value in farm_jobs_by_id.items()
+                    if str(value.get("status") or "") == "arrived_at_farm"
+                ]
+                if not collectible_ids:
+                    raise HTTPException(status_code=400, detail="There are no outstanding orders to collect at this farm")
+                if set(actualQuantities.keys()) != set(collectible_ids):
                     raise HTTPException(
                         status_code=400,
-                        detail="Enter a collected quantity for every order in this farm before confirming.",
+                        detail="Enter the actual quantity for each outstanding order at this farm, then confirm all together.",
                     )
-                for order_collection_id in farm_collection_ids:
-                    order_job = farm_jobs_by_id[order_collection_id]
+                for order_collection_id in collectible_ids:
                     qty = actualQuantities.get(order_collection_id)
                     if qty is None or qty <= 0:
                         raise HTTPException(
                             status_code=400,
-                            detail="Every order must have an actual collected quantity greater than 0 kg.",
+                            detail="Every outstanding order must have an actual collected quantity greater than 0 kg.",
                         )
-                    if str(order_job.get("status") or "") != "arrived_at_farm":
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Confirm arrival at this farm before recording the orders as collected.",
-                        )
-                for order_collection_id in farm_collection_ids:
+                for order_collection_id in collectible_ids:
                     order_job = farm_jobs_by_id[order_collection_id]
                     qty = float(actualQuantities[order_collection_id])
                     await warehouse_collection_repository.update_job(order_collection_id, {
@@ -2860,9 +2876,15 @@ async def update_my_pickup_route_status(
                             order["status"] = "collected"
                             order["actualQuantity"] = qty
                             order["collectedAt"] = now
-                for order in target_stop.get("orders") or []:
-                    order["status"] = "collected"
-                target_stop["status"] = "collected"
+
+                refreshed_jobs = await get_authorized_farm_jobs()
+                farm_states = [str(value.get("status") or "") for value in refreshed_jobs]
+                if all(value == "departed_farm" for value in farm_states):
+                    target_stop["status"] = "departed_farm"
+                elif all(value in ("collected", "departed_farm") for value in farm_states):
+                    target_stop["status"] = "collected"
+                else:
+                    target_stop["status"] = "arrived_at_farm"
             else:
                 # Compatibility for older clients submitting one order per request.
                 job = next((value for value in farm_jobs if str(value.get("_id")) == collectionId), None)
