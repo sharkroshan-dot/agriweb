@@ -35,6 +35,36 @@ const STATUS = [
 
 const label = (value: string) => STATUS.find(([key]) => key === value)?.[1] || value.replace(/_/g, " ");
 
+const getFarmProgress = (farmJobs: any[]) => {
+  const statusRank = new Map<string, number>(STATUS.map(([key], index) => [key, index]));
+  const ranks = farmJobs.map((job) => {
+    const status = String(job.status || job.pickupRouteStatus || "scheduled");
+    const rank = statusRank.get(status);
+    return rank == null ? 0 : rank;
+  });
+  const minRank = ranks.length ? Math.min(...ranks) : 0;
+  const stages = STATUS.map(([key, title], index) => {
+    const reachedCount = ranks.filter((rank) => rank >= index).length;
+    const allPastStage = ranks.length > 0 && ranks.every((rank) => rank > index);
+    const finalStageComplete = index === STATUS.length - 1 && ranks.length > 0 && ranks.every((rank) => rank >= index);
+    let state: "complete" | "current" | "partial" | "waiting" = "waiting";
+    if (allPastStage || finalStageComplete) state = "complete";
+    else if (minRank === index) state = "current";
+    else if (reachedCount > 0) state = "partial";
+    return {
+      key,
+      title,
+      state,
+      reachedCount,
+      total: farmJobs.length,
+    };
+  });
+  return {
+    currentStage: STATUS[minRank]?.[1] || "Waiting for Farmer",
+    stages,
+  };
+};
+
 export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -277,6 +307,7 @@ export default function WarehouseCollectionsPage() {
           {farmGroups.map((farm: any) => {
             const expanded = Boolean(expandedFarmCards[farm.key]);
             const expandableId = "farm-orders-" + farm.key.replace(/[^a-zA-Z0-9_-]/g, "-");
+            const progress = getFarmProgress(farm.jobs);
             return (
               <Card key={farm.key} className="overflow-hidden border-2 border-emerald-200 shadow-sm">
                 <CardHeader className="border-b bg-emerald-50 p-6 sm:p-7">
@@ -296,6 +327,52 @@ export default function WarehouseCollectionsPage() {
                         {farm.jobs.length} {farm.jobs.length === 1 ? "order / collection" : "orders / collections"} · {farm.totalQuantity.toLocaleString()} kg expected
                       </p>
                       {farm.selectedCount > 0 && <p className="mt-2 text-sm font-bold text-emerald-900">{farm.selectedCount} selected for route planning</p>}
+
+                      <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-base font-bold text-slate-950">Pickup progress</p>
+                          <p className="text-sm font-semibold text-emerald-800">Current process: {progress.currentStage}</p>
+                        </div>
+                        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+                          {progress.stages.map((stage) => (
+                            <div
+                              key={stage.key}
+                              className={
+                                "min-h-[96px] rounded-lg border p-3 " +
+                                (stage.state === "complete"
+                                  ? "border-emerald-300 bg-emerald-50"
+                                  : stage.state === "current"
+                                    ? "border-blue-300 bg-blue-50"
+                                    : stage.state === "partial"
+                                      ? "border-amber-300 bg-amber-50"
+                                      : "border-slate-200 bg-slate-50")
+                              }
+                            >
+                              <div className="flex items-center gap-2">
+                                {stage.state === "complete" ? (
+                                  <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-700" />
+                                ) : stage.state === "current" ? (
+                                  <Clock3 className="h-5 w-5 shrink-0 text-blue-700" />
+                                ) : (
+                                  <span className={"flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold " + (stage.state === "partial" ? "bg-amber-200 text-amber-900" : "bg-slate-200 text-slate-600")}>
+                                    {stage.reachedCount}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-2 text-sm font-bold leading-5 text-slate-900">{stage.title}</p>
+                              <p className="mt-1 text-xs font-medium leading-4 text-slate-700">
+                                {stage.state === "complete"
+                                  ? "Complete"
+                                  : stage.state === "current"
+                                    ? "Current step"
+                                    : stage.state === "partial"
+                                      ? stage.reachedCount + " of " + stage.total + " orders"
+                                      : "Not started"}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                     <Button
                       className="min-h-12 shrink-0 px-5 text-base font-bold"
