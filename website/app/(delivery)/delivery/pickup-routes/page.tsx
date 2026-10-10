@@ -346,6 +346,21 @@ export default function DeliveryPickupRoutesPage() {
               <div className="space-y-4">
                 {(r.stops || []).map((s: any, i: number) => {
                   const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
+                  const groupedCustomerOrders = orders.reduce((groups: Record<string, any>, order: any, orderIndex: number) => {
+                    const readableOrderNumber = String(order.orderNumber || "").trim();
+                    const usableOrderNumber = readableOrderNumber && readableOrderNumber !== "Order reference unavailable";
+                    const key = usableOrderNumber
+                      ? "order-number:" + readableOrderNumber.toLocaleLowerCase()
+                      : order.orderId
+                        ? "order-id:" + String(order.orderId)
+                        : "collection:" + String(order.collectionId || orderIndex);
+                    if (!groups[key]) {
+                      groups[key] = { key, orderNumber: usableOrderNumber ? readableOrderNumber : null, items: [] };
+                    }
+                    groups[key].items.push(order);
+                    return groups;
+                  }, {});
+                  const orderGroups = Object.values(groupedCustomerOrders) as any[];
                   const stopStatus = String(s.status || "pending");
                   const allOrdersCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
                   const allOrdersDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
@@ -368,7 +383,7 @@ export default function DeliveryPickupRoutesPage() {
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-bold text-emerald-800">{i + 1}</div>
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-900">{s.farmerName || "Farmer details unavailable"}</p>
-                            <p className="mt-1 text-sm text-slate-600">{orders.length} {orders.length === 1 ? "order" : "orders"} · Expected {s.quantity || 0} kg</p>
+                            <p className="mt-1 text-sm text-slate-600">{orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"}{orders.length !== orderGroups.length ? ` · ${orders.length} collection items` : ""} · Expected {s.quantity || 0} kg</p>
                             <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3 w-3 shrink-0" />{s.pickupAddress || "Farm address not provided"}</p>
                           </div>
                         </div>
@@ -377,35 +392,44 @@ export default function DeliveryPickupRoutesPage() {
 
                       <div className="space-y-3 p-4">
                         <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders from this farm</p>
-                        {orders.map((order: any, orderIndex: number) => (
-                          <div key={order.collectionId || order.orderId || orderIndex} className="rounded-lg border bg-slate-50 p-3">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                              <div className="min-w-0 flex-1">
-                                <p className="font-semibold text-slate-900">
-                                  {order.orderNumber
-                                    ? (order.orderNumber === "Order reference unavailable" ? order.orderNumber : "Order " + order.orderNumber)
-                                    : "Order " + (orderIndex + 1)}
-                                </p>
-                                <p className="mt-1 text-sm text-slate-700">{order.productName || "Product details unavailable"}</p>
-                                <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
-                                {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
-                                {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
-                              </div>
-                              {r.status !== "assigned" && order.status === "arrived_at_farm" && (
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                  <label className="text-xs font-medium text-slate-600">Actual collected quantity</label>
-                                  <Input
-                                    className="sm:w-36"
-                                    type="number"
-                                    min="0.01"
-                                    step="0.01"
-                                    placeholder="Actual kg *"
-                                    value={actual[order.collectionId] || ""}
-                                    onChange={e => setActual({ ...actual, [order.collectionId]: e.target.value })}
-                                    aria-label={"Actual quantity collected for " + (order.orderNumber || order.productName || "order")}
-                                  />
+                        {orderGroups.map((orderGroup: any, orderIndex: number) => (
+                          <div key={orderGroup.key} className="rounded-lg border bg-slate-50 p-3">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-semibold text-slate-900">
+                                {orderGroup.orderNumber
+                                  ? "Order " + orderGroup.orderNumber
+                                  : "Order " + (orderIndex + 1)}
+                              </p>
+                              {orderGroup.items.length > 1 && <span className="text-xs text-slate-500">{orderGroup.items.length} collection items</span>}
+                            </div>
+                            <div className="space-y-2">
+                              {orderGroup.items.map((order: any, itemIndex: number) => (
+                                <div key={order.collectionId || order.orderId || itemIndex} className="rounded-md border bg-white p-3">
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-sm font-medium text-slate-800">{order.productName || "Product details unavailable"}</p>
+                                      <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
+                                      {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
+                                      {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
+                                    </div>
+                                    {r.status !== "assigned" && order.status === "arrived_at_farm" && (
+                                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                        <label className="text-xs font-medium text-slate-600">Actual collected quantity</label>
+                                        <Input
+                                          className="sm:w-36"
+                                          type="number"
+                                          min="0.01"
+                                          step="0.01"
+                                          placeholder="Actual kg *"
+                                          value={actual[order.collectionId] || ""}
+                                          onChange={e => setActual({ ...actual, [order.collectionId]: e.target.value })}
+                                          aria-label={"Actual quantity collected for " + (order.orderNumber || order.productName || "order")}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
-                              )}
+                              ))}
                             </div>
                           </div>
                         ))}
@@ -430,13 +454,13 @@ export default function DeliveryPickupRoutesPage() {
                                 Object.fromEntries(orders.filter((order: any) => String(order.status || "") === "arrived_at_farm").map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
                               )}
                             >
-                              <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orders.length} Orders Collected
+                              <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orderGroups.length} Orders Collected
                             </Button>
                           </div>
                         )}
                         {r.status !== "assigned" && allOrdersCollected && !allOrdersDeparted && (
                           <Button onClick={() => act(r, "departed_farm", s.collectionId)}>
-                            <Truck className="mr-2 h-4 w-4" /> Depart Farm — All {orders.length} Orders Collected
+                            <Truck className="mr-2 h-4 w-4" /> Depart Farm — All {orderGroups.length} Orders Collected
                           </Button>
                         )}
                         {r.status !== "assigned" && !allOrdersCollected && !canArriveAtFarm && (
