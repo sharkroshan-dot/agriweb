@@ -173,16 +173,16 @@ export default function WarehouseCollectionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 p-6 text-white shadow-sm sm:p-8">
+      <div className="rounded-2xl bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 p-6 text-white shadow-sm sm:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <div className="mb-2 flex items-center gap-2 text-sm text-emerald-100"><Truck className="h-4 w-4" /> Farm logistics control center</div>
+            <div className="mb-3 flex items-center gap-2 text-base font-medium text-emerald-50"><Truck className="h-4 w-4" /> Farm logistics control center</div>
             <div className="flex items-center gap-2">
               <Warehouse className="h-5 w-5" />
-              <span className="text-sm font-semibold text-emerald-100">{warehouseName}</span>
+              <span className="text-base font-semibold text-white">{warehouseName}</span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Farm Collection</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50">Select multiple ready farm pickups and plan capacity-safe routes in one action.</p>
+            <h1 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">Farm Collection</h1>
+            <p className="mt-3 max-w-2xl text-base leading-7 text-white sm:text-lg">Select eligible farm pickups, then plan routes and assign collection teams.</p>
           </div>
           <Button variant="secondary" size="icon" onClick={() => refetch()} aria-label="Refresh collection queue"><RefreshCw className="h-4 w-4" /></Button>
         </div>
@@ -196,14 +196,14 @@ export default function WarehouseCollectionsPage() {
           ["Routes Planned", counts.planned, Route],
           ["At Warehouse", counts.warehouse, Warehouse],
         ].map(([title, value, Icon]: any) => (
-          <Card key={title} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Icon className="h-5 w-5" /></div><div><p className="text-xs font-medium text-muted-foreground">{title}</p><p className="mt-1 text-2xl font-bold">{value}</p></div></CardContent></Card>
+          <Card key={title} className="border-slate-200 shadow-sm"><CardContent className="flex items-center gap-4 p-5"><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-800"><Icon className="h-6 w-6" /></div><div><p className="text-sm font-semibold text-slate-700">{title}</p><p className="mt-1 text-3xl font-extrabold text-slate-950">{value}</p></div></CardContent></Card>
         ))}
       </div>
 
       <Card className="shadow-sm">
         <CardContent className="flex flex-col gap-3 p-4 sm:flex-row">
-          <Input className="flex-1" placeholder="Search farmer, order, product or team..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <Select value={filter} onValueChange={setFilter}><SelectTrigger className="w-full sm:w-[260px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Collection Types</SelectItem><SelectItem value="bulk_harvest">Bulk Harvest · Warehouse Fulfillment</SelectItem><SelectItem value="packed_orders_transfer">Packed Orders · Long Distance</SelectItem></SelectContent></Select>
+          <Input className="h-12 flex-1 text-base placeholder:text-base" placeholder="Search farmer, order, product or team..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Select value={filter} onValueChange={setFilter}><SelectTrigger className="h-12 w-full text-base sm:w-[280px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Collection Types</SelectItem><SelectItem value="bulk_harvest">Bulk Harvest · Warehouse Fulfillment</SelectItem><SelectItem value="packed_orders_transfer">Packed Orders · Long Distance</SelectItem></SelectContent></Select>
         </CardContent>
       </Card>
 
@@ -211,10 +211,10 @@ export default function WarehouseCollectionsPage() {
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle className="text-lg">Bulk Actions</CardTitle>
-              <p className="mt-1 text-sm text-muted-foreground">Select available jobs once, then plan routes and assign the pickup work in one action.</p>
+              <CardTitle className="text-xl font-bold sm:text-2xl">Bulk Actions</CardTitle>
+              <p className="mt-2 text-base leading-6 text-slate-700">Select available orders, choose how pickups should be assigned, and plan the routes in one action.</p>
             </div>
-            <Button type="button" variant="outline" onClick={toggleVisibleSelection} disabled={readyVisibleJobs.length === 0}>
+            <Button className="min-h-11 px-4 text-base font-semibold" type="button" variant="outline" onClick={toggleVisibleSelection} disabled={readyVisibleJobs.length === 0}>
               {allVisibleSelected ? "Clear visible selection" : "Select all visible"}
             </Button>
           </div>
@@ -234,10 +234,10 @@ export default function WarehouseCollectionsPage() {
               <p className="mt-1 text-2xl font-bold">{counts.planned}</p>
             </div>
           </div>
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
-            <label className="space-y-1.5 text-sm font-medium">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
+            <label className="space-y-2 text-base font-semibold text-slate-800">
               Assignment Method
-              <select value={assignmentMode} onChange={(e) => setAssignmentMode(e.target.value as "auto_assign" | "offer" | "assign_team")} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm font-normal">
+              <select value={assignmentMode} onChange={(e) => setAssignmentMode(e.target.value as "auto_assign" | "offer" | "assign_team")} className="h-12 w-full rounded-md border border-input bg-background px-3 text-base font-normal">
                 <option value="auto_assign">Auto-plan routes and assign teams</option>
                 <option value="offer">Auto-plan routes and offer to approved pickup partners</option>
                 <option value="assign_team">Assign selected jobs to one team</option>
@@ -256,8 +256,8 @@ export default function WarehouseCollectionsPage() {
             </label>
           </div>
           <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-muted-foreground">Selected jobs are grouped into capacity-safe routes. Jobs already on an open route cannot be planned twice.</p>
-            <Button onClick={planSelectedPickups} disabled={planning || selectedCollectionIds.length === 0 || !selectedTeam}>
+            <p className="text-base leading-6 text-slate-700">Selected jobs are grouped into capacity-safe routes. Orders already on an open route cannot be planned twice.</p>
+            <Button className="min-h-12 px-5 text-base font-semibold" onClick={planSelectedPickups} disabled={planning || selectedCollectionIds.length === 0 || !selectedTeam}>
               <Route className="mr-2 h-4 w-4" />{planning ? "Planning pickups..." : "Plan Selected Pickups"}
             </Button>
           </div>
@@ -278,24 +278,24 @@ export default function WarehouseCollectionsPage() {
             const expanded = Boolean(expandedFarmCards[farm.key]);
             const expandableId = "farm-orders-" + farm.key.replace(/[^a-zA-Z0-9_-]/g, "-");
             return (
-              <Card key={farm.key} className="overflow-hidden border-emerald-200 shadow-sm">
-                <CardHeader className="border-b bg-emerald-50/70 p-5">
+              <Card key={farm.key} className="overflow-hidden border-2 border-emerald-200 shadow-sm">
+                <CardHeader className="border-b bg-emerald-50 p-6 sm:p-7">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge className="bg-emerald-700 text-white"><MapPin className="mr-1 h-3 w-3" /> Farm</Badge>
-                        {farm.readyCount > 0 && <Badge variant="outline">{farm.readyCount} ready for planning</Badge>}
-                        {farm.routeCount > 0 && <Badge className="bg-violet-100 text-violet-800">{farm.routeCount === 1 ? "Route planned" : farm.routeCount + " routes planned"}</Badge>}
+                        <Badge className="bg-emerald-800 px-3 py-1 text-sm font-bold text-white"><MapPin className="mr-1 h-4 w-4" /> FARM</Badge>
+                        {farm.readyCount > 0 && <Badge variant="outline" className="px-3 py-1 text-sm font-semibold">{farm.readyCount} ready for planning</Badge>}
+                        {farm.routeCount > 0 && <Badge className="bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-900">{farm.routeCount === 1 ? "Route planned" : farm.routeCount + " routes planned"}</Badge>}
                       </div>
-                      <CardTitle className="mt-2 text-lg">{farm.farmerName}</CardTitle>
-                      <p className="mt-1 flex items-start gap-1 text-sm text-muted-foreground">
-                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <CardTitle className="mt-3 text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">{farm.farmerName}</CardTitle>
+                      <p className="mt-2 flex items-start gap-2 text-base font-medium leading-7 text-slate-800">
+                        <MapPin className="mt-1 h-5 w-5 shrink-0 text-emerald-800" />
                         <span>{farm.pickupAddress}</span>
                       </p>
                       <p className="mt-2 text-sm font-medium text-slate-700">
                         {farm.jobs.length} {farm.jobs.length === 1 ? "order / collection" : "orders / collections"} · {farm.totalQuantity.toLocaleString()} kg expected
                       </p>
-                      {farm.selectedCount > 0 && <p className="mt-1 text-xs font-medium text-emerald-800">{farm.selectedCount} selected for route planning</p>}
+                      {farm.selectedCount > 0 && <p className="mt-2 text-sm font-bold text-emerald-900">{farm.selectedCount} selected for route planning</p>}
                     </div>
                     <Button
                       type="button"
@@ -311,10 +311,10 @@ export default function WarehouseCollectionsPage() {
                 </CardHeader>
 
                 {expanded && (
-                  <CardContent id={expandableId} className="space-y-4 bg-slate-50/50 p-4">
+                  <CardContent id={expandableId} className="space-y-5 bg-slate-50/50 p-5 sm:p-6">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-800">All orders from {farm.farmerName}</p>
-                      <p className="text-xs text-muted-foreground">Select eligible orders below for bulk pickup planning.</p>
+                      <p className="text-lg font-bold text-slate-950">All orders from {farm.farmerName}</p>
+                      <p className="text-sm leading-6 text-slate-700">Select eligible orders below for bulk pickup planning.</p>
                     </div>
 
                     {farm.jobs.map((job: any) => {
@@ -341,35 +341,35 @@ export default function WarehouseCollectionsPage() {
                                   <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>
                                     {isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}
                                   </Badge>
-                                  <Badge variant="outline">{label(job.status)}</Badge>
+                                  <Badge variant="outline" className="px-3 py-1 text-sm font-semibold">{label(job.status)}</Badge>
                                   {job.pickupRouteId && job.status !== "arrived_warehouse" && (
                                     <Badge className="bg-violet-100 text-violet-800">{job.routeNumber ? "Route " + job.routeNumber : "Route planned"}</Badge>
                                   )}
                                 </div>
-                                <CardTitle className="mt-2 text-base">{job.orderNumber ? (job.orderNumber === "Order reference unavailable" ? job.orderNumber : "Order " + job.orderNumber) : "Order details unavailable"}</CardTitle>
-                                <p className="mt-1 text-sm text-muted-foreground">{job.productName || "Product details unavailable"} · Farmer: {job.farmerName || "Farmer details unavailable"}</p>
-                                {job.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {job.batchNumber}</p>}
+                                <CardTitle className="mt-3 text-lg font-bold text-slate-950">{job.orderNumber ? (job.orderNumber === "Order reference unavailable" ? job.orderNumber : "Order " + job.orderNumber) : "Order details unavailable"}</CardTitle>
+                                <p className="mt-2 text-base font-medium leading-6 text-slate-800">{job.productName || "Product details unavailable"} · Farmer: {job.farmerName || "Farmer details unavailable"}</p>
+                                {job.batchNumber && <p className="mt-2 text-sm text-slate-700">Batch / Lot: {job.batchNumber}</p>}
                               </div>
-                              <div className="rounded-xl border bg-slate-50 px-4 py-3 text-right">
-                                <p className="text-xs text-muted-foreground">Expected quantity</p>
-                                <p className="text-lg font-bold">{job.quantity || 0} kg</p>
-                                {job.actualCollectedQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {job.actualCollectedQuantity} kg</p>}
-                                <p className="text-xs text-muted-foreground">{job.packageCount || 1} package(s)</p>
+                              <div className="rounded-xl border bg-slate-50 px-5 py-4 text-right">
+                                <p className="text-sm font-semibold text-slate-700">Expected quantity</p>
+                                <p className="text-2xl font-extrabold text-slate-950">{job.quantity || 0} kg</p>
+                                {job.actualCollectedQuantity != null && <p className="mt-2 text-sm font-bold text-emerald-800">Collected: {job.actualCollectedQuantity} kg</p>}
+                                <p className="mt-1 text-sm text-slate-700">{job.packageCount || 1} package(s)</p>
                               </div>
                             </div>
                           </CardHeader>
                           <CardContent className="space-y-4 p-4">
                             <div className="grid gap-3 sm:grid-cols-3">
                               <div className="rounded-lg bg-slate-50 p-3">
-                                <p className="text-xs text-muted-foreground">Pickup location</p>
-                                <p className="mt-1 flex items-start gap-1 text-sm font-medium"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.pickupAddress || "Farm address not provided"}</p>
+                                <p className="text-sm font-semibold text-slate-700">Pickup location</p>
+                                <p className="mt-2 flex items-start gap-2 text-base font-semibold leading-6 text-slate-900"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.pickupAddress || "Farm address not provided"}</p>
                               </div>
                               <div className="rounded-lg bg-slate-50 p-3">
-                                <p className="text-xs text-muted-foreground">Collection team</p>
+                                <p className="text-sm font-semibold text-slate-700">Collection team</p>
                                 <p className="mt-1 flex items-start gap-1 text-sm font-medium"><User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.collectionTeamName || (job.collectionTeamId ? "Assigned pickup partner" : "Not assigned")}{job.collectionTeamVehicleNumber ? " · " + job.collectionTeamVehicleNumber : ""}</p>
                               </div>
                               <div className="rounded-lg bg-slate-50 p-3">
-                                <p className="text-xs text-muted-foreground">Next destination</p>
+                                <p className="text-sm font-semibold text-slate-700">Next destination</p>
                                 <p className="mt-1 flex items-start gap-1 text-sm font-medium"><Warehouse className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.warehouseName || warehouseName || "Assigned warehouse"}</p>
                               </div>
                             </div>
@@ -384,7 +384,7 @@ export default function WarehouseCollectionsPage() {
                                         <div className={"flex h-8 w-8 items-center justify-center rounded-full border-2 " + (done ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-400")}>
                                           {done ? <CheckCircle2 className="h-4 w-4" /> : <span className="text-xs">{index + 1}</span>}
                                         </div>
-                                        <span className={"mt-2 text-center text-[11px] " + (done ? "font-semibold text-emerald-700" : "text-slate-400")}>{title}</span>
+                                        <span className={"mt-2 max-w-24 text-center text-sm leading-5 " + (done ? "font-bold text-emerald-800" : "font-medium text-slate-600")}>{title}</span>
                                       </div>
                                       {index < STATUS.length - 1 && <div className={"mx-2 h-0.5 flex-1 " + (currentIndex > index ? "bg-emerald-500" : "bg-slate-200")} />}
                                     </div>
@@ -395,7 +395,7 @@ export default function WarehouseCollectionsPage() {
 
                             <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
                               <div className="text-sm">
-                                <p className="font-medium">{isPackedTransfer ? "Already-packed customer order" : "Bulk warehouse fulfillment stock"}</p>
+                                <p className="text-base font-bold text-slate-900">{isPackedTransfer ? "Already-packed customer order" : "Bulk warehouse fulfillment stock"}</p>
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   {isPackedTransfer
                                     ? "Packing verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse packing required: No"
@@ -404,11 +404,11 @@ export default function WarehouseCollectionsPage() {
                               </div>
                               <div className="flex flex-col gap-2 sm:flex-row">
                                 {job.pickupRouteId ? (
-                                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 sm:max-w-[420px]">
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-950 sm:max-w-[480px]">
                                     Tracking is read-only here. The assigned pickup partner updates En Route, At Farm, Collected and Departed from Delivery Partner → Pickup Routes. Warehouse arrival is recorded when the partner returns the route.
                                   </div>
                                 ) : job.collectionTeamId ? (
-                                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:max-w-[420px]">
+                                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950 sm:max-w-[480px]">
                                     This older assignment has no pickup route yet. Select this job above to create its route.
                                   </div>
                                 ) : ["ready_for_pickup", "team_assigned"].includes(job.status) ? (
