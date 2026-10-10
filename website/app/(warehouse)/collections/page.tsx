@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowDown,
+  ArrowUp,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -21,6 +23,37 @@ import { Input } from "../../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
+
+const getFarmRouteKey = (job: any): string => {
+  for (const field of ["farmId", "farmProfileId", "sourceFarmId"]) {
+    const farmId = String(job?.[field] || "").trim();
+    if (farmId) return "farm:" + farmId.toLowerCase();
+  }
+
+  const location = job?.pickupLocation && typeof job.pickupLocation === "object" ? job.pickupLocation : {};
+  const address = location.formattedAddress || location.address || location.farmAddress || job?.pickupAddress;
+  if (address && String(address).trim()) {
+    return "address:" + String(address).trim().toLowerCase().split(/\s+/).join(" ");
+  }
+
+  const farmerId = String(job?.farmerId || "").trim();
+  if (farmerId) return "farmer:" + farmerId.toLowerCase();
+
+  const farmerName = String(job?.farmerName || job?.farmName || "").trim();
+  if (farmerName && !["farmer", "farm", "unknown farmer"].includes(farmerName.toLowerCase())) {
+    return "name:" + farmerName.toLowerCase().split(/\s+/).join(" ");
+  }
+
+  const coordinates = location.coordinates;
+  if (Array.isArray(coordinates) && coordinates.length >= 2) {
+    const lat = Number(coordinates[1]);
+    const lng = Number(coordinates[0]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return "location:" + lat.toFixed(4) + ":" + lng.toFixed(4);
+    }
+  }
+  return "collection:" + String(job?.id || job?._id || "unknown");
+};
 
 const STATUS = [
   ["scheduled", "Waiting for Farmer"],
@@ -57,6 +90,8 @@ export default function WarehouseCollectionsPage() {
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [expandedFarmCards, setExpandedFarmCards] = useState<Record<string, boolean>>({});
   const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("auto_assign");
+  const [routePlanningMode, setRoutePlanningMode] = useState<"automatic" | "manual">("automatic");
+  const [manualFarmOrder, setManualFarmOrder] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [planning, setPlanning] = useState(false);
   const { data: warehouseData } = useQuery({
@@ -100,16 +135,8 @@ export default function WarehouseCollectionsPage() {
     for (const job of jobs) {
       const farmerName = String(job.farmerName || "Farmer details unavailable").trim();
       const pickupAddress = String(job.pickupAddress || "").trim();
-      const normalizedName = farmerName.toLowerCase().replace(/[\s,.-]+/g, " ").trim();
-      const normalizedAddress = pickupAddress && pickupAddress !== "Farm address not provided"
-        ? pickupAddress.toLowerCase().replace(/[\s,.-]+/g, " ").trim()
-        : "";
-      const farmerId = String(job.farmerId || "").trim();
-      const key = normalizedAddress
-        ? "farm:" + (normalizedName || farmerId || "unknown") + "|" + normalizedAddress
-        : farmerId
-          ? "farmer:" + farmerId
-          : "farmer-name:" + (normalizedName || String(job.id || job._id));
+      // Keep the UI farm grouping aligned with the backend route builder.
+      const key = getFarmRouteKey(job);
       if (!groups.has(key)) {
         groups.set(key, { key, farmerName, pickupAddress: pickupAddress || "Farm address not provided", jobs: [] });
       }
@@ -151,6 +178,53 @@ export default function WarehouseCollectionsPage() {
   const selectedVisibleIds = readyVisibleJobs.map((job: any) => String(job.id || job._id));
   const allVisibleSelected = selectedVisibleIds.length > 0 && selectedVisibleIds.every((id: string) => selectedCollectionIds.includes(id));
 
+  // Build the editable route sequence from the full queue, not only the current
+  // search/filter view, so selected jobs stay represented if filters are changed.
+  const selectedFarmStops = useMemo(() => {
+    const selected = new Set(selectedCollectionIds);
+    const source = data?.data?.collections || [];
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobIds: string[]; quantity: number; hasCoordinates: boolean }>();
+    for (const job of source) {
+      const id = String(job.id || job._id || "");
+      if (!selected.has(id) || !["ready_for_pickup", "team_assigned"].includes(job.status) || job.pickupRouteId) continue;
+      const key = getFarmRouteKey(job);
+      if (!groups.has(key)) {
+        const location = job.pickupLocation && typeof job.pickupLocation === "object" ? job.pickupLocation : {};
+        const coordinates = location.coordinates;
+        groups.set(key, {
+          key,
+          farmerName: String(job.farmerName || "Farmer details unavailable").trim(),
+          pickupAddress: String(job.pickupAddress || location.formattedAddress || location.address || location.farmAddress || "Farm address not provided"),
+          jobIds: [],
+          quantity: 0,
+          hasCoordinates: Array.isArray(coordinates) && coordinates.length >= 2 && Number.isFinite(Number(coordinates[0])) && Number.isFinite(Number(coordinates[1])),
+        });
+      }
+      const group = groups.get(key)!;
+      group.jobIds.push(id);
+      group.quantity += Number(job.quantity || 0);
+    }
+    return Array.from(groups.values());
+  }, [data, selectedCollectionIds]);
+
+  const orderedManualFarmStops = useMemo(() => {
+    const byKey = new Map(selectedFarmStops.map((farm) => [farm.key, farm]));
+    const ordered = manualFarmOrder.filter((key) => byKey.has(key)).map((key) => byKey.get(key)!);
+    for (const farm of selectedFarmStops) {
+      if (!manualFarmOrder.includes(farm.key)) ordered.push(farm);
+    }
+    return ordered;
+  }, [selectedFarmStops, manualFarmOrder]);
+
+  const moveManualFarmStop = (farmKey: string, direction: -1 | 1) => {
+    const currentOrder = orderedManualFarmStops.map((farm) => farm.key);
+    const currentIndex = currentOrder.indexOf(farmKey);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentOrder.length) return;
+    [currentOrder[currentIndex], currentOrder[nextIndex]] = [currentOrder[nextIndex], currentOrder[currentIndex]];
+    setManualFarmOrder(currentOrder);
+  };
+
   const toggleVisibleSelection = () => {
     setSelectedCollectionIds((current) => allVisibleSelected
       ? current.filter((id) => !selectedVisibleIds.includes(id))
@@ -188,6 +262,7 @@ export default function WarehouseCollectionsPage() {
         collectionIds: selectedCollectionIds,
         maxWeightKg: Number(selectedTeam.capacity),
         assignmentMode,
+        ...(routePlanningMode === "manual" ? { manualStopOrder: orderedManualFarmStops.map((farm) => farm.key) } : {}),
         ...(assignmentMode === "assign_team" ? { deliveryPartnerId: selectedTeam.deliveryPartnerId } : {}),
       });
       const message = response?.message || response?.data?.message || `Pickup planning completed for ${selectedCollectionIds.length} selected job(s).`;
@@ -268,6 +343,22 @@ export default function WarehouseCollectionsPage() {
           </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
             <label className="space-y-2 text-base font-semibold text-slate-800">
+              Route Planning Mode
+              <select
+                value={routePlanningMode}
+                onChange={(e) => setRoutePlanningMode(e.target.value as "automatic" | "manual")}
+                className="h-12 w-full rounded-md border border-input bg-background px-3 text-base font-normal"
+              >
+                <option value="automatic">Automatic · optimize farm stop order</option>
+                <option value="manual">Manual · choose farm stop order</option>
+              </select>
+              <span className="block text-sm font-normal leading-6 text-slate-600">
+                {routePlanningMode === "manual"
+                  ? "Arrange the farms below in the exact visit order. The route will still be checked against vehicle capacity."
+                  : "The system chooses a suitable stop sequence based on farm locations and vehicle capacity."}
+              </span>
+            </label>
+            <label className="space-y-2 text-base font-semibold text-slate-800">
               Assignment Method
               <select value={assignmentMode} onChange={(e) => setAssignmentMode(e.target.value as "auto_assign" | "offer" | "assign_team")} className="h-12 w-full rounded-md border border-input bg-background px-3 text-base font-normal">
                 <option value="auto_assign">Auto-plan routes and assign teams</option>
@@ -287,10 +378,49 @@ export default function WarehouseCollectionsPage() {
               {eligibleTeams.length === 0 && <span className="mt-1 block text-sm font-medium leading-6 text-amber-800">No approved team with a registered capacity. Approve a pickup team and add its vehicle capacity first.</span>}
             </label>
           </div>
+          {routePlanningMode === "manual" && (
+            <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50/50 p-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-950">Manual pickup route order</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-700">
+                  Use the arrows to set the order the pickup partner should visit each selected farm. Farms with no saved coordinates can still be ordered manually, but map distance and ETA will be unavailable.
+                </p>
+              </div>
+              {orderedManualFarmStops.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-600">Select one or more farms above to build the manual route sequence.</p>
+              ) : (
+                <ol className="space-y-2">
+                  {orderedManualFarmStops.map((farm, index) => (
+                    <li key={farm.key} className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-extrabold text-emerald-900">{index + 1}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-bold text-slate-950">{farm.farmerName}</p>
+                        <p className="truncate text-xs text-slate-600">{farm.pickupAddress}</p>
+                        <p className="mt-1 text-xs font-semibold text-slate-700">{farm.jobIds.length} {farm.jobIds.length === 1 ? "order" : "orders"} · {farm.quantity.toLocaleString()} kg</p>
+                        {!farm.hasCoordinates && <p className="mt-1 text-xs font-semibold text-amber-800">Location coordinates missing · manual sequence only</p>}
+                      </div>
+                      <div className="flex shrink-0 flex-col gap-1">
+                        <Button type="button" variant="outline" size="icon" aria-label={"Move " + farm.farmerName + " earlier"} disabled={index === 0} onClick={() => moveManualFarmStop(farm.key, -1)}>
+                          <ArrowUp className="h-4 w-4" />
+                        </Button>
+                        <Button type="button" variant="outline" size="icon" aria-label={"Move " + farm.farmerName + " later"} disabled={index === orderedManualFarmStops.length - 1} onClick={() => moveManualFarmStop(farm.key, 1)}>
+                          <ArrowDown className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          )}
           <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-base leading-6 text-slate-700">Selected farms are planned as farm stops. Eligible orders at the same farm stay together, subject to vehicle capacity. Orders already on an open route cannot be planned twice.</p>
-            <Button className="min-h-12 px-5 text-base font-semibold" onClick={planSelectedPickups} disabled={planning || selectedCollectionIds.length === 0 || !selectedTeam}>
-              <Route className="mr-2 h-4 w-4" />{planning ? "Planning pickups..." : "Plan Selected Pickups"}
+            <p className="text-base leading-6 text-slate-700">
+              {routePlanningMode === "manual"
+                ? "The numbered farm sequence will be sent to the server and preserved across routes. Capacity and duplicate-route checks remain active."
+                : "Selected farms are grouped into farm-based routes. The system chooses the stop order automatically, subject to vehicle capacity. Orders already on an open route cannot be planned twice."}
+            </p>
+            <Button className="min-h-12 px-5 text-base font-semibold" onClick={planSelectedPickups} disabled={planning || selectedCollectionIds.length === 0 || !selectedTeam || (routePlanningMode === "manual" && orderedManualFarmStops.length === 0)}>
+              <Route className="mr-2 h-4 w-4" />{planning ? "Planning pickups..." : routePlanningMode === "manual" ? "Create Manual Route & Assign" : "Plan Selected Pickups"}
             </Button>
           </div>
         </CardContent>
