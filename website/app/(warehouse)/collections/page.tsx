@@ -84,9 +84,9 @@ export default function WarehouseCollectionsPage() {
     for (const job of jobs) {
       const farmerName = String(job.farmerName || "Farmer details unavailable").trim();
       const pickupAddress = String(job.pickupAddress || "").trim();
-      const normalizedName = farmerName.toLowerCase().replace(/[\\s,.-]+/g, " ").trim();
+      const normalizedName = farmerName.toLowerCase().replace(/[\s,.-]+/g, " ").trim();
       const normalizedAddress = pickupAddress && pickupAddress !== "Farm address not provided"
-        ? pickupAddress.toLowerCase().replace(/[\\s,.-]+/g, " ").trim()
+        ? pickupAddress.toLowerCase().replace(/[\s,.-]+/g, " ").trim()
         : "";
       const farmerId = String(job.farmerId || "").trim();
       const key = normalizedAddress
