@@ -300,7 +300,7 @@ export default function WarehouseCollectionsPage() {
                     <Button
                       className="min-h-12 shrink-0 px-5 text-base font-bold"
                       type="button"
-                      variant={expanded ? "default" : "outline"
+                      variant={expanded ? "default" : "outline"}
                       aria-expanded={expanded}
                       aria-controls={expandableId}
                       onClick={() => setExpandedFarmCards((previous) => ({ ...previous, [farm.key]: !previous[farm.key] }))}
