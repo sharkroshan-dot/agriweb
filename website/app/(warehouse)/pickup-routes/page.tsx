@@ -49,7 +49,6 @@ export default function PickupRoutesPage() {
   const routes = routesQ.data?.data?.routes || [];
   const teams = teamsQ.data?.data?.members || [];
   const [selectedTeamId, setSelectedTeamId] = React.useState("");
-  const [expandedOrderStops, setExpandedOrderStops] = React.useState<Record<string, boolean>>({});
 
   const selectedTeam = teams.find((team: any) => team.id === selectedTeamId);
 
@@ -103,7 +102,7 @@ export default function PickupRoutesPage() {
       {selectedTeam && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><strong>{selectedTeam.name || "Selected vehicle"}</strong> · {selectedTeam.vehicleType || "Vehicle"} · <strong>{selectedTeam.capacity} kg capacity</strong>. Route planning will continue adding farm stops until this capacity is reached.</div>}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Today's Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">All Pickup Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Total Farm Stops</p><p className="text-2xl font-bold">{routes.reduce((n: number, r: any) => n + (r.totalStops || 0), 0)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Approved Pickup Partners</p><p className="text-2xl font-bold">{teams.length}</p></CardContent></Card>
       </div>
@@ -140,49 +139,16 @@ export default function PickupRoutesPage() {
               )}
               <div className="space-y-3">
                 {(r.stops || []).map((s: any, i: number) => {
-                  const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
+                  const orderCount = Number(s.orderCount || (Array.isArray(s.orders) ? s.orders.length : 0) || 0);
                   return (
-                    <div key={s.farmKey || s.collectionId || i} className="overflow-hidden rounded-xl border border-emerald-200">
-                      <div className="flex items-start gap-3 bg-emerald-50/70 p-3">
-                        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</div>
-                        <div className="min-w-0 flex-1">
-                          <p className="font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
-                          <p className="text-sm text-muted-foreground">{orders.length} {orders.length === 1 ? "order" : "orders"} · Expected {s.quantity || 0} kg</p>
-                          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
-                        </div>
-                        <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
+                    <div key={s.farmKey || s.collectionId || i} className="flex items-start gap-3 rounded-xl border border-emerald-200 p-3">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
+                        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{orderCount} {orderCount === 1 ? "order" : "orders"} · {s.quantity || 0} kg total</p>
                       </div>
-                      <div className="flex items-center justify-between gap-3 border-t bg-white px-3 py-2">
-                        <p className="text-xs text-muted-foreground">
-                          {orders.length} {orders.length === 1 ? "order" : "orders"} in this farm pickup
-                        </p>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setExpandedOrderStops((current) => ({
-                            ...current,
-                            [String(r.id) + ":" + String(s.farmKey || s.collectionId || i)]: !current[String(r.id) + ":" + String(s.farmKey || s.collectionId || i)],
-                          }))}
-                        >
-                          {expandedOrderStops[String(r.id) + ":" + String(s.farmKey || s.collectionId || i)] ? "Hide Orders" : "View Orders"}
-                        </Button>
-                      </div>
-                      {expandedOrderStops[String(r.id) + ":" + String(s.farmKey || s.collectionId || i)] && (
-                        <div className="space-y-2 border-t bg-slate-50 p-3">
-                          {orders.map((order: any, orderIndex: number) => (
-                            <div key={order.collectionId || order.orderId || orderIndex} className="rounded-lg border bg-white p-3">
-                              <div className="flex flex-wrap items-start justify-between gap-2">
-                                <p className="font-medium">{order.orderNumber ? (order.orderNumber === "Order reference unavailable" ? order.orderNumber : "Order " + order.orderNumber) : "Order " + (orderIndex + 1)}</p>
-                                <Badge variant="outline">{stopStatusLabel(String(order.status || "pending"))}</Badge>
-                              </div>
-                              <p className="mt-1 text-sm text-muted-foreground">{order.productName || "Product details unavailable"} · Expected {order.quantity || 0} kg</p>
-                              {order.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {order.batchNumber}</p>}
-                              {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actually collected: {order.actualQuantity} kg</p>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
                     </div>
                   );
                 })}
