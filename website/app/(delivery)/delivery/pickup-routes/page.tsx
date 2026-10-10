@@ -83,7 +83,7 @@ const mergeFarmStopsForDisplay = (input: any[]) => {
       }
     }
     group.collectionId = group.collectionId || source.collectionId;
-    group.quantity = Number(group.quantity || 0) + (group === source ? 0 : 0);
+    
     group.pickupAddress = group.pickupAddress || source.pickupAddress;
   }
 
@@ -219,7 +219,7 @@ export default function DeliveryPickupRoutesPage() {
                   <div>
                     <p className="font-semibold"><Truck className="mr-2 inline h-4 w-4" />{job.routeNumber || job.orderNumber}</p>
                     <p className="text-sm text-muted-foreground">
-                      {job.totalStops || job.farmStops?.length || 0} farms · {job.totalOrders || job.farmStops?.reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0) || 0} orders · {job.totalQuantity || job.weightKg || 0} kg · {job.distanceKm || 0} km route
+                      {mergeFarmStopsForDisplay(job.farmStops || []).length} farms · {mergeFarmStopsForDisplay(job.farmStops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {mergeFarmStopsForDisplay(job.farmStops || []).reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg · {job.distanceKm || 0} km route
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Farms → {job.warehouseName || "Warehouse"}
@@ -230,7 +230,7 @@ export default function DeliveryPickupRoutesPage() {
                   </Button>
                 </div>
                 <div className="mt-4 space-y-2">
-                  {(job.farmStops || []).map((stop: any, i: number) => {
+                  {mergeFarmStopsForDisplay(job.farmStops || []).map((stop: any, i: number) => {
                     const orders = Array.isArray(stop.orders) && stop.orders.length ? stop.orders : [stop];
                     return (
                       <div key={stop.farmKey || stop.collectionId || i} className="rounded-lg border bg-slate-50 p-3">
@@ -272,12 +272,12 @@ export default function DeliveryPickupRoutesPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="font-semibold">{job.routeNumber || job.orderNumber}</p>
-                    <p className="text-sm text-muted-foreground">{job.totalStops || 0} farms · {job.totalOrders || job.farmStops?.reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0) || 0} orders · {job.totalQuantity || job.weightKg || 0} kg → {job.warehouseName || "Warehouse"}</p>
+                    <p className="text-sm text-muted-foreground">{mergeFarmStopsForDisplay(job.farmStops || []).length} farms · {mergeFarmStopsForDisplay(job.farmStops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {mergeFarmStopsForDisplay(job.farmStops || []).reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg → {job.warehouseName || "Warehouse"}</p>
                   </div>
                   <Badge variant="success">Accepted</Badge>
                 </div>
               <div className="mt-4 space-y-2">
-                {(job.farmStops || []).map((stop: any, index: number) => {
+                {mergeFarmStopsForDisplay(job.farmStops || []).map((stop: any, index: number) => {
                   const orders = Array.isArray(stop.orders) && stop.orders.length ? stop.orders : [stop];
                   return (
                     <div key={stop.farmKey || stop.collectionId || index} className="rounded-lg border bg-slate-50 p-3">
@@ -319,7 +319,7 @@ export default function DeliveryPickupRoutesPage() {
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="font-semibold">🚚 {r.routeNumber}</p>
-                      <p className="text-sm text-muted-foreground">{r.totalStops || 0} farms · {r.totalOrders || (r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {r.totalQuantity || 0} kg</p>
+                      <p className="text-sm text-muted-foreground">{mergeFarmStopsForDisplay(r.stops || []).length} farms · {mergeFarmStopsForDisplay(r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {mergeFarmStopsForDisplay(r.stops || []).reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg</p>
                     </div>
                     {r.claimState === "open" && (
                       <Button onClick={() => accept(r.id)}>
@@ -404,7 +404,7 @@ export default function DeliveryPickupRoutesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle>🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">{mergeFarmStopsForDisplay(r.stops || []).length} farm stops · {r.totalQuantity || 0} kg</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{mergeFarmStopsForDisplay(r.stops || []).length} farm stops · {mergeFarmStopsForDisplay(r.stops || []).reduce((sum: number, stop: any) => sum + Number(stop.quantity || 0), 0)} kg</p>
                   <p className="mt-1 text-xs text-muted-foreground">Destination: {r.warehouseName || "Assigned warehouse"}</p>
                   {routeDayLabel(r) && <p className="mt-1 text-xs text-muted-foreground">Route date: {routeDayLabel(r)}</p>}
                   {isCarryoverRoute(r) && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>Continued from a previous day.</strong> This route stays here until you complete the pickup and mark it returned to the warehouse.</div>}
@@ -418,7 +418,7 @@ export default function DeliveryPickupRoutesPage() {
               </div>
               {r.status === "assigned" && <Button className="mb-5" onClick={() => act(r, "started")}><Navigation className="mr-2 h-4 w-4" /> Start Pickup Route</Button>}
               <div className="space-y-4">
-                {(r.stops || []).map((s: any, i: number) => {
+                {mergeFarmStopsForDisplay(r.stops || []).map((s: any, i: number) => {
                   const orders = Array.isArray(s.orders) && s.orders.length ? s.orders : [s];
                   const groupedCustomerOrders = orders.reduce((groups: Record<string, any>, order: any, orderIndex: number) => {
                     const readableOrderNumber = String(order.orderNumber || "").trim();
