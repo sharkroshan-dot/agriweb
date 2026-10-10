@@ -243,17 +243,41 @@ class WarehouseService:
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
+    @staticmethod
     async def create_pickup_route_incoming(route_id: str) -> List[Dict[str, Any]]:
         route = await warehouse_pickup_route_repository.get_by_id(route_id)
         if not route or str(route.get("status")) not in ("completed", "returned_to_warehouse"):
             return []
         created = []
-        for stop in route.get("stops") or []:
-            collection_id = str(stop.get("collectionId") or "")
-            incoming_stock_id = str(stop.get("incomingStockId") or "")
+
+        # A route stop represents a physical farm. Incoming stock remains
+        # order-level, so fan each farm group back into one incoming record per
+        # order/collection to preserve product, quantity, batch and order links.
+        route_orders: List[Dict[str, Any]] = []
+        for farm_stop in route.get("stops") or []:
+            orders = farm_stop.get("orders") or [farm_stop]
+            for order in orders:
+                row = dict(order)
+                for key in ("farmerId", "farmerName", "pickupLocation", "collectionTeamName"):
+                    if not row.get(key) and farm_stop.get(key):
+                        row[key] = farm_stop[key]
+                row.setdefault("collectionId", order.get("collectionId") or farm_stop.get("collectionId"))
+                row.setdefault("incomingStockId", order.get("incomingStockId") or farm_stop.get("incomingStockId"))
+                row.setdefault("farmerId", order.get("farmerId") or farm_stop.get("farmerId"))
+                route_orders.append(row)
+
+        for order in route_orders:
+            collection_id = str(order.get("collectionId") or "")
+            incoming_stock_id = str(order.get("incomingStockId") or "")
             existing = await incoming_stock_repository.get_by_id(incoming_stock_id) if ObjectId.is_valid(incoming_stock_id) else None
+            quantity_value = order.get("actualQuantity")
+            if quantity_value is None:
+                quantity_value = order.get("actualCollectedQuantity")
+            if quantity_value is None:
+                quantity_value = order.get("quantity")
+
             if existing:
-                qty = float(stop.get("actualQuantity") if stop.get("actualQuantity") is not None else stop.get("quantity") or existing.get("quantity") or 0)
+                qty = float(quantity_value if quantity_value is not None else existing.get("quantity") or 0)
                 await incoming_stock_repository.update({"_id": existing["_id"]}, {
                     "quantity": int(qty),
                     "quantityReceived": 0,
@@ -267,30 +291,52 @@ class WarehouseService:
                     "updatedAt": datetime.utcnow(),
                 })
                 existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
-                if existing: created.append(existing)
+                if existing:
+                    created.append(existing)
                 continue
-            existing = await incoming_stock_repository.find_one({"pickupRouteId": ObjectId(route_id), "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id, "deletedAt": None}) if collection_id else None
+
+            collection_key = ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id
+            existing = await incoming_stock_repository.find_one({
+                "pickupRouteId": ObjectId(route_id),
+                "collectionId": collection_key,
+                "deletedAt": None,
+            }) if collection_id else None
             if existing:
-                created.append(existing); continue
-            product_id, farmer_id = str(stop.get("productId") or ""), str(stop.get("farmerId") or "")
+                created.append(existing)
+                continue
+
+            product_id = str(order.get("productId") or "")
+            farmer_id = str(order.get("farmerId") or "")
             if not ObjectId.is_valid(product_id) or not ObjectId.is_valid(farmer_id):
                 continue
-            qty = float(stop.get("actualQuantity") if stop.get("actualQuantity") is not None else stop.get("quantity") or 0)
-            if qty <= 0: continue
+            qty = float(quantity_value or 0)
+            if qty <= 0:
+                continue
             incoming_id = await incoming_stock_repository.create_incoming({
-                "warehouseId": ObjectId(str(route["warehouseId"])), "productId": ObjectId(product_id),
-                "variantId": ObjectId(str(stop["variantId"])) if ObjectId.is_valid(str(stop.get("variantId") or "")) else None,
-                "farmerId": ObjectId(farmer_id), "orderId": ObjectId(str(stop["orderId"])) if ObjectId.is_valid(str(stop.get("orderId") or "")) else None,
-                "quantity": int(qty), "expectedDate": datetime.utcnow(), "batchNumber": stop.get("batchNumber"),
-                "qualityGrade": stop.get("qualityGrade"), "storageType": stop.get("storageType") or "ambient",
-                "pickupRouteId": ObjectId(route_id), "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
-                "sourceMode": "warehouse_pickup_route", "packingRequired": True,
+                "warehouseId": ObjectId(str(route["warehouseId"])),
+                "productId": ObjectId(product_id),
+                "variantId": ObjectId(str(order["variantId"])) if ObjectId.is_valid(str(order.get("variantId") or "")) else None,
+                "farmerId": ObjectId(farmer_id),
+                "orderId": ObjectId(str(order["orderId"])) if ObjectId.is_valid(str(order.get("orderId") or "")) else None,
+                "quantity": int(qty),
+                "expectedDate": datetime.utcnow(),
+                "batchNumber": order.get("batchNumber"),
+                "qualityGrade": order.get("qualityGrade"),
+                "storageType": order.get("storageType") or "ambient",
+                "pickupRouteId": ObjectId(route_id),
+                "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
+                "sourceMode": "warehouse_pickup_route",
+                "packingRequired": True,
             })
             if incoming_id:
                 row = await incoming_stock_repository.get_by_id(incoming_id)
-                if row: created.append(row)
+                if row:
+                    created.append(row)
         if created:
-            await warehouse_pickup_route_repository.update_route(route_id, {"status": "arrived_warehouse", "warehouseArrivalAt": datetime.utcnow(), "incomingStockIds": [x["_id"] for x in created if x.get("_id")]})
+            await warehouse_pickup_route_repository.update_route(route_id, {
+                "warehouseArrivalAt": datetime.utcnow(),
+                "incomingStockIds": [row["_id"] for row in created if row.get("_id")],
+            })
         return created
 
     @staticmethod
