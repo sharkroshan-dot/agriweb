@@ -131,6 +131,29 @@ def _farm_key(job: Dict[str, Any]) -> str:
             pass
     return f"collection:{job.get('_id')}"
 
+
+def _display_farm_key(stop: Dict[str, Any]) -> str:
+    """Group persisted legacy route stops by the human-visible physical farm."""
+    for field in ("farmId", "farmProfileId", "sourceFarmId"):
+        farm_id = str(stop.get(field) or "").strip()
+        if farm_id:
+            return f"farm:{farm_id.lower()}"
+
+    farmer_name = _human_text(stop.get("farmerName") or stop.get("farmName"))
+    address = _human_text(stop.get("pickupAddress"))
+    if address and address != "Farm address not provided":
+        normalized_address = " ".join(address.casefold().split())
+        if farmer_name and farmer_name != "Farmer details unavailable":
+            normalized_name = " ".join(farmer_name.casefold().split())
+            return f"farm-display:{normalized_name}|{normalized_address}"
+        return f"farm-address:{normalized_address}"
+
+    if farmer_name and farmer_name not in ("Farmer", "Farm", "Unknown Farmer", "Farmer details unavailable"):
+        normalized_name = " ".join(farmer_name.casefold().split())
+        return f"farm-name:{normalized_name}"
+
+    return _farm_key(stop)
+
 def _group_jobs_by_farm(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One route stop per farm, with all order-level collection jobs nested inside."""
     grouped: Dict[str, Dict[str, Any]] = {}
@@ -610,7 +633,10 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
     # Order-level jobs remain nested inside the farm stop for quantity tracking.
     grouped: Dict[str, Dict[str, Any]] = {}
     for stop in display_stops:
-        farm_key = _farm_key(stop)
+        # Use resolved farmer name + actual displayed address for legacy route
+        # cards; old route snapshots may hold slightly different coordinates or
+        # farmer-profile IDs even when they refer to the same physical farm.
+        farm_key = _display_farm_key(stop)
         if farm_key not in grouped:
             grouped[farm_key] = {
                 **stop,
