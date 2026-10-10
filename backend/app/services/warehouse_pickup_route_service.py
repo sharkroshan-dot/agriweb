@@ -95,20 +95,15 @@ def select_route_team_assignments(
 
 
 def _farm_key(job: Dict[str, Any]) -> str:
-    """Group by an explicit farm, then physical pickup location, then farmer owner."""
+    """Identify one physical farm consistently, even when its geocodes vary slightly."""
     for field in ("farmId", "farmProfileId", "sourceFarmId"):
         farm_id = str(job.get(field) or "").strip()
         if farm_id:
             return f"farm:{farm_id.lower()}"
+
+    # Prefer the real farm address before coordinates. Geocoding can produce
+    # slightly different coordinates for orders from the same address.
     location = job.get("pickupLocation") or {}
-    coords = location.get("coordinates") if isinstance(location, dict) else None
-    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
-        try:
-            # Four decimal places groups geocodes for the same farm while keeping
-            # separate physical farms owned by the same farmer in separate stops.
-            return f"location:{round(float(coords[0]), 4)}:{round(float(coords[1]), 4)}"
-        except (TypeError, ValueError):
-            pass
     if isinstance(location, dict):
         address = (
             location.get("formattedAddress")
@@ -117,10 +112,23 @@ def _farm_key(job: Dict[str, Any]) -> str:
             or job.get("pickupAddress")
         )
         if address and str(address).strip():
-            return f"address:{' '.join(str(address).lower().split())}"
+            normalized_address = " ".join(str(address).lower().split())
+            return f"address:{normalized_address}"
+
     farmer_id = str(job.get("farmerId") or "").strip()
     if farmer_id:
         return f"farmer:{farmer_id.lower()}"
+
+    farmer_name = str(job.get("farmerName") or job.get("farmName") or "").strip()
+    if farmer_name and farmer_name.lower() not in {"farmer", "farm", "unknown farmer"}:
+        return f"name:{' '.join(farmer_name.lower().split())}"
+
+    coords = location.get("coordinates") if isinstance(location, dict) else None
+    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        try:
+            return f"location:{round(float(coords[0]), 4)}:{round(float(coords[1]), 4)}"
+        except (TypeError, ValueError):
+            pass
     return f"collection:{job.get('_id')}"
 
 def _group_jobs_by_farm(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
