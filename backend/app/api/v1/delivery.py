@@ -2841,7 +2841,16 @@ async def update_my_pickup_route_status(
             # Packed order transfers already have a verified quantity from
             # Farmer Packing & Checking. Only non-packed collection types need
             # the delivery partner to enter a measured quantity.
-            if actualQuantities is not None:
+            outstanding_farm_jobs = [
+                value for value in farm_jobs
+                if str(value.get("status") or "") == "arrived_at_farm"
+            ]
+            all_outstanding_are_packed = bool(outstanding_farm_jobs) and all(
+                str(value.get("collectionType") or "") == "packed_orders_transfer"
+                for value in outstanding_farm_jobs
+            )
+            if actualQuantities is not None or all_outstanding_are_packed:
+                actual_quantities = actualQuantities or {}
                 farm_jobs_by_id = {str(value.get("_id")): value for value in farm_jobs}
                 collectible_ids = [
                     key for key, value in farm_jobs_by_id.items()
@@ -2854,7 +2863,7 @@ async def update_my_pickup_route_status(
                     key for key in collectible_ids
                     if str(farm_jobs_by_id[key].get("collectionType") or "") != "packed_orders_transfer"
                 ]
-                if set(actualQuantities.keys()) != set(manual_quantity_ids):
+                if set(actual_quantities.keys()) != set(manual_quantity_ids):
                     raise HTTPException(
                         status_code=400,
                         detail="Enter the actual quantity for each order that requires measuring, then confirm all together.",
@@ -2897,7 +2906,7 @@ async def update_my_pickup_route_status(
                         if qty is None:
                             qty = order_job.get("quantity")
                     else:
-                        qty = actualQuantities.get(order_collection_id)
+                        qty = actual_quantities.get(order_collection_id)
 
                     if qty is None or float(qty) <= 0:
                         raise HTTPException(
