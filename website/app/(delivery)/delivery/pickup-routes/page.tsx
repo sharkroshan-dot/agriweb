@@ -99,14 +99,19 @@ export default function DeliveryPickupRoutesPage() {
     }
   };
 
-  const act = async (route: any, status: string, collectionId?: string) => {
+  const act = async (
+    route: any,
+    status: string,
+    collectionId?: string,
+    actualQuantities?: Record<string, number>,
+  ) => {
     try {
       await api.put(
         "/delivery/me/pickup-routes/" + route.id + "/status",
-        undefined,
-        { params: { status, collectionId, actualQuantity: collectionId ? Number(actual[collectionId] || 0) : undefined } }
+        actualQuantities,
+        { params: { status, collectionId, actualQuantity: actualQuantities ? undefined : collectionId ? Number(actual[collectionId] || 0) : undefined } }
       );
-      toast.success(status.replace(/_/g, " "));
+      toast.success(status === "collected" && actualQuantities ? "All orders at this farm marked collected" : status.replace(/_/g, " "));
       await routesQ.refetch();
     } catch (e: any) {
       toast.error(e?.message || "Unable to update pickup route");
@@ -344,6 +349,12 @@ export default function DeliveryPickupRoutesPage() {
                   const stopStatus = String(s.status || "pending");
                   const allOrdersCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
                   const allOrdersDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
+                  const allQuantitiesValid = orders.length > 0 && orders.every((order: any) =>
+                    Boolean(order.collectionId) &&
+                    Boolean(actual[order.collectionId]) &&
+                    Number.isFinite(Number(actual[order.collectionId])) &&
+                    Number(actual[order.collectionId]) > 0
+                  );
                   const canArriveAtFarm = ["pending", "ready_for_pickup", "team_assigned", "en_route", "started"].includes(stopStatus);
                   return (
                     <div key={s.farmKey || s.collectionId || i} className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
@@ -374,10 +385,10 @@ export default function DeliveryPickupRoutesPage() {
                                 <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
                                 {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
                                 {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
-                                <p className="mt-1 text-xs text-slate-600">Status: {stopStatusLabel(String(order.status || "pending"))}</p>
                               </div>
                               {r.status !== "assigned" && order.status === "arrived_at_farm" && (
-                                <div className="flex flex-col gap-2 sm:flex-row">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                  <label className="text-xs font-medium text-slate-600">Actual collected quantity</label>
                                   <Input
                                     className="sm:w-36"
                                     type="number"
@@ -388,12 +399,6 @@ export default function DeliveryPickupRoutesPage() {
                                     onChange={e => setActual({ ...actual, [order.collectionId]: e.target.value })}
                                     aria-label={"Actual quantity collected for " + (order.orderNumber || order.productName || "order")}
                                   />
-                                  <Button
-                                    disabled={!actual[order.collectionId] || !Number.isFinite(Number(actual[order.collectionId])) || Number(actual[order.collectionId]) <= 0}
-                                    onClick={() => act(r, "collected", order.collectionId)}
-                                  >
-                                    <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Collection
-                                  </Button>
                                 </div>
                               )}
                             </div>
@@ -404,6 +409,25 @@ export default function DeliveryPickupRoutesPage() {
                           <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>
                             <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
                           </Button>
+                        )}
+                        {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allOrdersCollected && (
+                          <div className="flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="text-sm text-blue-900">
+                              <p className="font-semibold">Confirm collection for this farm</p>
+                              <p className="text-xs">Enter the actual quantity for every order above, then confirm once for all {orders.length} orders.</p>
+                            </div>
+                            <Button
+                              disabled={!allQuantitiesValid}
+                              onClick={() => act(
+                                r,
+                                "collected",
+                                s.collectionId,
+                                Object.fromEntries(orders.map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
+                              )}
+                            >
+                              <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orders.length} Orders Collected
+                            </Button>
+                          </div>
                         )}
                         {r.status !== "assigned" && allOrdersCollected && !allOrdersDeparted && (
                           <Button onClick={() => act(r, "departed_farm", s.collectionId)}>
