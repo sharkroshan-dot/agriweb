@@ -78,18 +78,18 @@ export default function PickupRoutesPage() {
       <div className="rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 p-6 text-white shadow-sm sm:p-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-emerald-100 text-sm">
+            <div className="flex items-center gap-2 text-emerald-100 text-base">
               <Route className="h-4 w-4" /> Daily pickup planning
             </div>
             <h1 className="mt-2 text-3xl font-bold">Pickup Routes</h1>
-            <p className="mt-2 max-w-2xl text-sm text-emerald-50">
+            <p className="mt-2 max-w-2xl text-base leading-relaxed text-emerald-50">
               Routes are sized by the selected vehicle capacity. The system adds as many farm stops as that vehicle can carry; there is no fixed stop limit. The first eligible partner to accept wins the route.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="text-xs text-emerald-50">
-              <span className="mb-1 flex items-center gap-1"><Truck className="h-3 w-3" /> Planning vehicle</span>
-              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-10 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-sm text-slate-900">
+            <label className="text-sm font-medium text-emerald-50">
+              <span className="mb-1 flex items-center gap-1"><Truck className="h-4 w-4" /> Planning vehicle</span>
+              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-11 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-base text-slate-900">
                 <option value="">Select vehicle</option>
                 {teams.map((team: any) => (
                   <option key={team.id} value={team.id} disabled={!team.capacity}>
@@ -105,10 +105,10 @@ export default function PickupRoutesPage() {
         </div>
       </div>
 
-      {selectedTeam && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><strong>{selectedTeam.name || "Selected vehicle"}</strong> · {selectedTeam.vehicleType || "Vehicle"} · <strong>{selectedTeam.capacity} kg capacity</strong>. Route planning will continue adding farm stops until this capacity is reached.</div>}
+      {selectedTeam && <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-base leading-relaxed text-emerald-900"><strong>{selectedTeam.name || "Selected vehicle"}</strong> · {selectedTeam.vehicleType || "Vehicle"} · <strong>{selectedTeam.capacity} kg capacity</strong>. Route planning will continue adding farm stops until this capacity is reached.</div>}
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">All Pickup Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
+        <Card><CardContent className="p-5"><p className="text-sm text-muted-foreground">All Pickup Routes</p><p className="text-2xl font-bold">{routes.length}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Total Farm Stops</p><p className="text-2xl font-bold">{routes.reduce((n: number, r: any) => n + (r.totalStops || 0), 0)}</p></CardContent></Card>
         <Card><CardContent className="p-5"><p className="text-xs text-muted-foreground">Approved Pickup Partners</p><p className="text-2xl font-bold">{teams.length}</p></CardContent></Card>
       </div>
@@ -126,7 +126,7 @@ export default function PickupRoutesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle className="text-base">🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
+                  <p className="mt-1 text-base text-muted-foreground">
                     Assignment date: {r.routeDate || (r.createdAt ? new Date(r.createdAt).toLocaleDateString() : "Date unavailable")} · {r.totalStops || (r.stops || []).length} farms · {r.totalOrders || (r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {r.totalQuantity || 0} kg
                   </p>
                 </div>
@@ -148,18 +148,18 @@ export default function PickupRoutesPage() {
                   const orderCount = Number(s.orderCount || (Array.isArray(s.orders) ? s.orders.length : 0) || 0);
                   return (
                     <div key={s.farmKey || s.collectionId || i} className="flex items-start gap-3 rounded-xl border border-emerald-200 p-3">
-                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{i + 1}</div>
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-base font-bold text-emerald-700">{i + 1}</div>
                       <div className="min-w-0 flex-1">
-                        <p className="font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
-                        <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3" /> {s.pickupAddress || "Farm address not provided"}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">{orderCount} {orderCount === 1 ? "order" : "orders"} · {s.quantity || 0} kg total</p>
-                        {s.distanceFromPreviousKm != null && <p className="mt-1 text-xs text-muted-foreground">Distance from previous stop: {Number(s.distanceFromPreviousKm).toFixed(1)} km</p>}
-                        {(s.arrivedAt || s.collectedAt || s.departedAt || s.completedAt) && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{s.arrivedAt && <span>Arrived: {formatDateTime(s.arrivedAt)}</span>}{s.collectedAt && <span>Collected: {formatDateTime(s.collectedAt)}</span>}{s.departedAt && <span>Departed: {formatDateTime(s.departedAt)}</span>}</div>}
+                        <p className="text-base font-semibold">{s.farmerName || "Farmer details unavailable"}</p>
+                        <p className="mt-1 flex items-center gap-2 text-sm leading-relaxed text-muted-foreground"><MapPin className="h-4 w-4 shrink-0" /> {s.pickupAddress || "Farm address not provided"}</p>
+                        <p className="mt-1 text-base font-medium text-muted-foreground">{orderCount} {orderCount === 1 ? "order" : "orders"} · {s.quantity || 0} kg total</p>
+                        {s.distanceFromPreviousKm != null && <p className="mt-1 text-sm text-muted-foreground">Distance from previous stop: {Number(s.distanceFromPreviousKm).toFixed(1)} km</p>}
+                        {(s.arrivedAt || s.collectedAt || s.departedAt || s.completedAt) && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">{s.arrivedAt && <span>Arrived: {formatDateTime(s.arrivedAt)}</span>}{s.collectedAt && <span>Collected: {formatDateTime(s.collectedAt)}</span>}{s.departedAt && <span>Departed: {formatDateTime(s.departedAt)}</span>}</div>}
                         <div className="mt-3">
                           <Button
                             type="button"
                             variant="outline"
-                            size="sm"
+                            size="default"
                             onClick={() => {
                               const params = new URLSearchParams();
                               params.set("search", String(s.farmerName || ""));
@@ -190,15 +190,15 @@ export default function PickupRoutesPage() {
                         : "Waiting for Pickup Partner Acceptance"}
                   </p>
                   {r.deliveryPartnerId ? (
-                    <div className="mt-2 space-y-1 text-sm">
+                    <div className="mt-2 space-y-2 text-base">
                       <p><span className="font-medium">Accepted by:</span> {r.deliveryPartnerName || "Pickup Partner"}</p>
                       <p className="text-muted-foreground">
                         🚚 {r.deliveryPartnerVehicleType || "Vehicle not specified"} · {r.deliveryPartnerVehicleNumber || "Vehicle number not specified"}
                       </p>
-                      <p className="text-xs font-medium text-emerald-700">This route is now assigned exclusively to this pickup partner.</p>
+                      <p className="text-sm font-medium text-emerald-700">This route is now assigned exclusively to this pickup partner.</p>
                     </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm leading-relaxed text-muted-foreground">
                       {r.assignmentMode === "delivery_marketplace"
                         ? "No approved pickup partner is available. Eligible delivery partners can accept this route based on vehicle capacity and availability."
                         : "All approved pickup partners can see and accept this route. First acceptance wins."}
