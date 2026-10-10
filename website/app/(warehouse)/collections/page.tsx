@@ -297,8 +297,8 @@ export default function WarehouseCollectionsPage() {
             return (
               <Card key={farm.key} className="overflow-hidden border-2 border-emerald-200 shadow-sm">
                 <CardHeader className="border-b bg-emerald-50 p-6 sm:p-7">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0 flex-1">
+                  <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(240px,auto)_auto] xl:items-center">
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge className="bg-emerald-800 px-3 py-1 text-sm font-bold text-white"><MapPin className="mr-1 h-4 w-4" /> FARM</Badge>
                         {farm.readyCount > 0 && <Badge variant="outline" className="px-3 py-1 text-sm font-semibold">{farm.readyCount} ready for planning</Badge>}
@@ -314,17 +314,20 @@ export default function WarehouseCollectionsPage() {
                       </p>
                       {farm.selectedCount > 0 && <p className="mt-2 text-sm font-bold text-emerald-900">{farm.selectedCount} selected for route planning</p>}
 
-                      <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3">
-                        <Clock3 className="h-5 w-5 shrink-0 text-emerald-800" />
-                        <span className="text-base font-bold text-slate-900">Current status:</span>
-                        <Badge className="bg-emerald-800 px-3 py-1 text-sm font-bold text-white">{progress.currentStage}</Badge>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 xl:max-w-[340px]">
+                      <Clock3 className="h-5 w-5 shrink-0 text-emerald-800" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-700">Current status</p>
+                        <Badge className="mt-1 bg-emerald-800 px-3 py-1 text-sm font-bold text-white">{progress.currentStage}</Badge>
                         {progress.mixed && progress.currentCount < progress.total && (
-                          <span className="text-sm font-medium text-slate-700">
+                          <p className="mt-1 text-sm font-medium text-slate-700">
                             {progress.currentCount} of {progress.total} orders at this stage
-                          </span>
+                          </p>
                         )}
                       </div>
                     </div>
+                    <div className="flex justify-start xl:justify-end">
                     <Button
                       className="min-h-12 shrink-0 px-5 text-base font-bold"
                       type="button"
@@ -336,6 +339,7 @@ export default function WarehouseCollectionsPage() {
                       {expanded ? "Hide orders" : "View " + farm.jobs.length + (farm.jobs.length === 1 ? " order" : " orders")}
                       <ChevronDown className={"ml-2 h-4 w-4 transition-transform " + (expanded ? "rotate-180" : "")} />
                     </Button>
+                    </div>
                   </div>
                 </CardHeader>
 
