@@ -95,19 +95,18 @@ def select_route_team_assignments(
 
 
 def _farm_key(job: Dict[str, Any]) -> str:
-    """Use an explicit farm identity first, then owner and location fallbacks."""
+    """Group by an explicit farm, then physical pickup location, then farmer owner."""
     for field in ("farmId", "farmProfileId", "sourceFarmId"):
         farm_id = str(job.get(field) or "").strip()
         if farm_id:
             return f"farm:{farm_id.lower()}"
-    farmer_id = str(job.get("farmerId") or "").strip()
-    if farmer_id:
-        return f"farmer:{farmer_id.lower()}"
     location = job.get("pickupLocation") or {}
     coords = location.get("coordinates") if isinstance(location, dict) else None
     if isinstance(coords, (list, tuple)) and len(coords) >= 2:
         try:
-            return f"location:{round(float(coords[0]), 5)}:{round(float(coords[1]), 5)}"
+            # Four decimal places groups geocodes for the same farm while keeping
+            # separate physical farms owned by the same farmer in separate stops.
+            return f"location:{round(float(coords[0]), 4)}:{round(float(coords[1]), 4)}"
         except (TypeError, ValueError):
             pass
     if isinstance(location, dict):
@@ -119,8 +118,10 @@ def _farm_key(job: Dict[str, Any]) -> str:
         )
         if address and str(address).strip():
             return f"address:{' '.join(str(address).lower().split())}"
+    farmer_id = str(job.get("farmerId") or "").strip()
+    if farmer_id:
+        return f"farmer:{farmer_id.lower()}"
     return f"collection:{job.get('_id')}"
-
 
 def _group_jobs_by_farm(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One route stop per farm, with all order-level collection jobs nested inside."""
