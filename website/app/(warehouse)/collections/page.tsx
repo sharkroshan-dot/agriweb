@@ -245,14 +245,14 @@ export default function WarehouseCollectionsPage() {
             </label>
             <label className="space-y-1.5 text-sm font-medium">
               Vehicle carrying capacity
-              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm font-normal">
+              <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-12 w-full rounded-md border border-input bg-background px-3 text-base font-normal">
                 <option value="">Select pickup vehicle</option>
                 {eligibleTeams.map((team: any) => (
                   <option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {team.capacity} kg</option>
                 ))}
               </select>
-              {selectedTeam && <span className="block text-xs font-normal text-muted-foreground">{selectedTeam.name || "Selected team"} · {selectedTeam.vehicleType || "Vehicle"} · {selectedTeam.capacity} kg</span>}
-              {eligibleTeams.length === 0 && <span className="block text-xs font-normal text-amber-700">No approved team with a registered capacity. Approve a pickup team and add its vehicle capacity first.</span>}
+              {selectedTeam && <span className="mt-1 block text-sm font-medium leading-6 text-slate-700">{selectedTeam.name || "Selected team"} · {selectedTeam.vehicleType || "Vehicle"} · {selectedTeam.capacity} kg</span>}
+              {eligibleTeams.length === 0 && <span className="mt-1 block text-sm font-medium leading-6 text-amber-800">No approved team with a registered capacity. Approve a pickup team and add its vehicle capacity first.</span>}
             </label>
           </div>
           <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -327,13 +327,13 @@ export default function WarehouseCollectionsPage() {
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
                                   {["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId && (
-                                    <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
+                                    <label className="mr-1 inline-flex cursor-pointer items-center gap-3 text-base font-semibold text-slate-800">
                                       <input
                                         type="checkbox"
                                         aria-label={"Select " + (job.orderNumber || job.productName || "collection job")}
                                         checked={selectedCollectionIds.includes(String(job.id || job._id))}
                                         onChange={(event) => toggleCollectionSelection(String(job.id || job._id), event.target.checked)}
-                                        className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+                                        className="h-5 w-5 rounded border-slate-300 accent-emerald-600"
                                       />
                                       Select for pickup
                                     </label>
