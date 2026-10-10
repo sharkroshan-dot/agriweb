@@ -162,9 +162,7 @@ export default function PickupRoutesPage() {
                       </div>
                     </div>
                   );
-                })}</Badge>
-                  </div>
-                ))}
+                })}
               </div>
 
               <div className="mt-5 flex flex-col gap-3 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
