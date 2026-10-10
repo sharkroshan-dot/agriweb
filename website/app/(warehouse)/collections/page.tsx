@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   CheckCircle2,
+  ChevronDown,
   Clock3,
   MapPin,
   Package,
@@ -38,6 +39,7 @@ export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
+  const [expandedFarmCards, setExpandedFarmCards] = useState<Record<string, boolean>>({});
   const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("auto_assign");
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [planning, setPlanning] = useState(false);
@@ -76,6 +78,36 @@ export default function WarehouseCollectionsPage() {
       return typeOk && (!q || text.includes(q));
     });
   }, [data, filter, search]);
+
+  const farmGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: any[] }>();
+    for (const job of jobs) {
+      const farmerName = String(job.farmerName || "Farmer details unavailable").trim();
+      const pickupAddress = String(job.pickupAddress || "").trim();
+      const normalizedName = farmerName.toLowerCase().replace(/[\\s,.-]+/g, " ").trim();
+      const normalizedAddress = pickupAddress && pickupAddress !== "Farm address not provided"
+        ? pickupAddress.toLowerCase().replace(/[\\s,.-]+/g, " ").trim()
+        : "";
+      const farmerId = String(job.farmerId || "").trim();
+      const key = normalizedAddress
+        ? "farm:" + (normalizedName || farmerId || "unknown") + "|" + normalizedAddress
+        : farmerId
+          ? "farmer:" + farmerId
+          : "farmer-name:" + (normalizedName || String(job.id || job._id));
+      if (!groups.has(key)) {
+        groups.set(key, { key, farmerName, pickupAddress: pickupAddress || "Farm address not provided", jobs: [] });
+      }
+      groups.get(key)!.jobs.push(job);
+    }
+    return Array.from(groups.values()).map((farm) => ({
+      ...farm,
+      totalQuantity: farm.jobs.reduce((total, job) => total + Number(job.quantity || 0), 0),
+      readyCount: farm.jobs.filter((job) => ["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId).length,
+      selectedCount: farm.jobs.filter((job) => selectedCollectionIds.includes(String(job.id || job._id))).length,
+      routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
+      statuses: Array.from(new Set(farm.jobs.map((job) => job.status))),
+    }));
+  }, [jobs, selectedCollectionIds]);
 
   const counts = useMemo(() => {
     const source = data?.data?.collections || [];
@@ -235,8 +267,48 @@ export default function WarehouseCollectionsPage() {
       {isLoading ? <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />)}</div> : jobs.length === 0 ? (
         <Card className="p-12 text-center"><Truck className="mx-auto h-12 w-12 text-muted-foreground" /><h2 className="mt-4 font-semibold">No collection jobs</h2><p className="mt-2 text-sm text-muted-foreground">New jobs appear automatically when a farmer confirms a warehouse pickup or a long-distance farmer order needs warehouse transfer.</p></Card>
       ) : (
-        <div className="space-y-4">
-          {jobs.map((job: any) => {
+        <div classNam          {farmGroups.map((farm: any) => {
+            const expanded = Boolean(expandedFarmCards[farm.key]);
+            const expandableId = "farm-orders-" + farm.key.replace(/[^a-zA-Z0-9_-]/g, "-");
+            return (
+              <Card key={farm.key} className="overflow-hidden border-emerald-200 shadow-sm">
+                <CardHeader className="border-b bg-emerald-50/70 p-5">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="bg-emerald-700 text-white"><MapPin className="mr-1 h-3 w-3" /> Farm</Badge>
+                        {farm.readyCount > 0 && <Badge variant="outline">{farm.readyCount} ready for planning</Badge>}
+                        {farm.routeCount > 0 && <Badge className="bg-violet-100 text-violet-800">{farm.routeCount === 1 ? "Route planned" : farm.routeCount + " routes planned"}</Badge>}
+                      </div>
+                      <CardTitle className="mt-2 text-lg">{farm.farmerName}</CardTitle>
+                      <p className="mt-1 flex items-start gap-1 text-sm text-muted-foreground">
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                        <span>{farm.pickupAddress}</span>
+                      </p>
+                      <p className="mt-2 text-sm font-medium text-slate-700">
+                        {farm.jobs.length} {farm.jobs.length === 1 ? "order / collection" : "orders / collections"} · {farm.totalQuantity.toLocaleString()} kg expected
+                      </p>
+                      {farm.selectedCount > 0 && <p className="mt-1 text-xs font-medium text-emerald-800">{farm.selectedCount} selected for route planning</p>}
+                    </div>
+                    <Button
+                      type="button"
+                      variant={expanded ? "default" : "outline"}
+                      aria-expanded={expanded}
+                      aria-controls={expandableId}
+                      onClick={() => setExpandedFarmCards((previous) => ({ ...previous, [farm.key]: !previous[farm.key] }))}
+                    >
+                      {expanded ? "Hide orders" : "View " + farm.jobs.length + (farm.jobs.length === 1 ? " order" : " orders")}
+                      <ChevronDown className={"ml-2 h-4 w-4 transition-transform " + (expanded ? "rotate-180" : "")} />
+                    </Button>
+                  </div>
+                </CardHeader>
+                {expanded && (
+                  <CardContent id={expandableId} className="space-y-4 bg-slate-50/50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-800">All orders from {farm.farmerName}</p>
+                      <p className="text-xs text-muted-foreground">Select each eligible order below for bulk pickup planning.</p>
+                    </div>
+                    {farm.jobs.map((job: any) => {
             const isPackedTransfer = job.collectionType === "packed_orders_transfer";
             const currentIndex = STATUS.findIndex(([key]) => key === job.status);
             return (
@@ -311,6 +383,12 @@ export default function WarehouseCollectionsPage() {
                 </CardContent>
               </Card>
             );
+                    })}
+                  </CardContent>
+                )}
+              </Card>
+            );
+          })});
           })}
         </div>
       )}
