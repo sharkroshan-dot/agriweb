@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapPin, Route, Plus, CheckCircle2, Users, PackageCheck, Truck } from "lucide-react";
+import { MapPin, Route, Plus, CheckCircle2, Users, PackageCheck, Truck, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -155,19 +155,23 @@ export default function PickupRoutesPage() {
                         <p className="mt-1 text-sm text-muted-foreground">{orderCount} {orderCount === 1 ? "order" : "orders"} · {s.quantity || 0} kg total</p>
                         {s.distanceFromPreviousKm != null && <p className="mt-1 text-xs text-muted-foreground">Distance from previous stop: {Number(s.distanceFromPreviousKm).toFixed(1)} km</p>}
                         {(s.arrivedAt || s.collectedAt || s.departedAt || s.completedAt) && <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">{s.arrivedAt && <span>Arrived: {formatDateTime(s.arrivedAt)}</span>}{s.collectedAt && <span>Collected: {formatDateTime(s.collectedAt)}</span>}{s.departedAt && <span>Departed: {formatDateTime(s.departedAt)}</span>}</div>}
-                        {Array.isArray(s.orders) && s.orders.length > 0 && <div className="mt-3 overflow-hidden rounded-lg border">
-                          <div className="border-b bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">Pickup order details</div>
-                          <div className="divide-y">
-                            {s.orders.map((order: any, orderIndex: number) => <div key={order.collectionId || order.orderId || orderIndex} className="grid gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                              <div className="min-w-0">
-                                <p className="font-medium">{order.productName || "Product details unavailable"}</p>
-                                <p className="mt-1 text-xs text-muted-foreground">Order: {order.orderNumber || order.orderNo || order.orderId || "Not linked"} · Collection: {order.collectionNumber || order.collectionId || "Not recorded"}</p>
-                                <p className="mt-1 text-xs text-muted-foreground">{order.batchNumber ? `Batch: ${order.batchNumber} · ` : ""}{order.qualityGrade ? `Grade: ${order.qualityGrade} · ` : ""}Collection status: {stopStatusLabel(String(order.status || s.status || "pending"))}</p>
-                                {order.actualQuantity != null && <p className="mt-1 text-xs text-muted-foreground">Actual collected: {order.actualQuantity} kg</p>}
-                              </div>
-                              <div className="sm:text-right"><p className="font-semibold">{order.quantity || 0} kg</p><Badge variant="outline">{stopStatusLabel(String(order.status || s.status || "pending"))}</Badge></div>
-                            </div>)}
-                          </div>
+                        <div className="mt-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const params = new URLSearchParams();
+                              params.set("search", String(s.farmerName || ""));
+                              if (s.farmKey) params.set("focusFarm", String(s.farmKey));
+                              if (Array.isArray(s.collectionIds) && s.collectionIds.length) params.set("focusCollections", s.collectionIds.join(","));
+                              else if (s.collectionId) params.set("focusCollections", String(s.collectionId));
+                              window.location.href = `/collections?${params.toString()}`;
+                            }}
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" /> View Orders
+                          </Button>
+                        </div>
                         </div>}
                       </div>
                       <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
