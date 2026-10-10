@@ -2341,12 +2341,28 @@ async def get_my_incoming_stock(
         skip,
         limit
     )
+    def make_json_safe(value: Any) -> Any:
+        # MongoDB documents can contain ObjectIds nested inside metadata,
+        # references, and embedded objects. Convert them before returning JSON.
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, dict):
+            return {str(key): make_json_safe(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [make_json_safe(child) for child in value]
+        if isinstance(value, tuple):
+            return [make_json_safe(child) for child in value]
+        return value
+
+    safe_incoming = []
     for item in incoming:
-        item["id"] = str(item["_id"])
+        safe_item = make_json_safe(item)
+        safe_item["id"] = str(item.get("_id", item.get("id", "")))
+        safe_incoming.append(safe_item)
     return {
         "success": True,
         "data": {
-            "incoming": incoming,
+            "incoming": safe_incoming,
             "pagination": {
                 "page": page,
                 "limit": limit,
