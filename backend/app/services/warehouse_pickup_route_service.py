@@ -95,7 +95,11 @@ def select_route_team_assignments(
 
 
 def _farm_key(job: Dict[str, Any]) -> str:
-    """Use the farm identity first, then a known location when legacy data lacks it."""
+    """Use an explicit farm identity first, then owner and location fallbacks."""
+    for field in ("farmId", "farmProfileId", "sourceFarmId"):
+        farm_id = str(job.get(field) or "").strip()
+        if farm_id:
+            return f"farm:{farm_id.lower()}"
     farmer_id = str(job.get("farmerId") or "").strip()
     if farmer_id:
         return f"farmer:{farmer_id.lower()}"
