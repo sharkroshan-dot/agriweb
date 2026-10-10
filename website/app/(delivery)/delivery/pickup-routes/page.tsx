@@ -349,12 +349,17 @@ export default function DeliveryPickupRoutesPage() {
                   const stopStatus = String(s.status || "pending");
                   const allOrdersCollected = orders.length > 0 && orders.every((order: any) => ["collected", "departed_farm"].includes(String(order.status || "")));
                   const allOrdersDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
-                  const allQuantitiesValid = orders.length > 0 && orders.every((order: any) =>
-                    Boolean(order.collectionId) &&
-                    Boolean(actual[order.collectionId]) &&
-                    Number.isFinite(Number(actual[order.collectionId])) &&
-                    Number(actual[order.collectionId]) > 0
-                  );
+                  const allQuantitiesValid = orders.length > 0 && orders.every((order: any) => {
+                    const orderStatus = String(order.status || "pending");
+                    if (["collected", "departed_farm"].includes(orderStatus)) {
+                      return Number(order.actualQuantity) > 0;
+                    }
+                    return orderStatus === "arrived_at_farm" &&
+                      Boolean(order.collectionId) &&
+                      Boolean(actual[order.collectionId]) &&
+                      Number.isFinite(Number(actual[order.collectionId])) &&
+                      Number(actual[order.collectionId]) > 0;
+                  });
                   const canArriveAtFarm = ["pending", "ready_for_pickup", "team_assigned", "en_route", "started"].includes(stopStatus);
                   return (
                     <div key={s.farmKey || s.collectionId || i} className="overflow-hidden rounded-xl border border-emerald-200 bg-white">
@@ -422,7 +427,7 @@ export default function DeliveryPickupRoutesPage() {
                                 r,
                                 "collected",
                                 s.collectionId,
-                                Object.fromEntries(orders.map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
+                                Object.fromEntries(orders.filter((order: any) => String(order.status || "") === "arrived_at_farm").map((order: any) => [order.collectionId, Number(actual[order.collectionId])]))
                               )}
                             >
                               <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orders.length} Orders Collected
