@@ -457,6 +457,7 @@ export default function DeliveryPickupRoutesPage() {
                       const allDeparted = orders.length > 0 && orders.every((order: any) => String(order.status || "") === "departed_farm");
                       const quantityEntries = orders.filter((order: any) => String(order.status || "") === "arrived_at_farm");
                       const manualQuantityEntries = quantityEntries.filter((order: any) => String(order.collectionType || "") !== "packed_orders_transfer");
+                      const allOutstandingArePacked = quantityEntries.length > 0 && quantityEntries.every((order: any) => String(order.collectionType || "") === "packed_orders_transfer");
                       const quantitiesValid = quantityEntries.length > 0 && quantityEntries.every((order: any) => {
                         if (String(order.collectionType || "") === "packed_orders_transfer") {
                           return Number(order.actualQuantity ?? order.quantity ?? 0) > 0;
@@ -554,12 +555,19 @@ export default function DeliveryPickupRoutesPage() {
                                   <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
                                 </Button>
                               )}
-                              {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allCollected && !expanded && (
+                              {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allCollected && allOutstandingArePacked && (
+                                <Button
+                                  onClick={() => act(r, "collected", stop.collectionId, {})}
+                                >
+                                  <CheckCircle2 className="mr-2 h-4 w-4" /> Mark Collected
+                                </Button>
+                              )}
+                              {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allCollected && !allOutstandingArePacked && !expanded && (
                                 <Button variant="outline" onClick={() => setExpandedFarmStops((previous) => ({ ...previous, [expansionKey]: true }))}>
                                   <ChevronDown className="mr-2 h-4 w-4" /> View orders to enter quantities
                                 </Button>
                               )}
-                              {r.status !== "assigned" && expanded && quantityEntries.length > 0 && (
+                              {r.status !== "assigned" && expanded && quantityEntries.length > 0 && !allOutstandingArePacked && (
                                 <Button
                                   disabled={!quantitiesValid}
                                   onClick={() => act(
