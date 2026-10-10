@@ -197,6 +197,27 @@ export default function DeliveryPickupRoutesPage() {
                   </div>
                   <Badge variant="success">Accepted</Badge>
                 </div>
+              <div className="mt-4 space-y-2">
+                {(job.farmStops || []).map((stop: any, index: number) => {
+                  const orders = Array.isArray(stop.orders) && stop.orders.length ? stop.orders : [stop];
+                  return (
+                    <div key={stop.farmKey || stop.collectionId || index} className="rounded-lg border bg-slate-50 p-3">
+                      <p className="font-semibold">{stop.farmerName || "Farmer details unavailable"}</p>
+                      <p className="text-xs text-muted-foreground">{orders.length} {orders.length === 1 ? "order" : "orders"} · {stop.quantity || 0} kg</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{stop.pickupAddress || "Farm address not provided"}</p>
+                      <div className="mt-3 space-y-2 border-t pt-3">
+                        {orders.map((order: any, orderIndex: number) => (
+                          <div key={order.collectionId || order.orderId || orderIndex} className="rounded-md bg-white p-2">
+                            <p className="text-sm font-medium">{order.orderNumber ? "Order " + order.orderNumber : "Order " + (orderIndex + 1)}</p>
+                            <p className="text-xs text-muted-foreground">{order.productName || "Product details unavailable"} · {order.quantity || 0} kg</p>
+                            {order.actualQuantity != null && <p className="mt-1 text-xs font-medium text-emerald-700">Collected: {order.actualQuantity} kg</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
               </div>
             ))}
           </CardContent>
