@@ -99,9 +99,16 @@ const mergeFarmStopsForDisplay = (input: any[]) => {
     });
     const rankValues = uniqueOrders.map((order: any) => statusRank[String(order.status || "pending")] ?? 0);
     const farmStatus = rankValues.length ? uniqueOrders[rankValues.indexOf(Math.min(...rankValues))]?.status || group.status : group.status;
+    const customerOrderKeys = new Set(uniqueOrders.map((order: any, index: number) => {
+      const orderNumber = String(order.orderNumber || "").trim();
+      if (orderNumber && orderNumber !== "Order reference unavailable") return "number:" + orderNumber.toLocaleLowerCase();
+      if (order.orderId) return "id:" + String(order.orderId);
+      return "collection:" + String(order.collectionId || index);
+    }));
     return {
       ...group,
       orders: uniqueOrders,
+      orderCount: customerOrderKeys.size,
       collectionIds: uniqueOrders.map((order: any) => order.collectionId).filter(Boolean),
       collectionId: uniqueOrders.find((order: any) => order.collectionId)?.collectionId || group.collectionId,
       orderCount: uniqueOrders.length,
