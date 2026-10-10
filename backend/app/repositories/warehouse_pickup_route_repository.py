@@ -31,6 +31,19 @@ class WarehousePickupRouteRepository(BaseRepository):
         if date_key:
             query["routeDate"] = date_key
         return await self.find_many(query, skip=0, limit=50, sort=[("createdAt", -1)])
+
+    async def get_active_by_partner(self, partner_id: str) -> List[Dict[str, Any]]:
+        """Return every route not yet handed back to the warehouse, regardless of its route date.
+
+        An unfinished route must remain visible across midnight. A route only leaves
+        this active list after the partner explicitly marks the return/handover.
+        """
+        query = {
+            "deliveryPartnerId": ObjectId(partner_id),
+            "status": {"$nin": ["returned_to_warehouse", "cancelled", "closed", "archived"]},
+            "deletedAt": None,
+        }
+        return await self.find_many(query, skip=0, limit=100, sort=[("createdAt", -1)])
     async def get_offered_for_warehouses(self, warehouse_ids: List[str], date_key: Optional[str] = None) -> List[Dict[str, Any]]:
         """Return open and assigned routes visible to approved partners.
 
