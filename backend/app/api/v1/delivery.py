@@ -2642,7 +2642,9 @@ async def get_my_pickup_routes(
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can access pickup routes")
     profile = await _get_or_create_partner(str(current_user["_id"]))
-    routes = await warehouse_pickup_route_repository.get_by_partner(str(profile["_id"]), date or datetime.utcnow().strftime("%Y-%m-%d"))
+    # Incomplete routes carry over from previous days. Keep them in the partner's
+    # active list until the partner returns the route to the warehouse.
+    routes = await warehouse_pickup_route_repository.get_active_by_partner(str(profile["_id"]))
     display_routes = []
     for route in routes:
         display_routes.append(await enrich_pickup_route_display(route))
