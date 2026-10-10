@@ -97,6 +97,8 @@ class ProductVariantResponse(ProductVariantBase):
 
 class ProductBase(BaseModel):
     name: str
+    # Crop is captured as part of product creation; a separate farmer crop workflow is not required.
+    cropName: Optional[str] = None
     slug: str
     categoryId: str
     subCategoryId: Optional[str] = None

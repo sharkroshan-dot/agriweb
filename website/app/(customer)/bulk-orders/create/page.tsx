@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Plus, Trash2, Loader2, Send, MapPin } from "lucide-react";
+import { Sparkles, Plus, Trash2, Loader2, Send, MapPin, ShoppingBasket, Search } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -24,9 +24,13 @@ interface ItemRow {
 export default function CreateBulkOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [purchaseMode, setPurchaseMode] = useState<"event" | "family_weekly">("event");
   const [purpose, setPurpose] = useState("");
   const [eventDate, setEventDate] = useState("");
+  const [guestCount, setGuestCount] = useState("");
+  const [familySize, setFamilySize] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [deliveryDay, setDeliveryDay] = useState("");
   const [deliveryTime, setDeliveryTime] = useState(timeSlots[0]);
   const [deliveryCity, setDeliveryCity] = useState("");
   const [selectedAddress, setSelectedAddress] = useState("");
@@ -47,23 +51,38 @@ export default function CreateBulkOrderPage() {
   const createMutation = useMutation({
     mutationFn: (payload: any) => api.post("/bulk-orders/requests", payload),
     onSuccess: (res: any) => {
-      toast.success("Bulk request published! Farmers can now submit offers.");
+      const requestId = res?.data?.id || res?.data?.request?.id;
       queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
-      router.push(`/bulk-orders/${res?.data?.id || res?.data?.request?.id}`);
+
+      if (purchaseMode === "family_weekly") {
+        toast.success("Weekly family basket created. Finding live stock.");
+      } else {
+        toast.success("Event created. AgriConnect will choose urgent smart sourcing or planned RFQ from the delivery deadline.");
+      }
+      router.push(`/bulk-orders/${requestId}/sourcing`);
     },
     onError: (err: any) => toast.error(err?.message || "Failed to create bulk request"),
   });
 
   const validItems = items.filter((i) => i.name.trim() && Number(i.quantityKg) > 0);
   const canSubmit =
-    purpose && deliveryDate && validItems.length > 0 && (selectedAddress || deliveryCity.trim()) && !createMutation.isPending;
+    (purchaseMode === "family_weekly" || Boolean(purpose)) &&
+    deliveryDate &&
+    validItems.length > 0 &&
+    (selectedAddress || deliveryCity.trim()) &&
+    (purchaseMode !== "family_weekly" || (familySize && deliveryDay)) &&
+    !createMutation.isPending;
 
   const submit = () => {
     const selected = addresses.find((a: any) => String(a.id) === selectedAddress);
     const payload: any = {
       requestType: "bulk_event",
-      purpose,
-      eventDate: eventDate || undefined,
+      purchaseMode,
+      purpose: purchaseMode === "family_weekly" ? "Weekly Family Basket" : purpose,
+      eventDate: purchaseMode === "event" ? eventDate || undefined : undefined,
+      guestCount: purchaseMode === "event" && guestCount ? Number(guestCount) : undefined,
+      familySize: purchaseMode === "family_weekly" && familySize ? Number(familySize) : undefined,
+      deliveryDay: purchaseMode === "family_weekly" ? deliveryDay || undefined : undefined,
       requestedDeliveryDate: deliveryDate,
       requestedDeliveryTime: deliveryTime,
       deliveryCity: deliveryCity.trim(),
@@ -81,6 +100,24 @@ export default function CreateBulkOrderPage() {
     createMutation.mutate(payload);
   };
 
+  const isFamilyWeekly = purchaseMode === "family_weekly";
+  const urgentEventPreview = useMemo(() => {
+    if (isFamilyWeekly || !deliveryDate) return false;
+    const raw = String(deliveryTime || "");
+    const match = raw.match(/(\d{1,2}:\d{2})\s*(AM|PM)/i);
+    const delivery = new Date(`${deliveryDate}T00:00:00`);
+    if (match) {
+      const [hourText, minuteText] = match[1].split(":");
+      let hour = Number(hourText);
+      const minute = Number(minuteText);
+      const period = match[2].toUpperCase();
+      if (period === "PM" && hour !== 12) hour += 12;
+      if (period === "AM" && hour === 12) hour = 0;
+      delivery.setHours(hour, minute, 0, 0);
+    }
+    return delivery.getTime() - Date.now() <= 24 * 60 * 60 * 1000;
+  }, [deliveryDate, deliveryTime, isFamilyWeekly]);
+
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center gap-2">
@@ -88,37 +125,78 @@ export default function CreateBulkOrderPage() {
         <h1 className="text-2xl font-bold">Create Bulk / Event Order</h1>
       </div>
       <p className="text-sm text-gray-500">
-        Need large quantities for a wedding, function or festival? Tell us what you need — farmers
-        will submit offers and you pick the best one.
+        {isFamilyWeekly
+          ? "Choose the products and quantities you need for one week. AgriConnect will find suitable nearby farmers with live stock."
+          : "Need large quantities for a wedding, function or festival? Send your requirements to eligible farmers and compare their quotes."}
       </p>
 
-      <Card>
-        <CardContent className="space-y-5 p-6">
-          {/* Purpose */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">What are you buying for? *</label>
-            <div className="flex flex-wrap gap-2">
-              {purposes.map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPurpose(p)}
-                  className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-                    purpose === p ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
+      <Card className="border-slate-200 bg-white shadow-sm">
+        <CardContent className="space-y-3 p-4">
+          <p className="text-sm font-semibold text-slate-900">Choose what you need</p>
+          <p className="text-xs text-slate-500">We will automatically choose the fastest or best-value sourcing path for your order.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button type="button" onClick={() => setPurchaseMode("event")} className={`rounded-xl border p-4 text-left ${purchaseMode === "event" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
+              <Sparkles className="mb-2 h-5 w-5 text-emerald-600" />
+              <p className="font-semibold">Event / Bulk Order</p>
+              <p className="mt-1 text-xs text-slate-500">For weddings, functions, festivals and large one-time requirements. Eligible farmers receive the request and can submit quotes.</p>
+            </button>
+            <button type="button" onClick={() => setPurchaseMode("family_weekly")} className={`rounded-xl border p-4 text-left ${purchaseMode === "family_weekly" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
+              <ShoppingBasket className="mb-2 h-5 w-5 text-emerald-600" />
+              <p className="font-semibold">Manual Weekly Family Basket</p>
+              <p className="mt-1 text-xs text-slate-500">Choose your own products and quantities for one week. Smart sourcing finds available nearby farmers. One-time purchase, not a subscription.</p>
+            </button>
           </div>
+        </CardContent>
+      </Card>
 
-          {/* Dates */}
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Event date</label>
-              <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
+      <Card className="border-slate-200 shadow-sm">
+        <CardContent className="space-y-5 p-6">
+          {purchaseMode === "event" && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">What are you buying for? *</label>
+              <div className="flex flex-wrap gap-2">
+                {purposes.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setPurpose(p)}
+                    className={`rounded-full px-4 py-2 text-sm font-medium transition-colors ${purpose === p ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
             </div>
+          )}
+
+          <div className={`grid gap-4 ${purchaseMode === "event" ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+            {purchaseMode === "event" && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500">Event date</label>
+                  <Input type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500">Expected guests</label>
+                  <Input type="number" min="1" value={guestCount} onChange={(e) => setGuestCount(e.target.value)} placeholder="e.g. 500" />
+                </div>
+              </>
+            )}
+            {purchaseMode === "family_weekly" && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500">Family size *</label>
+                  <Input type="number" min="1" value={familySize} onChange={(e) => setFamilySize(e.target.value)} placeholder="e.g. 4" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-500">Delivery day *</label>
+                  <select value={deliveryDay} onChange={(e) => setDeliveryDay(e.target.value)} className="h-11 w-full rounded-full border border-input bg-background px-4 text-sm">
+                    <option value="">Select day</option>
+                    {["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map((day) => <option key={day} value={day}>{day}</option>)}
+                  </select>
+                </div>
+              </>
+            )}
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Delivery date *</label>
               <Input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} />
@@ -131,15 +209,12 @@ export default function CreateBulkOrderPage() {
                 className="h-11 w-full rounded-full border border-input bg-background px-4 text-sm"
               >
                 {timeSlots.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
+                  <option key={t} value={t}>{t}</option>
                 ))}
               </select>
             </div>
           </div>
 
-          {/* Location */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">Delivery location *</label>
             {addresses.length > 0 ? (
@@ -158,64 +233,32 @@ export default function CreateBulkOrderPage() {
                 </select>
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 shrink-0 text-gray-400" />
-                  <Input
-                    value={deliveryCity}
-                    onChange={(e) => setDeliveryCity(e.target.value)}
-                    placeholder="or enter delivery city (e.g. Coimbatore)"
-                  />
+                  <Input value={deliveryCity} onChange={(e) => setDeliveryCity(e.target.value)} placeholder="or enter delivery city (e.g. Coimbatore)" />
                 </div>
               </div>
             ) : (
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 shrink-0 text-gray-400" />
-                <Input
-                  value={deliveryCity}
-                  onChange={(e) => setDeliveryCity(e.target.value)}
-                  placeholder="Delivery city (e.g. Coimbatore)"
-                />
+                <Input value={deliveryCity} onChange={(e) => setDeliveryCity(e.target.value)} placeholder="Delivery city (e.g. Coimbatore)" />
               </div>
             )}
           </div>
 
-          {/* Items */}
           <div className="space-y-3">
             <label className="text-sm font-medium text-gray-700">Products required *</label>
             {items.map((item, i) => (
               <div key={i} className="space-y-2 rounded-xl border p-3">
                 <div className="grid gap-2 sm:grid-cols-2">
-                  <Input
-                    value={item.name}
-                    onChange={(e) => updateItem(i, { name: e.target.value })}
-                    placeholder={`Product ${i + 1} (e.g. Tomato)`}
-                  />
+                  <Input value={item.name} onChange={(e) => updateItem(i, { name: e.target.value })} placeholder={`Product ${i + 1} (e.g. Tomato)`} />
                   <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={item.quantityKg}
-                      onChange={(e) => updateItem(i, { quantityKg: e.target.value })}
-                      placeholder="Qty (kg)"
-                    />
-                    <select
-                      value={item.qualityGrade}
-                      onChange={(e) => updateItem(i, { qualityGrade: e.target.value })}
-                      className="h-11 rounded-full border border-input bg-background px-3 text-sm"
-                    >
-                      {grades.map((g) => (
-                        <option key={g} value={g}>
-                          {g}
-                        </option>
-                      ))}
+                    <Input type="number" min="1" value={item.quantityKg} onChange={(e) => updateItem(i, { quantityKg: e.target.value })} placeholder="Qty (kg)" />
+                    <select value={item.qualityGrade} onChange={(e) => updateItem(i, { qualityGrade: e.target.value })} className="h-11 rounded-full border border-input bg-background px-3 text-sm">
+                      {grades.map((g) => <option key={g} value={g}>{g}</option>)}
                     </select>
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <Input
-                    value={item.category}
-                    onChange={(e) => updateItem(i, { category: e.target.value })}
-                    placeholder="Category (optional)"
-                    className="max-w-xs"
-                  />
+                  <Input value={item.category} onChange={(e) => updateItem(i, { category: e.target.value })} placeholder="Category (optional)" className="max-w-xs" />
                   {items.length > 1 && (
                     <Button variant="ghost" size="sm" onClick={() => removeItem(i)}>
                       <Trash2 className="h-4 w-4 text-gray-400" />
@@ -229,15 +272,46 @@ export default function CreateBulkOrderPage() {
             </Button>
           </div>
 
-          {/* Budget */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Budget (₹, optional)</label>
             <Input type="number" min="0" value={budget} onChange={(e) => setBudget(e.target.value)} placeholder="e.g. 15000" />
           </div>
 
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            {isFamilyWeekly ? (
+              <div className="flex gap-3">
+                <Search className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                <div>
+                  <p className="font-semibold text-emerald-900">How smart sourcing works</p>
+                  <p className="mt-1 text-emerald-800">AgriConnect checks live farmer stock, availability and distance, then shows the best available farmer allocations before you reserve the stock.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-3">
+                <Send className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
+                <div>
+                  <p className="font-semibold text-emerald-900">
+                    {urgentEventPreview ? "Urgent Event — Smart Sourcing" : "Planned Event — Request Farmer Quotes"}
+                  </p>
+                  <p className="mt-1 text-emerald-800">
+                    {urgentEventPreview
+                      ? "Delivery is within 24 hours. AgriConnect will prioritize nearby farmers with live stock and will not wait for quotes."
+                      : "AgriConnect will smart-source suitable farmers first, then send the RFQ to eligible farmers. Distance influences the recommendation but is not a hard requirement."}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           <Button size="lg" className="w-full" disabled={!canSubmit} onClick={submit}>
-            {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-            Request Quotes
+            {createMutation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : isFamilyWeekly ? (
+              <Search className="mr-2 h-4 w-4" />
+            ) : (
+              <Send className="mr-2 h-4 w-4" />
+            )}
+            {isFamilyWeekly ? "Find Available Farmers" : urgentEventPreview ? "Find Available Stock" : "Request Quotes"}
           </Button>
         </CardContent>
       </Card>

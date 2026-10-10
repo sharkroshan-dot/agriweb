@@ -2,7 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Calendar, Search, CheckCircle, XCircle, Clock, ArrowDown, RefreshCw, Plus, MoreVertical, Package, Info } from "lucide-react";
+import { Calendar, Search, CheckCircle, XCircle, Clock, ArrowDown, RefreshCw, MoreVertical, Package, Info, ShieldCheck } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -22,8 +22,6 @@ const statusColors: Record<string, string> = {
   stored: "bg-green-500/10 text-green-600 border-green-500/20",
   rejected: "bg-red-500/10 text-red-600 border-red-500/20",
 };
-
-const collectionStatusLabels: Record<string, string> = { ready_for_pickup: "Ready for Pickup", team_assigned: "Team Assigned", en_route: "Team En Route", arrived_at_farm: "Arrived at Farm", collected: "Collected", departed_farm: "Departed Farm", arrived_warehouse: "Arrived Warehouse" };
 
 const statusLabels: Record<string, string> = {
   scheduled: "Scheduled",
@@ -49,7 +47,7 @@ const emptyIncomingForm = {
 const emptyReceiveForm = {
   quantity: "1",
   usableQuantity: "1",
-  qualityCheck: "passed",
+  qualityCheck: "pending",
   notes: "",
 };
 
@@ -59,9 +57,11 @@ export default function WarehouseIncomingPage() {
   const [dateFilter, setDateFilter] = useState<string>("today");
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
+  const [showQualityDialog, setShowQualityDialog] = useState(false);
   const [incomingForm, setIncomingForm] = useState(emptyIncomingForm);
   const [receiveForm, setReceiveForm] = useState(emptyReceiveForm);
   const [selectedIncoming, setSelectedIncoming] = useState<any>(null);
+  const [qualityNotes, setQualityNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: incomingData, isLoading, refetch } = useQuery({
@@ -73,6 +73,8 @@ export default function WarehouseIncomingPage() {
           limit: 50,
         },
       }),
+    refetchInterval: 10000,
+    refetchOnWindowFocus: true,
   });
 
   const incomingList = useMemo(() => {
@@ -91,29 +93,6 @@ export default function WarehouseIncomingPage() {
   }, [incomingData, searchTerm]);
 
 
-  const { data: collectionData, refetch: refetchCollections } = useQuery({
-    queryKey: ["warehouseCollections"],
-    queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
-  });
-  const collectionList = collectionData?.data?.collections || [];
-
-  const assignCollectionTeam = async (job: any) => {
-    const teamId = window.prompt("Enter collection team ID/name", job.collectionTeamId || "");
-    if (!teamId?.trim()) return;
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/assign`, { teamId: teamId.trim() });
-      toast.success("Collection team assigned");
-      await refetchCollections();
-    } catch (error: any) { toast.error(error?.message || "Failed to assign collection team"); }
-  };
-
-  const advanceCollection = async (job: any, nextStatus: string) => {
-    try {
-      await api.put(`/warehouse/me/collections/${job.id}/status`, undefined, { params: { status: nextStatus } });
-      toast.success(collectionStatusLabels[nextStatus] || "Collection updated");
-      await Promise.all([refetchCollections(), refetch()]);
-    } catch (error: any) { toast.error(error?.message || "Failed to update collection"); }
-  };
 
   const updateIncomingForm = (field: keyof typeof incomingForm, value: string) => {
     setIncomingForm((current) => ({ ...current, [field]: value }));
@@ -131,12 +110,12 @@ export default function WarehouseIncomingPage() {
     setShowScheduleDialog(true);
   };
 
-  const openReceiveDialog = (item: any, qualityCheck = "passed") => {
+  const openReceiveDialog = (item: any) => {
     setSelectedIncoming(item);
     setReceiveForm({
       quantity: String(item.quantity || 1),
       usableQuantity: String(item.quantity || 1),
-      qualityCheck,
+      qualityCheck: "pending",
       notes: "",
     });
     setShowReceiveDialog(true);
@@ -192,7 +171,7 @@ export default function WarehouseIncomingPage() {
           notes: receiveForm.notes.trim() || undefined,
         },
       });
-      toast.success(receiveForm.qualityCheck === "failed" ? "Incoming stock rejected" : "Incoming stock received");
+      toast.success(receiveForm.qualityCheck === "failed" ? "Incoming stock rejected" : "Shipment received. Continue to Quality Inspection / Store.");
       setShowReceiveDialog(false);
       refetch();
     } catch (error) {
@@ -201,6 +180,23 @@ export default function WarehouseIncomingPage() {
       setIsSaving(false);
     }
   };
+
+  const handleQuality = async (qualityCheck: "passed" | "failed") => {
+    if (!selectedIncoming?.id) return;
+    try {
+      setIsSaving(true);
+      await api.put(`/warehouse/me/incoming/${selectedIncoming.id}/quality`, {
+        qualityCheck,
+        usableQuantity: Number(selectedIncoming.quantityReceived || selectedIncoming.quantity || 0),
+        notes: qualityNotes.trim() || undefined,
+      });
+      toast.success(qualityCheck === "passed" ? "Quality approved. You can now store this stock." : "Quality rejected. Shipment is on hold.");
+      setShowQualityDialog(false); setQualityNotes(""); await refetch();
+    } catch (error: any) { toast.error(error?.message || "Failed to update quality result"); }
+    finally { setIsSaving(false); }
+  };
+
+  const openQualityDialog = (item: any) => { setSelectedIncoming(item); setQualityNotes(""); setShowQualityDialog(true); };
 
   const handleStoreIncoming = async (item: any) => {
     if (!item?.id) return;
@@ -219,7 +215,7 @@ export default function WarehouseIncomingPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">Manage incoming shipments</p></div></div>
+        <div className="flex items-center justify-between"><div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">Receive shipments after farm collection; inspect and store accepted stock.</p></div></div>
         {[1, 2, 3, 4].map((i) => <div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />)}
       </div>
     );
@@ -230,7 +226,7 @@ export default function WarehouseIncomingPage() {
       <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Incoming is the warehouse receiving stage.</p><p className="mt-1 text-xs leading-5 text-muted-foreground">Farm Collection brings the shipment to the warehouse. Staff then Receive → Quality Check → Store. Do not mark a collection as received until the physical shipment has arrived.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button></div>
+        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -241,28 +237,19 @@ export default function WarehouseIncomingPage() {
         </div>
       </div>
 
-      <Card className="border-emerald-100 bg-emerald-50/40">
-        <CardContent className="p-5 sm:p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div><h2 className="font-semibold text-emerald-950">Farm Collection Queue</h2><p className="text-sm text-emerald-800">Collect both bulk warehouse-fulfillment stock and already-packed long-distance farmer orders. Packed transfer orders are never repacked.</p></div>
-            <Badge variant="outline" className="w-fit border-emerald-200 bg-white">{collectionList.length} collection jobs</Badge>
-          </div>
-          {collectionList.length === 0 ? <p className="mt-4 text-sm text-muted-foreground">No farm collection requests are waiting.</p> : <div className="mt-4 space-y-3">{collectionList.map((job: any) => {
-            const next = job.status === "team_assigned" ? "en_route" : job.status === "en_route" ? "arrived_at_farm" : job.status === "arrived_at_farm" ? "collected" : job.status === "collected" ? "departed_farm" : job.status === "departed_farm" ? "arrived_warehouse" : null;
-            const typeLabel = job.collectionType === "packed_orders_transfer" ? "Packed customer orders · Long distance" : "Bulk harvest · Warehouse fulfillment";
-            return <div key={job.id} className="rounded-lg border bg-white p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{typeLabel}</span><Badge variant="outline">{collectionStatusLabels[job.status] || job.status}</Badge></div><div className="mt-1 text-sm text-muted-foreground">Quantity: <span className="font-medium text-foreground">{job.quantity || 0}</span> · Farmer: {job.farmerId || "Unknown"}{job.orderId ? ` · Order: ${job.orderId}` : ""}</div></div><div className="flex flex-wrap gap-2">{["ready_for_pickup"].includes(job.status) && <Button size="sm" onClick={() => assignCollectionTeam(job)}>Assign Collection Team</Button>}{next && <Button size="sm" variant="outline" onClick={() => advanceCollection(job, next)}>{collectionStatusLabels[next]}</Button>}</div></div></div>;
-          })}</div>}
-        </CardContent>
-      </Card>
-
       {incomingList.length === 0 ? (
-        <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Farm collection requests will appear here after the farmer confirms the product is ready."}</p></Card>
+        <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
         <div className="space-y-4">{incomingList.map((item: any) => {
           const productName = item.productName || item.productId || "Incoming product";
+          const isPackedFarmerTransfer = item.sourceMode === "farmer_fulfillment_transfer";
+          const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt);
+          const canReceiveStock = ["scheduled", "in_transit"].includes(item.status) &&
+            (!isPackedFarmerTransfer || hasPhysicallyArrived);
           return (
-            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><span className="font-medium">{productName}</span><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From: {item.farmerName || item.farmerId || "Unknown Farmer"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline"><Clock className="mr-2 h-4 w-4" />Track</Button>}{["scheduled", "in_transit"].includes(item.status) && <Button size="sm" onClick={() => openReceiveDialog(item, "passed")}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
-                      {item.status === "received" && item.qualityCheck === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)}><Package className="mr-2 h-4 w-4" />Store</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openReceiveDialog(item, "failed")}><XCircle className="mr-2 h-4 w-4" />Reject</Button><Button size="sm" onClick={() => openReceiveDialog(item, "passed")}><CheckCircle className="mr-2 h-4 w-4" />Accept</Button></div>}<Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></div></div></CardContent></Card>
+            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><span className="font-medium">{productName}</span><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From: {item.farmerName || item.farmerId || "Unknown Farmer"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline"><Clock className="mr-2 h-4 w-4" />Track</Button>}{canReceiveStock && <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
+                      {isPackedFarmerTransfer && !hasPhysicallyArrived && <Badge variant="outline" className="border-amber-300 text-amber-700">Awaiting Farm Pickup / Arrival</Badge>}
+                      {item.status === "received" && <Button size="sm" onClick={() => openQualityDialog(item)}><ShieldCheck className="mr-2 h-4 w-4" />Quality Check</Button>}{item.status === "received" && item.qualityCheck === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)}><Package className="mr-2 h-4 w-4" />Store</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<Button variant="ghost" size="icon"><MoreVertical className="h-4 w-4" /></Button></div></div></CardContent></Card>
           );
         })}</div>
       )}
@@ -291,11 +278,22 @@ export default function WarehouseIncomingPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showQualityDialog} onOpenChange={setShowQualityDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Quality Inspection</DialogTitle><DialogDescription>Receiving is complete. Decide whether this shipment can enter warehouse inventory.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-slate-50 p-4 text-sm"><p className="font-semibold">{selectedIncoming?.productName || selectedIncoming?.productId}</p><p className="mt-1 text-muted-foreground">Received: {selectedIncoming?.quantityReceived || selectedIncoming?.quantity || 0}</p></div>
+            <Input placeholder="Inspection notes" value={qualityNotes} onChange={e=>setQualityNotes(e.target.value)} />
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setShowQualityDialog(false)}>Cancel</Button><Button variant="destructive" onClick={()=>handleQuality("failed")} disabled={isSaving}>Reject / Hold</Button><Button onClick={()=>handleQuality("passed")} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4"/>Approve Quality</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Receive Stock</DialogTitle><DialogDescription>Record the received quantity and quality result for {selectedIncoming?.productName || selectedIncoming?.productId}.</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
-            <div><label className="text-sm font-medium">Received Quantity</label><Input type="number" min="1" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /></div>
+            <div><label className="text-sm font-medium">Received Quantity</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /></div>
             <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Example: received 100 kg, usable 95 kg → the system creates a 5 kg shortage and blocks packing until resolved.</p></div>
             <div>
               <label className="text-sm font-medium">Quality Result</label>

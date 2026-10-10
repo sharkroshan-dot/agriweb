@@ -79,17 +79,26 @@ class WarehouseRepository(BaseRepository):
             # Existing databases may contain either ObjectId or string user
             # references. Resolve both formats so legacy warehouse profiles
             # continue to work after the manager schema was standardized.
+            manager_refs = [manager_object_id, manager_id]
             warehouse = await self.find_one({
                 "$or": [
-                    {"managerId": {"$in": [manager_object_id, manager_id]}},
-                    {"userId": {"$in": [manager_object_id, manager_id]}},
+                    {"managerId": {"$in": manager_refs}},
+                    {"manager_id": {"$in": manager_refs}},
+                    {"userId": {"$in": manager_refs}},
+                    {"user_id": {"$in": manager_refs}},
+                    {"ownerId": {"$in": manager_refs}},
+                    {"owner_id": {"$in": manager_refs}},
+                    {"assignedManagerId": {"$in": manager_refs}},
                 ],
                 "deletedAt": None
             })
 
             # Repair legacy records on first successful lookup so all future
-            # warehouse operations use the canonical managerId.
-            if warehouse and warehouse.get("managerId") != manager_object_id:
+            # warehouse operations use the canonical managerId/userId fields.
+            if warehouse and (
+                str(warehouse.get("managerId") or "") != manager_id
+                or str(warehouse.get("userId") or "") != manager_id
+            ):
                 await self.update(
                     {"_id": warehouse["_id"]},
                     {"managerId": manager_object_id, "userId": manager_object_id},
@@ -177,6 +186,46 @@ class WarehouseRepository(BaseRepository):
         except Exception as e:
             logger.error(f"Error getting nearby warehouses: {str(e)}")
             return []
+
+    async def find_best_warehouse(
+        self,
+        lat: float,
+        lng: float,
+        required_capacity: float = 0,
+        storage_type: Optional[str] = None,
+        radius_km: int = 200,
+        limit: int = 10,
+    ) -> Optional[Dict[str, Any]]:
+        """Select the nearest active warehouse with capacity and storage compatibility."""
+        candidates = await self.get_nearby_warehouses(lat, lng, radius_km, limit=limit)
+        eligible = []
+        requested_storage = (storage_type or "").strip().lower()
+        from math import radians, sin, cos, asin, sqrt
+        for warehouse in candidates:
+            total = float(warehouse.get("totalCapacity", 0) or 0)
+            used = float(warehouse.get("usedCapacity", 0) or 0)
+            free = max(0.0, total - used)
+            supported = [str(x).strip().lower() for x in (warehouse.get("supportedStorageTypes") or [])]
+            storage_ok = not requested_storage or not supported or requested_storage in supported
+            if free + 1e-9 < float(required_capacity or 0) or not storage_ok:
+                continue
+            location = warehouse.get("location") or {}
+            coords = location.get("coordinates") if isinstance(location, dict) else None
+            if not isinstance(coords, (list, tuple)) or len(coords) < 2:
+                continue
+            lon2, lat2 = float(coords[0]), float(coords[1])
+            dlon, dlat = radians(lon2 - lng), radians(lat2 - lat)
+            a = sin(dlat / 2) ** 2 + cos(radians(lat)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+            distance_km = 6371.0088 * 2 * asin(sqrt(a))
+            eligible.append((distance_km, warehouse, free))
+        if not eligible:
+            return None
+        eligible.sort(key=lambda x: (x[0], -x[2], str(x[1].get("name", ""))))
+        distance_km, warehouse, free = eligible[0]
+        warehouse["selectionDistanceKm"] = round(distance_km, 1)
+        warehouse["availableCapacity"] = round(free, 2)
+        warehouse["selectionReason"] = "Nearest suitable warehouse with available capacity"
+        return warehouse
 
     async def get_warehouse_stats(self, warehouse_id: str) -> Dict[str, Any]:
         warehouse = await self.get_by_id(warehouse_id)

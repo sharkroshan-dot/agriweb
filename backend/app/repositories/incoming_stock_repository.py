@@ -18,6 +18,13 @@ class IncomingStockRepository(BaseRepository):
         incoming_data["status"] = "scheduled"
         return await self.create(incoming_data)
 
+    async def get_by_route(self, route_id: str) -> List[Dict[str, Any]]:
+        try:
+            return await self.find_many({"pickupRouteId": ObjectId(route_id), "deletedAt": None}, skip=0, limit=500, sort=[("createdAt", 1)])
+        except Exception as e:
+            logger.error(f"Error getting incoming stock by pickup route: {str(e)}")
+            return []
+
     async def get_by_id(self, incoming_id: str) -> Optional[Dict[str, Any]]:
         try:
             obj_id = ObjectId(incoming_id)
@@ -47,7 +54,7 @@ class IncomingStockRepository(BaseRepository):
     async def receive_stock(
         self,
         incoming_id: str,
-        quantity: int,
+        quantity: float,
         quality_check: str,
         notes: Optional[str] = None,
         usable_quantity: Optional[float] = None,
@@ -56,9 +63,10 @@ class IncomingStockRepository(BaseRepository):
         if not incoming:
             return False
 
-        expected_quantity = int(incoming.get("quantity", 0))
-        previously_received = int(incoming.get("quantityReceived", 0))
-        if quantity <= 0 or previously_received + quantity > expected_quantity:
+        expected_quantity = float(incoming.get("quantity", 0) or 0)
+        previously_received = float(incoming.get("quantityReceived", 0) or 0)
+        quantity = float(quantity)
+        if quantity <= 0 or previously_received + quantity > expected_quantity + 1e-9:
             return False
 
         usable_for_this_receipt = float(quantity if usable_quantity is None else usable_quantity)
@@ -82,9 +90,12 @@ class IncomingStockRepository(BaseRepository):
         if total_received >= expected_quantity or final_short_receipt:
             update_data["receivedAt"] = datetime.utcnow()
             update_data["receivedDate"] = update_data["receivedAt"]
-            update_data["status"] = "received" if quality_check == "passed" else "rejected"
+            # Physical receipt is independent of QC. "pending" means the
+            # shipment is received but waiting for the separate inspection
+            # action; only an explicit failed check rejects it.
+            update_data["status"] = "rejected" if quality_check == "failed" else "received"
         else:
-            update_data["status"] = "in_transit" if quality_check == "passed" else "quality_check"
+            update_data["status"] = "quality_check" if quality_check == "failed" else "in_transit"
         if notes is not None:
             update_data["notes"] = notes
             update_data["qualityNotes"] = notes

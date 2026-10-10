@@ -80,6 +80,8 @@ export default function NotificationsPage() {
     queryKey: ["notificationsList"],
     queryFn: () => api.get(`/notifications/`, { params: { limit: 50 } }),
     enabled: status === "authenticated",
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const notifications: NotificationDetail[] = (data as any)?.data?.notifications ?? [];

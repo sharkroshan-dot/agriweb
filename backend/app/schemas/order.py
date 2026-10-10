@@ -85,6 +85,7 @@ class OrderBase(BaseModel):
     pickupTimeSlot: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
     deliveryTimeSlot: Optional[str] = None
+    deliverySpeed: Optional[str] = None  # fastest_30m or standard
 
 class OrderCreate(OrderBase):
     @validator("deliveryType")
@@ -160,6 +161,12 @@ class OrderResponse(BaseModel):
     pickupCode: Optional[str] = None
     requestedDeliveryDate: Optional[datetime] = None
     deliveryTimeSlot: Optional[str] = None
+    deliverySpeed: Optional[str] = None
+    deliveryAvailabilityStatus: Optional[str] = None
+    deliveryAvailabilityMessage: Optional[str] = None
+    nextDeliveryServiceAt: Optional[datetime] = None
+    estimatedDeliveryMinutes: Optional[int] = None
+    deliveryVerification: Optional[Dict[str, Any]] = None
     farmAddress: Optional[str] = None
     pickupInstructions: Optional[str] = None
     isBulkOrder: bool = False
@@ -180,14 +187,18 @@ class OrderResponse(BaseModel):
 class OrderTrackingResponse(BaseModel):
     orderId: str
     orderStatus: OrderStatus
+    fulfillmentMethod: Optional[FulfillmentMethod] = None
+    fulfillmentStage: Optional[FulfillmentStage] = None
     currentLocation: Optional[Dict[str, Any]] = None
     deliveryLocation: Optional[Dict[str, Any]] = None
     eta: Optional[str] = None
     distanceRemaining: Optional[float] = None
     deliveryPartner: Optional[Dict[str, Any]] = None
-    route: Optional[List[Dict[str, float]]] = None
+    deliveryJob: Optional[Dict[str, Any]] = None
+    route: Optional[List[Dict[str, Any]]] = None
     statusHistory: List[Dict[str, Any]]
     locationUpdatedAt: Optional[datetime] = None
+    deliveryVerification: Optional[Dict[str, Any]] = None
     lastUpdated: Optional[datetime] = None
 
 class OrderSummaryResponse(BaseModel):

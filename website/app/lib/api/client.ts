@@ -3,21 +3,40 @@ import { getSession } from "next-auth/react";
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 let sessionPromise: Promise<any> | null = null;
+let sessionCache: { value: any; expiresAt: number } | null = null;
+
+// A short-lived session cache prevents every page query from independently
+// calling /api/auth/session during navigation. Keep the window small so role
+// and token changes are picked up promptly.
+const SESSION_CACHE_TTL_MS = 5000;
 
 async function getCachedSession() {
+  if (sessionCache && Date.now() < sessionCache.expiresAt) {
+    return sessionCache.value;
+  }
   if (sessionPromise) return sessionPromise;
+
   sessionPromise = (async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const session = await getSession();
-        if (session) return session;
+        if (session) {
+          sessionCache = {
+            value: session,
+            expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
+          };
+          return session;
+        }
       } catch {
         // transient fetch failure; retry below
       }
-      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
     }
     return null;
   })();
+
   try {
     return await sessionPromise;
   } finally {
@@ -113,6 +132,10 @@ async function request<T = any>(method: HttpMethod, path: string, options: ApiRe
         response = await fetch(url, {
           method,
           headers,
+          credentials: "include",
+          // Keep the fallback attempt under the same deadline as the first
+          // request; otherwise a network failure can leave a page waiting.
+          signal: controller.signal,
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
         });
       } catch {

@@ -120,13 +120,13 @@ async def cancel_order_with_refund(
     data: CancelOrderRequest = Body(default=CancelOrderRequest()),
     current_user: dict = Depends(get_current_user),
 ):
-    """Cancel an order and start the refund lifecycle when paid.
+    """Cancel an order when the server-side cancellation policy allows it.
 
     The customer picks a cancellation reason. The backend decides eligibility
     from the order state and refund policy; the refund amount is computed
-    server-side. Auto-eligible early cancellations are refunded immediately,
-    later-stage cancellations enter review (the order is only cancelled once
-    the refund is approved).
+    server-side. Pending/confirmed orders are cancellable, and processing
+    orders remain cancellable only until packing starts. Packing and delivery
+    stages are blocked from normal customer cancellation.
     """
     if current_user.get("role") != "customer":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only customers can cancel orders")
@@ -142,9 +142,9 @@ async def cancel_order_with_refund(
 
     requires_review = eligibility.get("requiresReview", False)
 
-    # Direct cancellation only for auto-eligible early states. Review-based
-    # cancellations (out for delivery) create a refund request that support
-    # approves first; the order is cancelled at approval time.
+    # All customer cancellations accepted by this endpoint are direct
+    # cancellations. Later fulfillment/delivery stages are rejected by the
+    # authoritative eligibility check above.
     if not requires_review:
         status_update = OrderStatusUpdate(
             status="cancelled",
@@ -161,7 +161,8 @@ async def cancel_order_with_refund(
 
     # Create the refund request through the authoritative engine. For early
     # cancellations it auto-approves and processes the payout immediately; for
-    # review cancellations it stays under review.
+    # No normal cancellation request is created for blocked fulfillment or
+    # delivery stages.
     refund = None
     try:
         from app.schemas.refund import RefundRequestCreate, RefundReason

@@ -12,6 +12,7 @@ from app.schemas.delivery import (
     RouteOptimizationRequest
 )
 from app.services.notification_service import NotificationService
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 from app.services.payment_service import PaymentService
 import logging
 
@@ -174,7 +175,7 @@ class DeliveryService:
         assignment_id: str,
         partner_id: str
     ) -> Optional[Dict[str, Any]]:
-        """Accept delivery assignment and move it to in-transit."""
+        """Accept the assignment only. Pickup is the transition to in-transit."""
         assignment = await delivery_assignment_repository.get_by_id(assignment_id)
         if not assignment:
             return None
@@ -184,7 +185,7 @@ class DeliveryService:
         
         success = await delivery_assignment_repository.update_status(
             assignment_id,
-            DeliveryStatus.IN_TRANSIT
+            DeliveryStatus.ACCEPTED
         )
         
         if not success:
@@ -198,7 +199,7 @@ class DeliveryService:
         
         await order_repository.update_order_status(
             str(assignment["orderId"]),
-            "in_transit",
+            "accepted",
             partner_id,
             "Delivery accepted by partner"
         )
@@ -243,6 +244,12 @@ class DeliveryService:
         
         order = await order_repository.get_by_id(str(assignment["orderId"]))
         if order:
+            order = await calculate_order_delivery_priority(order, persist=True)
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {"priority": order.get("priority", 1), "priorityLabel": order.get("priorityLabel", "Normal"), "deliveryDeadline": order.get("deliveryDeadline"), "deliveryHoursRemaining": order.get("deliveryHoursRemaining"), "priorityLastCheckedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            )
+        if order:
             await NotificationService.send_order_in_transit(
                 str(order["customerId"]),
                 str(assignment["orderId"]) 
@@ -270,8 +277,21 @@ class DeliveryService:
         if not order:
             return None
         
-        if len(otp) != 4 or not otp.isdigit():
-            return None
+        # Recalculate freshness/deadline priority immediately before the final hand-off.
+        order = await calculate_order_delivery_priority(order, persist=True)
+        if not order.get("deliveryVerificationVerifiedAt"):
+            expected_otp = str(order.get("deliveryVerificationCode") or "")
+            if not expected_otp or str(otp or "").strip() != expected_otp:
+                return None
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {
+                    "deliveryVerificationVerifiedAt": datetime.utcnow(),
+                    "deliveryVerificationMethod": "otp",
+                    "deliveryVerificationVerifiedBy": partner_id,
+                    "updatedAt": datetime.utcnow(),
+                },
+            )
         
         success = await delivery_assignment_repository.update_status(
             assignment_id,
@@ -418,6 +438,13 @@ class DeliveryService:
         if str(assignment["deliveryPartnerId"]) != partner_id:
             return None
 
+        order_id = str(assignment["orderId"])
+        order = await order_repository.get_by_id(order_id)
+        if not order or not order.get("deliveryVerificationVerifiedAt"):
+            return None
+        order = await calculate_order_delivery_priority(order, persist=True)
+        await order_repository.update_order_field(order_id, "deliveryPriorityAtCompletion", datetime.utcnow())
+
         success = await delivery_assignment_repository.update_status(
             assignment_id,
             DeliveryStatus.DELIVERED,
@@ -429,8 +456,6 @@ class DeliveryService:
         )
         if not success:
             return None
-
-        order_id = str(assignment["orderId"])
         await order_repository.update_order_status(
             order_id,
             "delivered",

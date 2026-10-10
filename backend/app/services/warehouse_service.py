@@ -1,9 +1,11 @@
 from typing import Optional, Dict, Any, List
 from bson import ObjectId
 from datetime import datetime
+from app.database.mongodb import MongoDB
 from app.repositories.warehouse_repository import warehouse_repository
 from app.repositories.warehouse_stock_repository import warehouse_stock_repository
 from app.repositories.incoming_stock_repository import incoming_stock_repository
+from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.repositories.outgoing_stock_repository import outgoing_stock_repository
 from app.repositories.cold_storage_repository import cold_storage_repository
 from app.repositories.warehouse_transfer_repository import warehouse_transfer_repository
@@ -16,6 +18,7 @@ from app.schemas.warehouse import (
     WarehouseTransferCreate
 )
 from app.services.notification_service import NotificationService
+from app.services.user_service import UserService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,7 +39,73 @@ class WarehouseService:
 
     @staticmethod
     async def get_warehouse_by_manager(manager_id: str) -> Optional[Dict[str, Any]]:
-        return await warehouse_repository.get_by_manager(manager_id)
+        """Resolve the warehouse owned by a warehouse account.
+
+        Older accounts may not have a warehouse profile yet. Provision a minimal
+        profile on first authenticated access so warehouse APIs do not return 404.
+        Physical capacity is configured by the manager; used capacity is derived
+        from live inventory records.
+        """
+        warehouse = await warehouse_repository.get_by_manager(manager_id)
+        if warehouse:
+            return warehouse
+        try:
+            user = await UserService.get_user_by_id(manager_id)
+            if not user or str(user.get("role") or "").lower() != "warehouse":
+                return None
+            first = str(user.get("firstName") or user.get("name") or "Warehouse").strip()
+            last = str(user.get("lastName") or "").strip()
+            display_name = f"{first} {last}".strip()
+            now = datetime.utcnow()
+            warehouse_id = await warehouse_repository.create_warehouse({
+                "userId": ObjectId(manager_id),
+                "managerId": ObjectId(manager_id),
+                "name": f"{display_name} Warehouse",
+                "warehouseName": f"{display_name} Warehouse",
+                "location": {},
+                "address": {},
+                "totalCapacity": 0,
+                "coldStorageCapacity": 0,
+                "usedCapacity": 0,
+                "coldStorageUsed": 0,
+                "serviceAreas": [],
+                "supportedStorageTypes": [],
+                "isActive": True,
+                "isVerified": False,
+                "deletedAt": None,
+                "createdAt": now,
+                "updatedAt": now,
+            })
+            if warehouse_id:
+                return await warehouse_repository.get_by_manager(manager_id)
+        except Exception:
+            logger.exception("Failed to provision warehouse profile for manager %s", manager_id)
+        return None
+
+    @staticmethod
+    async def find_best_warehouse(
+        location: Dict[str, Any],
+        required_capacity: float = 0,
+        storage_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Select the nearest suitable warehouse instead of using a district mapping."""
+        if not isinstance(location, dict):
+            return None
+        coordinates = location.get("coordinates")
+        if isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+            lng, lat = float(coordinates[0]), float(coordinates[1])
+        else:
+            lat = location.get("lat", location.get("latitude"))
+            lng = location.get("lng", location.get("lon", location.get("longitude")))
+            if lat is None or lng is None:
+                return None
+            lat, lng = float(lat), float(lng)
+        return await warehouse_repository.find_best_warehouse(
+            lat=lat,
+            lng=lng,
+            required_capacity=float(required_capacity or 0),
+            storage_type=storage_type,
+        )
 
     @staticmethod
     async def update_warehouse(
@@ -174,9 +243,119 @@ class WarehouseService:
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
+    async def create_pickup_route_incoming(route_id: str) -> List[Dict[str, Any]]:
+        route = await warehouse_pickup_route_repository.get_by_id(route_id)
+        if not route or str(route.get("status")) not in ("completed", "returned_to_warehouse"):
+            return []
+        created = []
+
+        # A route stop represents a physical farm. Incoming stock remains
+        # order-level, so fan each farm group back into one incoming record per
+        # order/collection to preserve product, quantity, batch and order links.
+        route_orders: List[Dict[str, Any]] = []
+        for farm_stop in route.get("stops") or []:
+            orders = farm_stop.get("orders") or [farm_stop]
+            for order in orders:
+                row = dict(order)
+                for key in ("farmerId", "farmerName", "pickupLocation", "collectionTeamName"):
+                    if not row.get(key) and farm_stop.get(key):
+                        row[key] = farm_stop[key]
+                row.setdefault("collectionId", order.get("collectionId") or farm_stop.get("collectionId"))
+                row.setdefault("incomingStockId", order.get("incomingStockId") or farm_stop.get("incomingStockId"))
+                row.setdefault("farmerId", order.get("farmerId") or farm_stop.get("farmerId"))
+                route_orders.append(row)
+
+        for order in route_orders:
+            collection_id = str(order.get("collectionId") or "")
+            incoming_stock_id = str(order.get("incomingStockId") or "")
+            existing = await incoming_stock_repository.get_by_id(incoming_stock_id) if ObjectId.is_valid(incoming_stock_id) else None
+            quantity_value = order.get("actualQuantity")
+            if quantity_value is None:
+                quantity_value = order.get("actualCollectedQuantity")
+            if quantity_value is None:
+                quantity_value = order.get("quantity")
+
+            if existing:
+                qty = float(quantity_value if quantity_value is not None else existing.get("quantity") or 0)
+                await incoming_stock_repository.update({"_id": existing["_id"]}, {
+                    "quantity": int(qty),
+                    "quantityReceived": 0,
+                    "usableQuantity": 0,
+                    "quantityRejected": 0,
+                    "pickupRouteId": ObjectId(route_id),
+                    "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
+                    "sourceMode": "warehouse_pickup_route",
+                    "packingRequired": True,
+                    "status": "in_transit",
+                    "updatedAt": datetime.utcnow(),
+                })
+                existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
+                if existing:
+                    created.append(existing)
+                continue
+
+            collection_key = ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id
+            existing = await incoming_stock_repository.find_one({
+                "pickupRouteId": ObjectId(route_id),
+                "collectionId": collection_key,
+                "deletedAt": None,
+            }) if collection_id else None
+            if existing:
+                created.append(existing)
+                continue
+
+            product_id = str(order.get("productId") or "")
+            farmer_id = str(order.get("farmerId") or "")
+            if not ObjectId.is_valid(product_id) or not ObjectId.is_valid(farmer_id):
+                continue
+            qty = float(quantity_value or 0)
+            if qty <= 0:
+                continue
+            incoming_id = await incoming_stock_repository.create_incoming({
+                "warehouseId": ObjectId(str(route["warehouseId"])),
+                "productId": ObjectId(product_id),
+                "variantId": ObjectId(str(order["variantId"])) if ObjectId.is_valid(str(order.get("variantId") or "")) else None,
+                "farmerId": ObjectId(farmer_id),
+                "orderId": ObjectId(str(order["orderId"])) if ObjectId.is_valid(str(order.get("orderId") or "")) else None,
+                "quantity": int(qty),
+                "expectedDate": datetime.utcnow(),
+                "batchNumber": order.get("batchNumber"),
+                "qualityGrade": order.get("qualityGrade"),
+                "storageType": order.get("storageType") or "ambient",
+                "pickupRouteId": ObjectId(route_id),
+                "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
+                "sourceMode": "warehouse_pickup_route",
+                "packingRequired": True,
+            })
+            if incoming_id:
+                row = await incoming_stock_repository.get_by_id(incoming_id)
+                if row:
+                    created.append(row)
+        if created:
+            await warehouse_pickup_route_repository.update_route(route_id, {
+                "warehouseArrivalAt": datetime.utcnow(),
+                "incomingStockIds": [row["_id"] for row in created if row.get("_id")],
+            })
+        return created
+
+    @staticmethod
+    async def _sync_pickup_route_handoff(incoming: Dict[str, Any]) -> None:
+        route_id = incoming.get("pickupRouteId")
+        if not route_id: return
+        try:
+            rows = await incoming_stock_repository.get_by_route(str(route_id))
+            statuses = {str(x.get("status")) for x in rows}
+            if rows and statuses.issubset({"stored"}):
+                await warehouse_pickup_route_repository.update_route(str(route_id), {"status": "stored", "storedAt": datetime.utcnow()})
+            elif rows and statuses.issubset({"received", "stored"}):
+                await warehouse_pickup_route_repository.update_route(str(route_id), {"status": "received", "receivedAt": datetime.utcnow()})
+        except Exception:
+            logger.exception("Failed to synchronize pickup route warehouse handoff")
+
+    @staticmethod
     async def receive_incoming(
         incoming_id: str,
-        quantity: int,
+        quantity: float,
         quality_check: str,
         notes: Optional[str] = None,
         warehouse_id: Optional[str] = None,
@@ -209,42 +388,16 @@ class WarehouseService:
         if not success:
             return None
 
-        if quality_check == "passed" and usable_quantity > 0:
-            warehouse = await warehouse_repository.get_by_id(str(incoming["warehouseId"]))
-            if not warehouse:
-                return None
-            current_used = float(warehouse.get("usedCapacity", 0) or 0)
-            total_capacity = float(warehouse.get("totalCapacity", 0) or 0)
-            if total_capacity > 0 and current_used + usable_quantity > total_capacity:
-                return None
-
-            stock_filter = {
-                "warehouseId": ObjectId(incoming["warehouseId"]),
-                "productId": ObjectId(incoming["productId"]),
-                "variantId": ObjectId(incoming["variantId"]) if incoming.get("variantId") else None,
-                "deletedAt": None,
-            }
-            existing_stock = await warehouse_stock_repository.find_one(stock_filter)
-            if existing_stock:
-                updated = await warehouse_stock_repository.update_stock(
-                    str(existing_stock["_id"]),
-                    {"quantity": int(existing_stock.get("quantity", 0)) + int(usable_quantity)}
-                )
-                if not updated:
-                    return None
-            else:
-                stock_data = {
-                    "warehouseId": incoming["warehouseId"],
-                    "productId": incoming["productId"],
-                    "variantId": incoming.get("variantId"),
-                    "quantity": int(usable_quantity),
-                    "batchNumber": incoming.get("batchNumber"),
-                    "storageType": incoming.get("storageType", "ambient"),
-                }
-                stock_id = await warehouse_stock_repository.create_stock(stock_data)
-                if not stock_id:
-                    return None
-
+                # Receive records the physical receipt only. Inventory is committed by Store.
+        received = await incoming_stock_repository.get_by_id(incoming_id)
+        if received and str(received.get("sourceMode") or "") == "event_fulfillment_transfer" and quality_check == "passed" and str(received.get("status")) == "received":
+            try:
+                from app.api.v1.bulk_orders import event_fulfillment_repo
+                fulfillment_id = received.get("eventFulfillmentId")
+                if fulfillment_id:
+                    await event_fulfillment_repo.update({"_id": ObjectId(str(fulfillment_id))}, {"status": "warehouse_received", "warehouseStatus": "received", "warehouseReceivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+            except Exception:
+                logger.exception("Failed to synchronize event fulfillment after warehouse receipt")
         if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
             try:
                 from app.repositories.order_repository import order_repository
@@ -252,16 +405,18 @@ class WarehouseService:
             except Exception:
                 logger.exception("Failed to update farmer transfer order after receipt")
 
-        if incoming.get("orderId") and quality_check == "passed" and str(incoming.get("status")) == "received":
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") != "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
             try:
                 from app.repositories.order_repository import order_repository
                 await order_repository.update(
                     {"_id": ObjectId(str(incoming["orderId"]))},
                     {"warehouseFulfillmentStage": "received", "updatedAt": datetime.utcnow()},
                 )
-                await order_repository.append_tracking_event(str(incoming["orderId"]), "warehouse_received", "Warehouse received the shipment", "Warehouse staff received the shipment after collection.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"])})
+                await order_repository.append_tracking_event(str(incoming["orderId"]), "warehouse_received", "Warehouse received the shipment", "Warehouse staff received the shipment after collection. Quality and storage remain separate steps.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"]), "nextAction": "quality_inspection_then_store"})
             except Exception:
-                logger.exception("Failed to update farmer order warehouse stage after receipt")
+                logger.exception("Failed to update warehouse order stage after receipt")
+
+        await WarehouseService._sync_pickup_route_handoff(incoming)
 
         # Outgoing work is intentionally created after the explicit Store step.
         return await incoming_stock_repository.get_by_id(incoming_id)
@@ -273,13 +428,61 @@ class WarehouseService:
             return None
         if str(incoming.get("status")) != "received" or str(incoming.get("qualityCheck")) != "passed":
             return None
+        if incoming.get("inventoryPostedAt"):
+            return await incoming_stock_repository.get_by_id(incoming_id)
+
+        # Store is the single point where physically received stock becomes
+        # warehouse inventory. This keeps Receive and Store auditable and
+        # prevents double-counting if the operator retries the action.
+        usable = float(incoming.get("usableQuantity") or 0)
+        if usable <= 0:
+            return None
+        warehouse = await warehouse_repository.get_by_id(warehouse_id)
+        if not warehouse:
+            return None
+        await warehouse_repository.sync_capacity_usage(warehouse_id)
+        warehouse = await warehouse_repository.get_by_id(warehouse_id)
+        current_used = float(warehouse.get("usedCapacity", 0) or 0)
+        total_capacity = float(warehouse.get("totalCapacity", 0) or 0)
+        if total_capacity > 0 and current_used + usable > total_capacity:
+            return None
+        stock_filter = {
+            "warehouseId": ObjectId(warehouse_id),
+            "productId": ObjectId(str(incoming["productId"])),
+            "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
+            "deletedAt": None,
+        }
+        existing_stock = await warehouse_stock_repository.find_one(stock_filter)
+        is_packed_transfer = str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer"
+        stock_data = {
+            "warehouseId": ObjectId(warehouse_id),
+            "productId": ObjectId(str(incoming["productId"])),
+            "variantId": ObjectId(str(incoming["variantId"])) if incoming.get("variantId") else None,
+            "quantity": float(usable) if is_packed_transfer else int(usable),
+            "reservedQuantity": float(usable) if is_packed_transfer else 0,
+            "batchNumber": incoming.get("batchNumber"),
+            "storageType": incoming.get("storageType", "ambient"),
+            "holdReason": "farmer_fulfillment_transfer" if is_packed_transfer else None,
+        }
+        if existing_stock:
+            stock_update = {
+                "quantity": float(existing_stock.get("quantity", 0) or 0) + (float(usable) if is_packed_transfer else int(usable))
+            }
+            if is_packed_transfer:
+                stock_update["reservedQuantity"] = float(existing_stock.get("reservedQuantity", 0) or 0) + float(usable)
+            await warehouse_stock_repository.update_stock(str(existing_stock["_id"]), stock_update)
+        else:
+            if not await warehouse_stock_repository.create_stock(stock_data):
+                return None
 
         updated = await incoming_stock_repository.update(
             {"_id": incoming["_id"]},
-            {"status": "stored", "storedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            {"status": "stored", "storedAt": datetime.utcnow(), "inventoryPostedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
         )
         if not updated:
             return None
+
+        await WarehouseService._sync_pickup_route_handoff(await incoming_stock_repository.get_by_id(incoming_id) or incoming)
 
         if incoming.get("orderId"):
             try:
@@ -289,41 +492,116 @@ class WarehouseService:
                     {"warehouseFulfillmentStage": "stored", "updatedAt": datetime.utcnow()},
                 )
                 await order_repository.append_tracking_event(str(incoming["orderId"]), "stock_stored", "Stock stored at warehouse", "Quality-approved stock has been stored and is ready for order allocation.", actor_role="warehouse", metadata={"incomingStockId": str(incoming["_id"])})
+
+                # If this warehouse is also the consolidation point, it has no
+                # physical inter-warehouse leg to dispatch. Mark that local leg
+                # received only after every packed line has been stored here.
+                order = await order_repository.get_by_id(str(incoming["orderId"]))
+                is_local_consolidation = bool(
+                    order
+                    and str(order.get("logisticsMode") or "") == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+                    and str(order.get("consolidationWarehouseId") or "") == str(warehouse_id)
+                )
+                if is_local_consolidation:
+                    local_rows = await incoming_stock_repository.find_many({
+                        "orderId": ObjectId(str(incoming["orderId"])),
+                        "warehouseId": ObjectId(str(warehouse_id)),
+                        "sourceMode": "farmer_fulfillment_transfer",
+                        "deletedAt": None,
+                    }, skip=0, limit=1000)
+                    if local_rows and all(str(row.get("status") or "") == "stored" for row in local_rows):
+                        now = datetime.utcnow()
+                        await MongoDB.get_collection("farmer_fulfillment_transfer_legs").update_many(
+                            {
+                                "orderId": ObjectId(str(incoming["orderId"])),
+                                "sourceWarehouseId": ObjectId(str(warehouse_id)),
+                                "destinationWarehouseId": ObjectId(str(warehouse_id)),
+                                "legType": "warehouse_to_consolidation",
+                                "status": "pending",
+                                "deletedAt": None,
+                            },
+                            {"$set": {
+                                "status": "received_at_consolidation",
+                                "receivedAtConsolidation": now,
+                                "updatedAt": now,
+                            }},
+                        )
             except Exception:
                 logger.exception("Failed to update farmer order warehouse stage after storage")
 
-        # Transfer-only inbound from Farmer Fulfillment is already packed.
-        # It goes directly to dispatch after receipt/storage; warehouse packing
-        # is only used when packingRequired is true.
-        if incoming.get("orderId") and incoming.get("packingRequired") is False:
+        # Event fulfillment transfers are already packed. Store makes the
+        # warehouse inventory authoritative, then the parent event progresses
+        # only when every farmer fulfillment has reached stored.
+        if incoming.get("sourceMode") == "event_fulfillment_transfer":
+            try:
+                from app.api.v1.bulk_orders import event_fulfillment_repo, _finalize_event_after_warehouse_storage
+                from app.repositories.inventory_repository import inventory_repository
+                fulfillment_id = incoming.get("eventFulfillmentId")
+                if fulfillment_id:
+                    fulfillment = await event_fulfillment_repo.find_one({
+                        "_id": ObjectId(str(fulfillment_id)),
+                        "deletedAt": None,
+                    })
+                    # The reservation belongs to the farmer inventory. It is
+                    # committed exactly once when the physical shipment has
+                    # passed warehouse receiving/QC and is stored.
+                    if fulfillment and not fulfillment.get("inventoryFinalizedAt"):
+                        confirmed = await inventory_repository.atomic_confirm(
+                            str(fulfillment["productId"]),
+                            float(fulfillment["allocatedQuantityKg"]),
+                        )
+                        if not confirmed:
+                            raise RuntimeError("Reserved farmer stock could not be finalized for event fulfillment")
+                        await event_fulfillment_repo.update(
+                            {"_id": fulfillment["_id"]},
+                            {
+                                "inventoryFinalizedAt": datetime.utcnow(),
+                                "inventoryFinalizationStatus": "confirmed",
+                                "status": "stored",
+                                "warehouseStatus": "stored",
+                                "storedAt": datetime.utcnow(),
+                                "updatedAt": datetime.utcnow(),
+                            },
+                        )
+                    request_id = incoming.get("eventRequestId")
+                    if request_id:
+                        await _finalize_event_after_warehouse_storage(str(request_id))
+            except Exception:
+                logger.exception("Failed to finalize event fulfillment after warehouse storage")
+                raise
+            return await incoming_stock_repository.get_by_id(incoming_id)
+
+        # Farmer Fulfillment transfers are already packed and sealed. They are
+        # held as reserved physical stock only; they never enter warehouse
+        # packing or the normal outgoing/dispatch queue.
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and incoming.get("packingRequired") is False:
             try:
                 from app.repositories.order_repository import order_repository
-                from app.repositories.outgoing_stock_repository import outgoing_stock_repository
-                existing = await outgoing_stock_repository.get_by_order_id(
-                    str(incoming["orderId"]), str(incoming["productId"]), str(incoming.get("variantId") or "")
-                )
-                if not existing:
-                    await WarehouseService.create_outgoing(OutgoingStockCreate(
-                        warehouseId=str(warehouse_id),
-                        productId=str(incoming["productId"]),
-                        variantId=str(incoming["variantId"]) if incoming.get("variantId") else None,
-                        orderId=str(incoming["orderId"]),
-                        quantity=int(incoming.get("quantity", 0)),
-                        batchNumber=incoming.get("batchNumber"),
-                    ))
                 await order_repository.update(
                     {"_id": ObjectId(str(incoming["orderId"]))},
-                    {"warehouseFulfillmentStage": "ready_for_dispatch", "updatedAt": datetime.utcnow()},
+                    {
+                        "warehouseFulfillmentStage": "stored_transfer",
+                        "transferStatus": "warehouse_received_stored",
+                        "updatedAt": datetime.utcnow(),
+                    },
+                )
+                await order_repository.append_tracking_event(
+                    str(incoming["orderId"]),
+                    "farmer_fulfillment_transfer_stored",
+                    "Packed farmer order held at warehouse",
+                    "The warehouse verified and stored the sealed farmer-packed shipment. No warehouse repacking is required.",
+                    actor_role="warehouse",
+                    metadata={"incomingStockId": str(incoming["_id"]), "warehouseId": warehouse_id},
                 )
             except Exception:
-                logger.exception("Failed to create transfer-only dispatch for %s", incoming.get("orderId"))
+                logger.exception("Failed to update farmer transfer after storage")
             return await incoming_stock_repository.get_by_id(incoming_id)
 
         # Warehouse fulfillment creates exactly one order-level packing task.
         # The task is created only after EVERY inbound line for the order is stored.
         # This prevents a multi-product customer order from being treated as packed
         # when only one product line reached the packing queue.
-        if incoming.get("orderId"):
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") != "farmer_fulfillment_transfer":
             await WarehouseService.ensure_order_packing_task(str(incoming["orderId"]), str(warehouse_id))
         return await incoming_stock_repository.get_by_id(incoming_id)
 

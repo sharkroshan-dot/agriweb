@@ -137,12 +137,13 @@ class MongoDB:
         await cls.db.ledger_entries.create_index([("orderId", 1), ("type", 1)])
         # Stable gateway/webhook references must be unique for the same
         # financial event so concurrent retries cannot create duplicate ledger
-        # entries. Existing legacy duplicates are tolerated at startup.
+        # entries. Only real references participate in the unique index;
+        # legacy refund rows may legitimately have reference=None.
         try:
             await cls.db.ledger_entries.create_index(
                 [("reference", 1), ("type", 1), ("direction", 1), ("amount", 1)],
                 unique=True,
-                sparse=True,
+                partialFilterExpression={"reference": {"$exists": True, "$ne": None}},
                 name="ledger_reference_idempotency",
             )
         except Exception as exc:

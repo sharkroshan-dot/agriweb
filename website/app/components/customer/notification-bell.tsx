@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck, Clock, ExternalLink, X } from "lucide-react";
 import { api } from "../../lib/api/client";
+import toast from "react-hot-toast";
 import { resolveBackendUrl } from "../../lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Separator } from "../ui/separator";
@@ -48,6 +50,22 @@ export function NotificationBell() {
   const [selectedNotification, setSelectedNotification] = useState<any | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
+  const { data: session, status: sessionStatus } = useSession();
+  const sessionUser = session?.user as any;
+  const isWarehouseUser = sessionStatus === "authenticated" && sessionUser?.role === "warehouse";
+
+  // The collection-queue endpoint repairs missed packed-transfer pickup records
+  // and backfills the warehouse manager's in-app notification. Run it from the
+  // shared header for signed-in warehouse users, not only after they discover
+  // and open the Incoming Stock page themselves.
+  useQuery({
+    queryKey: ["warehousePickupNotificationSync", sessionUser?.id || sessionUser?.email || "warehouse"],
+    queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
+    enabled: isWarehouseUser,
+    refetchInterval: 15000,
+    refetchOnWindowFocus: true,
+    retry: 1,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -79,6 +97,19 @@ export function NotificationBell() {
 
   const unreadCount = (countData as any)?.data?.count ?? 0;
   const notifications: any[] = (listData as any)?.data?.notifications ?? [];
+  const previousUnreadCount = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!countData) return;
+    if (previousUnreadCount.current === null) {
+      previousUnreadCount.current = unreadCount;
+      return;
+    }
+    if (isWarehouseUser && unreadCount > previousUnreadCount.current) {
+      toast.success("New warehouse notification received. Open the bell to view it.");
+    }
+    previousUnreadCount.current = unreadCount;
+  }, [countData, unreadCount, isWarehouseUser]);
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: NOTIFICATIONS_QUERY_KEY });
@@ -106,9 +137,26 @@ export function NotificationBell() {
     try {
       const response = await api.get(`/notifications/detail/${notification.id}`);
       const detail = (response as any)?.data?.notification;
-      setSelectedNotification(detail || notification);
+      const item = detail || notification;
+      setSelectedNotification({
+        ...item,
+        actionUrl: item.actionUrl || item.data?.actionUrl || item.data?.url,
+        actionLabel: item.actionLabel || (
+          item.data?.type === "farmer_fulfillment_pickup_ready"
+            ? "Open Farm Collection Queue"
+            : undefined
+        ),
+      });
     } catch {
-      setSelectedNotification(notification);
+      setSelectedNotification({
+        ...notification,
+        actionUrl: notification.actionUrl || notification.data?.actionUrl || notification.data?.url,
+        actionLabel: notification.actionLabel || (
+          notification.data?.type === "farmer_fulfillment_pickup_ready"
+            ? "Open Farm Collection Queue"
+            : undefined
+        ),
+      });
     }
 
     setOpen(false);

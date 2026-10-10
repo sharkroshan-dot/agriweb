@@ -88,6 +88,11 @@ async def create_order(
         "orderNumber": order.get("orderNumber", ""),
         "totalAmount": order.get("totalAmount", 0),
         "orderStatus": order.get("orderStatus", "pending"),
+        "deliverySpeed": order.get("deliverySpeed", "standard"),
+        "deliveryAvailabilityStatus": order.get("deliveryAvailabilityStatus"),
+        "deliveryAvailabilityMessage": order.get("deliveryAvailabilityMessage"),
+        "nextDeliveryServiceAt": order.get("nextDeliveryServiceAt"),
+        "estimatedDeliveryMinutes": order.get("estimatedDeliveryMinutes"),
         "createdAt": order.get("createdAt")
     }
 
@@ -136,6 +141,59 @@ async def get_customer_shortage_resolutions(
             if x.get(key) is not None:
                 x[key] = str(x[key])
     return {"success": True, "data": {"shortages": cases}}
+
+
+class DeliveryVerificationRequest(BaseModel):
+    code: Optional[str] = None
+    token: Optional[str] = None
+    method: Optional[str] = None
+
+
+@router.post("/{order_id}/delivery-verification")
+async def verify_delivery_handoff(
+    order_id: str,
+    body: DeliveryVerificationRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Verify customer-presented OTP/QR before a delivery can be completed."""
+    if current_user.get("role") not in ("farmer", "delivery", "admin"):
+        raise HTTPException(status_code=403, detail="Only the farmer, delivery partner, or admin can verify delivery hand-off")
+    order = await OrderService.get_order(order_id, str(current_user["_id"]), current_user.get("role"))
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found or access denied")
+    if order.get("deliveryType") != DeliveryType.DELIVERY.value:
+        raise HTTPException(status_code=400, detail="Delivery verification is only required for delivery orders")
+    if order.get("orderStatus") in (OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value):
+        raise HTTPException(status_code=400, detail="Order is already completed or cancelled")
+
+    supplied_code = (body.code or "").strip()
+    supplied_token = (body.token or "").strip()
+    expected_code = str(order.get("deliveryVerificationCode") or "")
+    expected_token = str(order.get("deliveryVerificationToken") or "")
+    verified_method = "qr" if supplied_token and supplied_token == expected_token else "otp" if supplied_code and supplied_code == expected_code else None
+    if not verified_method:
+        raise HTTPException(status_code=400, detail="Invalid delivery verification code or QR token")
+
+    now = datetime.utcnow()
+    await order_repository.update(
+        {"_id": order["_id"]},
+        {
+            "deliveryVerificationVerifiedAt": now,
+            "deliveryVerificationMethod": verified_method,
+            "deliveryVerificationVerifiedBy": str(current_user["_id"]),
+            "updatedAt": now,
+        },
+    )
+    await order_repository.append_tracking_event(
+        order_id,
+        "delivery_handoff_verified",
+        "Delivery hand-off verified",
+        f"Customer hand-off verified using {verified_method.upper()}.",
+        actor_id=str(current_user["_id"]),
+        actor_role=current_user.get("role"),
+        metadata={"method": verified_method},
+    )
+    return {"success": True, "data": {"orderId": order_id, "verified": True, "method": verified_method, "verifiedAt": now}, "message": "Delivery hand-off verified successfully"}
 
 
 @router.get("/{order_id}/track", response_model=OrderTrackingResponse)

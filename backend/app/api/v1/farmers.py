@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from bson import ObjectId
 
 from app.api.v1.auth import get_current_user
+from app.database.mongodb import MongoDB
 from app.services.analytics_service import AnalyticsService
 from app.services.farmer_service import FarmerService
 from app.services.order_service import OrderService
@@ -24,6 +25,7 @@ from app.repositories.wallet_repository import wallet_repository, wallet_transac
 from app.repositories.withdrawal_repository import withdrawal_repository
 from app.services.user_service import UserService
 from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationType, NotificationPriority
 from app.repositories.user_repository import user_repository
 from app.schemas.order import OrderStatusUpdate, PaymentStatus, DeliveryType
 from app.utils.delivery_map_events import delivery_map_event_broker
@@ -43,7 +45,8 @@ from app.repositories.delivery_job_repository import (
     JOB_NO_PARTNER_FOUND,
 )
 from app.services.farmer_settings_service import farmer_settings_service
-from app.services.logistics_routing_service import apply_partner_route
+from app.services.logistics_routing_service import apply_partner_route, is_packed_farmer_order
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 from app.ai.models.route_optimization import route_optimization_model
 from collections import Counter
 import math
@@ -51,6 +54,10 @@ import httpx
 import logging
 
 logger = logging.getLogger(__name__)
+
+class FarmerReturnDecisionRequest(BaseModel):
+    decision: str = Field(..., pattern="^(accept|reject)$")
+    notes: Optional[str] = Field(None, max_length=1000)
 
 class UpdateFarmerProfileRequest(BaseModel):
     farmName: Optional[str] = None
@@ -63,6 +70,165 @@ class UpdateFarmerProfileRequest(BaseModel):
     pickupInstructions: Optional[str] = None
 
 router = APIRouter()
+
+@router.get("/me/warehouse-returns")
+async def get_warehouse_returns(current_user: dict = Depends(get_current_user)):
+    """List warehouse -> farmer return requests awaiting farmer action."""
+    _ensure_farmer(current_user)
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    rows = await transfers.find({
+        "farmerId": ObjectId(str(current_user["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    }).sort("createdAt", -1).to_list(length=200)
+    for row in rows:
+        row["id"] = str(row["_id"])
+        row["_id"] = str(row["_id"])
+        for key in ("orderId", "farmerId", "warehouseId", "createdBy"):
+            if row.get(key) is not None:
+                row[key] = str(row[key])
+    return {"success": True, "data": {"returns": rows}}
+
+
+@router.put("/me/warehouse-returns/{transfer_id}/receive")
+async def receive_warehouse_return(
+    transfer_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Farmer confirms physical receipt of a warehouse return."""
+    _ensure_farmer(current_user)
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid return transfer ID")
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    transfer = await transfers.find_one({
+        "_id": ObjectId(transfer_id),
+        "farmerId": ObjectId(str(current_user["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Warehouse return not found")
+    if transfer.get("status") != "in_transit_to_farmer":
+        raise HTTPException(status_code=400, detail="Return is not currently in transit")
+
+    now = datetime.utcnow()
+    await transfers.update_one({"_id": transfer["_id"]}, {"$set": {
+        "status": "received_by_farmer",
+        "receivedAt": now,
+        "updatedAt": now,
+    }})
+    await order_repository.update({"_id": transfer["orderId"]}, {
+        "transferStatus": "warehouse_to_farmer_received",
+        "warehouseReturnStatus": "received_by_farmer",
+        "warehouseReturnReceivedAt": now,
+        "updatedAt": now,
+    })
+    try:
+        await order_repository.append_tracking_event(
+            str(transfer["orderId"]), "warehouse_return_received",
+            "Warehouse return received by farmer",
+            "The farmer confirmed receipt of the returned shipment.",
+            actor_id=str(current_user["_id"]), actor_role="farmer",
+            metadata={"transferId": transfer_id},
+        )
+    except Exception:
+        logger.exception("Failed to append warehouse return receipt event")
+    return {"success": True, "data": {"transferId": transfer_id, "status": "received_by_farmer"}}
+
+
+@router.put("/me/warehouse-returns/{transfer_id}")
+async def decide_warehouse_return(
+    transfer_id: str,
+    payload: FarmerReturnDecisionRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Farmer accepts/rejects a warehouse return request."""
+    _ensure_farmer(current_user)
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid return transfer ID")
+
+    transfers = MongoDB.get_collection("warehouse_farmer_transfers")
+    transfer = await transfers.find_one({
+        "_id": ObjectId(transfer_id),
+        "farmerId": ObjectId(str(current_user["_id"])),
+        "direction": "warehouse_to_farmer",
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Warehouse return request not found")
+    if transfer.get("status") != "pending_farmer_acceptance":
+        raise HTTPException(status_code=409, detail="This return request has already been decided")
+
+    now = datetime.utcnow()
+    accepted = payload.decision == "accept"
+    new_status = "accepted" if accepted else "rejected"
+    await transfers.update_one(
+        {"_id": transfer["_id"]},
+        {"$set": {
+            "status": new_status,
+            "farmerDecision": payload.decision,
+            "farmerNotes": payload.notes,
+            "farmerDecidedAt": now,
+            "updatedAt": now,
+        }},
+    )
+
+    order = await order_repository.get_by_id(str(transfer["orderId"]))
+    if order:
+        order_update = {
+            "warehouseReturnStatus": new_status,
+            "warehouseReturnFarmerDecidedAt": now,
+            "warehouseReturnFarmerNotes": payload.notes,
+            "updatedAt": now,
+        }
+        if accepted:
+            order_update.update({
+                "transferStatus": "warehouse_to_farmer_accepted",
+                "orderStatus": "processing",
+            })
+        else:
+            order_update["transferStatus"] = "warehouse_to_farmer_rejected"
+        await order_repository.update({"_id": transfer["orderId"]}, order_update)
+        try:
+            await order_repository.append_tracking_event(
+                str(transfer["orderId"]),
+                "warehouse_return_decision",
+                "Warehouse return decision",
+                f"Farmer {payload.decision}ed the warehouse return request.",
+                actor_id=str(current_user["_id"]),
+                actor_role="farmer",
+                metadata={"transferId": transfer_id, "decision": payload.decision},
+            )
+        except Exception:
+            logger.exception("Failed to append warehouse return tracking event")
+
+        warehouse = None
+        try:
+            from app.repositories.warehouse_repository import warehouse_repository
+            warehouse = await warehouse_repository.get_by_id(str(transfer["warehouseId"]))
+        except Exception:
+            pass
+        if warehouse and warehouse.get("managerId"):
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(warehouse["managerId"]),
+                    NotificationType.WAREHOUSE,
+                    f"Farmer {payload.decision}ed warehouse return",
+                    f"Order {order.get('orderNumber', str(transfer['orderId']))}: the farmer has {payload.decision}ed the return request.",
+                    data={"type": "warehouse_to_farmer_return_decision", "transferId": transfer_id, "orderId": str(transfer["orderId"])},
+                    priority=NotificationPriority.HIGH,
+                    mandatory=True,
+                )
+            except Exception:
+                logger.exception("Failed to notify warehouse about farmer return decision")
+
+    return {
+        "success": True,
+        "data": {"transferId": transfer_id, "status": new_status},
+        "message": f"Warehouse return {new_status}.",
+    }
+
+
 
 
 def _ensure_farmer(user: dict) -> None:
@@ -648,9 +814,10 @@ async def get_delivery_calendar(
     farmer_id = str(current_user["_id"])
     capacity = await _get_delivery_capacity(farmer_id)
     active_statuses = ["pending", "confirmed", "processing", "ready_for_delivery", "ready_for_pickup"]
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    calendar_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
+    if workflow_ids: calendar_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(calendar_query)
     orders = orders or []
     farm = await _get_farm_origin(farmer_id)
 
@@ -661,6 +828,10 @@ async def get_delivery_calendar(
     partner_total = 0
     for order in orders:
         oid = str(order["_id"])
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh calendar freshness priority for order %s", oid, exc_info=True)
         is_partnered = bool(order.get("deliveryPartnerId"))
         day = order.get("deliveryDay") or order.get("createdAt", datetime.utcnow()).strftime("%A")
         time_slot = order.get("deliveryTimeSlot") or "Morning"
@@ -689,6 +860,13 @@ async def get_delivery_calendar(
                 "deliveryType": order.get("deliveryType", "delivery"),
                 "assignment": "partner" if is_partnered else "self",
                 "isCOD": str(order.get("paymentMethod", "") or "").lower() == "cash",
+                "priority": int(order.get("priority", 1) or 1),
+                "priorityLabel": order.get("priorityLabel") or "normal",
+                "priorityReason": order.get("priorityReason") or "",
+                "deliveryDeadline": order.get("deliveryDeadline"),
+                "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+                "freshnessDeadline": order.get("freshnessDeadline"),
+                "shelfLifeDays": order.get("shelfLifeDays"),
             }
             groups.setdefault((day, time_slot), []).append(delivery)
 
@@ -744,15 +922,20 @@ async def get_smart_route(
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     origin = await _get_farm_origin(farmer_id)
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    smart_route_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": {"$in": ["packed", "dispatched"]}, "deliveryResponsibility": "farmer", "selfDelivery": True}
+    if workflow_ids: smart_route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(smart_route_query)
     orders = orders or []
 
     raw_stops = []
     for order in orders:
         if order.get("deliveryPartnerId") or order.get("partnerRequested"):
             continue
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh smart-route freshness priority for order %s", order.get("_id"), exc_info=True)
         oid = str(order["_id"])
         addr = order.get("deliveryAddress", {}) or {}
         order_items = order.get("items", []) or []
@@ -771,7 +954,15 @@ async def get_smart_route(
             "items": [{"name": i.get("productName", i.get("name", "Item")), "quantity": i.get("quantity", 1)} for i in order_items],
             "total": float(order.get("totalAmount", 0) or 0),
             "deliveryCharge": float(order.get("deliveryCharge", 0) or 0),
-            "deliveryWindow": f"{order.get('deliveryTimeSlot', 'Morning')} ({order.get('deliveryDay', 'Today')})"
+            "deliveryWindow": f"{order.get('deliveryTimeSlot', 'Morning')} ({order.get('deliveryDay', 'Today')})",
+            "priority": int(order.get("priority", 1) or 1),
+            "priorityLabel": order.get("priorityLabel") or "normal",
+            "priorityReason": order.get("priorityReason") or "",
+            "deliveryDeadline": order.get("deliveryDeadline"),
+            "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+            "freshnessDeadline": order.get("freshnessDeadline"),
+            "safeDeliveryDate": order.get("safeDeliveryDate") or order.get("freshnessDeadline"),
+            "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
     # Compare naive (as recorded) ordering vs optimized ordering
@@ -837,6 +1028,7 @@ async def get_smart_route(
 class DeliverySlotUpdateRequest(BaseModel):
     day: str
     timeSlot: str
+    deliveryDate: Optional[str] = None
 
 
 @router.put("/me/orders/{order_id}/delivery-slot")
@@ -868,6 +1060,32 @@ async def update_order_delivery_slot(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"timeSlot must be one of {', '.join(_CALENDAR_SLOT_ORDER)}",
         )
+
+    try:
+        await calculate_order_delivery_priority(order, persist=True)
+    except Exception:
+        pass
+
+    deadline = order.get("deliveryDeadline")
+    requested_date = None
+    if body.deliveryDate:
+        try:
+            requested_date = datetime.fromisoformat(body.deliveryDate.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="deliveryDate must be ISO format YYYY-MM-DD")
+    elif deadline:
+        weekday_index = _CALENDAR_DAYS.index(day)
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        days_ahead = (weekday_index - today.weekday()) % 7
+        requested_date = today + timedelta(days=days_ahead)
+
+    if deadline and requested_date:
+        deadline_dt = deadline.replace(tzinfo=None) if getattr(deadline, "tzinfo", None) else deadline
+        if requested_date.date() > deadline_dt.date():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot schedule this order for {requested_date.date().isoformat()}. Delivery deadline is {deadline_dt.date().isoformat()}.",
+            )
 
     ok = await order_repository.update_order_field(order_id, "deliveryDay", day)
     ok = await order_repository.update_order_field(order_id, "deliveryTimeSlot", time_slot) and ok
@@ -1029,7 +1247,11 @@ def _optimize_stops_ai(origin: dict, stops: list) -> tuple[list, str]:
     origin_lat, origin_lng = origin.get("lat"), origin.get("lng")
 
     if origin_lat is None or len(located) < 2:
-        return _optimize_stops(origin, stops), fallback_label
+        fallback = _optimize_stops(origin, stops)
+        return sorted(
+            fallback,
+            key=lambda s: (-int(s.get("priority", 1) or 1), s.get("deliveryDeadline") or datetime.max),
+        ), fallback_label
 
     by_order_id = {s["orderId"]: s for s in located}
     try:
@@ -1045,10 +1267,21 @@ def _optimize_stops_ai(origin: dict, stops: list) -> tuple[list, str]:
         # Keep any located stop the model dropped (defensive) in naive order.
         ordered += [s for s in located if s["orderId"] not in set(ordered_ids)]
         label = _SMART_ROUTE_ALGORITHM_LABELS.get(result.get("algorithm"), fallback_label)
+        # Freshness/deadline priority always outranks pure distance optimization.
+        # Keep urgent/high orders ahead of normal orders, while preserving the
+        # optimizer's distance ordering inside each priority group.
+        def priority_key(stop: dict):
+            priority = int(stop.get("priority", 1) or 1)
+            deadline = stop.get("deliveryDeadline")
+            deadline_value = deadline.timestamp() if isinstance(deadline, datetime) else float("inf")
+            return (-priority, deadline_value)
+        ordered = sorted(ordered, key=priority_key)
         return ordered + unlocated, label
     except Exception as e:
         logger.warning(f"AI smart-route optimization failed, falling back to nearest-neighbour: {e}")
-        return _optimize_stops(origin, stops), fallback_label
+        fallback = _optimize_stops(origin, stops)
+        fallback = sorted(fallback, key=lambda s: (-int(s.get("priority", 1) or 1), s.get("deliveryDeadline") or datetime.max))
+        return fallback, fallback_label
 
 
 def _assign_stop_distances(origin: dict, stops: list) -> None:
@@ -1172,17 +1405,43 @@ async def _stop_coords(addr: dict, order_id: Optional[str] = None, refresh: bool
     replaced with the real position of the delivery address. Geocoded results
     are cached in ``geocode_cache``. Returns (lat, lng) or (None, None).
     """
-    loc = addr.get("location") or {}
+    loc = (
+        addr.get("location")
+        or addr.get("deliveryLocation")
+        or addr.get("geo")
+        or {}
+    )
+    # Some checkout versions stored plain lat/lng instead of GeoJSON.
+    direct_lat = addr.get("lat") if addr.get("lat") is not None else addr.get("latitude")
+    direct_lng = addr.get("lng") if addr.get("lng") is not None else addr.get("longitude")
+    if _valid_coord(direct_lat, direct_lng) and not refresh:
+        return float(direct_lat), float(direct_lng)
     if loc.get("coordinates") and not refresh:
         return loc["coordinates"][1], loc["coordinates"][0]
+    if _valid_coord(loc.get("lat"), loc.get("lng")) and not refresh:
+        return float(loc["lat"]), float(loc["lng"])
     parts = []
-    for k in ("addressLine1", "addressLine2", "address", "city", "state"):
+    # Checkout data has used several address shapes over time. Include
+    # every useful component so a packed order is not lost merely because
+    # its coordinates were not persisted at checkout.
+    for k in (
+        "addressLine1", "addressLine2", "line1", "line2", "address", "street",
+        "area", "locality", "landmark", "city", "district", "state",
+        "postalCode", "pincode", "zipCode", "zip_code",
+    ):
         if addr.get(k):
             parts.append(str(addr[k]))
-    query = ", ".join(parts)
+    query = ", ".join(parts).strip()
+    # Give Indian geocoders a country hint when the saved address does not
+    # already contain one. This materially improves resolution of short or
+    # older checkout addresses such as "Anna Nagar, Chennai, 600040".
+    if query and "india" not in query.lower():
+        query = f"{query}, India"
     if not query:
         if loc.get("coordinates"):
             return loc["coordinates"][1], loc["coordinates"][0]
+        if _valid_coord(loc.get("lat"), loc.get("lng")):
+            return float(loc["lat"]), float(loc["lng"])
         return None, None
     coords = await _geocode_cached(query)
     if not coords:
@@ -1214,14 +1473,27 @@ _ACTIVE_DELIVERY_STATUSES = [
     "pending",
     "confirmed",
     "processing",
+    "packed",
     "ready_for_delivery",
     "ready_for_pickup",
     "dispatched",
     "in_transit",
 ]
-_FINISHED_DELIVERY_STATUSES = ("delivered", "picked_up", "cancelled", "refunded", "failed")
+_FINISHED_DELIVERY_STATUSES = ("delivered", "picked_up", "cancelled", "refunded", "completed")
 _ROUTE_COMPLETABLE_STATUSES = ("ready_for_delivery", "ready_for_pickup")
 _DELIVERED_WINDOWS = ("today", "week", "month", "year", "all")
+
+
+def _parse_workflow_order_ids(value: Optional[str]) -> list[ObjectId]:
+    ids: list[ObjectId] = []
+    if not value:
+        return ids
+    for raw in value.split(","):
+        raw = raw.strip()
+        if not raw: continue
+        try: ids.append(ObjectId(raw))
+        except Exception: continue
+    return ids
 
 
 def _delivered_window_start(window: str, now: datetime) -> Optional[datetime]:
@@ -1356,10 +1628,44 @@ async def get_my_route(
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery", "ready_for_pickup"]
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None, "deliveryType": DeliveryType.DELIVERY.value, "fulfillmentMethod": "farmer", "fulfillmentStage": "packed", "deliveryResponsibility": "farmer"}
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    route_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": {"$in": active_statuses},
+        "deletedAt": None,
+        "deliveryType": DeliveryType.DELIVERY.value,
+        "fulfillmentMethod": "farmer",
+        "fulfillmentStage": {"$in": ["packed", "dispatched"]},
+        "deliveryResponsibility": "farmer",
+        "selfDelivery": True,
+    }
+    if workflow_ids:
+        route_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(route_query) or []
+
+    # Customer-pickup orders do not travel through the farmer/partner delivery
+    # route, but the route workspace also hosts their separate OTP/QR pickup
+    # confirmation card. Keep them visible without requiring selfDelivery.
+    pickup_query = {
+        "farmerId": ObjectId(farmer_id),
+        "orderStatus": "ready_for_pickup",
+        "deletedAt": None,
+        "deliveryType": DeliveryType.PICKUP.value,
+        "fulfillmentMethod": "farmer",
+    }
+    if workflow_ids:
+        pickup_query["_id"] = {"$in": workflow_ids}
+    pickup_orders = await order_repository.find_many(pickup_query) or []
+    pickup_orders = [
+        order for order in pickup_orders
+        if str(order.get("fulfillmentStage") or "").lower() in ("packed", "dispatched")
+        or bool(order.get("packingComplete"))
+    ]
+    existing_route_ids = {str(order.get("_id")) for order in orders}
+    orders.extend(
+        order for order in pickup_orders
+        if str(order.get("_id")) not in existing_route_ids
     )
-    orders = orders or []
 
     farm = await _get_farm_origin(farmer_id)
 
@@ -1368,6 +1674,10 @@ async def get_my_route(
     total_quantity = 0
     for order in orders:
         oid = str(order["_id"])
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh route freshness priority for order %s", oid, exc_info=True)
         delivery_type = order.get("deliveryType", "delivery")
         addr = order.get("deliveryAddress", {}) or {}
         items = order.get("items", []) or []
@@ -1410,9 +1720,35 @@ async def get_my_route(
             "distance": round(dist, 2),
             "total": float(order.get("totalAmount", 0) or 0),
             "customerPhone": order.get("customerPhone", ""),
+            "priority": int(order.get("priority", 1) or 1),
+            "priorityLabel": order.get("priorityLabel") or "normal",
+            "priorityReason": order.get("priorityReason") or "",
+            "deliveryDeadline": order.get("deliveryDeadline"),
+            "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+            "freshnessDeadline": order.get("freshnessDeadline"),
+            "shelfLifeDays": order.get("shelfLifeDays"),
         })
 
-    stops.sort(key=lambda s: s["distance"])
+    # Fresh priority is recalculated for every stop just above. Urgent orders
+    # execute first, then high, then normal; deadline and distance break ties.
+    def _route_execution_key(stop: dict):
+        deadline = stop.get("deliveryDeadline")
+        if isinstance(deadline, datetime):
+            deadline_key = deadline.replace(tzinfo=None)
+        elif isinstance(deadline, str):
+            try:
+                deadline_key = datetime.fromisoformat(deadline.replace("Z", "+00:00")).replace(tzinfo=None)
+            except ValueError:
+                deadline_key = datetime.max
+        else:
+            deadline_key = datetime.max
+        return (
+            -int(stop.get("priority") or 1),
+            deadline_key,
+            float(stop.get("distance") or 0),
+        )
+
+    stops.sort(key=_route_execution_key)
     total_duration = round(total_distance / 25 * 60 + len(stops) * 10, 0)
     summary = {
         "totalDistance": round(total_distance, 2),
@@ -1426,19 +1762,48 @@ async def get_my_route(
 
 
 @router.put("/me/route/start")
-async def start_my_route(current_user: dict = Depends(get_current_user)):
-    """Mark all delivery orders as self-delivery so the farmer can complete them."""
+async def start_my_route(
+    orderIds: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Mark the current route's delivery orders as self-delivery."""
     _ensure_farmer(current_user)
     farmer_id = str(current_user["_id"])
     active_statuses = ["ready_for_delivery"]
-    orders = await order_repository.find_many(
-        {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None}
-    )
+    workflow_ids = _parse_workflow_order_ids(orderIds)
+    start_query = {"farmerId": ObjectId(farmer_id), "orderStatus": {"$in": active_statuses}, "deletedAt": None}
+    if workflow_ids: start_query["_id"] = {"$in": workflow_ids}
+    orders = await order_repository.find_many(start_query)
     updated = 0
     for order in orders or []:
-        if order.get("deliveryType") == "delivery" and not order.get("selfDelivery"):
-            if await order_repository.update_order_field(str(order["_id"]), "selfDelivery", True):
-                updated += 1
+        if order.get("deliveryType") != "delivery":
+            continue
+        if str(order.get("deliveryDecision") or "").lower() != "self_delivery":
+            continue
+        # Route start is the actual dispatch point. Confirmation only reserves
+        # the order for farmer self-delivery and does not dispatch it.
+        now = datetime.utcnow()
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh route-start priority for order %s", order.get("_id"), exc_info=True)
+        ok = await order_repository.update(
+            {"_id": order["_id"]},
+            {
+                "selfDelivery": True,
+                "orderStatus": "ready_for_delivery",
+                "fulfillmentStage": "dispatched",
+                "dispatchedAt": now,
+                "dispatchReadyChecklistComplete": True,
+                "deliveryDispatchStatus": "dispatched",
+                "deliveryDispatchAt": now,
+                "deliveryDecisionStatus": "route_started",
+                "deliveryRouteStartedAt": now,
+                "updatedAt": now,
+            },
+        )
+        if ok:
+            updated += 1
     return {"success": True, "data": {"updatedStops": updated}, "message": "Route started"}
 
 
@@ -1496,6 +1861,16 @@ async def update_route_stop_status(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Delivery stops can only be marked delivered",
             )
+        # Refresh freshness/deadline priority immediately before the final farmer hand-off.
+        try:
+            refreshed_priority = await calculate_order_delivery_priority(order, persist=True)
+            order.update(refreshed_priority)
+            await order_repository.update(
+                {"_id": order["_id"]},
+                {"priorityLastCheckedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            )
+        except Exception:
+            logger.warning("Could not refresh delivery stop priority for order %s", order_id, exc_info=True)
         if not order.get("selfDelivery"):
             await order_repository.update_order_field(order_id, "selfDelivery", True)
         updated = await OrderService.update_order_status(
@@ -1679,7 +2054,7 @@ class AssignOutsideRequest(BaseModel):
 class SelfDeliveryPlanRequest(BaseModel):
     method: str = Field(..., pattern="^(route|radius)$")
     orderIds: list[str] = Field(default_factory=list, max_length=500)
-    radius: int = Field(10, ge=1, le=200)
+    radius: float = Field(10, ge=1, le=200)
     destination: Optional[dict] = None
 
 
@@ -1848,12 +2223,17 @@ async def _map_order_payload(
     coordinates are replaced with the true location.
     """
     oid = str(order["_id"])
+    try:
+        await calculate_order_delivery_priority(order, persist=True)
+    except Exception:
+        logger.warning("Could not refresh freshness priority for order %s", oid, exc_info=True)
     delivery_type = order.get("deliveryType", "delivery")
     addr = order.get("deliveryAddress", {}) or {}
     items = order.get("items", []) or []
     qty = sum(int(i.get("quantity", 0) or 0) for i in items)
     first = items[0] if items else {}
     product = first.get("productName") or first.get("name") or "Items"
+    product_id = first.get("productId") or first.get("product_id") or first.get("variantId") or first.get("variant_id")
     status = order.get("orderStatus", "pending")
     fulfillment_method = str(order.get("fulfillmentMethod") or "").lower()
     fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
@@ -1863,6 +2243,22 @@ async def _map_order_payload(
     is_pickup = delivery_type == DeliveryType.PICKUP.value
 
     cust = (customers or {}).get(str(order.get("customerId"))) or {}
+    # Keep the customer's stored address available as a final geocoding source.
+    # This is important for older orders whose checkout record has no
+    # coordinates yet.
+    if not addr:
+        for candidate in (
+            cust.get("deliveryAddress"),
+            cust.get("shippingAddress"),
+            cust.get("address"),
+            cust.get("location"),
+        ):
+            if isinstance(candidate, dict) and candidate:
+                addr = candidate
+                break
+            if isinstance(candidate, str) and candidate.strip():
+                addr = {"address": candidate.strip()}
+                break
     first_name = cust.get("firstName") or cust.get("name") or ""
     last_name = cust.get("lastName") or ""
     real_name = " ".join(p for p in (first_name, last_name) if p).strip()
@@ -1873,7 +2269,47 @@ async def _map_order_payload(
     if is_pickup:
         lat, lng = farm.get("lat"), farm.get("lng")
     else:
-        lat, lng = await _stop_coords(addr, oid, refresh=refresh_coords)
+        # Orders created through different checkout versions can store the
+        # destination under deliveryAddress, shippingAddress, or customerAddress.
+        # Resolve them in that order so every genuinely packed order gets its
+        # real customer location instead of silently becoming an unlocated stop.
+        address_candidates = [
+            addr,
+            order.get("shippingAddress") or {},
+            order.get("customerAddress") or {},
+            order.get("address") or {},
+        ]
+        seen_queries = set()
+        for candidate in address_candidates:
+            if not isinstance(candidate, dict):
+                continue
+            key = repr(sorted((str(k), str(v)) for k, v in candidate.items() if k != "location"))
+            if key in seen_queries:
+                continue
+            seen_queries.add(key)
+            lat, lng = await _stop_coords(candidate, oid, refresh=refresh_coords)
+            if lat is not None and lng is not None:
+                # Keep the payload address consistent with the resolved
+                # destination so the marker/details refer to the same place.
+                if not addr and candidate:
+                    addr = candidate
+                break
+
+        # Last fallback: use customer profile address/location when checkout
+        # did not copy the destination onto the order document.
+        if lat is None or lng is None:
+            customer_candidates = [
+                cust.get("location") if isinstance(cust, dict) else None,
+                cust.get("address") if isinstance(cust, dict) else None,
+                cust.get("deliveryAddress") if isinstance(cust, dict) else None,
+                cust.get("shippingAddress") if isinstance(cust, dict) else None,
+            ]
+            for candidate in customer_candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                lat, lng = await _stop_coords(candidate, oid, refresh=False)
+                if lat is not None and lng is not None:
+                    break
 
     dist = None
     if lat is not None and center.get("lat") is not None:
@@ -1915,6 +2351,8 @@ async def _map_order_payload(
         "id": oid,
         "orderId": oid,
         "orderNumber": order.get("orderNumber", ""),
+        "customerId": str(order.get("customerId")) if order.get("customerId") else None,
+        "memberId": str(order.get("memberId")) if order.get("memberId") else None,
         "buyerName": customer_name,
         "customerName": customer_name,
         "customerPhone": customer_phone,
@@ -1926,13 +2364,16 @@ async def _map_order_payload(
         "quantity": f"{qty} kg",
         "quantityKg": qty,
         "product": product,
+        "productId": str(product_id) if product_id else None,
         "items": [
             {"name": i.get("productName") or i.get("name") or "Item", "quantity": i.get("quantity", 1)}
             for i in items
         ],
         "status": status,
         "fulfillmentMethod": fulfillment_method or None,
+        "fulfillmentSource": str(order.get("fulfillmentSource") or "").lower() or None,
         "fulfillmentStage": fulfillment_stage or None,
+        "packingComplete": bool(order.get("packingComplete")),
         "readyForFarmerRoute": (
             delivery_type == DeliveryType.DELIVERY.value
             and fulfillment_method == "farmer"
@@ -1963,6 +2404,15 @@ async def _map_order_payload(
         "paymentMethod": payment_method,
         "isCOD": payment_method == "cash",
         "priority": int(order.get("priority", 0) or 0),
+        "priorityLabel": order.get("priorityLabel") or "normal",
+        "priorityReason": order.get("priorityReason") or "",
+        "deliveryDeadline": order.get("deliveryDeadline"),
+        "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+        "deliveryWindowDays": order.get("deliveryWindowDays", 4),
+        "freshnessDeadline": order.get("freshnessDeadline"),
+        "harvestDate": order.get("harvestDate"),
+        "shelfLifeDays": order.get("shelfLifeDays"),
+        "deadlinePassed": bool(order.get("deadlinePassed")),
         "selfDelivery": bool(order.get("selfDelivery")),
         "deliveryPartnerId": str(order["deliveryPartnerId"]) if has_partner else None,
         "deliveryPartnerName": order.get("deliveryPartnerName") or "",
@@ -1976,7 +2426,36 @@ async def _map_order_payload(
         "canComplete": status in _ROUTE_COMPLETABLE_STATUSES,
         "deliveredAt": order.get("deliveredAt") or order.get("updatedAt"),
         "isDelivered": is_delivered,
+        "physicalStopKey": (
+            f"{float(lat):.6f},{float(lng):.6f}"
+            if lat is not None and lng is not None else None
+        ),
     }
+
+
+def _annotate_physical_stops(payloads: list[dict]) -> None:
+    """Annotate independent orders with shared physical-stop metadata.
+
+    Same coordinates mean one physical visit, regardless of customer/product.
+    This is display/routing metadata only; it never merges order records.
+    """
+    groups: dict[str, list[dict]] = {}
+    for payload in payloads:
+        key = payload.get("physicalStopKey")
+        if key:
+            groups.setdefault(key, []).append(payload)
+    for key, group in groups.items():
+        names = list(dict.fromkeys(str(p.get("customerName") or "Customer") for p in group))
+        products = list(dict.fromkeys(str(p.get("product") or "Items") for p in group))
+        total_weight = round(sum(float(p.get("quantityKg") or 0) for p in group), 2)
+        for payload in group:
+            payload["physicalStopOrderCount"] = len(group)
+            payload["physicalStopCustomerCount"] = len(names)
+            payload["physicalStopProductCount"] = len(products)
+            payload["physicalStopTotalWeight"] = total_weight
+            payload["physicalStopCustomers"] = names
+            payload["physicalStopProducts"] = products
+            payload["isGroupedPhysicalStop"] = len(group) > 1
 
 
 @router.get("/me/delivery-map")
@@ -2013,9 +2492,11 @@ async def get_my_delivery_map(
     center = {"lat": farm.get("lat"), "lng": farm.get("lng")}
     window_start = _delivered_window_start(delivered_window, datetime.utcnow())
 
+    # Fetch the farmer's non-deleted orders first, then determine packed
+    # eligibility from the packing state. Do not rely on orderStatus alone:
+    # packing can complete while the order remains in "processing".
     orders_filter = {
         "farmerId": ObjectId(farmer_id),
-        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
         "deletedAt": None,
     }
     # Active packed Farmer Fulfillment orders are the source of the
@@ -2024,27 +2505,36 @@ async def get_my_delivery_map(
     # completed, even if it was packed before the selected reporting window.
     orders = await order_repository.find_many(orders_filter)
     orders = orders or []
+    # Keep every active packed Farmer Fulfillment order visible on the map.
+    # Customer-pickup orders are displayed in their own section by the UI;
+    # the self-delivery-plan API below excludes them from delivery routing.
+    # Terminal orders and orders already assigned a delivery decision are
+    # excluded from the fresh delivery-decision queue.
     orders = [
         o for o in orders
-        if o.get("deliveryType") == DeliveryType.DELIVERY.value
-        and str(o.get("fulfillmentMethod") or "").lower() == "farmer"
-        and (
-            str(o.get("fulfillmentStage") or "").lower() == "packed"
-            or bool(o.get("packingComplete"))
-        )
+        if str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower()
+        in ("farmer", "farm_direct")
+        and str(o.get("orderStatus") or o.get("status") or "").lower()
+        not in _FINISHED_DELIVERY_STATUSES
+        and not bool(o.get("packingCancelled"))
+        and is_packed_farmer_order(o)
+        and not bool(o.get("deliveryPartnerId"))
+        and not bool(o.get("partnerRequested"))
+        and not bool(o.get("selfDelivery"))
+        and str(o.get("deliveryDecision") or "").lower()
+        not in ("self_delivery", "nearby", "long_distance")
     ]
 
-    # Sweep expired open jobs (open -> no_partner_found) and index the rest by
-    # orderId so each map marker can report its marketplace job state.
+    # Index delivery jobs without re-reading every order from MongoDB. The
+    # delivery-map request can contain many packed orders, so the old N+1
+    # order lookup made this endpoint slow enough to hit the frontend timeout.
     await delivery_job_repository.sweep_expired(farmer_id)
     farmer_jobs = await delivery_job_repository.get_jobs_by_farmer(farmer_id)
     jobs_by_order = {}
-    order_ids = {str(o["_id"]) for o in orders}
+    orders_by_id = {str(o["_id"]): o for o in orders}
     for j in (farmer_jobs or []):
         jid, oid = str(j["_id"]), str(j.get("orderId"))
-        if oid not in order_ids:
-            continue
-        order = await order_repository.get_by_id(oid)
+        order = orders_by_id.get(oid)
         if not order:
             continue
         o_status = order.get("orderStatus")
@@ -2066,9 +2556,28 @@ async def get_my_delivery_map(
     delivered_orders = await order_repository.find_many(delivered_filter)
     delivered_orders = delivered_orders or []
 
+    # Keep automatically decided long-distance Farmer Fulfillment orders
+    # visible after they leave the fresh-decision queue. The farmer needs a
+    # persistent place to inspect warehouse allocation and pending handoffs.
+    long_distance_orders = await order_repository.find_many({
+        "farmerId": ObjectId(farmer_id),
+        "deletedAt": None,
+        "deliveryType": {"$ne": DeliveryType.PICKUP.value},
+        "orderStatus": {"$nin": list(_FINISHED_DELIVERY_STATUSES)},
+        "$or": [
+            {"deliveryDecision": "long_distance"},
+            {"deliveryPartnerRoute": "long_distance"},
+        ],
+    }) or []
+    long_distance_orders = [
+        o for o in long_distance_orders
+        if str(o.get("fulfillmentMethod") or o.get("fulfillment_route") or "").lower()
+        in ("farmer", "farm_direct")
+    ]
+
     customer_ids = {
         str(o.get("customerId"))
-        for o in (orders + delivered_orders)
+        for o in (orders + delivered_orders + long_distance_orders)
         if o.get("customerId")
     }
     customers = {}
@@ -2079,20 +2588,65 @@ async def get_my_delivery_map(
         except Exception:
             logger.warning("Failed to resolve delivery-map customer details", exc_info=True)
 
-    delivered_payloads = []
-    for order in delivered_orders:
-        payload = await _map_order_payload(order, farm, center, radius, customers=customers)
+    # Resolve map payloads concurrently. Address geocoding is the expensive
+    # part of this endpoint; doing it sequentially caused timeouts when several
+    # packed orders had older checkout addresses without saved coordinates.
+    delivered_payloads = await asyncio.gather(*[
+        _map_order_payload(order, farm, center, radius, customers=customers)
+        for order in delivered_orders
+    ])
+    for payload in delivered_payloads:
         payload["isDelivered"] = True
-        delivered_payloads.append(payload)
     delivered_payloads.sort(key=lambda p: (p["distance"] or 0))
+    _annotate_physical_stops(delivered_payloads)
 
-    payloads = []
-    for order in orders:
-        payload = await _map_order_payload(
+    payloads = await asyncio.gather(*[
+        _map_order_payload(
             order, farm, center, radius, customers=customers,
             refresh_coords=True, job_info=jobs_by_order.get(str(order["_id"])),
         )
-        payloads.append(payload)
+        for order in orders
+    ])
+    _annotate_physical_stops(payloads)
+
+    long_distance_payloads = await asyncio.gather(*[
+        _map_order_payload(
+            order, farm, center, radius, customers=customers,
+            refresh_coords=False,
+        )
+        for order in long_distance_orders
+    ])
+    for payload, order in zip(long_distance_payloads, long_distance_orders):
+        allocations = []
+        for allocation in (order.get("warehouseAllocations") or []):
+            if not isinstance(allocation, dict):
+                continue
+            allocations.append({
+                "warehouseId": str(allocation.get("warehouseId") or ""),
+                "warehouseName": allocation.get("warehouseName") or "Warehouse",
+                "productName": allocation.get("productName") or "Product",
+                "quantity": float(allocation.get("quantity") or 0),
+                "unit": allocation.get("unit") or "kg",
+                "batchNumber": allocation.get("batchNumber"),
+            })
+        warehouse_ids = order.get("warehouseIds") or []
+        payload.update({
+            "deliveryDecision": "long_distance",
+            "deliveryDecisionStatus": order.get("deliveryDecisionStatus"),
+            "transferStatus": order.get("transferStatus") or order.get("deliveryDecisionStatus") or "warehouse_transfer_pending",
+            "logisticsMode": order.get("logisticsMode") or "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "warehouseCount": int(order.get("warehouseCount") or len(warehouse_ids) or len({
+                str(a.get("warehouseId")) for a in allocations if a.get("warehouseId")
+            })),
+            "warehouseAllocations": allocations,
+            "consolidationWarehouseName": order.get("consolidationWarehouseName"),
+            "finalLocalHub": (
+                order.get("nearbyFulfillmentLocation")
+                if isinstance(order.get("nearbyFulfillmentLocation"), dict)
+                else None
+            ),
+            "routeSetupError": order.get("partnerRouteSetupError"),
+        })
 
     within = [p for p in payloads if p["inRadius"]]
     outside = [p for p in payloads if not p["inRadius"] and p["distance"] is not None]
@@ -2117,9 +2671,16 @@ async def get_my_delivery_map(
     within_distance = round(sum(float(p.get("distance") or 0) for p in within) * 2, 2)
     outside_distance = round(sum(float(p.get("distance") or 0) for p in outside) * 2, 2)
 
+    physical_stop_keys = {p.get("physicalStopKey") for p in payloads if p.get("physicalStopKey")}
+    within_physical_stop_keys = {p.get("physicalStopKey") for p in within if p.get("physicalStopKey")}
+    outside_physical_stop_keys = {p.get("physicalStopKey") for p in outside if p.get("physicalStopKey")}
+
     summary = {
         "radius": radius,
         "totalOrders": len(payloads),
+        "physicalStops": len(physical_stop_keys),
+        "withinPhysicalStops": len(within_physical_stop_keys),
+        "outsidePhysicalStops": len(outside_physical_stop_keys),
         "withinRadius": len(within),
         "outsideRadius": len(outside),
         "unlocated": len(unlocated),
@@ -2156,6 +2717,7 @@ async def get_my_delivery_map(
             "outsideRadius": outside,
             "unlocated": unlocated,
             "delivered": delivered_payloads,
+            "longDistanceOrders": long_distance_payloads,
             "partners": partners,
         },
     }
@@ -2532,18 +3094,77 @@ async def create_self_delivery_plan(
     if farm.get("lat") is None or farm.get("lng") is None:
         raise HTTPException(status_code=400, detail="Farm location is not set")
 
+    # Keep this eligibility query aligned with GET /me/delivery-map.
+    # Packed Farmer Fulfillment orders can remain in a processing/packing
+    # status while they are waiting for the delivery decision. The old query
+    # required _ACTIVE_DELIVERY_STATUSES and deliveryResponsibility="farmer",
+    # which caused the map to show orders that this endpoint then silently
+    # ignored, producing "0 self / 0 partner" after Confirm Selection.
     orders = await order_repository.find_many({
         "farmerId": ObjectId(farmer_id),
-        "orderStatus": {"$in": _ACTIVE_DELIVERY_STATUSES},
-        "fulfillmentMethod": "farmer",
-        "fulfillmentStage": "packed",
-        "deliveryType": {"$ne": DeliveryType.PICKUP.value},
         "deletedAt": None,
     }) or []
+    eligible_orders = []
+    for order in orders:
+        fulfillment_method = str(
+            order.get("fulfillmentMethod") or order.get("fulfillment_route") or ""
+        ).lower()
+        order_status = str(
+            order.get("orderStatus") or order.get("status") or ""
+        ).lower()
+        fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
 
-    selected_ids = {str(x) for x in body.orderIds}
-    # Empty selection is valid: all eligible packed orders can be sent through
-    # automatic distance-based delivery-partner routing.
+        is_packed = is_packed_farmer_order(order)
+        delivery_type = str(order.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
+        delivery_decision = str(order.get("deliveryDecision") or "").lower()
+        if (
+            fulfillment_method in ("farmer", "farm_direct")
+            and delivery_type == DeliveryType.DELIVERY.value.lower()
+            and order_status not in _FINISHED_DELIVERY_STATUSES
+            and not bool(order.get("packingCancelled"))
+            and is_packed
+            and not bool(order.get("deliveryPartnerId"))
+            and not bool(order.get("partnerRequested"))
+            and not bool(order.get("selfDelivery"))
+            and delivery_decision not in ("self_delivery", "nearby", "long_distance")
+        ):
+            eligible_orders.append(order)
+
+    orders = eligible_orders
+
+    selected_ids = {str(x).strip() for x in body.orderIds if str(x).strip()}
+
+    # When the selected radius/route contains no orders, an empty explicit
+    # self-delivery selection is valid: all eligible packed delivery orders
+    # remain in the automatic distance-routing queue below. A route destination
+    # is required only when the farmer selected one or more orders to deliver
+    # personally along that route.
+    if body.method == "route" and selected_ids and not body.destination:
+        raise HTTPException(
+            status_code=400,
+            detail="A route destination is required when selecting orders for Farmer Self Delivery.",
+        )
+    eligible_ids = {str(order["_id"]) for order in orders}
+    stale_ids = sorted(selected_ids - eligible_ids)
+    if stale_ids:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Some selected orders are no longer eligible for delivery planning. Refresh the Order Map and select again.",
+                "orderIds": stale_ids,
+            },
+        )
+
+    # Load customer profile addresses as a fallback for older checkout records
+    # that do not contain delivery coordinates.
+    customer_ids = {str(o.get("customerId")) for o in orders if o.get("customerId")}
+    customer_profiles = {}
+    if customer_ids:
+        try:
+            for customer in (await user_repository.get_by_ids(list(customer_ids))) or []:
+                customer_profiles[str(customer["_id"])] = customer
+        except Exception:
+            logger.warning("Could not load customer addresses for automatic routing", exc_info=True)
     selected = []
     remaining = []
     invalid_selected = []
@@ -2554,8 +3175,23 @@ async def create_self_delivery_plan(
         if oid in selected_ids:
             addr = order.get("deliveryAddress") or {}
             lat, lng = await _stop_coords(addr, oid)
-            if lat is None:
-                invalid_selected.append({"orderId": oid, "reason": "Customer location unavailable"})
+            if lat is None or lng is None:
+                customer = customer_profiles.get(str(order.get("customerId"))) or {}
+                for candidate in (
+                    customer.get("deliveryAddress"),
+                    customer.get("shippingAddress"),
+                    customer.get("address"),
+                    customer.get("location"),
+                ):
+                    if isinstance(candidate, dict):
+                        lat, lng = await _stop_coords(candidate, oid)
+                    if lat is not None and lng is not None:
+                        break
+            if lat is None or lng is None:
+                invalid_selected.append({
+                    "orderId": oid,
+                    "reason": "Customer location unavailable. Add or correct the delivery address before selecting this order for self-delivery.",
+                })
                 continue
             distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
             if body.method == "radius" and distance_km > body.radius:
@@ -2574,19 +3210,31 @@ async def create_self_delivery_plan(
             },
         )
 
-    # No self-delivery selection is also valid. In that case every eligible
-    # packed order continues directly into automatic distance-based
-    # delivery-partner routing below.
+    # Process every explicitly selected order as Farmer Self Delivery. The
+    # remaining set is independent of the active radius/route filter.
     selected_results = []
+    skipped_partner = []
     for order in selected:
         oid = str(order["_id"])
         active = await delivery_assignment_repository.get_by_order_id(oid)
         if active and active.get("status") in ("accepted", "picked_up", "in_transit"):
+            skipped_partner.append({
+                "orderId": oid,
+                "reason": "A delivery partner has already accepted or collected this order.",
+            })
             continue
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh priority for self-delivery order %s", oid, exc_info=True)
         ok = await order_repository.reclaim_for_self_delivery(
             oid, farmer_id, _ACTIVE_DELIVERY_STATUSES
         )
         if not ok:
+            skipped_partner.append({
+                "orderId": oid,
+                "reason": "Order could not be claimed for self-delivery; refresh and review its current status.",
+            })
             continue
         await delivery_assignment_repository.cancel_by_order_id(
             oid, "Farmer selected this order for self delivery"
@@ -2598,14 +3246,16 @@ async def create_self_delivery_plan(
             {
                 "orderStatus": "ready_for_delivery",
                 "deliveryResponsibility": "farmer",
-                "fulfillmentStage": "dispatched",
-                "dispatchedAt": dispatch_at,
-                "dispatchReadyChecklistComplete": True,
-                "deliveryDispatchStatus": "dispatched",
-                "deliveryDispatchAt": dispatch_at,
+                "fulfillmentStage": "packed",
+                "deliveryDispatchStatus": "pending_route_start",
                 "deliveryPartnerRoute": "self_delivery",
-                "deliveryRouteSequence": ["packed", "self_delivery", "dispatch", "farmer", "customer"],
+                "deliveryDecision": "self_delivery",
+                "deliveryDecisionStatus": "confirmed_self",
+                "deliveryDecisionCompletedAt": dispatch_at,
+                "deliveryRouteSequence": ["packed", "self_delivery_confirmed", "delivery_calendar", "smart_route", "route", "dispatch", "farmer", "customer"],
                 "partnerAssignmentOpen": False,
+                "selfDelivery": True,
+                "deliveryVerificationPlanned": True,
                 "updatedAt": dispatch_at,
             },
         )
@@ -2622,159 +3272,301 @@ async def create_self_delivery_plan(
             orderNumber=order.get("orderNumber", ""),
         )
 
-    # Every remaining packed order is automatically assigned to a verified
-    # delivery partner after the distance route is decided. The assignment is
-    # created now, while the physical pickup still follows the route below.
+    # Every eligible packed delivery order not explicitly selected above is
+    # automatically classified, irrespective of whether the UI filter showed
+    # it inside/outside a radius or along/off the selected route.
     partner_results = []
+    pending_resource_results = []
     nearby_count = 0
     long_distance_count = 0
-    skipped = []
-    route_targets = []
+
+    # Recalculate perishable priority before dispatch, then process urgent and
+    # high-priority deadlines before normal orders. This is a fresh execution
+    # check, separate from the priority badge shown on the map.
+    for order in remaining:
+        try:
+            await calculate_order_delivery_priority(order, persist=True)
+        except Exception:
+            logger.warning("Could not refresh priority for automatic order %s", order.get("_id"), exc_info=True)
+    remaining.sort(
+        key=lambda item: (
+            -int(item.get("priority") or 1),
+            (item.get("deliveryDeadline").replace(tzinfo=None)
+             if isinstance(item.get("deliveryDeadline"), datetime) else datetime.max),
+        )
+    )
 
     for order in remaining:
         oid = str(order["_id"])
+
+        # The map and initial plan may have been loaded before a concurrent
+        # packing/status update, and legacy records may contain string flags.
+        # Re-read the authoritative order immediately before making a route
+        # decision so we never route a stale snapshot.
+        current_order = await order_repository.get_by_id(oid)
+        if not current_order:
+            skipped_partner.append({
+                "orderId": oid,
+                "orderNumber": order.get("orderNumber"),
+                "reason": "Order no longer exists. Refresh the Order Map.",
+            })
+            continue
+
+        current_method = str(
+            current_order.get("fulfillmentMethod")
+            or current_order.get("fulfillment_route")
+            or ""
+        ).strip().lower()
+        current_status = str(
+            current_order.get("orderStatus") or current_order.get("status") or ""
+        ).strip().lower()
+        current_decision = str(current_order.get("deliveryDecision") or "").strip().lower()
+        is_terminal = current_status in _FINISHED_DELIVERY_STATUSES
+        already_claimed = (
+            bool(current_order.get("deliveryPartnerId"))
+            or bool(current_order.get("partnerRequested"))
+            or bool(current_order.get("selfDelivery"))
+            or current_decision in ("self_delivery", "nearby", "long_distance")
+        )
+
+        if (
+            current_method not in ("farmer", "farm_direct")
+            or str(current_order.get("deliveryType") or DeliveryType.DELIVERY.value).lower()
+                != DeliveryType.DELIVERY.value.lower()
+            or is_terminal
+            or bool(current_order.get("packingCancelled"))
+            or already_claimed
+        ):
+            skipped_partner.append({
+                "orderId": oid,
+                "orderNumber": current_order.get("orderNumber"),
+                "reason": "Order state changed after the map loaded; it is no longer eligible for automatic delivery routing. Refresh the Order Map.",
+                "fulfillmentStage": current_order.get("fulfillmentStage"),
+                "packingComplete": current_order.get("packingComplete"),
+                "orderStatus": current_status,
+                "deliveryDecision": current_decision or None,
+            })
+            continue
+
+        if not is_packed_farmer_order(current_order):
+            skipped_partner.append({
+                "orderId": oid,
+                "orderNumber": current_order.get("orderNumber"),
+                "reason": "Packing is incomplete. Finish Packing & Checking and mark the order Packing Complete before delivery routing.",
+                "fulfillmentStage": current_order.get("fulfillmentStage") or "missing",
+                "packingComplete": current_order.get("packingComplete", False),
+                "orderStatus": current_status,
+            })
+            continue
+
+        # Use the reloaded source of truth for distance, route, and delivery
+        # persistence, instead of the stale map snapshot.
+        order = current_order
         addr = order.get("deliveryAddress") or {}
         lat, lng = await _stop_coords(addr, oid)
-        if lat is None:
-            skipped.append({"orderId": oid, "reason": "Customer location unavailable"})
-            continue
-        dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
-        route = "nearby" if dist <= body.radius else "long_distance"
-        route_targets.append((order, dist, route))
 
-    # Find eligible partners once and let the existing deterministic AI matcher
-    # balance the whole remaining batch by rating, load, proximity and capacity.
-    available = await _available_partners_with_load(farm, max(body.radius, 50))
-    eligible = [p for p in available if p.get("isAvailable") and p.get("isVerified")]
-    assignment_plan = _ai_partner_plan([(order, dist) for order, dist, _route in route_targets], eligible) if eligible else []
-    partner_by_order = {str(order["_id"]): (partner, reason) for order, partner, reason in assignment_plan}
+        # Older orders may have the real address only on the customer profile.
+        if lat is None or lng is None:
+            customer = customer_profiles.get(str(order.get("customerId"))) or {}
+            for candidate in (
+                customer.get("deliveryAddress"),
+                customer.get("shippingAddress"),
+                customer.get("address"),
+                customer.get("location"),
+            ):
+                if isinstance(candidate, dict):
+                    lat, lng = await _stop_coords(candidate, oid)
+                if lat is not None and lng is not None:
+                    break
 
-    for order, dist, route in route_targets:
-        oid = str(order["_id"])
+        stored_distance = order.get("deliveryDistanceFromFarmKm")
         try:
-            await apply_partner_route(order, route, body.radius)
-            if route == "nearby":
+            fallback_distance = float(stored_distance) if stored_distance is not None else None
+        except (TypeError, ValueError):
+            fallback_distance = None
+
+        if lat is not None and lng is not None:
+            distance_km = _haversine_km(farm["lat"], farm["lng"], lat, lng)
+            partner_route = "nearby" if distance_km <= body.radius else "long_distance"
+        elif fallback_distance is not None:
+            distance_km = fallback_distance
+            partner_route = "nearby" if distance_km <= body.radius else "long_distance"
+        else:
+            # A distance decision cannot be made honestly without coordinates
+            # or a trusted stored distance. Leave the order unassigned and tell
+            # the farmer what must be corrected instead of fabricating a
+            # long-distance route.
+            skipped_partner.append({
+                "orderId": oid,
+                "reason": "Customer location unavailable. Add or correct the delivery address and retry.",
+                "needsLocation": True,
+            })
+            continue
+
+        try:
+            # Supply the resolved farm and customer coordinates to the routing
+            # service. Older checkout orders may have address text but no
+            # coordinates on the order document; without this normalized copy,
+            # warehouse allocation and the farm collection pickup location would
+            # be created without reliable endpoints.
+            routing_order = dict(order)
+            routing_order["farmLocation"] = routing_order.get("farmLocation") or {
+                "lat": farm["lat"],
+                "lng": farm["lng"],
+                "address": farm.get("address") or farm.get("farmAddress") or "",
+                "name": farm.get("name") or "Farm",
+            }
+            routing_order["deliveryAddress"] = {
+                **(addr if isinstance(addr, dict) else {}),
+                "lat": lat,
+                "lng": lng,
+                "location": {"lat": lat, "lng": lng},
+            }
+            route_result = await apply_partner_route(routing_order, partner_route, body.radius)
+            refreshed = await order_repository.get_by_id(oid) or order
+
+            # Nearby orders can go to the local hub and then the delivery
+            # partner. Long-distance orders first go to the warehouse, then
+            # local hub, then delivery partner. The partner job is opened only
+            # when the physical handoff is ready.
+            job = None
+            resource_pending = bool((route_result or {}).get("resourcePending"))
+            if partner_route == "nearby":
+                if not resource_pending:
+                    job = await _open_job_for_order(refreshed, farm, farmer_id)
                 nearby_count += 1
             else:
                 long_distance_count += 1
 
-            await order_repository.update_order_field(oid, "deliveryDistanceFromFarmKm", round(dist, 2))
-            await order_repository.update_order_field(oid, "deliveryDecision", route)
-            await order_repository.update_order_field(oid, "deliveryDecisionSource", "distance")
-            await order_repository.update_order_field(oid, "deliveryDecisionThresholdKm", body.radius)
-
-            partner_entry = partner_by_order.get(oid)
-            if not partner_entry:
-                # A named partner is required for automatic assignment. If no
-                # verified partner is available, keep the order visible as an
-                # explicit exception instead of silently claiming it was assigned.
-                job = None
-                refreshed = await order_repository.get_by_id(oid) or order
-                if route == "nearby":
-                    job = await _open_job_for_order(refreshed, farm, farmer_id)
-                skipped.append({
+            if resource_pending:
+                pending_resource_results.append({
                     "orderId": oid,
-                    "reason": "No available verified delivery partner; order opened for partner acceptance",
-                    "deliveryJob": job,
+                    "route": partner_route,
+                    "reason": "The distance decision was saved, but a required warehouse or local hub is not available yet.",
                 })
-                partner_results.append({
-                    "orderId": oid,
-                    "distanceKm": round(dist, 2),
-                    "route": route,
-                    "status": "partner_pending",
-                    "deliveryJob": job,
-                })
-                continue
-
-            partner, reason = partner_entry
-            if not await order_repository.assign_partner_safe(oid, farmer_id, partner["id"], _ACTIVE_DELIVERY_STATUSES):
-                skipped.append({"orderId": oid, "reason": "Order was already assigned or is no longer eligible"})
-                continue
-
-            assignment_time = datetime.utcnow()
-            await order_repository.update(
-                {"_id": ObjectId(oid)},
-                {"$set": {
-                    "deliveryResponsibility": "delivery_partner",
-                    "deliveryPartnerName": partner["name"],
-                    "partnerAssignmentOpen": False,
-                    "partnerRequested": False,
-                    "partnerAssignmentSource": "farmer_order_map_auto",
-                    "partnerAssignmentMethod": "ai_auto",
-                    "partnerAssignedAt": assignment_time,
-                    "deliveryPartnerHandoffStatus": "awaiting_hub_handoff",
-                    "updatedAt": assignment_time,
-                }}
-            )
-            try:
-                existing = await delivery_assignment_repository.get_by_order_id(oid)
-                if existing:
-                    await delivery_assignment_repository.reassign_open_assignment(oid, partner["id"])
-                else:
-                    await delivery_assignment_repository.create_assignment({
-                        "orderId": ObjectId(oid),
-                        "deliveryPartnerId": ObjectId(partner["id"]),
-                        "farmerId": ObjectId(farmer_id),
-                        "priority": 1,
-                        "source": "farmer_order_map_auto",
-                        "assignee": "system",
-                        "assignmentMethod": "ai_auto",
-                    })
-            except Exception as exc:
-                logger.warning("Automatic delivery assignment record failed for %s: %s", oid, exc)
-
-            try:
-                if partner.get("userId"):
-                    await NotificationService.send_custom_notification(
-                        partner["userId"],
-                        f"Delivery assigned: order {order.get('orderNumber', '')}. Route: {'Nearby' if route == 'nearby' else 'Long Distance'}.",
-                    )
-            except Exception:
-                pass
 
             partner_results.append({
                 "orderId": oid,
-                "distanceKm": round(dist, 2),
-                "route": route,
-                "status": "assigned",
-                "partnerId": partner["id"],
-                "partnerName": partner["name"],
-                "assignmentReason": reason,
-                "handoffStatus": "awaiting_hub_handoff",
+                "distanceKm": round(distance_km, 2) if distance_km is not None else None,
+                "route": partner_route,
+                "deliveryJob": job,
+                "deliveryDecisionStatus": (
+                    "hub_handoff_pending" if resource_pending and partner_route == "nearby"
+                    else "warehouse_transfer_pending" if resource_pending and partner_route == "long_distance"
+                    else "partner_pending" if partner_route == "nearby"
+                    else "warehouse_transfer_pending"
+                ),
+                **(route_result or {}),
             })
             _notify_delivery_map(
-                farmer_id, "order.assigned", orderId=oid,
-                partnerId=partner["id"], partnerName=partner["name"],
-                route=route, automatic=True,
+                farmer_id,
+                "order.updated",
+                orderId=oid,
+                mode="delivery_partner",
+                route=partner_route,
+                orderNumber=order.get("orderNumber", ""),
             )
         except Exception as exc:
-            logger.warning("Automatic partner routing failed for order %s: %s", oid, exc)
-            skipped.append({"orderId": oid, "reason": "Partner routing could not be created"})
+            logger.exception("Failed to route remaining order %s through delivery partner flow", oid)
+            # apply_partner_route persists the distance decision before building
+            # multi-warehouse transfer legs. If downstream setup fails after
+            # that commit, do not hide the order as a generic skipped result:
+            # preserve an explicit pending handoff and surface it in the UI.
+            if any(str(item.get("orderId")) == oid for item in partner_results):
+                # The route result was already recorded; only a later event
+                # notification failed, so do not duplicate the result.
+                continue
+            try:
+                persisted_order = await order_repository.get_by_id(oid) or order
+            except Exception:
+                persisted_order = order
+            persisted_decision = str(persisted_order.get("deliveryDecision") or "").lower()
+            if persisted_decision == partner_route:
+                reason = "Route decision saved, but logistics setup needs attention: " + str(exc)[:500]
+                pending_status = (
+                    "hub_handoff_pending" if partner_route == "nearby"
+                    else "warehouse_transfer_pending"
+                )
+                transfer_status = (
+                    "hub_handoff_pending" if partner_route == "nearby"
+                    else "warehouse_consolidation_pending"
+                )
+                try:
+                    await MongoDB.get_collection("orders").update_one(
+                        {"_id": persisted_order["_id"]},
+                        {"$set": {
+                            "deliveryDecisionStatus": pending_status,
+                            "transferStatus": transfer_status,
+                            "partnerAssignmentOpen": False,
+                            "partnerRouteSetupError": str(exc)[:1000],
+                            "updatedAt": datetime.utcnow(),
+                        }},
+                    )
+                except Exception:
+                    logger.exception("Could not persist pending logistics state for order %s", oid)
+                pending_resource_results.append({
+                    "orderId": oid,
+                    "route": partner_route,
+                    "reason": reason,
+                })
+                if partner_route == "nearby":
+                    nearby_count += 1
+                else:
+                    long_distance_count += 1
+                partner_results.append({
+                    "orderId": oid,
+                    "distanceKm": round(distance_km, 2) if distance_km is not None else None,
+                    "route": partner_route,
+                    "deliveryJob": None,
+                    "deliveryDecisionStatus": pending_status,
+                    "resourcePending": True,
+                    "setupError": str(exc)[:500],
+                })
+            else:
+                skipped_partner.append({"orderId": oid, "reason": str(exc)})
 
-
+    partner_count = len(partner_results)
+    automatic_order_ids = [str(item["orderId"]) for item in partner_results]
+    automatic_nearby_ids = [
+        str(item["orderId"]) for item in partner_results if item.get("route") == "nearby"
+    ]
+    automatic_long_distance_ids = [
+        str(item["orderId"]) for item in partner_results if item.get("route") == "long_distance"
+    ]
     _notify_delivery_map(
-        farmer_id, "delivery.plan.finalized",
-        method=body.method, selfDeliveryCount=len(selected_results),
-        partnerCount=len(partner_results),
+        farmer_id,
+        "delivery.plan.finalized",
+        method=body.method,
+        selfDeliveryCount=len(selected_results),
+        partnerCount=partner_count,
+        nearbyCount=nearby_count,
+        longDistanceCount=long_distance_count,
     )
     return {
         "success": True,
         "data": {
+            # The Order Map checks this marker to detect a stale backend process.
+            "routingValidationVersion": "farmer-packing-v2",
             "method": body.method,
             "selfDeliveryOrderIds": selected_results,
             "selfDeliveryCount": len(selected_results),
-            "partnerCount": len(partner_results),
+            "partnerCount": partner_count,
             "nearbyCount": nearby_count,
             "longDistanceCount": long_distance_count,
+            "automaticOrderIds": automatic_order_ids,
+            "automaticNearbyOrderIds": automatic_nearby_ids,
+            "automaticLongDistanceOrderIds": automatic_long_distance_ids,
             "partnerResults": partner_results,
-            "skipped": skipped,
+            "pendingResources": pending_resource_results,
+            "pendingResourceOrderIds": [item["orderId"] for item in pending_resource_results],
+            "skipped": skipped_partner,
+            "remainingOrderIds": [str(o["_id"]) for o in remaining],
             "radius": body.radius,
             "destination": body.destination,
         },
         "message": (
-            f"Self delivery route created for {len(selected_results)} orders. "
-            f"{len(partner_results)} remaining orders were routed automatically "
-            f"by distance ({nearby_count} nearby, {long_distance_count} long distance)."
+            f"Delivery plan finalized: {len(selected_results)} self-delivery · "
+            f"{nearby_count} nearby partner route · {long_distance_count} long-distance warehouse route"
         ),
     }
 
@@ -2804,11 +3596,18 @@ async def choose_delivery_partner_route(
         "deletedAt": None,
     }) or []
 
-    selected = set(body.orderIds or [])
+    # Explicit selection is mandatory. Radius/route is only a filter and
+    # must never cause an implicit delivery assignment.
+    selected = {str(x) for x in (body.orderIds or []) if str(x)}
+    if not selected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select at least one packed order before choosing a delivery-partner route.",
+        )
     targets = []
     for order in orders:
         oid = str(order["_id"])
-        if selected and oid not in selected:
+        if oid not in selected:
             continue
         if order.get("selfDelivery") or order.get("deliveryPartnerId"):
             continue

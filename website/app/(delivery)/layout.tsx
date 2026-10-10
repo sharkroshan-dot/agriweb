@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { DeliverySidebar } from "../components/delivery/delivery-sidebar";
+import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 import { Footer } from "../components/common/footer";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
 import { AppPresence } from "../components/chat/app-presence";
@@ -36,10 +37,11 @@ export default function DeliveryLayout({
   return (
     <div className="flex min-h-screen flex-col">
       <AppPresence />
+      <RoleMobileNav role="delivery" />
       <div className="flex flex-1 bg-transparent">
         <DeliverySidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="site-content mx-auto w-full max-w-[1440px]"><WorkflowGuide role="delivery" />{children}</div>
+          <div className="site-content role-workspace mx-auto w-full max-w-[1440px]"><WorkflowGuide role="delivery" />{children}</div>
         </main>
       </div>
       <Footer />

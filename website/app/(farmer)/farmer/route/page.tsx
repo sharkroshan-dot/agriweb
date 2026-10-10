@@ -313,7 +313,7 @@ export default function FarmerRoutePage() {
   const [problemNote, setProblemNote] = useState("");
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["farmerRoute"],
+    queryKey: ["farmerRoute", workflowOrderIds],
     queryFn: () => api.get(`/farmers/me/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
     enabled: Boolean(accessToken),
   });
@@ -342,10 +342,18 @@ export default function FarmerRoutePage() {
   };
 
   const startMutation = useMutation({
-    mutationFn: () => api.put("/farmers/me/route/start"),
-    onSuccess: () => {
+    mutationFn: () => api.put(`/farmers/me/route/start${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
+    onSuccess: (res: any) => {
+      const updatedStops = Number(res?.data?.updatedStops ?? res?.updatedStops ?? 0);
+      if (!updatedStops) {
+        toast(
+          "No delivery stops were dispatched. Customer pickup orders must be completed with the customer's pickup code or QR.",
+          { icon: "📦", duration: 6500 }
+        );
+        return;
+      }
       setStarted(true);
-      toast.success("Route started! Stops are marked as self-delivery.");
+      toast.success("Route started! Delivery stops are dispatched; priority is refreshed before execution.");
     },
     onError: () => toast.error("Failed to start route"),
   });
@@ -438,8 +446,24 @@ export default function FarmerRoutePage() {
     if (!startMutation.isPending) startMutation.mutate();
   };
 
-  const handleComplete = (stop: Stop) => {
-    if (!completeMutation.isPending) completeMutation.mutate(stop);
+  const handleComplete = async (stop: Stop) => {
+    if (completeMutation.isPending) return;
+    if (stop.deliveryType !== "pickup") {
+      const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer.");
+      if (!otp) return;
+      if (!/^\d{6}$/.test(otp.trim())) {
+        toast.error("Enter the customer's 6-digit delivery OTP.");
+        return;
+      }
+      try {
+        await api.post("/orders/" + stop.orderId + "/delivery-verification", { code: otp.trim(), method: "otp" });
+        toast.success("Customer hand-off verified.");
+      } catch (e: any) {
+        toast.error(e?.message || "Invalid delivery OTP");
+        return;
+      }
+    }
+    completeMutation.mutate(stop);
   };
 
   const toggleTracking = () => {
@@ -508,13 +532,13 @@ export default function FarmerRoutePage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <Link href="/farmer/delivery-calendar">
+            <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
               <Calendar className="mr-2 h-4 w-4" />
               Delivery Calendar
             </Link>
           </Button>
           <Button asChild variant="outline" size="sm">
-            <Link href="/farmer/smart-route">
+            <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
               <Sparkles className={cn("mr-2 h-4 w-4", completeMutation.isPending && "animate-pulse")} />
               Optimize with AI
             </Link>
@@ -535,10 +559,10 @@ export default function FarmerRoutePage() {
           </p>
           <div className="mt-6 flex flex-wrap justify-center gap-3">
             <Button asChild>
-              <Link href="/farmer/delivery-calendar">View Delivery Calendar</Link>
+              <Link href={`/farmer/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>View Delivery Calendar</Link>
             </Button>
             <Button asChild variant="outline">
-              <Link href="/farmer/smart-route">Smart Route</Link>
+              <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>Smart Route</Link>
             </Button>
           </div>
         </Card>

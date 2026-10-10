@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { FarmerSidebar } from "../components/farmer/farmer-sidebar";
+import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 import { Footer } from "../components/common/footer";
 import ChatWidget from "../components/shared/chat-widget";
 import { AppPresence } from "../components/chat/app-presence";
@@ -37,10 +38,11 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
   return (
     <div className="flex min-h-screen flex-col">
       <AppPresence />
+      <RoleMobileNav role="farmer" />
       <div className="flex flex-1 bg-transparent">
         <FarmerSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 lg:px-7">
-          <div className={`site-content mx-auto w-full max-w-[1440px] ${isOrderPage ? "" : "farmer-workspace"}`}><WorkflowGuide role="farmer" />{children}</div>
+          <div className={`site-content role-workspace mx-auto w-full max-w-[1440px] ${isOrderPage ? "" : "farmer-workspace"}`}><WorkflowGuide role="farmer" />{children}</div>
         </main>
       </div>
       <Footer />

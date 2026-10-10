@@ -20,6 +20,7 @@ import logging
 from app.api.v1.auth import get_current_user
 from app.repositories.base_repository import BaseRepository
 from app.repositories.product_repository import product_repository
+from app.repositories.inventory_repository import inventory_repository
 harvest_preorder_repository = BaseRepository("harvest_preorders")
 from app.services.quality_ai import assess_quality
 from app.services.notification_service import NotificationService
@@ -162,9 +163,20 @@ async def _propagate_verification(inspection: dict) -> None:
     )
     product_id = batch.get("productId")
     if product_id:
+        # A harvested product becomes customer-visible only after independent
+        # quality approval. Its quantity and final harvest rate are taken from
+        # the verified batch, not from a stale draft value.
+        actual_qty = float(batch.get("quantityKg") or 0)
+        final_rate = float(
+            batch.get("finalSellingRatePerKg")
+            or batch.get("finalRatePerKg")
+            or product.get("price") if product else 0
+        )
         await product_repository.collection.update_one(
             {"_id": product_id, "deletedAt": None},
             {"$set": {
+                "quantity": int(actual_qty),
+                "price": final_rate if final_rate > 0 else (product.get("price") if product else 0),
                 "qualityGrade": inspection["verifiedGrade"],
                 "farmerDeclaredGrade": inspection.get("farmerDeclaredGrade"),
                 "verifiedGrade": inspection["verifiedGrade"],
@@ -177,22 +189,44 @@ async def _propagate_verification(inspection: dict) -> None:
                 "isActive": True,
             }},
         )
+        await inventory_repository.ensure_inventory_exists(
+            str(product_id),
+            str(batch.get("farmerId")),
+            int(actual_qty),
+            (product or {}).get("unit", "kg"),
+        )
 
-    # Quality approval is the gate that turns a harvested pre-order
-    # reservation into a customer action: confirm purchase + pay.
-    if product_id:
+    # Quality approval is the gate that turns an allocated harvest reservation
+    # into a customer action: confirm final price + pay.
+    if product_id and batch.get("sourceHarvestPlanId"):
         preorders = await harvest_preorder_repository.find_many({
             "harvestPlanId": batch.get("sourceHarvestPlanId"),
             "status": {"$in": ["confirmed"]},
             "deletedAt": None,
-        }, limit=1000) if batch.get("sourceHarvestPlanId") else []
+        }, limit=1000)
         for po in preorders or []:
             try:
+                quantity = float(po.get("allocatedQuantityKg") or po.get("quantityKg") or 0)
+                if quantity <= 0:
+                    continue
+                reserved = await inventory_repository.atomic_reserve(str(product_id), quantity)
+                if not reserved:
+                    await harvest_preorder_repository.update(
+                        {"_id": po["_id"]},
+                        {"status": "inventory_shortage", "shortageReason": "Unable to reserve harvested inventory", "updatedAt": datetime.utcnow()},
+                    )
+                    continue
                 now = datetime.utcnow()
+                final_rate = float(po.get("finalUnitPricePerKg") or batch.get("finalSellingRatePerKg") or batch.get("finalRatePerKg") or 0)
                 await harvest_preorder_repository.update(
                     {"_id": po["_id"]},
                     {
                         "status": "ready_for_confirmation",
+                        "productId": product_id,
+                        "allocatedQuantityKg": quantity,
+                        "finalUnitPricePerKg": final_rate,
+                        "finalTotal": round(quantity * final_rate, 2),
+                        "priceChange": round(final_rate - float(po.get("plannedUnitPricePerKg") or po.get("unitPricePerKg") or 0), 2),
                         "qualityApprovedAt": now,
                         "updatedAt": now,
                     },
@@ -201,7 +235,7 @@ async def _propagate_verification(inspection: dict) -> None:
                     str(po.get("customerId")),
                     NotificationType.ORDER,
                     "Your pre-order is ready to confirm 🎉",
-                    f"{po.get('cropName', 'Harvest')} passed quality inspection. Your {float(po.get('quantityKg', 0) or 0):g} kg pre-order is ready for checkout at the agreed pre-order price of ₹{float(po.get('unitPricePerKg', 0) or 0):g}/kg.",
+                    f"{po.get('cropName', 'Harvest')} passed quality inspection. Your {quantity:g} kg pre-order is ready for checkout at the final price of ₹{final_rate:g}/kg.",
                     {
                         "harvestPlanId": str(batch.get("sourceHarvestPlanId")),
                         "preorderId": str(po["_id"]),

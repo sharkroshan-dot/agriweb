@@ -83,15 +83,28 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Starting AgriConnect AI Backend...")
     expiry_task = None
+    workflow_task = None
     try:
         await MongoDB.connect()
         await RedisClient.connect()
         await seed_categories()
+        from app.api.v1.master_crops import seed_master_crops
+        await seed_master_crops()
         from app.repositories.audit_log_repository import audit_log_repository
         await audit_log_repository.ensure_ttl_index()
         expiry_task = asyncio.create_task(reservation_expiry_loop())
         from app.api.v1 import subscriptions as _subscriptions
         basket_task = asyncio.create_task(_subscriptions.basket_scheduler_loop())
+        from app.services.fulfillment_workflow_orchestrator import FulfillmentWorkflowOrchestrator
+        await FulfillmentWorkflowOrchestrator.ensure_indexes()
+        async def workflow_reconciliation_loop():
+            while True:
+                try:
+                    await FulfillmentWorkflowOrchestrator.reconcile_active_orders(limit=500)
+                except Exception:
+                    logger.exception("Cross-role fulfillment reconciliation failed")
+                await asyncio.sleep(15)
+        workflow_task = asyncio.create_task(workflow_reconciliation_loop())
         logger.info("✅ Database connections established")
     except Exception as exc:
         logger.error(f"❌ Database startup failed: {exc}")
@@ -102,6 +115,8 @@ async def lifespan(app: FastAPI):
     logger.info("🛑 Shutting down...")
     if expiry_task:
         expiry_task.cancel()
+    if workflow_task:
+        workflow_task.cancel()
     if basket_task:
         basket_task.cancel()
     try:
@@ -287,6 +302,8 @@ from app.api.v1 import bulk_orders
 app.include_router(bulk_orders.router, prefix="/api/v1/bulk-orders", tags=["Bulk Orders"])
 from app.api.v1 import batches
 app.include_router(batches.router, prefix="/api/v1/batches", tags=["Batches"])
+from app.api.v1 import master_crops
+app.include_router(master_crops.router, prefix="/api/v1/master-crops", tags=["Master Crops"])
 from app.api.v1 import subscriptions
 app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["Subscriptions"])
 from app.api.v1 import refunds

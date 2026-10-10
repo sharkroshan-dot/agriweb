@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package } from "lucide-react";
+import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package, Eye } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -63,8 +63,7 @@ export default function CustomerBulkOrdersPage() {
         </Button>
       </div>
       <p className="text-sm text-gray-500">
-        Planning a wedding, function, festival or party? Request quotes for large quantities and let
-        farmers compete for your order — you pick the best offer.
+        Plan an event or a weekly family basket. AgriConnect uses smart sourcing for both; planned events may also collect farmer quotes, while weekly family baskets never use RFQs.
       </p>
 
       <div className="flex gap-2">
@@ -106,13 +105,13 @@ export default function CustomerBulkOrdersPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700">
-                          {r.requestType === "b2b" ? "Business RFQ" : "🎉 Event Request"}
+                          {r.requestType === "b2b" ? "Business RFQ" : r.purchaseMode === "family_weekly" ? "🧺 Weekly Family Basket" : "🎉 Event Request"}
                         </Badge>
                         <p className="font-medium">{r.requestNumber}</p>
                       </div>
                       <Badge variant={requestStatusVariant[r.status] || "secondary"}>{r.status.replace(/_/g, " ")}</Badge>
                     </div>
-                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}</p>
+                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}{r.familySize ? ` · Family of ${r.familySize}` : ""}</p>
                     <ItemsSummary items={r.items} />
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
@@ -123,6 +122,24 @@ export default function CustomerBulkOrdersPage() {
                         <MapPin className="h-3.5 w-3.5" /> {r.deliveryCity || r.deliveryAddress?.city || "Location"}
                       </span>
                       <span>{r.offerCount ?? 0} offer(s)</span>
+                      {r.requestType === "bulk_event" ? (
+                        <>
+                          <Link
+                            href={`/bulk-orders/${r.id}/sourcing`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-medium text-emerald-700 hover:underline"
+                          >
+                            Smart Fulfillment
+                          </Link>
+                          <Link
+                            href={"/bulk-orders/" + r.id + "/tracking"}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                          >
+                            <Eye className="h-3.5 w-3.5" /> View Tracking
+                          </Link>
+                        </>
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>
@@ -162,6 +179,14 @@ export default function CustomerBulkOrdersPage() {
                   <span>Deliver {o.requestedDeliveryDate}</span>
                   <span>₹{Number(o.totalAmount || 0).toFixed(2)}</span>
                   <span className="capitalize">{o.deliveryMethod?.replace(/_/g, " ")}</span>
+                </div>
+                <div className="mt-2">
+                  <Link
+                    href={"/bulk-orders/" + o.requestId + "/tracking"}
+                    className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
+                  >
+                    <Eye className="h-4 w-4" /> View Tracking
+                  </Link>
                 </div>
               </CardContent>
             </Card>

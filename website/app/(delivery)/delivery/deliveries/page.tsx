@@ -4,13 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CheckCircle, Share2, Camera, Loader2, CalendarClock, Zap, Phone, MessageSquare, Navigation } from "lucide-react";
+import { CheckCircle, Share2, Camera, Loader2, CalendarClock, Zap, Phone, MessageSquare, Navigation, QrCode } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 import { useState, useRef, useMemo, useEffect } from "react";
+import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
 
 const distanceBetweenKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const radians = Math.PI / 180;
@@ -90,6 +91,9 @@ export default function DeliveryDeliveriesPage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [qrScanOrderId, setQrScanOrderId] = useState<string | null>(null);
+  const qrScannerRef = useRef<any>(null);
+  const [qrScanError, setQrScanError] = useState<string | null>(null);
   const [nearbyRadius, setNearbyRadius] = useState(10);
   const [liveLocation, setLiveLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -351,7 +355,9 @@ export default function DeliveryDeliveriesPage() {
       const key = getOrderId(delivery);
       if (key && !merged.has(key)) merged.set(key, delivery);
     });
-    return [...merged.values()].sort((a: any, b: any) => {
+    return sortByDeliveryPriority([...merged.values()]).sort((a: any, b: any) => {
+      const pa = Number(a?.priority ?? 1); const pb = Number(b?.priority ?? 1);
+      if (pa !== pb) return pb - pa;
       const aDistance = Number(a.distanceFromPartnerKm ?? Number.MAX_SAFE_INTEGER);
       const bDistance = Number(b.distanceFromPartnerKm ?? Number.MAX_SAFE_INTEGER);
       return aDistance - bDistance;
@@ -414,11 +420,9 @@ export default function DeliveryDeliveriesPage() {
       .filter(Boolean)
       .sort((a: any, b: any) => a.distanceFromPartnerKm - b.distanceFromPartnerKm)[0] || null;
   }, [deliveries, partnerLocation, geocodedOrders]);
-  const prioritizedDeliveries = useMemo(() => [...deliveries].sort((a: any, b: any) => {
-    const aDate = a.requestedDeliveryDate ? new Date(a.requestedDeliveryDate).getTime() : Number.MAX_SAFE_INTEGER;
-    const bDate = b.requestedDeliveryDate ? new Date(b.requestedDeliveryDate).getTime() : Number.MAX_SAFE_INTEGER;
-    return aDate - bDate;
-  }), [deliveries]);
+  const prioritizedDeliveries = useMemo(() => sortByDeliveryPriority(deliveries), [deliveries]);
+
+
 
   const freshnessLabel = (delivery: any) => {
     if (!delivery.requestedDeliveryDate) return null;
@@ -492,35 +496,71 @@ export default function DeliveryDeliveriesPage() {
   };
 
   const handleMarkDelivered = async (delivery: any) => {
-    const orderId = getOrderId(delivery);
     const assignmentId = getAssignmentId(delivery);
+    if (!assignmentId) {
+      toast.error("A delivery assignment is required before completion.");
+      return;
+    }
+    const otp = window.prompt("Enter the 6-digit delivery OTP shown by the customer. If you already scanned the customer QR, leave this blank.");
+    if (otp === null) return;
+    if (otp.trim() && !/^\\d{6}$/.test(otp.trim())) {
+      toast.error("Enter the customer's 6-digit delivery OTP.");
+      return;
+    }
     try {
-      const res = await api.put(`/orders/${orderId}/status`, { status: "delivered" });
+      const res = await api.put("/delivery/assignments/" + assignmentId + "/deliver", { otp: otp.trim() });
       if (res?.success) {
-        toast.success("Order delivered!");
+        toast.success("Delivery verified and completed!");
         void refetchDeliveries();
       } else {
-        if (assignmentId) {
-          await api.put(`/delivery/assignments/${assignmentId}/complete`);
-          toast.success("Delivery completed!");
-        } else {
-          toast.error(res?.detail || "Failed to mark delivered");
-        }
-        void refetchDeliveries();
+        toast.error(res?.detail || "Invalid delivery OTP");
       }
     } catch (err: any) {
-      if (assignmentId) {
-        try {
-          await api.put(`/delivery/assignments/${assignmentId}/complete`);
-          toast.success("Delivery completed!");
-          void refetchDeliveries();
-          return;
-        } catch {
-          // Surface the original status update error below.
-        }
-      }
-      toast.error(err?.message || "Failed to mark delivered");
+      toast.error(err?.message || "Invalid delivery OTP or delivery status");
     }
+  };
+
+  const startQrVerification = async (orderId: string) => {
+    setQrScanOrderId(orderId);
+    setQrScanError(null);
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
+      const scanner = new Html5Qrcode("delivery-qr-reader");
+      qrScannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        async (decodedText: string) => {
+          try {
+            await scanner.stop();
+          } catch {}
+          qrScannerRef.current = null;
+          try {
+            const res = await api.post("/orders/" + orderId + "/delivery-verification", { token: decodedText, method: "qr" });
+            if (res?.success) {
+              toast.success("Customer QR verified. Delivery can now be completed.");
+              setQrScanOrderId(null);
+              void refetchDeliveries();
+            } else {
+              setQrScanError(res?.detail || "Invalid customer QR");
+            }
+          } catch (e: any) {
+            setQrScanError(e?.message || "Invalid customer QR");
+          }
+        },
+        () => undefined,
+      );
+    } catch (e: any) {
+      setQrScanError(e?.message || "Camera access failed");
+    }
+  };
+
+  const stopQrVerification = async () => {
+    try {
+      if (qrScannerRef.current) await qrScannerRef.current.stop();
+    } catch {}
+    qrScannerRef.current = null;
+    setQrScanOrderId(null);
   };
 
   const handlePodUpload = async (assignmentId: string, file: File) => {
@@ -769,6 +809,7 @@ export default function DeliveryDeliveriesPage() {
                       {delivery.items.map((i: any) => i.productName).join(", ")}
                     </p>
                   )}
+                  <DeliveryPriorityBadge delivery={delivery} />
                   {freshnessLabel(delivery) && (
                     <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${freshnessLabel(delivery)?.isToday ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
                       {freshnessLabel(delivery)?.isToday ? <Zap className="h-3.5 w-3.5" /> : <CalendarClock className="h-3.5 w-3.5" />}
@@ -789,6 +830,11 @@ export default function DeliveryDeliveriesPage() {
                   {(delivery.status === "in_transit" || delivery.status === "dispatched" || delivery.status === "picked_up") && (
                     <Button size="sm" variant="success" onClick={() => handleMarkDelivered(delivery)}>
                       <CheckCircle className="mr-1.5 h-4 w-4" />Mark Delivered
+                    </Button>
+                  )}
+                  {delivery.status !== "delivered" && getAssignmentId(delivery) && (
+                    <Button size="sm" variant="outline" onClick={() => startQrVerification(getOrderId(delivery))}>
+                      <QrCode className="mr-1.5 h-4 w-4" />Scan QR
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={() => handleShare(delivery.orderId || delivery.id)}>
@@ -828,6 +874,22 @@ export default function DeliveryDeliveriesPage() {
           )}
         </CardContent>
       </Card>
+      {qrScanOrderId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">Scan customer delivery QR</p>
+                <p className="text-xs text-muted-foreground">Point the camera at the QR shown on the customer's order.</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={stopQrVerification}>Close</Button>
+            </div>
+            <div id="delivery-qr-reader" className="mt-4 overflow-hidden rounded-xl border bg-black" />
+            {qrScanError && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700">{qrScanError}</p>}
+            <p className="mt-3 text-xs text-muted-foreground">After verification, use the delivery OTP or complete the delivery from the delivery workflow.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

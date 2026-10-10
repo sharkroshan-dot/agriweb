@@ -304,13 +304,57 @@ export default function HarvestMarketplacePage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {po.status === "partial_offer" ? (
+                      <div className="w-full rounded-xl border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-sm font-semibold text-amber-900">
+                          Only {po.allocatedQuantityKg} kg is available from the actual harvest
+                        </p>
+                        <p className="mt-1 text-xs text-amber-800">
+                          You requested {po.quantityKg} kg. Choose whether to continue with the available quantity or cancel.
+                        </p>
+                        <div className="mt-3 flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await api.post(`/harvests/my/preorders/${po.id}/partial-decision`, { decision: "accept" });
+                                toast.success(`${po.allocatedQuantityKg} kg accepted. We'll notify you after quality approval.`);
+                                queryClient.invalidateQueries({ queryKey: ["my-preorders"] });
+                              } catch (err: any) {
+                                toast.error(err?.message || "Unable to accept the partial quantity");
+                              }
+                            }}
+                          >
+                            Continue with {po.allocatedQuantityKg} kg
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                await api.post(`/harvests/my/preorders/${po.id}/partial-decision`, { decision: "cancel" });
+                                toast.success("Pre-order cancelled. No payment was taken.");
+                                queryClient.invalidateQueries({ queryKey: ["my-preorders"] });
+                              } catch (err: any) {
+                                toast.error(err?.message || "Unable to cancel the pre-order");
+                              }
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                     {po.status === "ready_for_confirmation" ? (
                       <Button
                         size="sm"
                         onClick={() => window.location.assign(`/harvests/preorders/${po.id}/checkout`)}
                       >
-                        Confirm & Pay
+                        Confirm final price & pay
                       </Button>
+                    ) : null}
+                    {po.status === "waitlisted" || po.status === "inventory_shortage" ? (
+                      <Badge variant="secondary">Waiting for harvest quantity</Badge>
                     ) : null}
                     {po.status === "order_created" || po.status === "paid" ? (
                       <Button

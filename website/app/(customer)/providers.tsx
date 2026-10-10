@@ -18,10 +18,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 60 * 1000,
+            // Reuse recent page data while moving between dashboard sections.
+            // Explicit mutations/invalidation still refresh affected records.
+            staleTime: 2 * 60 * 1000,
             gcTime: 30 * 60 * 1000,
-            refetchOnWindowFocus: "always",
-            retry: 1,
+            refetchOnWindowFocus: false,
+            // Avoid repeating a slow request and keeping a page in loading state
+            // for another full timeout window.
+            retry: 0,
           },
           mutations: {
             retry: 0,

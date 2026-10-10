@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any, List
+from app.services.delivery_priority_service import calculate_order_delivery_priority
 from bson import ObjectId
 from datetime import datetime
 from app.repositories.order_repository import order_repository
@@ -18,7 +19,9 @@ from app.services.inventory_service import inventory_service, broadcast_stock_up
 from app.core.config import settings
 from app.repositories.reservation_repository import reservation_repository
 from app.repositories.base_repository import BaseRepository
+from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
 import httpx
+import secrets
 import logging
 
 logger = logging.getLogger(__name__)
@@ -294,6 +297,7 @@ class OrderService:
         subtotal = 0
         farmer_id = None
         warehouse_id = None
+        warehouse_selection = None
         fulfillment_method = (
             data.fulfillmentMethod.value
             if hasattr(data.fulfillmentMethod, "value")
@@ -361,9 +365,32 @@ class OrderService:
                 )
             farmer_id = product_farmer_id
             if fulfillment_method == FulfillmentMethod.WAREHOUSE.value:
-                warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
-                if not warehouse_id:
-                    raise OrderCreationError('Warehouse fulfillment was selected, but no warehouse is configured for this farmer.')
+                # Select the nearest suitable warehouse from the farm location.
+                origin = await _resolve_tracking_origin({
+                    "farmerId": farmer_id,
+                    "items": [{
+                        "productId": str(item.productId),
+                        "farmAddress": product.get("farmAddress") or "",
+                        "farmCity": product.get("farmCity") or "",
+                        "farmState": product.get("farmState") or "",
+                        "farmPincode": product.get("farmPincode") or "",
+                    }],
+                })
+                storage_type = product.get("storageType") or product.get("storage_type") or (product.get("attributes") or {}).get("storageType")
+                from app.services.warehouse_service import WarehouseService
+                selected = await WarehouseService.find_best_warehouse(
+                    origin, required_capacity=float(item.quantity or 0), storage_type=storage_type
+                ) if origin else None
+                if not selected:
+                    raise OrderCreationError("Warehouse fulfillment was selected, but no suitable nearby warehouse has enough capacity and compatible storage.")
+                warehouse_id = str(selected["_id"])
+                warehouse_selection = {
+                    "warehouseId": warehouse_id,
+                    "warehouseName": selected.get("name"),
+                    "distanceKm": selected.get("selectionDistanceKm"),
+                    "availableCapacity": selected.get("availableCapacity"),
+                    "reason": selected.get("selectionReason"),
+                }
             
             min_bulk = product.get("minBulkQty", 0)
             bulk_price = product.get("bulkPrice")
@@ -410,6 +437,15 @@ class OrderService:
                 "productName": product["name"],
                 "quantity": item.quantity,
                 "unitPrice": effective_unit_price,
+                "batchId": str(product.get("batchId")) if product.get("batchId") else None,
+                "harvestedAt": product.get("harvestedAt"),
+                "harvestDate": product.get("harvestDate"),
+                "expectedShelfLifeHours": product.get("expectedShelfLifeHours"),
+                "expiryDate": product.get("expiryDate"),
+                "expiresAt": product.get("expiresAt"),
+                "safeDeliveryDate": product.get("safeDeliveryDate"),
+                "shelfLifeDays": product.get("shelfLifeDays"),
+                "masterCropId": str(product.get("masterCropId")) if product.get("masterCropId") else None,
                 "originalUnitPrice": base_unit_price,
                 "totalPrice": item_total,
                 "attributes": product.get("attributes", {}),
@@ -510,12 +546,65 @@ class OrderService:
             total_amount = subtotal + delivery_charge + platform_fee - discount
             platform_commission = platform_fee
         
+        # Delivery mode is derived from the server-side timing/availability
+        # decision. The client may request Fastest, but it can never force a
+        # 30-minute promise when the service window, partner availability, or
+        # end-to-end ETA does not support it.
+        delivery_speed = "standard"
+        delivery_availability = None
+        fastest = {"eligible": False, "estimatedMinutes": None, "reason": None}
+        if not is_pickup:
+            delivery_availability = await get_delivery_service_availability(
+                destination=(delivery_address or {}).get("location")
+            )
+            fastest = estimate_fastest_eligibility(
+                distance_km=(delivery_details or {}).get("distanceKm") if delivery_details else None
+            )
+
+            if (
+                delivery_availability.get("status") == "available"
+                and delivery_availability.get("partnerAvailable")
+                and fastest.get("eligible")
+            ):
+                # Active window + suitable partner + complete ETA <= 30 min.
+                delivery_speed = "fastest_30m"
+
+            if delivery_details is not None:
+                delivery_details["serviceAvailable"] = bool(delivery_availability.get("serviceAvailable"))
+                delivery_details["partnerAvailable"] = bool(delivery_availability.get("partnerAvailable"))
+                delivery_details["availablePartnerCount"] = int(delivery_availability.get("availablePartnerCount", 0) or 0)
+                delivery_details["fastestEligible"] = bool(fastest.get("eligible"))
+                delivery_details["estimatedDeliveryMinutes"] = fastest.get("estimatedMinutes")
+                delivery_details["fastestReason"] = fastest.get("reason")
+                delivery_details["availabilityStatus"] = delivery_availability.get("status")
+                delivery_details["availabilityMessage"] = delivery_availability.get("message")
+                delivery_details["nextDeliveryServiceAt"] = delivery_availability.get("nextServiceAt")
+                delivery_details["deliverySpeed"] = delivery_speed
+
+        effective_requested_delivery_date = data.requestedDeliveryDate
+        effective_delivery_time_slot = data.deliveryTimeSlot
+        if (
+            delivery_availability
+            and delivery_availability.get("nextServiceAt")
+            and delivery_availability.get("status") in (
+                "scheduled_for_next_service",
+                "waiting_for_delivery_partner",
+            )
+        ):
+            # No partner during the active window still accepts the order, but
+            # the requested delivery time is moved to the next available
+            # handoff. Outside 21:30–06:00 this is the next 06:00 service start.
+            next_available = delivery_availability.get("nextServiceAt")
+            effective_requested_delivery_date = next_available
+            effective_delivery_time_slot = "next_available"
+
         order_data = {
             "customerId": ObjectId(customer_id),
             "idempotencyKey": data.idempotencyKey,
             "preorderId": ObjectId(data.preorderId) if data.preorderId else None,
             "farmerId": ObjectId(farmer_id),
             "warehouseId": ObjectId(warehouse_id) if fulfillment_method == FulfillmentMethod.WAREHOUSE.value and warehouse_id else None,
+            "warehouseSelection": warehouse_selection,
             "fulfillmentMethod": fulfillment_method,
             "fulfillmentStage": FulfillmentStage.PENDING.value,
             "fulfillmentRouteSelected": False,
@@ -538,8 +627,13 @@ class OrderService:
             "deliveryMethod": delivery_method,
             "pickupDate": data.pickupDate,
             "pickupTimeSlot": data.pickupTimeSlot,
-            "requestedDeliveryDate": data.requestedDeliveryDate,
-            "deliveryTimeSlot": data.deliveryTimeSlot,
+            "requestedDeliveryDate": effective_requested_delivery_date,
+            "deliveryTimeSlot": effective_delivery_time_slot,
+            "deliverySpeed": delivery_speed,
+            "deliveryAvailabilityStatus": (delivery_availability or {}).get("status"),
+            "deliveryAvailabilityMessage": (delivery_availability or {}).get("message"),
+            "nextDeliveryServiceAt": (delivery_availability or {}).get("nextServiceAt"),
+            "estimatedDeliveryMinutes": ((delivery_details or {}).get("estimatedDeliveryMinutes") if delivery_details else None),
             "farmAddress": farm_address,
             "pickupInstructions": pickup_instructions,
             "isBulkOrder": is_bulk_order,
@@ -627,6 +721,16 @@ class OrderService:
             total_amount,
             data.paymentMethod
         )
+
+        # Calculate and persist the initial freshness/deadline snapshot. The
+        # same service is refreshed again when the order becomes PACKED so the
+        # delivery workflow always uses current batch freshness.
+        try:
+            created_order = await order_repository.get_by_id(order_id)
+            if created_order:
+                await calculate_order_delivery_priority(created_order, persist=True)
+        except Exception:
+            logger.exception("Failed to calculate initial delivery priority for order %s", order_id)
         
         await NotificationService.send_new_order_notification(
             farmer_id,
@@ -685,6 +789,23 @@ class OrderService:
                 "phone": farmer.get("phone")
             }
         
+        if order.get("warehouseId"):
+            try:
+                from app.repositories.warehouse_repository import warehouse_repository
+                warehouse = await warehouse_repository.get_by_id(str(order["warehouseId"]))
+                if warehouse:
+                    selection = order.get("warehouseSelection") or {}
+                    order["warehouse"] = {
+                        "id": str(warehouse["_id"]),
+                        "name": warehouse.get("name"),
+                        "address": warehouse.get("address") or {},
+                        "distanceKm": selection.get("distanceKm"),
+                        "availableCapacity": selection.get("availableCapacity"),
+                        "selectionReason": selection.get("reason"),
+                    }
+            except Exception:
+                logger.warning("Failed to resolve warehouse details for order %s", order_id)
+
         # Get delivery partner if assigned
         if order.get("deliveryPartnerId"):
             partner = None
@@ -747,6 +868,46 @@ class OrderService:
                 if user:
                     entry["changedByName"] = f"{user.get('firstName', '')} {user.get('lastName', '')}"
 
+        # Customer delivery hand-off verification is issued once the order is ready
+        # for delivery. The customer sees the 6-digit OTP and a QR containing an
+        # opaque verification token; farmers/delivery partners never receive the
+        # secret in their order payload and must obtain it from the customer.
+        if (
+            order.get("deliveryType") == DeliveryType.DELIVERY.value
+            and order.get("orderStatus") in (
+                OrderStatus.READY_FOR_DELIVERY.value,
+                OrderStatus.DISPATCHED.value,
+                OrderStatus.IN_TRANSIT.value,
+            )
+            and not order.get("deliveryVerificationCode")
+        ):
+            from app.core.security import SecurityService
+            code = SecurityService.generate_otp(6)
+            token = secrets.token_urlsafe(32)
+            issued_at = datetime.utcnow()
+            try:
+                await order_repository.update(
+                    {"_id": order["_id"]},
+                    {
+                        "deliveryVerificationCode": code,
+                        "deliveryVerificationToken": token,
+                        "deliveryVerificationIssuedAt": issued_at,
+                        "deliveryVerificationVerifiedAt": None,
+                        "deliveryVerificationMethod": None,
+                        "updatedAt": issued_at,
+                    },
+                )
+                order["deliveryVerificationCode"] = code
+                order["deliveryVerificationToken"] = token
+                order["deliveryVerificationIssuedAt"] = issued_at
+            except Exception:
+                logger.warning("Failed to issue delivery verification credentials for order %s", order_id)
+
+        # Delivery verification credentials are customer/admin secrets.
+        if role not in ("customer", "admin"):
+            order.pop("deliveryVerificationCode", None)
+            order.pop("deliveryVerificationToken", None)
+
         # The pickup verification code is shown to the CUSTOMER so they can
         # present it at the farm. Farmers must enter it themselves to confirm
         # the hand-off, so it is hidden from their view.
@@ -808,6 +969,25 @@ class OrderService:
         
         orders, total = await order_repository.get_orders_by_filters(filter_params)
         
+        if orders:
+            from app.repositories.warehouse_repository import warehouse_repository
+            for order in orders:
+                if order.get("warehouseId"):
+                    try:
+                        warehouse = await warehouse_repository.get_by_id(str(order["warehouseId"]))
+                        if warehouse:
+                            selection = order.get("warehouseSelection") or {}
+                            order["warehouse"] = {
+                                "id": str(warehouse["_id"]),
+                                "name": warehouse.get("name"),
+                                "address": warehouse.get("address") or {},
+                                "distanceKm": selection.get("distanceKm"),
+                                "availableCapacity": selection.get("availableCapacity"),
+                                "selectionReason": selection.get("reason"),
+                            }
+                    except Exception:
+                        logger.warning("Failed to resolve warehouse for order list item")
+
         # Convert all ObjectId instances to strings for JSON serialization
         orders = _convert_objectids(orders)
         
@@ -873,7 +1053,22 @@ class OrderService:
             if fulfillment_method == FulfillmentMethod.FARM_DIRECT.value and new_status in (
                 OrderStatus.READY_FOR_DELIVERY, OrderStatus.DISPATCHED,
             ):
-                return None
+                # Farmer Fulfillment can reach delivery only through the
+                # Farmer Order Map. Packing alone is not a dispatch decision.
+                # The map writes the distance decision and the selected
+                # self-delivery/partner route before moving the order onward.
+                packed = (
+                    str(order.get("fulfillmentStage") or "").lower() == FulfillmentStage.PACKED.value
+                    and bool(order.get("packingComplete"))
+                )
+                delivery_decision = str(order.get("deliveryDecision") or "").lower()
+                has_route_decision = delivery_decision in {"self_delivery", "nearby", "long_distance"}
+                has_delivery_owner = bool(order.get("selfDelivery") or order.get("deliveryPartnerId"))
+                if not (packed and has_route_decision and has_delivery_owner):
+                    return None
+                # A farmer cannot manually bypass the map into dispatched.
+                if new_status == OrderStatus.DISPATCHED:
+                    return None
 
         # Additional validation for customer cancellation
         if role == "customer" and new_status == OrderStatus.CANCELLED:
@@ -883,14 +1078,50 @@ class OrderService:
             # backend will actually do. Later states (ready_for_delivery,
             # dispatched, in_transit) go through the review-based cancellation
             # refund request instead of a direct status change.
-            if current_status not in [
-                OrderStatus.PENDING,
-                OrderStatus.CONFIRMED,
-                OrderStatus.PROCESSING,
-                OrderStatus.READY_FOR_PICKUP,
-            ]:
+            # Customer cancellation policy:
+            # pending/confirmed -> always cancellable.
+            # processing -> cancellable only until packing starts.
+            # Once packing has started/completed, or delivery has begun,
+            # customer cancellation is blocked. Later issues use the
+            # support/return/refund workflow instead.
+            if current_status in (OrderStatus.PENDING, OrderStatus.CONFIRMED):
+                pass
+            elif current_status == OrderStatus.PROCESSING:
+                fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+                warehouse_stage = str(order.get("warehouseFulfillmentStage") or "").lower()
+                packing_started = bool(
+                    order.get("packingStarted")
+                    or order.get("packing_started")
+                    or order.get("packingStartedAt")
+                    or order.get("packing_started_at")
+                    or order.get("packingComplete")
+                    or order.get("packing_complete")
+                    or order.get("packingCompletedAt")
+                    or order.get("packing_completed_at")
+                    or fulfillment_stage in {
+                        FulfillmentStage.PACKED.value,
+                        FulfillmentStage.DISPATCHED.value,
+                    }
+                    or warehouse_stage in {
+                        "packing",
+                        "packed",
+                        "ready_for_dispatch",
+                        "delivery_decision",
+                        "dispatched",
+                    }
+                )
+                if packing_started:
+                    return None
+            else:
                 return None
         
+        # Customer hand-off verification is mandatory before a delivery order
+        # can transition to Delivered. This applies to farmer self-delivery and
+        # delivery-partner fulfillment alike; pickup orders use their own code flow.
+        if new_status == OrderStatus.DELIVERED and order.get("deliveryType") == DeliveryType.DELIVERY.value:
+            if not order.get("deliveryVerificationVerifiedAt"):
+                return None
+
         # Validate self-delivery transition
         self_delivery = order.get("selfDelivery", False)
         if new_status == OrderStatus.DELIVERED and current_status == OrderStatus.READY_FOR_DELIVERY:
@@ -1611,7 +1842,12 @@ class OrderService:
 
         if fm == FulfillmentMethod.WAREHOUSE.value:
             try:
+                # Create one collection job per product/batch line. The farmer's
+                # explicit Ready for Pickup action later changes these shipments
+                # from scheduled -> ready_for_pickup; the warehouse never infers
+                # readiness from orderStatus alone.
                 from app.repositories.incoming_stock_repository import incoming_stock_repository
+                from app.services.warehouse_collection_service import ensure_collection_job
                 existing = await incoming_stock_repository.get_by_warehouse_id(
                     str(update["warehouseId"]), status=None, skip=0, limit=1000
                 )
@@ -1623,7 +1859,7 @@ class OrderService:
                     key = (str(order["_id"]), str(item.get("productId")), str(item.get("variantId") or ""))
                     if key in existing_keys:
                         continue
-                    await incoming_stock_repository.create_incoming({
+                    incoming_id = await incoming_stock_repository.create_incoming({
                         "warehouseId": update["warehouseId"],
                         "productId": ObjectId(item["productId"]),
                         "variantId": ObjectId(item["variantId"]) if item.get("variantId") else None,
@@ -1637,9 +1873,15 @@ class OrderService:
                         "storageType": "ambient",
                         "packingRequired": True,
                         "sourceMode": "warehouse_fulfillment",
+                        "readyForPickup": False,
                     })
+                    incoming_doc = await incoming_stock_repository.get_by_id(incoming_id) if incoming_id else None
+                    if incoming_doc:
+                        # The job exists in scheduled state; it becomes visible
+                        # as actionable Ready for Pickup only after farmer confirmation.
+                        await ensure_collection_job(incoming_doc, "bulk_harvest", "warehouse_fulfillment")
             except Exception:
-                logger.exception("Failed to create warehouse incoming work for order %s", order_id)
+                logger.exception("Failed to create warehouse collection work for order %s", order_id)
 
         return await order_repository.get_by_id(order_id)
 
@@ -1683,6 +1925,16 @@ class OrderService:
                 {"_id": incoming["_id"]},
                 {"status": "ready_for_pickup", "readyForPickupAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
             )
+            # Promote the existing warehouse collection job only after the
+            # farmer has explicitly confirmed that the shipment is ready.
+            from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+            collection_job = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
+            if collection_job:
+                await warehouse_collection_repository.update_job(str(collection_job["_id"]), {
+                    "status": "ready_for_pickup",
+                    "readyForPickup": True,
+                    "readyAt": datetime.utcnow(),
+                })
             refreshed = await incoming_stock_repository.get_by_id(str(incoming["_id"]))
             if refreshed:
                 await ensure_collection_job(refreshed, "bulk_harvest", "warehouse_fulfillment")
@@ -1875,7 +2127,6 @@ class OrderService:
         updated_items = []
         cancelled_items = []
         cancelled_value = 0.0
-        unresolved = False
 
         for item in items:
             key = (str(item.get("productId")), str(item.get("variantId") or ""))
@@ -1899,8 +2150,15 @@ class OrderService:
                 "resolutionStatus": "resolved",
             })
 
+            # Persist the physical packed quantity for every surviving line.
+            # This keeps the packing audit, customer-facing order, label and
+            # delivery map consistent with what was actually placed in the parcel.
+            item_copy["packedQuantity"] = actual
+            item_copy["actualPackedQuantity"] = actual
+            item_copy["quantity"] = actual
+            item_copy["totalPrice"] = actual * unit_price
+
             if shortage > 0:
-                unresolved = False
                 cancelled_value += shortage * unit_price
                 cancelled_items.append({
                     "productId": key[0],
@@ -1912,8 +2170,6 @@ class OrderService:
                     "reason": "Farmer packing shortage",
                     "cancelledAt": datetime.utcnow(),
                 })
-                item_copy["quantity"] = actual
-                item_copy["totalPrice"] = actual * unit_price
 
             if actual > 0:
                 updated_items.append(item_copy)
@@ -2556,6 +2812,24 @@ class OrderService:
             tracking["eta"] = format_eta_minutes(distance * 2)
 
         tracking["deliveryLocation"] = destination if (destination and destination.get("coordinates")) else None
+        # Customer-facing delivery hand-off state. Never expose the OTP/token
+        # to delivery partners through the live tracking endpoint.
+        if role in ("customer", "admin") and order.get("deliveryType") == DeliveryType.DELIVERY.value:
+            tracking["deliveryVerification"] = {
+                "required": order.get("orderStatus") not in (OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value),
+                "verified": bool(order.get("deliveryVerificationVerifiedAt")),
+                "verifiedAt": order.get("deliveryVerificationVerifiedAt"),
+                "method": order.get("deliveryVerificationMethod"),
+                "otp": order.get("deliveryVerificationCode"),
+                "qrToken": order.get("deliveryVerificationToken"),
+            }
+        else:
+            tracking["deliveryVerification"] = {
+                "required": order.get("orderStatus") not in (OrderStatus.DELIVERED.value, OrderStatus.CANCELLED.value, OrderStatus.REFUNDED.value),
+                "verified": bool(order.get("deliveryVerificationVerifiedAt")),
+                "verifiedAt": order.get("deliveryVerificationVerifiedAt"),
+                "method": order.get("deliveryVerificationMethod"),
+            }
         tracking["lastUpdated"] = tracking.get("locationUpdatedAt") or order.get("updatedAt")
 
         return tracking
