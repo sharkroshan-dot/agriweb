@@ -111,8 +111,8 @@ export default function PickupRoutesPage() {
         {routes.length === 0 ? (
           <Card className="p-12 text-center">
             <Route className="mx-auto h-12 w-12 text-muted-foreground" />
-            <h2 className="mt-4 font-semibold">No pickup routes today</h2>
-            <p className="mt-2 text-sm text-muted-foreground">Use Farm Collection to select eligible pickups and plan routes. Route numbers, farm names, addresses and quantities are shown on each route.</p>
+            <h2 className="mt-4 font-semibold">No unfinished pickup routes</h2>
+            <p className="mt-2 text-sm text-muted-foreground">All routes may be completed or no routes have been created yet. Unfinished routes from previous days will remain visible here until they are completed, cancelled, or closed. To create a new route, select eligible pickups in Farm Collection.</p>
           </Card>
         ) : routes.map((r: any) => (
           <Card key={r.id} className="overflow-hidden">
