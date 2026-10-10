@@ -46,10 +46,12 @@ const getFarmRouteKey = (job: any): string => {
 
   const coordinates = location.coordinates;
   if (Array.isArray(coordinates) && coordinates.length >= 2) {
-    const lat = Number(coordinates[1]);
-    const lng = Number(coordinates[0]);
+    const lat = Number(Number(coordinates[1]).toFixed(4));
+    const lng = Number(Number(coordinates[0]).toFixed(4));
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return "location:" + lng.toFixed(4) + ":" + lat.toFixed(4);
+      // Match Python round(..., 4) string formatting used by the backend farm key.
+      const formatRounded = (value: number) => Number.isInteger(value) ? value.toFixed(1) : String(value);
+      return "location:" + formatRounded(lng) + ":" + formatRounded(lat);
     }
   }
   return "collection:" + String(job?.id || job?._id || "unknown");
