@@ -2658,6 +2658,7 @@ async def update_my_pickup_route_status(
     collectionId: Optional[str] = Query(None),
     actualQuantity: Optional[float] = Query(None, ge=0),
     notes: Optional[str] = Query(None),
+    actualQuantities: Optional[Dict[str, float]] = Body(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Pickup partner is the source of truth for route and farm-stop progress."""
@@ -2814,35 +2815,82 @@ async def update_my_pickup_route_status(
                 order["arrivedAtFarmAt"] = now
 
         elif route_status == "collected":
-            job = next((value for value in farm_jobs if str(value.get("_id")) == collectionId), None)
-            if not job:
-                raise HTTPException(status_code=404, detail="The selected order is not part of this farm stop")
-            if str(job.get("status") or "") != "arrived_at_farm":
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Confirm arrival at the farm before recording collection (current status: {job.get('status')})",
-                )
-            if actualQuantity is None or actualQuantity <= 0:
-                raise HTTPException(status_code=400, detail="Enter the actual collected quantity (kg) before confirming collection")
-            await warehouse_collection_repository.update_job(collectionId, {
-                "status": "collected",
-                "collectedAt": now,
-                "actualCollectedQuantity": actualQuantity,
-                "quantityVariance": float(actualQuantity) - float(job.get("quantity") or 0),
-                **({"collectionNotes": notes} if notes else {}),
-            })
-            for order in target_stop.get("orders") or []:
-                if str(order.get("collectionId") or "") == collectionId:
+            # One farm-level confirmation can submit the actual quantity for
+            # every order at the current farm. Quantities remain per order.
+            if actualQuantities is not None:
+                if not actualQuantities:
+                    raise HTTPException(status_code=400, detail="Enter the actual quantity for every order at this farm")
+                farm_jobs_by_id = {str(value.get("_id")): value for value in farm_jobs}
+                missing_ids = [value for value in farm_collection_ids if value not in actualQuantities]
+                unknown_ids = [key for key in actualQuantities if key not in farm_jobs_by_id]
+                if missing_ids or unknown_ids:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Enter a collected quantity for every order in this farm before confirming.",
+                    )
+                for order_collection_id in farm_collection_ids:
+                    order_job = farm_jobs_by_id[order_collection_id]
+                    qty = actualQuantities.get(order_collection_id)
+                    if qty is None or qty <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Every order must have an actual collected quantity greater than 0 kg.",
+                        )
+                    if str(order_job.get("status") or "") != "arrived_at_farm":
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Confirm arrival at this farm before recording the orders as collected.",
+                        )
+                for order_collection_id in farm_collection_ids:
+                    order_job = farm_jobs_by_id[order_collection_id]
+                    qty = float(actualQuantities[order_collection_id])
+                    await warehouse_collection_repository.update_job(order_collection_id, {
+                        "status": "collected",
+                        "collectedAt": now,
+                        "actualCollectedQuantity": qty,
+                        "quantityVariance": qty - float(order_job.get("quantity") or 0),
+                        **({"collectionNotes": notes} if notes else {}),
+                    })
+                    await sync_order_status(order_job, "collected", qty)
+                    for order in target_stop.get("orders") or []:
+                        if str(order.get("collectionId") or "") == order_collection_id:
+                            order["status"] = "collected"
+                            order["actualQuantity"] = qty
+                            order["collectedAt"] = now
+                for order in target_stop.get("orders") or []:
                     order["status"] = "collected"
-                    order["actualQuantity"] = actualQuantity
-                    order["collectedAt"] = now
-            await sync_order_status(job, "collected", actualQuantity)
-            refreshed_jobs = await get_authorized_farm_jobs()
-            farm_states = [str(value.get("status") or "") for value in refreshed_jobs]
-            target_stop["status"] = (
-                "collected" if all(value in ("collected", "departed_farm") for value in farm_states)
-                else "arrived_at_farm"
-            )
+                target_stop["status"] = "collected"
+            else:
+                # Compatibility for older clients submitting one order per request.
+                job = next((value for value in farm_jobs if str(value.get("_id")) == collectionId), None)
+                if not job:
+                    raise HTTPException(status_code=404, detail="The selected order is not part of this farm stop")
+                if str(job.get("status") or "") != "arrived_at_farm":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Confirm arrival at the farm before recording collection (current status: {job.get('status')})",
+                    )
+                if actualQuantity is None or actualQuantity <= 0:
+                    raise HTTPException(status_code=400, detail="Enter the actual collected quantity (kg) before confirming collection")
+                await warehouse_collection_repository.update_job(collectionId, {
+                    "status": "collected",
+                    "collectedAt": now,
+                    "actualCollectedQuantity": actualQuantity,
+                    "quantityVariance": float(actualQuantity) - float(job.get("quantity") or 0),
+                    **({"collectionNotes": notes} if notes else {}),
+                })
+                for order in target_stop.get("orders") or []:
+                    if str(order.get("collectionId") or "") == collectionId:
+                        order["status"] = "collected"
+                        order["actualQuantity"] = actualQuantity
+                        order["collectedAt"] = now
+                await sync_order_status(job, "collected", actualQuantity)
+                refreshed_jobs = await get_authorized_farm_jobs()
+                farm_states = [str(value.get("status") or "") for value in refreshed_jobs]
+                target_stop["status"] = (
+                    "collected" if all(value in ("collected", "departed_farm") for value in farm_states)
+                    else "arrived_at_farm"
+                )
 
         else:  # Depart the physical farm only after every order is collected.
             not_collected = [
