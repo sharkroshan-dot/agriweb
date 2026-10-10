@@ -208,18 +208,22 @@ async def build_smart_routes(
             for farm in remaining:
                 qty = float(farm.get("quantity") or 0)
                 if max_weight_kg > 0 and qty > max_weight_kg:
-                    if not selected:
-                        raise ValueError(
-                            f"Orders from {farm.get('farmerName') or 'one farm'} total {qty:g} kg, "
-                            f"which exceeds the selected vehicle capacity of {max_weight_kg:g} kg. "
-                            "Select a larger vehicle or split the pickup into separate trips."
-                        )
+                    # Skip this farm while planning other stops; if it remains
+                    # alone on the next route, report the capacity mismatch.
                     continue
                 if max_weight_kg > 0 and selected and weight + qty > max_weight_kg:
                     continue
                 point = _point(farm.get("pickupLocation"))
                 candidates.append((_distance(current, point) if current and point else 999999.0, farm))
             if not candidates:
+                if not selected and remaining and max_weight_kg > 0:
+                    farm = remaining[0]
+                    qty = float(farm.get("quantity") or 0)
+                    raise ValueError(
+                        f"Orders from {farm.get('farmerName') or 'one farm'} total {qty:g} kg, "
+                        f"which exceeds the selected vehicle capacity of {max_weight_kg:g} kg. "
+                        "Select a larger vehicle or split the pickup into separate trips."
+                    )
                 break
             _, chosen = min(candidates, key=lambda entry: entry[0])
             remaining.remove(chosen)
