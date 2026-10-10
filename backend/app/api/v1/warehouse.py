@@ -2082,6 +2082,7 @@ async def create_pickup_routes(
             "routeNumber": f"PR-{datetime.utcnow().strftime('%Y%m%d')}-{index+1:02d}",
             "stops": group["stops"],
             "totalStops": group["totalStops"],
+            "totalOrders": group.get("totalOrders") or sum(int(stop.get("orderCount") or 0) for stop in group.get("stops") or []),
             "totalQuantity": group["totalQuantity"],
             "createdBy": ObjectId(str(current_user["_id"])),
         })
