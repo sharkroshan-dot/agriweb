@@ -49,7 +49,7 @@ const getFarmRouteKey = (job: any): string => {
     const lat = Number(coordinates[1]);
     const lng = Number(coordinates[0]);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return "location:" + lat.toFixed(4) + ":" + lng.toFixed(4);
+      return "location:" + lng.toFixed(4) + ":" + lat.toFixed(4);
     }
   }
   return "collection:" + String(job?.id || job?._id || "unknown");
