@@ -120,7 +120,7 @@ export default function PickupRoutesPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <CardTitle className="text-base">🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">{r.totalStops} farms · {r.totalQuantity || 0} kg</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{r.totalStops || 0} farms · {r.totalOrders || (r.stops || []).reduce((sum: number, stop: any) => sum + (stop.orderCount || stop.orders?.length || 1), 0)} orders · {r.totalQuantity || 0} kg</p>
                 </div>
                 <Badge>{routeStatusLabel(String(r.status || "offered"))}</Badge>
               </div>
