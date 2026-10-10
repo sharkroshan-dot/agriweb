@@ -133,27 +133,32 @@ def _farm_key(job: Dict[str, Any]) -> str:
 
 
 def _display_farm_key(stop: Dict[str, Any]) -> str:
-    """Group persisted legacy route stops by the human-visible physical farm."""
-    for field in ("farmId", "farmProfileId", "sourceFarmId"):
-        farm_id = str(stop.get(field) or "").strip()
-        if farm_id:
-            return f"farm:{farm_id.lower()}"
-
+    """Resolve legacy stops by the visible physical farm before internal profile IDs."""
     farmer_name = _human_text(stop.get("farmerName") or stop.get("farmName"))
     address = _human_text(stop.get("pickupAddress"))
+    if not address or address == "Farm address not provided":
+        address = _human_text(_farm_key(stop).split("address:", 1)[1]) if "address:" in _farm_key(stop) else None
+
+    # Human-visible name + address is the strongest legacy identity. This keeps
+    # one farm together even if old orders used different farmer profile IDs.
     if address and address != "Farm address not provided":
         normalized_address = " ".join(address.casefold().split())
-        if farmer_name and farmer_name != "Farmer details unavailable":
+        if farmer_name and farmer_name not in ("Farmer", "Farm", "Unknown Farmer", "Farmer details unavailable"):
             normalized_name = " ".join(farmer_name.casefold().split())
             return f"farm-display:{normalized_name}|{normalized_address}"
         return f"farm-address:{normalized_address}"
+
+    # Prefer only an explicit physical farm ID as a stable identity. Do not use
+    # farmer profile IDs here because legacy records can reference different profiles.
+    farm_id = str(stop.get("farmId") or "").strip()
+    if farm_id:
+        return f"farm:{farm_id.lower()}"
 
     if farmer_name and farmer_name not in ("Farmer", "Farm", "Unknown Farmer", "Farmer details unavailable"):
         normalized_name = " ".join(farmer_name.casefold().split())
         return f"farm-name:{normalized_name}"
 
     return _farm_key(stop)
-
 def _group_jobs_by_farm(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One route stop per farm, with all order-level collection jobs nested inside."""
     grouped: Dict[str, Dict[str, Any]] = {}
