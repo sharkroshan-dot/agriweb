@@ -221,17 +221,17 @@ export default function WarehouseCollectionsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-muted-foreground">Available for planning</p>
-              <p className="mt-1 text-2xl font-bold">{counts.ready}</p>
+            <div className="rounded-xl border bg-slate-50 p-4">
+              <p className="text-base font-semibold text-slate-800">Available for planning</p>
+              <p className="mt-1 text-3xl font-extrabold text-slate-950">{counts.ready}</p>
             </div>
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-muted-foreground">Selected</p>
-              <p className="mt-1 text-2xl font-bold">{selectedCollectionIds.length}</p>
+            <div className="rounded-xl border bg-slate-50 p-4">
+              <p className="text-base font-semibold text-slate-800">Selected</p>
+              <p className="mt-1 text-3xl font-extrabold text-slate-950">{selectedCollectionIds.length}</p>
             </div>
-            <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-muted-foreground">Routes planned</p>
-              <p className="mt-1 text-2xl font-bold">{counts.planned}</p>
+            <div className="rounded-xl border bg-slate-50 p-4">
+              <p className="text-base font-semibold text-slate-800">Routes planned</p>
+              <p className="mt-1 text-3xl font-extrabold text-slate-950">{counts.planned}</p>
             </div>
           </div>
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.8fr)]">
@@ -270,7 +270,7 @@ export default function WarehouseCollectionsPage() {
         <Card className="p-12 text-center">
           <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
           <h2 className="mt-4 font-semibold">No collection jobs</h2>
-          <p className="mt-2 text-sm text-muted-foreground">New jobs appear automatically when a farmer confirms a warehouse pickup or a long-distance farmer order needs warehouse transfer.</p>
+          <p className="mt-2 text-base leading-7 text-slate-700">New jobs appear automatically when a farmer confirms a warehouse pickup or a long-distance farmer order needs warehouse transfer.</p>
         </Card>
       ) : (
         <div className="space-y-4">
@@ -292,14 +292,15 @@ export default function WarehouseCollectionsPage() {
                         <MapPin className="mt-1 h-5 w-5 shrink-0 text-emerald-800" />
                         <span>{farm.pickupAddress}</span>
                       </p>
-                      <p className="mt-2 text-sm font-medium text-slate-700">
+                      <p className="mt-3 text-lg font-bold leading-7 text-slate-950">
                         {farm.jobs.length} {farm.jobs.length === 1 ? "order / collection" : "orders / collections"} · {farm.totalQuantity.toLocaleString()} kg expected
                       </p>
                       {farm.selectedCount > 0 && <p className="mt-2 text-sm font-bold text-emerald-900">{farm.selectedCount} selected for route planning</p>}
                     </div>
                     <Button
+                      className="min-h-12 shrink-0 px-5 text-base font-bold"
                       type="button"
-                      variant={expanded ? "default" : "outline"}
+                      variant={expanded ? "default" : "outline"
                       aria-expanded={expanded}
                       aria-controls={expandableId}
                       onClick={() => setExpandedFarmCards((previous) => ({ ...previous, [farm.key]: !previous[farm.key] }))}
@@ -321,8 +322,8 @@ export default function WarehouseCollectionsPage() {
                       const isPackedTransfer = job.collectionType === "packed_orders_transfer";
                       const currentIndex = STATUS.findIndex(([key]) => key === job.status);
                       return (
-                        <Card key={job.id || job._id} className="overflow-hidden shadow-sm">
-                          <CardHeader className="border-b bg-white p-4">
+                        <Card key={job.id || job._id} className="overflow-hidden border border-slate-200 shadow-sm">
+                          <CardHeader className="border-b bg-white p-5">
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
@@ -358,8 +359,8 @@ export default function WarehouseCollectionsPage() {
                               </div>
                             </div>
                           </CardHeader>
-                          <CardContent className="space-y-4 p-4">
-                            <div className="grid gap-3 sm:grid-cols-3">
+                          <CardContent className="space-y-5 p-5">
+                            <div className="grid gap-4 sm:grid-cols-3">
                               <div className="rounded-lg bg-slate-50 p-3">
                                 <p className="text-sm font-semibold text-slate-700">Pickup location</p>
                                 <p className="mt-2 flex items-start gap-2 text-base font-semibold leading-6 text-slate-900"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.pickupAddress || "Farm address not provided"}</p>
@@ -381,7 +382,7 @@ export default function WarehouseCollectionsPage() {
                                   return (
                                     <div key={key} className="flex flex-1 items-center">
                                       <div className="flex min-w-0 flex-col items-center">
-                                        <div className={"flex h-8 w-8 items-center justify-center rounded-full border-2 " + (done ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-400")}>
+                                        <div className={"flex h-9 w-9 items-center justify-center rounded-full border-2 " + (done ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-400")}>
                                           {done ? <CheckCircle2 className="h-4 w-4" /> : <span className="text-xs">{index + 1}</span>}
                                         </div>
                                         <span className={"mt-2 max-w-24 text-center text-sm leading-5 " + (done ? "font-bold text-emerald-800" : "font-medium text-slate-600")}>{title}</span>
@@ -396,7 +397,7 @@ export default function WarehouseCollectionsPage() {
                             <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
                               <div className="text-sm">
                                 <p className="text-base font-bold text-slate-900">{isPackedTransfer ? "Already-packed customer order" : "Bulk warehouse fulfillment stock"}</p>
-                                <p className="mt-1 text-xs text-muted-foreground">
+                                <p className="mt-2 text-sm leading-6 text-slate-700">
                                   {isPackedTransfer
                                     ? "Packing verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse packing required: No"
                                     : "Packing required: Yes · Farmer verification: " + (job.packingVerified ? "Complete" : "Pending")}
@@ -412,9 +413,9 @@ export default function WarehouseCollectionsPage() {
                                     This older assignment has no pickup route yet. Select this job above to create its route.
                                   </div>
                                 ) : ["ready_for_pickup", "team_assigned"].includes(job.status) ? (
-                                  <p className="text-xs text-muted-foreground">Select this job above, then use Bulk Actions to plan and assign its pickup route.</p>
+                                  <p className="text-base leading-6 text-slate-700">Select this job above, then use Bulk Actions to plan and assign its pickup route.</p>
                                 ) : (
-                                  <p className="text-xs text-muted-foreground">Collection progress is shown here for monitoring.</p>
+                                  <p className="text-base leading-6 text-slate-700">Collection progress is shown here for monitoring.</p>
                                 )}
                               </div>
                             </div>
