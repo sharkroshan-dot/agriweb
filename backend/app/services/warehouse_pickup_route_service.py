@@ -229,10 +229,25 @@ async def build_smart_routes(
     jobs: List[Dict[str, Any]],
     max_stops: Optional[int] = None,
     max_weight_kg: float = 0,
+    manual_stop_order: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Create farm-based routes, consolidating every selected order from the same farm."""
+    """Build capacity-safe farm routes using either the smart or explicit stop order."""
     warehouse_point = _point(warehouse.get("location"))
-    remaining = _group_jobs_by_farm(jobs)
+    grouped = _group_jobs_by_farm(jobs)
+    if not grouped:
+        return []
+
+    if manual_stop_order is not None:
+        # Reject unknown, missing, or duplicate farm keys rather than silently
+        # losing or duplicating a pickup when the UI has stale selection state.
+        grouped_by_key = {str(farm.get("farmKey")): farm for farm in grouped}
+        requested = [str(key) for key in manual_stop_order]
+        if len(requested) != len(set(requested)) or set(requested) != set(grouped_by_key):
+            raise ValueError("Manual stop order must contain every selected farm exactly once. Refresh the queue and reorder the farms again.")
+        remaining = [grouped_by_key[key] for key in requested]
+    else:
+        remaining = grouped
+
     routes: List[Dict[str, Any]] = []
     route_no = 1
     while remaining:
@@ -240,34 +255,48 @@ async def build_smart_routes(
         selected = []
         weight = 0.0
         while remaining and (max_stops is None or len(selected) < max_stops):
-            candidates = []
-            for farm in remaining:
-                qty = float(farm.get("quantity") or 0)
+            if manual_stop_order is not None:
+                # Keep the explicit sequence. If the next stop cannot fit, end
+                # this route and begin another instead of reordering the farms.
+                chosen = remaining[0]
+                qty = float(chosen.get("quantity") or 0)
                 if max_weight_kg > 0 and qty > max_weight_kg:
-                    # Skip this farm while planning other stops; if it remains
-                    # alone on the next route, report the capacity mismatch.
-                    continue
-                if max_weight_kg > 0 and selected and weight + qty > max_weight_kg:
-                    continue
-                point = _point(farm.get("pickupLocation"))
-                candidates.append((_distance(current, point) if current and point else 999999.0, farm))
-            if not candidates:
-                if not selected and remaining and max_weight_kg > 0:
-                    farm = remaining[0]
-                    qty = float(farm.get("quantity") or 0)
                     raise ValueError(
-                        f"Orders from {farm.get('farmerName') or 'one farm'} total {qty:g} kg, "
+                        f"Orders from {chosen.get('farmerName') or 'one farm'} total {qty:g} kg, "
                         f"which exceeds the selected vehicle capacity of {max_weight_kg:g} kg. "
-                        "Select a larger vehicle or split the pickup into separate trips."
+                        "Select a larger vehicle or split the pickup."
                     )
-                break
-            _, chosen = min(candidates, key=lambda entry: entry[0])
+                if max_weight_kg > 0 and selected and weight + qty > max_weight_kg:
+                    break
+            else:
+                candidates = []
+                for farm in remaining:
+                    qty = float(farm.get("quantity") or 0)
+                    if max_weight_kg > 0 and qty > max_weight_kg:
+                        continue
+                    if max_weight_kg > 0 and selected and weight + qty > max_weight_kg:
+                        continue
+                    point = _point(farm.get("pickupLocation"))
+                    candidates.append((_distance(current, point) if current and point else 999999.0, farm))
+                if not candidates:
+                    if not selected and remaining and max_weight_kg > 0:
+                        farm = remaining[0]
+                        qty = float(farm.get("quantity") or 0)
+                        raise ValueError(
+                            f"Orders from {farm.get('farmerName') or 'one farm'} total {qty:g} kg, "
+                            f"which exceeds the selected vehicle capacity of {max_weight_kg:g} kg. "
+                            "Select a larger vehicle or split the pickup into separate trips."
+                        )
+                    break
+                _, chosen = min(candidates, key=lambda entry: entry[0])
+
             remaining.remove(chosen)
             point = _point(chosen.get("pickupLocation"))
             chosen["sequence"] = len(selected) + 1
             selected.append(chosen)
             weight += float(chosen.get("quantity") or 0)
             current = point or current
+
         if not selected:
             break
         routes.append({
