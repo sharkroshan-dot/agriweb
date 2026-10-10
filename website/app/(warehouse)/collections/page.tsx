@@ -36,7 +36,7 @@ const STATUS = [
 const label = (value: string) => STATUS.find(([key]) => key === value)?.[1] || value.replace(/_/g, " ");
 
 const getFarmProgress = (farmJobs: any[]) => {
-  const statusRank = new Map<string, number>(STATUS.map(([key], index) => [key, index]));
+  const statusRank = new Map<string, number>(STATUS.map(([key], index) => [key, index] as [string, number]));
   const ranks = farmJobs.map((job) => {
     const status = String(job.status || job.pickupRouteStatus || "scheduled");
     const rank = statusRank.get(status);
