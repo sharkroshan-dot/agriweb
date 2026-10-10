@@ -592,7 +592,88 @@ async def enrich_pickup_route_display(route: Dict[str, Any]) -> Dict[str, Any]:
             stop["status"] = _human_text(stop.get("status")) or "pending"
             stop["orders"] = []
         display_stops.append(stop)
-    result["stops"] = display_stops
+
+    # Older routes stored one stop per collection/order. Collapse those legacy
+    # snapshots into one physical farm stop before returning or processing them.
+    # Order-level jobs remain nested inside the farm stop for quantity tracking.
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for stop in display_stops:
+        farm_key = _farm_key(stop)
+        if farm_key not in grouped:
+            grouped[farm_key] = {
+                **stop,
+                "farmKey": farm_key,
+                "orders": [],
+                "collectionIds": [],
+                "orderIds": [],
+            }
+        group = grouped[farm_key]
+        orders = stop.get("orders") or [stop]
+        known_ids = set(group.get("collectionIds") or [])
+        for order in orders:
+            collection_id = str(order.get("collectionId") or "")
+            if collection_id and collection_id in known_ids:
+                continue
+            group["orders"].append(order)
+            if collection_id:
+                group["collectionIds"].append(collection_id)
+                known_ids.add(collection_id)
+            order_id = str(order.get("orderId") or "")
+            if order_id and order_id not in group["orderIds"]:
+                group["orderIds"].append(order_id)
+
+    merged_stops = []
+    for farm_key, stop in grouped.items():
+        orders = stop.get("orders") or []
+        if not orders:
+            stop["farmKey"] = farm_key
+            merged_stops.append(stop)
+            continue
+
+        statuses = [str(order.get("status") or "pending") for order in orders]
+        if all(value == "departed_farm" for value in statuses):
+            farm_status = "departed_farm"
+        elif all(value in ("collected", "departed_farm") for value in statuses):
+            farm_status = "collected"
+        elif all(value == "arrived_at_farm" for value in statuses):
+            farm_status = "arrived_at_farm"
+        else:
+            farm_status = min(statuses, key=lambda value: status_rank.get(value, 0))
+
+        product_names = list(dict.fromkeys(
+            str(order.get("productName") or "Product details unavailable") for order in orders
+        ))
+        valid_addresses = [
+            str(order.get("pickupAddress") or "")
+            for order in orders
+            if order.get("pickupAddress") and order.get("pickupAddress") != "Farm address not provided"
+        ]
+        actual_quantities = [
+            float(order["actualQuantity"])
+            for order in orders if order.get("actualQuantity") is not None
+        ]
+        stop.update({
+            "farmKey": farm_key,
+            "orders": orders,
+            "collectionId": str(orders[0].get("collectionId") or stop.get("collectionId") or ""),
+            "collectionIds": [str(order.get("collectionId")) for order in orders if order.get("collectionId")],
+            "orderIds": list(dict.fromkeys(str(order.get("orderId")) for order in orders if order.get("orderId"))),
+            "orderCount": len(orders),
+            "farmerId": str(orders[0].get("farmerId") or stop.get("farmerId") or "") or None,
+            "orderId": str(orders[0].get("orderId") or stop.get("orderId") or "") or None,
+            "productId": str(orders[0].get("productId") or stop.get("productId") or "") or None,
+            "farmerName": next((order.get("farmerName") for order in orders if order.get("farmerName") != "Farmer details unavailable"), "Farmer details unavailable"),
+            "productName": product_names[0] if len(product_names) == 1 else f"{len(product_names)} product types",
+            "quantity": sum(float(order.get("quantity") or 0) for order in orders),
+            "actualQuantity": sum(actual_quantities) if actual_quantities else None,
+            "pickupAddress": valid_addresses[0] if valid_addresses else "Farm address not provided",
+            "status": farm_status,
+        })
+        merged_stops.append(stop)
+
+    result["stops"] = merged_stops
+    result["totalStops"] = len(merged_stops)
+    result["totalOrders"] = sum(int(stop.get("orderCount") or 1) for stop in merged_stops)
     return serialize_route(result)
 
 def serialize_route(route: Dict[str, Any]) -> Dict[str, Any]:
