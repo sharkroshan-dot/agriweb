@@ -19,6 +19,25 @@ const routeStatusLabel = (value: string) => ({
   returned_to_warehouse: "Returned to warehouse",
 } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
+const routeDayLabel = (route: any) => {
+  const value = route.routeDate || route.createdAt;
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
+};
+
+const isCarryoverRoute = (route: any) => {
+  const value = route.routeDate || route.createdAt;
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const routeDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const today = new Date();
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  return routeDay < todayDay;
+};
+
 const stopStatusLabel = (value: string) => ({
   pending: "Waiting for pickup",
   ready_for_pickup: "Ready for pickup",
@@ -252,7 +271,7 @@ export default function DeliveryPickupRoutesPage() {
           <Route className="mx-auto h-12 w-12 text-muted-foreground" />
           <h2 className="mt-4 font-semibold">{offers.length ? "No route assigned yet" : "No pickup route assigned"}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {offers.length ? "Accept an available route. If another partner accepts first, you will see who accepted it and you will no longer be able to accept it." : "The warehouse will offer routes when farms are ready for pickup."}
+            {offers.length ? "Accept an available route. If another partner accepts first, you will see who accepted it and you will no longer be able to accept it." : "No active pickup routes. Unfinished routes remain visible across days; a route leaves this list only after you mark it returned to the warehouse."}
           </p>
         </Card>
       ) : (
@@ -264,6 +283,8 @@ export default function DeliveryPickupRoutesPage() {
                   <CardTitle>🚚 {r.routeNumber || "Pickup Route"}</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">{r.totalStops || 0} farm stops · {r.totalQuantity || 0} kg</p>
                   <p className="mt-1 text-xs text-muted-foreground">Destination: {r.warehouseName || "Assigned warehouse"}</p>
+                  {routeDayLabel(r) && <p className="mt-1 text-xs text-muted-foreground">Route date: {routeDayLabel(r)}</p>}
+                  {isCarryoverRoute(r) && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"><strong>Continued from a previous day.</strong> This route stays here until you complete the pickup and mark it returned to the warehouse.</div>}
                 </div>
                 <Badge><CheckCircle2 className="mr-1 h-3 w-3" /> {routeStatusLabel(String(r.status || "assigned"))}</Badge>
               </div>
