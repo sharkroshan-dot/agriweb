@@ -486,7 +486,7 @@ export default function DeliveryPickupRoutesPage() {
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
                                 <p className="text-sm font-semibold text-slate-800">Order details</p>
-                                <p className="mt-0.5 text-xs text-slate-500">Expand when you are ready to check the orders and record quantities.</p>
+                                <p className="mt-0.5 text-xs text-slate-500">Review packed quantities and order details. Packed transfers do not need a second quantity entry.</p>
                               </div>
                               <Button
                                 type="button"
