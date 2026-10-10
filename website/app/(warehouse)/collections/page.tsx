@@ -115,14 +115,24 @@ export default function WarehouseCollectionsPage() {
       }
       groups.get(key)!.jobs.push(job);
     }
-    return Array.from(groups.values()).map((farm) => ({
-      ...farm,
-      totalQuantity: farm.jobs.reduce((total, job) => total + Number(job.quantity || 0), 0),
-      readyCount: farm.jobs.filter((job) => ["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId).length,
-      selectedCount: farm.jobs.filter((job) => selectedCollectionIds.includes(String(job.id || job._id))).length,
-      routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
-      statuses: Array.from(new Set(farm.jobs.map((job) => job.status))),
-    }));
+    return Array.from(groups.values()).map((farm) => {
+      const readyJobs = farm.jobs.filter((job) =>
+        ["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId
+      );
+      const readyJobIds = readyJobs.map((job) => String(job.id || job._id));
+      const selectedReadyCount = readyJobIds.filter((id) => selectedCollectionIds.includes(id)).length;
+      return {
+        ...farm,
+        totalQuantity: farm.jobs.reduce((total, job) => total + Number(job.quantity || 0), 0),
+        readyCount: readyJobs.length,
+        readyJobIds,
+        selectedCount: selectedReadyCount,
+        allReadySelected: readyJobIds.length > 0 && selectedReadyCount === readyJobIds.length,
+        partiallySelected: selectedReadyCount > 0 && selectedReadyCount < readyJobIds.length,
+        routeCount: new Set(farm.jobs.map((job) => job.pickupRouteId).filter(Boolean).map(String)).size,
+        statuses: Array.from(new Set(farm.jobs.map((job) => job.status))),
+      };
+    });
   }, [jobs, selectedCollectionIds]);
 
   const counts = useMemo(() => {
@@ -151,6 +161,12 @@ export default function WarehouseCollectionsPage() {
     setSelectedCollectionIds((current) => checked
       ? Array.from(new Set([...current, id]))
       : current.filter((item) => item !== id));
+  };
+
+  const toggleFarmSelection = (eligibleCollectionIds: string[], checked: boolean) => {
+    setSelectedCollectionIds((current) => checked
+      ? Array.from(new Set([...current, ...eligibleCollectionIds]))
+      : current.filter((id) => !eligibleCollectionIds.includes(id)));
   };
 
   const planSelectedPickups = async () => {
@@ -228,10 +244,10 @@ export default function WarehouseCollectionsPage() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-xl font-bold sm:text-2xl">Bulk Actions</CardTitle>
-              <p className="mt-2 text-base leading-6 text-slate-700">Select available orders, choose how pickups should be assigned, and plan the routes in one action.</p>
+              <p className="mt-2 text-base leading-6 text-slate-700">Select farms for pickup. All eligible orders at each selected farm will be grouped into farm-based routes.</p>
             </div>
             <Button className="min-h-11 px-4 text-base font-semibold" type="button" variant="outline" onClick={toggleVisibleSelection} disabled={readyVisibleJobs.length === 0}>
-              {allVisibleSelected ? "Clear visible selection" : "Select all visible"}
+              {allVisibleSelected ? "Clear visible farms" : "Select all visible farms"}
             </Button>
           </div>
         </CardHeader>
@@ -272,7 +288,7 @@ export default function WarehouseCollectionsPage() {
             </label>
           </div>
           <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-base leading-6 text-slate-700">Selected jobs are grouped into capacity-safe routes. Orders already on an open route cannot be planned twice.</p>
+            <p className="text-base leading-6 text-slate-700">Selected farms are planned as farm stops. Eligible orders at the same farm stay together, subject to vehicle capacity. Orders already on an open route cannot be planned twice.</p>
             <Button className="min-h-12 px-5 text-base font-semibold" onClick={planSelectedPickups} disabled={planning || selectedCollectionIds.length === 0 || !selectedTeam}>
               <Route className="mr-2 h-4 w-4" />{planning ? "Planning pickups..." : "Plan Selected Pickups"}
             </Button>
@@ -299,9 +315,20 @@ export default function WarehouseCollectionsPage() {
                 <CardHeader className="border-b bg-emerald-50 p-6 sm:p-7">
                   <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(250px,0.75fr)] xl:grid-cols-[minmax(0,1fr)_280px_minmax(0,1fr)] xl:items-center xl:gap-8">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className={"inline-flex min-h-11 items-center gap-3 rounded-lg border-2 px-3 py-2 text-base font-bold " + (farm.readyJobIds.length > 0 ? "cursor-pointer border-emerald-300 bg-white text-slate-900 hover:bg-emerald-50" : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500")}>
+                          <input
+                            type="checkbox"
+                            aria-label={"Select " + farm.farmerName + " for pickup"}
+                            checked={farm.allReadySelected}
+                            disabled={farm.readyJobIds.length === 0}
+                            onChange={(event) => toggleFarmSelection(farm.readyJobIds, event.target.checked)}
+                            className="h-5 w-5 rounded border-slate-300 accent-emerald-700"
+                          />
+                          <span>{farm.allReadySelected ? "Farm selected" : "Select farm for pickup"}</span>
+                        </label>
                         <Badge className="bg-emerald-800 px-3 py-1 text-sm font-bold text-white"><MapPin className="mr-1 h-4 w-4" /> FARM</Badge>
-                        {farm.readyCount > 0 && <Badge variant="outline" className="px-3 py-1 text-sm font-semibold">{farm.readyCount} ready for planning</Badge>}
+                        {farm.readyCount > 0 && <Badge variant="outline" className="px-3 py-1 text-sm font-semibold">{farm.readyCount} orders available</Badge>}
                         {farm.routeCount > 0 && <Badge className="bg-violet-100 px-3 py-1 text-sm font-semibold text-violet-900">{farm.routeCount === 1 ? "Route planned" : farm.routeCount + " routes planned"}</Badge>}
                       </div>
                       <CardTitle className="mt-3 text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">{farm.farmerName}</CardTitle>
@@ -312,7 +339,9 @@ export default function WarehouseCollectionsPage() {
                       <p className="mt-3 text-lg font-bold leading-7 text-slate-950">
                         {farm.jobs.length} {farm.jobs.length === 1 ? "order / collection" : "orders / collections"} · {farm.totalQuantity.toLocaleString()} kg expected
                       </p>
-                      {farm.selectedCount > 0 && <p className="mt-2 text-sm font-bold text-emerald-900">{farm.selectedCount} selected for route planning</p>}
+                      {farm.selectedCount > 0 && <p className="mt-2 text-sm font-bold text-emerald-900">{farm.selectedCount} of {farm.readyCount} available orders selected for route planning</p>}
+                      {farm.readyCount === 0 && <p className="mt-2 text-sm font-medium text-slate-600">No orders available to plan. Orders already assigned to an open route cannot be selected again.</p>}
+                      {farm.partiallySelected && <p className="mt-2 text-sm font-medium text-amber-800">Some orders at this farm are selected. Use the farm checkbox to select all available orders.</p>}
 
                     </div>
                     <div className="flex w-full items-center justify-center lg:col-start-2 lg:row-start-1 xl:col-auto xl:row-auto xl:justify-self-center">
