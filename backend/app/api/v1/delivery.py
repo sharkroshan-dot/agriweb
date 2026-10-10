@@ -2726,82 +2726,149 @@ async def update_my_pickup_route_status(
             except Exception:
                 logger.exception("Unable to notify about pickup route progress")
 
-    # Route-wide actions are distinct from farm-stop actions. Starting a route
-    # marks all assigned collection cards En Route, without overwriting a stop.
+    def stop_collection_ids(stop: Dict[str, Any]) -> List[str]:
+        values = stop.get("collectionIds") or [
+            order.get("collectionId") for order in (stop.get("orders") or [])
+        ] or [stop.get("collectionId")]
+        return list(dict.fromkeys(
+            str(value) for value in values if value and ObjectId.is_valid(str(value))
+        ))
+
+    # Starting the route marks every order in every farm group En Route.
     if collectionId is None and route_status == "started":
         current = str(route.get("status") or "assigned")
         if current != "assigned":
             raise HTTPException(status_code=400, detail=f"Invalid route transition: {current} -> started")
+        for stop in stops:
+            stop["status"] = "en_route"
+            for order in stop.get("orders") or []:
+                order["status"] = "en_route"
+            for stop_collection_id in stop_collection_ids(stop):
+                job = await warehouse_collection_repository.get_by_id(stop_collection_id)
+                if not job or str(job.get("pickupRouteId") or "") != route_id:
+                    continue
+                if str(job.get("status") or "") in ("team_assigned", "ready_for_pickup", "pending"):
+                    await warehouse_collection_repository.update_job(stop_collection_id, {
+                        "status": "en_route",
+                        "enRouteAt": now,
+                    })
+                    await sync_order_status(job, "en_route")
         await warehouse_pickup_route_repository.update_route(route_id, {
             "status": "started",
             "startedAt": now,
+            "stops": stops,
         })
-        for stop in stops:
-            collection_id = str(stop.get("collectionId") or "")
-            if not ObjectId.is_valid(collection_id):
-                continue
-            job = await warehouse_collection_repository.get_by_id(collection_id)
-            if not job or str(job.get("pickupRouteId")) != route_id:
-                continue
-            await warehouse_collection_repository.update_job(collection_id, {
-                "status": "en_route",
-                "enRouteAt": now,
-            })
-            await sync_order_status(job, "en_route")
         updated = await warehouse_pickup_route_repository.get_by_id(route_id)
         return {"success": True, "data": await enrich_pickup_route_display(updated), "message": "Pickup route started"}
 
-    # Each stop update is owned by the assigned pickup partner. It changes only
-    # that farm's status; the route remains started until every stop is departed.
+    # A route stop is a FARM. Arrival/departure are farm-level actions, while
+    # the actual quantity confirmation is recorded individually for each order.
     if collectionId is not None:
         if route_status not in ("arrived_at_farm", "collected", "departed_farm"):
             raise HTTPException(status_code=400, detail="This action must update a farm stop, not the whole route")
         if str(route.get("status") or "") not in ("started", "arrived_at_farm", "collected", "departed_farm"):
             raise HTTPException(status_code=400, detail="Start the pickup route before updating farm stops")
         if not ObjectId.is_valid(collectionId):
-            raise HTTPException(status_code=400, detail="Invalid collection stop ID")
-        job = await warehouse_collection_repository.get_by_id(collectionId)
-        if (
-            not job
-            or str(job.get("pickupRouteId") or "") != route_id
-            or str(job.get("collectionTeamId") or "") != partner_id
-        ):
-            raise HTTPException(status_code=404, detail="Route collection stop not found")
+            raise HTTPException(status_code=400, detail="Invalid collection order ID")
 
-        current_job_status = str(job.get("status") or "")
-        allowed_stop_transitions = {
-            "arrived_at_farm": {"team_assigned", "en_route"},
-            "collected": {"arrived_at_farm"},
-            "departed_farm": {"collected"},
-        }
-        if current_job_status not in allowed_stop_transitions[route_status]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid farm stop transition: {current_job_status} -> {route_status}",
-            )
-        if route_status == "collected" and (actualQuantity is None or actualQuantity <= 0):
-            raise HTTPException(status_code=400, detail="Enter the actual collected quantity (kg) before confirming collection")
-        stop_update: Dict[str, Any] = {"status": route_status}
+        target_stop = next(
+            (stop for stop in stops if collectionId in stop_collection_ids(stop)),
+            None,
+        )
+        if target_stop is None:
+            raise HTTPException(status_code=404, detail="Farm stop not found on this route")
+        farm_collection_ids = stop_collection_ids(target_stop)
+        if not farm_collection_ids:
+            raise HTTPException(status_code=400, detail="This farm stop has no linked orders")
+
+        async def get_authorized_farm_jobs() -> List[Dict[str, Any]]:
+            farm_jobs = []
+            for farm_collection_id in farm_collection_ids:
+                farm_job = await warehouse_collection_repository.get_by_id(farm_collection_id)
+                if (
+                    not farm_job
+                    or str(farm_job.get("pickupRouteId") or "") != route_id
+                    or str(farm_job.get("collectionTeamId") or "") != partner_id
+                ):
+                    raise HTTPException(status_code=404, detail="One or more farm orders are no longer assigned to you")
+                farm_jobs.append(farm_job)
+            return farm_jobs
+
+        farm_jobs = await get_authorized_farm_jobs()
+
         if route_status == "arrived_at_farm":
-            stop_update["arrivedAtFarmAt"] = now
-        if route_status == "collected":
-            stop_update.update({
+            allowed_arrival = {"team_assigned", "ready_for_pickup", "en_route", "arrived_at_farm"}
+            invalid = [job for job in farm_jobs if str(job.get("status") or "") not in allowed_arrival]
+            if invalid:
+                raise HTTPException(status_code=400, detail="This farm's orders have already progressed beyond arrival")
+            for farm_job in farm_jobs:
+                if str(farm_job.get("status") or "") != "arrived_at_farm":
+                    await warehouse_collection_repository.update_job(str(farm_job["_id"]), {
+                        "status": "arrived_at_farm",
+                        "arrivedAtFarmAt": now,
+                    })
+                    await sync_order_status(farm_job, "arrived_at_farm")
+            target_stop["status"] = "arrived_at_farm"
+            for order in target_stop.get("orders") or []:
+                order["status"] = "arrived_at_farm"
+                order["arrivedAtFarmAt"] = now
+
+        elif route_status == "collected":
+            job = next((value for value in farm_jobs if str(value.get("_id")) == collectionId), None)
+            if not job:
+                raise HTTPException(status_code=404, detail="The selected order is not part of this farm stop")
+            if str(job.get("status") or "") != "arrived_at_farm":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Confirm arrival at the farm before recording collection (current status: {job.get('status')})",
+                )
+            if actualQuantity is None or actualQuantity <= 0:
+                raise HTTPException(status_code=400, detail="Enter the actual collected quantity (kg) before confirming collection")
+            await warehouse_collection_repository.update_job(collectionId, {
+                "status": "collected",
                 "collectedAt": now,
                 "actualCollectedQuantity": actualQuantity,
                 "quantityVariance": float(actualQuantity) - float(job.get("quantity") or 0),
+                **({"collectionNotes": notes} if notes else {}),
             })
-            if notes:
-                stop_update["collectionNotes"] = notes
-        if route_status == "departed_farm":
-            stop_update["departedFarmAt"] = now
-        await warehouse_collection_repository.update_job(collectionId, stop_update)
+            for order in target_stop.get("orders") or []:
+                if str(order.get("collectionId") or "") == collectionId:
+                    order["status"] = "collected"
+                    order["actualQuantity"] = actualQuantity
+                    order["collectedAt"] = now
+            await sync_order_status(job, "collected", actualQuantity)
+            refreshed_jobs = await get_authorized_farm_jobs()
+            farm_states = [str(value.get("status") or "") for value in refreshed_jobs]
+            target_stop["status"] = (
+                "collected" if all(value in ("collected", "departed_farm") for value in farm_states)
+                else "arrived_at_farm"
+            )
 
-        for stop in stops:
-            if str(stop.get("collectionId") or "") == collectionId:
-                stop["status"] = route_status
-                if route_status == "collected":
-                    stop["actualQuantity"] = actualQuantity
-        all_departed = bool(stops) and all(str(stop.get("status") or "") == "departed_farm" for stop in stops)
+        else:  # Depart the physical farm only after every order is collected.
+            not_collected = [
+                job for job in farm_jobs
+                if str(job.get("status") or "") not in ("collected", "departed_farm")
+            ]
+            if not_collected:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Confirm actual quantities for all {len(not_collected)} remaining order(s) at this farm before departing.",
+                )
+            for farm_job in farm_jobs:
+                if str(farm_job.get("status") or "") != "departed_farm":
+                    await warehouse_collection_repository.update_job(str(farm_job["_id"]), {
+                        "status": "departed_farm",
+                        "departedFarmAt": now,
+                    })
+                    await sync_order_status(farm_job, "departed_farm")
+            for order in target_stop.get("orders") or []:
+                order["status"] = "departed_farm"
+                order["departedFarmAt"] = now
+            target_stop["status"] = "departed_farm"
+
+        all_departed = bool(stops) and all(
+            str(stop.get("status") or "") == "departed_farm" for stop in stops
+        )
         route_update = {
             "stops": stops,
             "status": "departed_farm" if all_departed else "started",
@@ -2809,9 +2876,12 @@ async def update_my_pickup_route_status(
         if all_departed:
             route_update["allStopsDepartedAt"] = now
         await warehouse_pickup_route_repository.update_route(route_id, route_update)
-        await sync_order_status(job, route_status, actualQuantity if route_status == "collected" else None)
         updated = await warehouse_pickup_route_repository.get_by_id(route_id)
-        message = "All farms departed. Complete the pickup route." if all_departed else f"Farm stop {route_status.replace('_', ' ')}"
+        message = (
+            "All farms departed. Complete the pickup route."
+            if all_departed
+            else f"Farm stop {route_status.replace('_', ' ')}"
+        )
         return {"success": True, "data": await enrich_pickup_route_display(updated), "message": message}
 
     # Completion is enabled only after every farm has been marked departed.
