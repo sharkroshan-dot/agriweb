@@ -2193,7 +2193,12 @@ async def get_pickup_routes(
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
-    routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]), date or datetime.utcnow().strftime("%Y-%m-%d"))
+    # Keep unfinished routes visible across midnight. The optional date filter is
+    # retained for callers that explicitly request a date; the warehouse page
+    # omits it so in-progress routes from previous days are not hidden.
+    routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]), date)
+    terminal_statuses = {"completed", "received", "stored", "cancelled", "closed", "archived"}
+    routes = [route for route in routes if str(route.get("status") or "").lower() not in terminal_statuses]
     display_routes = []
     for route in routes:
         display_routes.append(await enrich_pickup_route_display(route))
