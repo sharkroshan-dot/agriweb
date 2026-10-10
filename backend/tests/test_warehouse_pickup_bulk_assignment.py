@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.warehouse_pickup_route_service import select_route_team_assignments, _group_jobs_by_farm
+from app.services.warehouse_pickup_route_service import select_route_team_assignments, _group_jobs_by_farm, _display_farm_key
 
 
 def test_auto_assignment_chooses_smallest_suitable_capacity():
@@ -127,3 +127,38 @@ def test_route_builder_keeps_different_farms_as_separate_stops():
 
     assert len(stops) == 2
     assert {stop["farmerName"] for stop in stops} == {"Kumar Farms", "Ravi Farms"}
+
+
+
+def test_legacy_route_stops_with_same_farm_name_and_address_are_grouped():
+    first_stop = {
+        "farmerId": "legacy-farmer-profile-a",
+        "farmerName": "Henry Roshan",
+        "pickupAddress": "Trichy Main Road, Trichy",
+        "pickupLocation": {"coordinates": [78.6901, 10.7905]},
+        "collectionId": "collection-a",
+    }
+    second_stop = {
+        "farmerId": "legacy-farmer-profile-b",
+        "farmerName": "henry roshan",
+        "pickupAddress": "  Trichy Main Road,   Trichy ",
+        "pickupLocation": {"coordinates": [78.6905, 10.7907]},
+        "collectionId": "collection-b",
+    }
+
+    assert _display_farm_key(first_stop) == _display_farm_key(second_stop)
+
+
+def test_different_farm_addresses_remain_separate_even_for_same_farmer_name():
+    first_stop = {
+        "farmerName": "Henry Roshan",
+        "pickupAddress": "Trichy Main Road, Trichy",
+        "pickupLocation": {"coordinates": [78.6901, 10.7905]},
+    }
+    second_stop = {
+        "farmerName": "Henry Roshan",
+        "pickupAddress": "Airport Road, Trichy",
+        "pickupLocation": {"coordinates": [78.7000, 10.8000]},
+    }
+
+    assert _display_farm_key(first_stop) != _display_farm_key(second_stop)
