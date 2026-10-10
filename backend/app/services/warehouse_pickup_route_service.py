@@ -44,6 +44,13 @@ def _serialize_route(route: Dict[str, Any]) -> Dict[str, Any]:
         for key in ("collectionId", "farmerId", "orderId"):
             if stop.get(key) is not None:
                 stop[key] = str(stop[key])
+        for key in ("collectionIds", "orderIds"):
+            if stop.get(key):
+                stop[key] = [str(value) for value in stop[key]]
+        for order in stop.get("orders") or []:
+            for key in ("collectionId", "incomingStockId", "orderId", "farmerId", "productId", "variantId", "batchId"):
+                if order.get(key) is not None:
+                    order[key] = str(order[key])
     return result
 
 
@@ -87,20 +94,104 @@ def select_route_team_assignments(
     return assignments
 
 
+def _farm_key(job: Dict[str, Any]) -> str:
+    """Use the farm identity first, then a known location when legacy data lacks it."""
+    farmer_id = str(job.get("farmerId") or "").strip()
+    if farmer_id:
+        return f"farmer:{farmer_id.lower()}"
+    location = job.get("pickupLocation") or {}
+    coords = location.get("coordinates") if isinstance(location, dict) else None
+    if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+        try:
+            return f"location:{round(float(coords[0]), 5)}:{round(float(coords[1]), 5)}"
+        except (TypeError, ValueError):
+            pass
+    if isinstance(location, dict):
+        address = (
+            location.get("formattedAddress")
+            or location.get("address")
+            or location.get("farmAddress")
+            or job.get("pickupAddress")
+        )
+        if address and str(address).strip():
+            return f"address:{' '.join(str(address).lower().split())}"
+    return f"collection:{job.get('_id')}"
+
+
+def _group_jobs_by_farm(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """One route stop per farm, with all order-level collection jobs nested inside."""
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for job in jobs:
+        key = _farm_key(job)
+        if key not in grouped:
+            grouped[key] = {
+                "farmKey": key,
+                "farmerId": str(job.get("farmerId")) if job.get("farmerId") else None,
+                "farmerName": job.get("farmerName") or "Farmer",
+                "pickupLocation": job.get("pickupLocation") or {},
+                "orders": [],
+            }
+        group = grouped[key]
+        order = {
+            "collectionId": str(job["_id"]),
+            "incomingStockId": str(job["incomingStockId"]) if job.get("incomingStockId") else None,
+            "orderId": str(job["orderId"]) if job.get("orderId") else None,
+            "farmerId": str(job["farmerId"]) if job.get("farmerId") else None,
+            "productId": str(job["productId"]) if job.get("productId") else None,
+            "variantId": str(job["variantId"]) if job.get("variantId") else None,
+            "farmerName": job.get("farmerName") or group["farmerName"],
+            "productName": job.get("productName") or "Farm Product",
+            "quantity": float(job.get("quantity") or 0),
+            "batchId": str(job["batchId"]) if job.get("batchId") else None,
+            "batchNumber": job.get("batchNumber"),
+            "qualityGrade": job.get("qualityGrade"),
+            "storageType": job.get("storageType") or "ambient",
+            "collectionType": job.get("collectionType"),
+            "status": job.get("status") or "ready_for_pickup",
+            "actualQuantity": job.get("actualCollectedQuantity"),
+        }
+        group["orders"].append(order)
+
+    result = []
+    for group in grouped.values():
+        orders = group["orders"]
+        total_quantity = sum(float(order.get("quantity") or 0) for order in orders)
+        product_names = list(dict.fromkeys(
+            str(order.get("productName") or "Farm Product") for order in orders
+        ))
+        first = orders[0]
+        result.append({
+            "farmKey": group["farmKey"],
+            "farmerId": group["farmerId"],
+            "farmerName": group["farmerName"],
+            "pickupLocation": group["pickupLocation"],
+            "collectionId": first["collectionId"],
+            "collectionIds": [order["collectionId"] for order in orders],
+            "orderIds": [order["orderId"] for order in orders if order.get("orderId")],
+            "orders": orders,
+            "orderCount": len(orders),
+            "incomingStockId": first.get("incomingStockId"),
+            "orderId": first.get("orderId"),
+            "productId": first.get("productId"),
+            "variantId": first.get("variantId"),
+            "productName": product_names[0] if len(product_names) == 1 else f"{len(product_names)} product types",
+            "quantity": total_quantity,
+            "batchId": first.get("batchId"),
+            "batchNumber": first.get("batchNumber"),
+            "status": "pending",
+        })
+    return result
+
+
 async def build_smart_routes(
     warehouse: Dict[str, Any],
     jobs: List[Dict[str, Any]],
     max_stops: Optional[int] = None,
     max_weight_kg: float = 0,
 ) -> List[Dict[str, Any]]:
-    """Build one or more warehouse pickup routes using nearest-neighbour ordering.
-
-    Vehicle capacity is the primary route limit. There is no arbitrary stop-count
-    cap: the route keeps adding the nearest eligible farm stops until the vehicle
-    capacity is reached. Farms with no coordinates are kept as stops so they are not lost.
-    """
+    """Create farm-based routes, consolidating every selected order from the same farm."""
     warehouse_point = _point(warehouse.get("location"))
-    remaining = list(jobs)
+    remaining = _group_jobs_by_farm(jobs)
     routes: List[Dict[str, Any]] = []
     route_no = 1
     while remaining:
@@ -109,39 +200,36 @@ async def build_smart_routes(
         weight = 0.0
         while remaining and (max_stops is None or len(selected) < max_stops):
             candidates = []
-            for job in remaining:
-                qty = float(job.get("quantity") or 0)
+            for farm in remaining:
+                qty = float(farm.get("quantity") or 0)
+                if max_weight_kg > 0 and qty > max_weight_kg:
+                    if not selected:
+                        raise ValueError(
+                            f"Orders from {farm.get('farmerName') or 'one farm'} total {qty:g} kg, "
+                            f"which exceeds the selected vehicle capacity of {max_weight_kg:g} kg. "
+                            "Select a larger vehicle or split the pickup into separate trips."
+                        )
+                    continue
                 if max_weight_kg > 0 and selected and weight + qty > max_weight_kg:
                     continue
-                p = _point(job.get("pickupLocation"))
-                candidates.append((_distance(current, p) if current and p else 999999.0, job))
+                point = _point(farm.get("pickupLocation"))
+                candidates.append((_distance(current, point) if current and point else 999999.0, farm))
             if not candidates:
                 break
-            _, chosen = min(candidates, key=lambda x: x[0])
+            _, chosen = min(candidates, key=lambda entry: entry[0])
             remaining.remove(chosen)
-            p = _point(chosen.get("pickupLocation"))
-            selected.append({
-                "collectionId": str(chosen["_id"]),
-                "incomingStockId": str(chosen["incomingStockId"]) if chosen.get("incomingStockId") else None,
-                "orderId": str(chosen["orderId"]) if chosen.get("orderId") else None,
-                "farmerId": str(chosen["farmerId"]) if chosen.get("farmerId") else None,
-                "productId": str(chosen["productId"]) if chosen.get("productId") else None,
-                "variantId": str(chosen["variantId"]) if chosen.get("variantId") else None,
-                "farmerName": chosen.get("farmerName") or "Farmer",
-                "productName": chosen.get("productName") or "Farm Product",
-                "quantity": float(chosen.get("quantity") or 0),
-                "pickupLocation": chosen.get("pickupLocation") or {},
-                "status": "pending",
-                "sequence": len(selected),
-            })
+            point = _point(chosen.get("pickupLocation"))
+            chosen["sequence"] = len(selected) + 1
+            selected.append(chosen)
             weight += float(chosen.get("quantity") or 0)
-            current = p or current
+            current = point or current
         if not selected:
             break
         routes.append({
             "routeNumber": route_no,
             "stops": selected,
             "totalStops": len(selected),
+            "totalOrders": sum(int(stop.get("orderCount") or 0) for stop in selected),
             "totalQuantity": weight,
         })
         route_no += 1
@@ -158,13 +246,16 @@ async def assign_route(route: Dict[str, Any], membership: Dict[str, Any]) -> Opt
         "assignedBy": route.get("assignedBy"),
     })
     for stop in route.get("stops") or []:
-        collection_id = str(stop["collectionId"])
-        await warehouse_collection_repository.update_job(collection_id, {
-            "pickupRouteId": ObjectId(route_id),
-            "collectionTeamId": ObjectId(partner_id),
-            "status": "team_assigned",
-            "teamAssignedAt": datetime.utcnow(),
-        })
+        collection_ids = stop.get("collectionIds") or [stop.get("collectionId")]
+        for collection_id in collection_ids:
+            if not collection_id or not ObjectId.is_valid(str(collection_id)):
+                continue
+            await warehouse_collection_repository.update_job(str(collection_id), {
+                "pickupRouteId": ObjectId(route_id),
+                "collectionTeamId": ObjectId(partner_id),
+                "status": "team_assigned",
+                "teamAssignedAt": datetime.utcnow(),
+            })
     try:
         await NotificationService.send_custom_notification(
             str(membership["deliveryPartnerUserId"]),
