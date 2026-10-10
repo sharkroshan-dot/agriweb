@@ -49,6 +49,7 @@ export default function PickupRoutesPage() {
   const routes = routesQ.data?.data?.routes || [];
   const teams = teamsQ.data?.data?.members || [];
   const [selectedTeamId, setSelectedTeamId] = React.useState("");
+  const [expandedOrderStops, setExpandedOrderStops] = React.useState<Record<string, boolean>>({});
 
   const selectedTeam = teams.find((team: any) => team.id === selectedTeamId);
 
@@ -151,17 +152,37 @@ export default function PickupRoutesPage() {
                         </div>
                         <Badge variant="outline">{stopStatusLabel(String(s.status || "pending"))}</Badge>
                       </div>
-                      <div className="space-y-2 p-3">
-                        {orders.map((order: any, orderIndex: number) => (
-                          <div key={order.collectionId || order.orderId || orderIndex} className="rounded-lg border bg-slate-50 p-3">
-                            <p className="font-medium">{order.orderNumber ? (order.orderNumber === "Order reference unavailable" ? order.orderNumber : "Order " + order.orderNumber) : "Order " + (orderIndex + 1)}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{order.productName || "Product details unavailable"} · Expected {order.quantity || 0} kg</p>
-                            {order.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {order.batchNumber}</p>}
-                            {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actually collected: {order.actualQuantity} kg</p>}
-                            <p className="mt-1 text-xs text-muted-foreground">Status: {stopStatusLabel(String(order.status || "pending"))}</p>
-                          </div>
-                        ))}
+                      <div className="flex items-center justify-between gap-3 border-t bg-white px-3 py-2">
+                        <p className="text-xs text-muted-foreground">
+                          {orders.length} {orders.length === 1 ? "order" : "orders"} in this farm pickup
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setExpandedOrderStops((current) => ({
+                            ...current,
+                            [String(r.id) + ":" + String(s.farmKey || s.collectionId || i)]: !current[String(r.id) + ":" + String(s.farmKey || s.collectionId || i)],
+                          }))}
+                        >
+                          {expandedOrderStops[String(r.id) + ":" + String(s.farmKey || s.collectionId || i)] ? "Hide Orders" : "View Orders"}
+                        </Button>
                       </div>
+                      {expandedOrderStops[String(r.id) + ":" + String(s.farmKey || s.collectionId || i)] && (
+                        <div className="space-y-2 border-t bg-slate-50 p-3">
+                          {orders.map((order: any, orderIndex: number) => (
+                            <div key={order.collectionId || order.orderId || orderIndex} className="rounded-lg border bg-white p-3">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <p className="font-medium">{order.orderNumber ? (order.orderNumber === "Order reference unavailable" ? order.orderNumber : "Order " + order.orderNumber) : "Order " + (orderIndex + 1)}</p>
+                                <Badge variant="outline">{stopStatusLabel(String(order.status || "pending"))}</Badge>
+                              </div>
+                              <p className="mt-1 text-sm text-muted-foreground">{order.productName || "Product details unavailable"} · Expected {order.quantity || 0} kg</p>
+                              {order.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {order.batchNumber}</p>}
+                              {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actually collected: {order.actualQuantity} kg</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
