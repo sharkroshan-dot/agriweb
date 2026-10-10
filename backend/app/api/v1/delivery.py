@@ -2838,8 +2838,9 @@ async def update_my_pickup_route_status(
                 target_stop["status"] = "arrived_at_farm"
 
         elif route_status == "collected":
-            # The UI submits quantities only for orders at this farm that still
-            # need collection; orders already collected/departed stay unchanged.
+            # Packed order transfers already have a verified quantity from
+            # Farmer Packing & Checking. Only non-packed collection types need
+            # the delivery partner to enter a measured quantity.
             if actualQuantities is not None:
                 farm_jobs_by_id = {str(value.get("_id")): value for value in farm_jobs}
                 collectible_ids = [
@@ -2848,21 +2849,66 @@ async def update_my_pickup_route_status(
                 ]
                 if not collectible_ids:
                     raise HTTPException(status_code=400, detail="There are no outstanding orders to collect at this farm")
-                if set(actualQuantities.keys()) != set(collectible_ids):
+
+                manual_quantity_ids = [
+                    key for key in collectible_ids
+                    if str(farm_jobs_by_id[key].get("collectionType") or "") != "packed_orders_transfer"
+                ]
+                if set(actualQuantities.keys()) != set(manual_quantity_ids):
                     raise HTTPException(
                         status_code=400,
-                        detail="Enter the actual quantity for each outstanding order at this farm, then confirm all together.",
+                        detail="Enter the actual quantity for each order that requires measuring, then confirm all together.",
                     )
-                for order_collection_id in collectible_ids:
-                    qty = actualQuantities.get(order_collection_id)
-                    if qty is None or qty <= 0:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Every outstanding order must have an actual collected quantity greater than 0 kg.",
-                        )
+
+                confirmed_quantities: Dict[str, float] = {}
                 for order_collection_id in collectible_ids:
                     order_job = farm_jobs_by_id[order_collection_id]
-                    qty = float(actualQuantities[order_collection_id])
+                    collection_type = str(order_job.get("collectionType") or "")
+                    qty = None
+
+                    if collection_type == "packed_orders_transfer":
+                        # Prefer the exact quantity saved during packing. The
+                        # collection job quantity is the final fallback because
+                        # incoming stock is created from the packed shipment.
+                        qty = order_job.get("actualPackedQuantity")
+                        if qty is None:
+                            qty = order_job.get("packedQuantity")
+
+                        if qty is None:
+                            order_id = str(order_job.get("orderId") or "")
+                            packed_order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
+                            items = (packed_order or {}).get("items") or []
+                            product_id = str(order_job.get("productId") or "")
+                            matching_items = [
+                                item for item in items
+                                if product_id and str(item.get("productId") or item.get("product_id") or "") == product_id
+                            ]
+                            if not matching_items and len(items) == 1:
+                                matching_items = items
+                            for item in matching_items:
+                                qty = item.get("actualPackedQuantity")
+                                if qty is None:
+                                    qty = item.get("packedQuantity")
+                                if qty is None:
+                                    qty = item.get("quantity")
+                                if qty is not None:
+                                    break
+
+                        if qty is None:
+                            qty = order_job.get("quantity")
+                    else:
+                        qty = actualQuantities.get(order_collection_id)
+
+                    if qty is None or float(qty) <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="A valid packed quantity is missing for one order at this farm. Recheck packing before confirming collection.",
+                        )
+                    confirmed_quantities[order_collection_id] = float(qty)
+
+                for order_collection_id in collectible_ids:
+                    order_job = farm_jobs_by_id[order_collection_id]
+                    qty = confirmed_quantities[order_collection_id]
                     await warehouse_collection_repository.update_job(order_collection_id, {
                         "status": "collected",
                         "collectedAt": now,
