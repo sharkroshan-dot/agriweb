@@ -264,17 +264,24 @@ export default function WarehouseCollectionsPage() {
         </CardContent>
       </Card>
 
-      {isLoading ? <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />)}</div> : jobs.length === 0 ? (
-        <Card className="p-12 text-center"><Truck className="mx-auto h-12 w-12 text-muted-foreground" /><h2 className="mt-4 font-semibold">No collection jobs</h2><p className="mt-2 text-sm text-muted-foreground">New jobs appear automatically when a farmer confirms a warehouse pickup or a long-distance farmer order needs warehouse transfer.</p></Card>
+      {isLoading ? (
+        <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />)}</div>
+      ) : jobs.length === 0 ? (
+        <Card className="p-12 text-center">
+          <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
+          <h2 className="mt-4 font-semibold">No collection jobs</h2>
+          <p className="mt-2 text-sm text-muted-foreground">New jobs appear automatically when a farmer confirms a warehouse pickup or a long-distance farmer order needs warehouse transfer.</p>
+        </Card>
       ) : (
-        <div classNam          {farmGroups.map((farm: any) => {
+        <div className="space-y-4">
+          {farmGroups.map((farm: any) => {
             const expanded = Boolean(expandedFarmCards[farm.key]);
             const expandableId = "farm-orders-" + farm.key.replace(/[^a-zA-Z0-9_-]/g, "-");
             return (
               <Card key={farm.key} className="overflow-hidden border-emerald-200 shadow-sm">
                 <CardHeader className="border-b bg-emerald-50/70 p-5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge className="bg-emerald-700 text-white"><MapPin className="mr-1 h-3 w-3" /> Farm</Badge>
                         {farm.readyCount > 0 && <Badge variant="outline">{farm.readyCount} ready for planning</Badge>}
@@ -302,93 +309,123 @@ export default function WarehouseCollectionsPage() {
                     </Button>
                   </div>
                 </CardHeader>
+
                 {expanded && (
                   <CardContent id={expandableId} className="space-y-4 bg-slate-50/50 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-slate-800">All orders from {farm.farmerName}</p>
-                      <p className="text-xs text-muted-foreground">Select each eligible order below for bulk pickup planning.</p>
+                      <p className="text-xs text-muted-foreground">Select eligible orders below for bulk pickup planning.</p>
                     </div>
+
                     {farm.jobs.map((job: any) => {
-            const isPackedTransfer = job.collectionType === "packed_orders_transfer";
-            const currentIndex = STATUS.findIndex(([key]) => key === job.status);
-            return (
-              <Card key={job.id} className="overflow-hidden shadow-sm">
-                <CardHeader className="border-b bg-slate-50/70 p-5">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId && <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${job.farmerName || job.productName || "collection job"}`}
-                            checked={selectedCollectionIds.includes(String(job.id || job._id))}
-                            onChange={(event) => toggleCollectionSelection(String(job.id || job._id), event.target.checked)}
-                            className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
-                          />
-                          Select
-                        </label>}
-                        <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>{isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}</Badge>
-                        <Badge variant="outline">{label(job.status)}</Badge>
-                        {job.pickupRouteId && job.status !== "arrived_warehouse" && <Badge className="bg-violet-100 text-violet-800">{job.routeNumber ? `Route ${job.routeNumber}` : "Route Planned"}</Badge>}
-                      </div>
-                      <CardTitle className="mt-2 text-base">{job.productName || "Product details unavailable"}</CardTitle>
-                      <p className="mt-1 text-sm text-muted-foreground">Farmer: {job.farmerName || "Farmer details unavailable"} {job.orderNumber ? <>· {job.orderNumber === "Order reference unavailable" ? job.orderNumber : `Order ${job.orderNumber}`}</> : ""}</p>
-                      {job.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {job.batchNumber}</p>}
-                    </div>
-                    <div className="rounded-xl border bg-white px-4 py-3 text-right">
-                      <p className="text-xs text-muted-foreground">Expected Quantity</p>
-                      <p className="text-lg font-bold">{job.quantity || 0} kg</p>
-                      {job.actualCollectedQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {job.actualCollectedQuantity} kg</p>}
-                      <p className="text-xs text-muted-foreground">{job.packageCount || 1} package(s)</p>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-5">
-                  <div className="mb-5 grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Pickup</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><MapPin className="h-3.5 w-3.5 text-emerald-600" /> {job.pickupAddress || "Farm address not provided"}</p></div>
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Collection Team</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><User className="h-3.5 w-3.5 text-emerald-600" /> {job.collectionTeamName || (job.collectionTeamId ? "Assigned pickup partner" : "Not assigned")}{job.collectionTeamVehicleNumber ? ` · ${job.collectionTeamVehicleNumber}` : ""}</p></div>
-                    <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Next destination</p><p className="mt-1 flex items-center gap-1 text-sm font-medium"><Warehouse className="h-3.5 w-3.5 text-emerald-600" /> {job.warehouseName || warehouseName || "Assigned warehouse"}</p></div>
-                  </div>
+                      const isPackedTransfer = job.collectionType === "packed_orders_transfer";
+                      const currentIndex = STATUS.findIndex(([key]) => key === job.status);
+                      return (
+                        <Card key={job.id || job._id} className="overflow-hidden shadow-sm">
+                          <CardHeader className="border-b bg-white p-4">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId && (
+                                    <label className="mr-1 inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-slate-700">
+                                      <input
+                                        type="checkbox"
+                                        aria-label={"Select " + (job.orderNumber || job.productName || "collection job")}
+                                        checked={selectedCollectionIds.includes(String(job.id || job._id))}
+                                        onChange={(event) => toggleCollectionSelection(String(job.id || job._id), event.target.checked)}
+                                        className="h-4 w-4 rounded border-slate-300 accent-emerald-600"
+                                      />
+                                      Select for pickup
+                                    </label>
+                                  )}
+                                  <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>
+                                    {isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}
+                                  </Badge>
+                                  <Badge variant="outline">{label(job.status)}</Badge>
+                                  {job.pickupRouteId && job.status !== "arrived_warehouse" && (
+                                    <Badge className="bg-violet-100 text-violet-800">{job.routeNumber ? "Route " + job.routeNumber : "Route planned"}</Badge>
+                                  )}
+                                </div>
+                                <CardTitle className="mt-2 text-base">{job.orderNumber ? (job.orderNumber === "Order reference unavailable" ? job.orderNumber : "Order " + job.orderNumber) : "Order details unavailable"}</CardTitle>
+                                <p className="mt-1 text-sm text-muted-foreground">{job.productName || "Product details unavailable"} · Farmer: {job.farmerName || "Farmer details unavailable"}</p>
+                                {job.batchNumber && <p className="mt-1 text-xs text-muted-foreground">Batch / Lot: {job.batchNumber}</p>}
+                              </div>
+                              <div className="rounded-xl border bg-slate-50 px-4 py-3 text-right">
+                                <p className="text-xs text-muted-foreground">Expected quantity</p>
+                                <p className="text-lg font-bold">{job.quantity || 0} kg</p>
+                                {job.actualCollectedQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Collected: {job.actualCollectedQuantity} kg</p>}
+                                <p className="text-xs text-muted-foreground">{job.packageCount || 1} package(s)</p>
+                              </div>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4 p-4">
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              <div className="rounded-lg bg-slate-50 p-3">
+                                <p className="text-xs text-muted-foreground">Pickup location</p>
+                                <p className="mt-1 flex items-start gap-1 text-sm font-medium"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.pickupAddress || "Farm address not provided"}</p>
+                              </div>
+                              <div className="rounded-lg bg-slate-50 p-3">
+                                <p className="text-xs text-muted-foreground">Collection team</p>
+                                <p className="mt-1 flex items-start gap-1 text-sm font-medium"><User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.collectionTeamName || (job.collectionTeamId ? "Assigned pickup partner" : "Not assigned")}{job.collectionTeamVehicleNumber ? " · " + job.collectionTeamVehicleNumber : ""}</p>
+                              </div>
+                              <div className="rounded-lg bg-slate-50 p-3">
+                                <p className="text-xs text-muted-foreground">Next destination</p>
+                                <p className="mt-1 flex items-start gap-1 text-sm font-medium"><Warehouse className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" /> {job.warehouseName || warehouseName || "Assigned warehouse"}</p>
+                              </div>
+                            </div>
 
-                  <div className="mb-5 overflow-x-auto pb-2">
-                    <div className="flex min-w-[760px] items-center">
-                      {STATUS.map(([key, title], index) => {
-                        const done = currentIndex >= index;
-                        return <div key={key} className="flex flex-1 items-center"><div className="flex min-w-0 flex-col items-center"><div className={`flex h-8 w-8 items-center justify-center rounded-full border-2 ${done ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-400"}`}>{done ? <CheckCircle2 className="h-4 w-4" /> : <span className="text-xs">{index + 1}</span>}</div><span className={`mt-2 text-center text-[11px] ${done ? "font-semibold text-emerald-700" : "text-slate-400"}`}>{title}</span></div>{index < STATUS.length - 1 && <div className={`mx-2 h-0.5 flex-1 ${currentIndex > index ? "bg-emerald-500" : "bg-slate-200"}`} />}</div>;
-                      })}
-                    </div>
-                  </div>
+                            <div className="overflow-x-auto pb-2">
+                              <div className="flex min-w-[760px] items-center">
+                                {STATUS.map(([key, title], index) => {
+                                  const done = currentIndex >= index;
+                                  return (
+                                    <div key={key} className="flex flex-1 items-center">
+                                      <div className="flex min-w-0 flex-col items-center">
+                                        <div className={"flex h-8 w-8 items-center justify-center rounded-full border-2 " + (done ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-400")}>
+                                          {done ? <CheckCircle2 className="h-4 w-4" /> : <span className="text-xs">{index + 1}</span>}
+                                        </div>
+                                        <span className={"mt-2 text-center text-[11px] " + (done ? "font-semibold text-emerald-700" : "text-slate-400")}>{title}</span>
+                                      </div>
+                                      {index < STATUS.length - 1 && <div className={"mx-2 h-0.5 flex-1 " + (currentIndex > index ? "bg-emerald-500" : "bg-slate-200")} />}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
 
-                  <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-sm">
-                      <p className="font-medium">{isPackedTransfer ? "Already-packed customer order" : "Bulk warehouse fulfillment stock"}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{isPackedTransfer ? "Packing Verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse Packing Required: No" : "Packing Required: Yes · Farmer Verification: " + (job.packingVerified ? "Complete" : "Pending")}</p>
-                    </div>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      {job.pickupRouteId ? (
-                        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 sm:max-w-[420px]">
-                          Tracking is read-only here. The assigned pickup partner updates En Route, At Farm, Collected and Departed from Delivery Partner → Pickup Routes. Warehouse arrival is recorded when the partner returns the route.
-                        </div>
-                      ) : job.collectionTeamId ? (
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:max-w-[420px]">
-                          This older assignment has no pickup route yet. Select this job in Bulk Actions to create its route and move tracking to the pickup partner.
-                        </div>
-                      ) : ["ready_for_pickup", "team_assigned"].includes(job.status) ? (
-                        <p className="text-xs text-muted-foreground">Select this job above, then use Bulk Actions to plan and assign its pickup route.</p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Collection progress is shown here for monitoring.</p>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
+                            <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="text-sm">
+                                <p className="font-medium">{isPackedTransfer ? "Already-packed customer order" : "Bulk warehouse fulfillment stock"}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {isPackedTransfer
+                                    ? "Packing verified: " + (job.packingVerified ? "Complete" : "Pending") + " · Warehouse packing required: No"
+                                    : "Packing required: Yes · Farmer verification: " + (job.packingVerified ? "Complete" : "Pending")}
+                                </p>
+                              </div>
+                              <div className="flex flex-col gap-2 sm:flex-row">
+                                {job.pickupRouteId ? (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 sm:max-w-[420px]">
+                                    Tracking is read-only here. The assigned pickup partner updates En Route, At Farm, Collected and Departed from Delivery Partner → Pickup Routes. Warehouse arrival is recorded when the partner returns the route.
+                                  </div>
+                                ) : job.collectionTeamId ? (
+                                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:max-w-[420px]">
+                                    This older assignment has no pickup route yet. Select this job above to create its route.
+                                  </div>
+                                ) : ["ready_for_pickup", "team_assigned"].includes(job.status) ? (
+                                  <p className="text-xs text-muted-foreground">Select this job above, then use Bulk Actions to plan and assign its pickup route.</p>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">Collection progress is shown here for monitoring.</p>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
                     })}
                   </CardContent>
                 )}
               </Card>
             );
-          })});
           })}
         </div>
       )}
