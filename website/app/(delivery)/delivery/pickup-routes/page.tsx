@@ -391,60 +391,66 @@ export default function DeliveryPickupRoutesPage() {
                       </div>
 
                       <div className="space-y-3 p-4">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Orders from this farm</p>
-                        {orderGroups.map((orderGroup: any, orderIndex: number) => (
-                          <div key={orderGroup.key} className="rounded-lg border bg-slate-50 p-3">
-                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-semibold text-slate-900">
-                                {orderGroup.orderNumber
-                                  ? "Order " + orderGroup.orderNumber
-                                  : "Order " + (orderIndex + 1)}
-                              </p>
-                              {orderGroup.items.length > 1 && <span className="text-xs text-slate-500">{orderGroup.items.length} collection items</span>}
-                            </div>
-                            <div className="space-y-2">
-                              {orderGroup.items.map((order: any, itemIndex: number) => (
-                                <div key={order.collectionId || order.orderId || itemIndex} className="rounded-md border bg-white p-3">
-                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-slate-800">Orders from this farm</p>
+                          <span className="text-xs text-slate-500">{orderGroups.length} {orderGroups.length === 1 ? "order" : "orders"}</span>
+                        </div>
+
+                        <div className="divide-y rounded-lg border bg-white">
+                          {orderGroups.map((orderGroup: any, orderIndex: number) => (
+                            <div key={orderGroup.key} className="p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="font-semibold text-slate-900">
+                                  {orderGroup.orderNumber
+                                    ? "Order " + orderGroup.orderNumber
+                                    : "Order " + (orderIndex + 1)}
+                                </p>
+                                {orderGroup.items.length > 1 && (
+                                  <span className="text-xs text-slate-500">{orderGroup.items.length} items</span>
+                                )}
+                              </div>
+                              <div className="mt-2 divide-y">
+                                {orderGroup.items.map((order: any, itemIndex: number) => (
+                                  <div key={order.collectionId || order.orderId || itemIndex} className="flex flex-col gap-2 py-2 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="min-w-0 flex-1">
-                                      <p className="text-sm font-medium text-slate-800">{order.productName || "Product details unavailable"}</p>
-                                      <p className="mt-1 text-xs text-slate-600">Expected quantity: {order.quantity || 0} kg</p>
-                                      {order.batchNumber && <p className="mt-1 text-xs text-slate-600">Batch / Lot: {order.batchNumber}</p>}
-                                      {order.actualQuantity != null && <p className="mt-1 text-xs font-semibold text-emerald-700">Actual collected: {order.actualQuantity} kg</p>}
+                                      <p className="text-sm text-slate-800">{order.productName || "Product details unavailable"}</p>
+                                      <p className="mt-0.5 text-xs text-slate-500">
+                                        Expected {order.quantity || 0} kg
+                                        {order.batchNumber ? " · Batch / Lot: " + order.batchNumber : ""}
+                                      </p>
+                                      {order.actualQuantity != null && (
+                                        <p className="mt-0.5 text-xs font-medium text-emerald-700">Collected {order.actualQuantity} kg</p>
+                                      )}
                                     </div>
                                     {r.status !== "assigned" && order.status === "arrived_at_farm" && (
-                                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                        <label className="text-xs font-medium text-slate-600">Actual collected quantity</label>
+                                      <div className="flex items-center gap-2 sm:w-56">
+                                        <label className="shrink-0 text-xs text-slate-600">Actual kg</label>
                                         <Input
-                                          className="sm:w-36"
+                                          className="h-9"
                                           type="number"
                                           min="0.01"
                                           step="0.01"
-                                          placeholder="Actual kg *"
+                                          placeholder="Enter kg *"
                                           value={actual[order.collectionId] || ""}
                                           onChange={e => setActual({ ...actual, [order.collectionId]: e.target.value })}
-                                          aria-label={"Actual quantity collected for " + (order.orderNumber || order.productName || "order")}
+                                          aria-label={"Actual quantity for " + (order.orderNumber || order.productName || "order")}
                                         />
                                       </div>
                                     )}
                                   </div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
 
-                        {r.status !== "assigned" && canArriveAtFarm && (
-                          <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>
-                            <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
-                          </Button>
-                        )}
-                        {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allOrdersCollected && (
-                          <div className="flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 sm:flex-row sm:items-center sm:justify-between">
-                            <div className="text-sm text-blue-900">
-                              <p className="font-semibold">Confirm collection for this farm</p>
-                              <p className="text-xs">Enter the actual quantity for every order above, then confirm once for all {orders.length} orders.</p>
-                            </div>
+                        <div className="flex flex-wrap items-center gap-2 border-t pt-3">
+                          {r.status !== "assigned" && canArriveAtFarm && (
+                            <Button variant="outline" onClick={() => act(r, "arrived_at_farm", s.collectionId)}>
+                              <MapPin className="mr-2 h-4 w-4" /> Arrived at Farm
+                            </Button>
+                          )}
+                          {r.status !== "assigned" && stopStatus === "arrived_at_farm" && !allOrdersCollected && (
                             <Button
                               disabled={!allQuantitiesValid}
                               onClick={() => act(
@@ -456,16 +462,16 @@ export default function DeliveryPickupRoutesPage() {
                             >
                               <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm All {orderGroups.length} Orders Collected
                             </Button>
-                          </div>
-                        )}
-                        {r.status !== "assigned" && allOrdersCollected && !allOrdersDeparted && (
-                          <Button onClick={() => act(r, "departed_farm", s.collectionId)}>
-                            <Truck className="mr-2 h-4 w-4" /> Depart Farm — All {orderGroups.length} Orders Collected
-                          </Button>
-                        )}
-                        {r.status !== "assigned" && !allOrdersCollected && !canArriveAtFarm && (
-                          <p className="text-xs text-muted-foreground">Confirm the actual quantity for every order at this farm before departing.</p>
-                        )}
+                          )}
+                          {r.status !== "assigned" && allOrdersCollected && !allOrdersDeparted && (
+                            <Button onClick={() => act(r, "departed_farm", s.collectionId)}>
+                              <Truck className="mr-2 h-4 w-4" /> Depart Farm
+                            </Button>
+                          )}
+                          {r.status !== "assigned" && !allOrdersCollected && !canArriveAtFarm && stopStatus !== "arrived_at_farm" && (
+                            <p className="text-xs text-slate-500">Confirm the quantities for the outstanding orders before departing this farm.</p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   );
