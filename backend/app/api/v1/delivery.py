@@ -3423,8 +3423,13 @@ async def accept_delivery_job(
             raise HTTPException(status_code=409, detail="Another partner claimed this pickup route first")
 
         for stop in claimed_route.get("stops") or []:
-            collection_id = str(stop.get("collectionId") or "")
-            if collection_id:
+            collection_ids = stop.get("collectionIds") or [
+                order.get("collectionId") for order in (stop.get("orders") or [])
+            ] or [stop.get("collectionId")]
+            for collection_id in collection_ids:
+                collection_id = str(collection_id or "")
+                if not ObjectId.is_valid(collection_id):
+                    continue
                 await warehouse_collection_repository.update_job(collection_id, {
                     "pickupRouteId": ObjectId(route_id),
                     "collectionTeamId": ObjectId(partner_id),
