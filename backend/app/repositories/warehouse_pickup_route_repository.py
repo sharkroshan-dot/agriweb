@@ -40,7 +40,7 @@ class WarehousePickupRouteRepository(BaseRepository):
         """
         query = {
             "deliveryPartnerId": ObjectId(partner_id),
-            "status": {"$nin": ["returned_to_warehouse", "cancelled", "closed", "archived"]},
+            "status": {"$nin": ["returned_to_warehouse", "arrived_warehouse", "cancelled", "closed", "archived"]},
             "deletedAt": None,
         }
         return await self.find_many(query, skip=0, limit=100, sort=[("createdAt", -1)])
