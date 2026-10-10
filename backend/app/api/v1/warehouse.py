@@ -2334,6 +2334,17 @@ async def get_my_incoming_stock(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Warehouse not found"
         )
+    # Recovery/synchronization: older pickup completions may have updated the
+    # route status without materializing its incoming-stock rows. Reconcile
+    # completed routes before querying the page so warehouse receiving is not blank.
+    try:
+        routes = await warehouse_pickup_route_repository.get_by_warehouse(str(warehouse["_id"]))
+        for route in routes:
+            if str(route.get("status") or "") in ("completed", "returned_to_warehouse"):
+                await WarehouseService.create_pickup_route_incoming(str(route.get("_id")))
+    except Exception:
+        logger.exception("Failed to reconcile completed pickup routes into incoming stock")
+
     skip = (page - 1) * limit
     incoming, total = await WarehouseService.get_incoming_stock(
         str(warehouse["_id"]),
