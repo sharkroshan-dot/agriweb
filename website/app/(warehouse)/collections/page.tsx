@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -89,6 +89,8 @@ const getFarmProgress = (farmJobs: any[]) => {
 export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [focusFarmKey, setFocusFarmKey] = useState("");
+  const [focusCollectionIds, setFocusCollectionIds] = useState<string[]>([]);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [expandedFarmCards, setExpandedFarmCards] = useState<Record<string, boolean>>({});
   const [assignmentMode, setAssignmentMode] = useState<"auto_assign" | "offer" | "assign_team">("auto_assign");
@@ -96,6 +98,17 @@ export default function WarehouseCollectionsPage() {
   const [manualFarmOrder, setManualFarmOrder] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [planning, setPlanning] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedSearch = params.get("search") || "";
+    const requestedFarm = params.get("focusFarm") || "";
+    const requestedCollections = (params.get("focusCollections") || "").split(",").filter(Boolean);
+    if (requestedSearch) setSearch(requestedSearch);
+    if (requestedFarm) setFocusFarmKey(requestedFarm);
+    if (requestedCollections.length) setFocusCollectionIds(requestedCollections);
+  }, []);
+
   const { data: warehouseData } = useQuery({
     queryKey: ["warehouseCollectionsIdentity"],
     queryFn: () => api.get("/warehouse/me"),
@@ -163,6 +176,21 @@ export default function WarehouseCollectionsPage() {
       };
     });
   }, [jobs, selectedCollectionIds]);
+
+  useEffect(() => {
+    if (!focusFarmKey && focusCollectionIds.length === 0) return;
+    const target = farmGroups.find((farm: any) =>
+      (focusFarmKey && farm.key === focusFarmKey) ||
+      (focusCollectionIds.length > 0 && farm.jobs.some((job: any) => focusCollectionIds.includes(String(job.id || job._id))))
+    );
+    if (target) {
+      setExpandedFarmCards((previous) => ({ ...previous, [target.key]: true }));
+      window.setTimeout(() => {
+        document.getElementById("farm-orders-" + target.key.replace(/[^a-zA-Z0-9_-]/g, "-"))?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+  }, [farmGroups, focusFarmKey, focusCollectionIds]);
+
 
   const counts = useMemo(() => {
     const source = data?.data?.collections || [];
