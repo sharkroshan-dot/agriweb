@@ -1583,6 +1583,7 @@ async def handoff_farmer_fulfillment_to_local_hub(
             "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
             "localHubId": ObjectId(str(hub_id)),
             "localHubName": hub_doc.get("name") or hub_doc.get("hubName") or "Local Fulfillment Hub",
+            "quantity": sum(float(item.get("quantity") or 0) for item in (order.get("items") or [])),
             "status": "in_transit",
             "createdAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
