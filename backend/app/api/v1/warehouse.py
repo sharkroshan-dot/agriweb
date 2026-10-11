@@ -1116,11 +1116,18 @@ async def assign_farmer_fulfillment_destination_pickup_team(
     if leg.get("assignedDeliveryPartnerId") and str(leg.get("assignedDeliveryPartnerId")) != profile_id:
         raise HTTPException(status_code=409, detail="A team is already assigned to this transfer")
     now = datetime.utcnow()
-    await legs.update_one({"_id": leg["_id"], "status": {"$in": ["awaiting_team_assignment", "assigned"]}}, {"$set": {
+    assignment_result = await legs.update_one({"_id": leg["_id"], "status": {"$in": ["awaiting_team_assignment", "assigned"]}}, {"$set": {
         "status": "assigned", "assignedDeliveryPartnerId": ObjectId(profile_id),
         "assignedPartnerUserId": ObjectId(user_id), "assignedBy": ObjectId(str(current_user["_id"])),
         "assignedAt": now, "updatedAt": now,
     }})
+    if not assignment_result.modified_count and str(leg.get("status") or "") != "assigned":
+        raise HTTPException(status_code=409, detail="Transfer assignment changed. Refresh and try again.")
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "transferStatus": "destination_warehouse_in_transit",
+        "warehouseFulfillmentStage": "destination_warehouse_transfer_pending",
+        "updatedAt": now,
+    })
     try:
         await NotificationService.send_custom_notification(user_id, f"Inter-district transfer for order {order.get('orderNumber') or order_id} is assigned to you. Start the route and confirm arrival at the destination warehouse.", title="Warehouse Transfer Assigned", data={"type": "farmer_fulfillment_warehouse_transfer", "orderId": order_id})
     except Exception:
