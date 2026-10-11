@@ -147,6 +147,11 @@ export default function DeliveryPickupRoutesPage() {
     queryFn: () => api.get("/delivery/me/farmer-fulfillment-hub-transfers"),
     refetchInterval: 5000,
   });
+  const warehouseTransfersQ = useQuery({
+    queryKey: ["myFarmerFulfillmentWarehouseTransfers"],
+    queryFn: () => api.get("/delivery/me/farmer-fulfillment-warehouse-transfers"),
+    refetchInterval: 5000,
+  });
   const [actual, setActual] = useState<Record<string, string>>({});
   const [expandedFarmStops, setExpandedFarmStops] = useState<Record<string, boolean>>({});
   const marketplaceQ = useQuery({
@@ -159,6 +164,7 @@ export default function DeliveryPickupRoutesPage() {
   const pickupJobs = marketplaceQ.data?.data?.openJobs || [];
   const acceptedPickupJobs = marketplaceQ.data?.data?.acceptedJobs || [];
   const hubTransfers = hubTransfersQ.data?.data?.transfers || [];
+  const warehouseTransfers = warehouseTransfersQ.data?.data?.transfers || [];
 
   const accept = async (routeId: string) => {
     try {
@@ -184,6 +190,16 @@ export default function DeliveryPickupRoutesPage() {
       toast.error(e?.response?.data?.detail || e?.message || "This pickup job is no longer available");
       await marketplaceQ.refetch();
       await routesQ.refetch();
+    }
+  };
+
+  const actOnWarehouseTransfer = async (transfer:any,status:"started"|"arrived_at_destination") => {
+    try {
+      await api.put("/delivery/me/farmer-fulfillment-warehouse-transfers/"+transfer.id+"/status", undefined, {params:{status}});
+      toast.success(status==="started"?"Warehouse-to-warehouse transfer started":"Arrival at destination warehouse recorded. Warehouse staff must confirm receipt.");
+      await warehouseTransfersQ.refetch();
+    } catch(e:any) {
+      toast.error(e?.message || "Unable to update warehouse transfer");
     }
   };
 
@@ -225,6 +241,34 @@ export default function DeliveryPickupRoutesPage() {
           Open routes are offered to every approved pickup partner. The first partner to accept gets the route.
         </p>
       </div>
+
+      {warehouseTransfers.length > 0 && (
+        <Card className="border-amber-200">
+          <CardHeader className="border-b bg-amber-50/70">
+            <CardTitle className="flex items-center gap-2 text-base"><Truck className="h-5 w-5"/>Warehouse → Destination Warehouse Transfers</CardTitle>
+            <p className="text-sm text-muted-foreground">Start the assigned inter-district route and confirm physical arrival. The destination warehouse must then confirm receipt before the order can move to the local hub.</p>
+          </CardHeader>
+          <CardContent className="space-y-3 p-5">
+            {warehouseTransfers.map((transfer:any)=>(
+              <div key={transfer.id} className="rounded-xl border p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="font-semibold">Order {transfer.orderNumber || transfer.orderId}</p>
+                    <p className="text-sm text-muted-foreground">From: {transfer.sourceWarehouseName || "Source warehouse"}</p>
+                    <p className="text-sm text-muted-foreground">To: {transfer.destinationWarehouseName || "Destination warehouse"}</p>
+                    <p className="text-sm text-muted-foreground">Status: {String(transfer.status||"assigned").replace(/_/g," ")}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {transfer.status==="assigned"&&<Button onClick={()=>actOnWarehouseTransfer(transfer,"started")}><Navigation className="mr-2 h-4 w-4"/>Start Transfer</Button>}
+                    {transfer.status==="in_transit"&&<Button onClick={()=>actOnWarehouseTransfer(transfer,"arrived_at_destination")}><MapPin className="mr-2 h-4 w-4"/>Arrived at Destination Warehouse</Button>}
+                    {transfer.status==="arrived_at_destination"&&<Badge variant="outline">Waiting for warehouse receipt</Badge>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {hubTransfers.length > 0 && (
         <Card className="border-indigo-200">
