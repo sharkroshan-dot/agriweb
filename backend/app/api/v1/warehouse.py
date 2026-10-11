@@ -1642,8 +1642,8 @@ async def receive_farmer_fulfillment_at_local_hub(
     if not order or mode not in allowed_modes:
         raise HTTPException(status_code=404, detail="Farmer fulfillment order for local-hub receipt not found")
     warehouse_id = str(warehouse["_id"])
-    if str(order.get("transferStatus") or "") not in ("hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready"):
-        raise HTTPException(status_code=400, detail="Dispatch the order to the local hub before confirming receipt")
+    if str(order.get("transferStatus") or "") not in ("hub_arrived_pending_receipt", "local_hub_ready"):
+        raise HTTPException(status_code=400, detail="The pickup partner must record arrival at the local hub before receipt can be confirmed")
     if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
         if str(order.get("consolidationWarehouseId") or "") != warehouse_id:
             raise HTTPException(status_code=403, detail="Only the consolidation warehouse can confirm local-hub receipt")
@@ -1669,15 +1669,15 @@ async def receive_farmer_fulfillment_at_local_hub(
     transfer = await transfer_collection.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
     if not transfer:
         raise HTTPException(status_code=400, detail="Local hub transfer manifest does not exist")
-    if str(transfer.get("status")) not in ("in_transit", "arrived_at_hub"):
+    if str(transfer.get("status")) != "arrived_at_hub":
         if str(transfer.get("status")) == "received":
             job = await _create_single_farmer_fulfillment_delivery_job(order_id, hub_doc, current_user)
             return {"success": True, "data": job, "message": "Local hub receipt was already confirmed; one final delivery job is reused."}
-        raise HTTPException(status_code=400, detail="Local hub transfer is not awaiting receipt")
+        raise HTTPException(status_code=400, detail="The transfer partner must record physical arrival at the local hub before receipt")
 
     now = datetime.utcnow()
     await transfer_collection.update_one(
-        {"_id": transfer["_id"], "status": {"$in": ["in_transit", "arrived_at_hub"]}},
+        {"_id": transfer["_id"], "status": "arrived_at_hub"},
         {"$set": {"status": "received", "receivedAt": now, "receivedBy": ObjectId(str(current_user["_id"])), "updatedAt": now}},
     )
     await order_repository.update(
