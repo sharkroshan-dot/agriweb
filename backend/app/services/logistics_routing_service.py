@@ -557,7 +557,8 @@ async def apply_partner_route(
     Self delivery is dispatched separately by the Farmer Order Map:
       packed -> self delivery -> Dispatch -> Farmer -> Customer.
     """
-    mode = "nearby" if route_mode == "nearby" else "long_distance"
+    requested_mode = "nearby" if route_mode == "nearby" else "long_distance"
+    mode = requested_mode
     if str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct"):
         # The Order Map, plan endpoint, and routing service share this rule.
         is_packed = is_packed_farmer_order(order)
@@ -582,6 +583,15 @@ async def apply_partner_route(
         lng = delivery_address.get("lng", delivery_address.get("longitude"))
         if lat is not None and lng is not None:
             destination = {"lat": lat, "lng": lng}
+
+    # Distance is the source of truth for automatic route selection whenever
+    # both farm and customer coordinates are available. The radius is supplied
+    # by the Farmer Order Map and acts as the nearby/direct-pickup threshold.
+    # If geocoding is incomplete, preserve the explicit UI decision rather than
+    # silently guessing a route.
+    measured_distance_km = distance_km(origin, destination) if origin and destination else None
+    if measured_distance_km is not None:
+        mode = "nearby" if measured_distance_km <= max(float(radius_km or 0), 0) else "long_distance"
 
     hub = None
     warehouse = None
@@ -693,6 +703,9 @@ async def apply_partner_route(
         } if route_requires_hub and hub else None),
         "deliveryPickupLocation": pickup,
         "deliveryRadiusKm": radius_km,
+        "farmToCustomerDistanceKm": measured_distance_km,
+        "distanceRoutingApplied": measured_distance_km is not None,
+        "distanceRoutingThresholdKm": float(radius_km or 0),
         "logisticsMode": logistics_mode,
         "transferStatus": transfer_status,
         "updatedAt": datetime.utcnow(),
@@ -818,6 +831,10 @@ async def apply_partner_route(
 
     return {
         "route": mode,
+        "requestedRoute": requested_mode,
+        "distanceKm": measured_distance_km,
+        "distanceRoutingApplied": measured_distance_km is not None,
+        "distanceThresholdKm": float(radius_km or 0),
         "warehouse": {"id": str(warehouse["_id"]), "name": warehouse.get("name")} if warehouse else None,
         "hub": {"id": str(hub["_id"]), "name": hub.get("name")} if hub else None,
         "logisticsMode": update["logisticsMode"],
