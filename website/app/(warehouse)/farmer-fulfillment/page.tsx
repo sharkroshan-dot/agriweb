@@ -22,6 +22,16 @@ const STAGES: Record<string,string> = {
   ready_for_dispatch:"Ready for Local Hub",
   delivery_decision:"Hub Route Selected",
   dispatched:"Dispatched",
+  destination_warehouse_in_transit:"In Transit to Destination",
+  destination_warehouse_received:"Received at Destination",
+  source_portion_in_transit:"In Transit to Consolidation",
+  source_portion_received_at_consolidation:"Received at Consolidation",
+  consolidation_in_transit:"Consolidation Transfer in Transit",
+  consolidation_portions_received:"All Portions Received",
+  consolidation_waiting_for_sources:"Waiting for Warehouse Portions",
+  consolidated:"Consolidated — Ready for Local Hub",
+  hub_handoff_pending:"In Transit to Local Hub",
+  local_hub_ready:"Local Hub Received — Delivery Job Ready",
 };
 
 export default function FarmerFulfillmentWarehousePage() {
@@ -126,31 +136,71 @@ export default function FarmerFulfillmentWarehousePage() {
           </div>
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
-            {o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && (()=>{const con=consolidations.find((x:any)=>x.orderId===o.id);const status=con?.consolidationStatus;const canDispatch=Boolean(con?.canDispatchToConsolidation);const isConsolidationWarehouse=Boolean(con?.isConsolidationWarehouse);const complete=Boolean(con?.allWarehousesReceived);const consolidationReceived=Boolean(con?.allConsolidationLegsReceived);return <div className="space-y-2">
-              {(status==="collecting_from_warehouses"||status==="partial"||(!status&&con?.allWarehousesReceived===false))&&<div className="flex flex-wrap gap-2">
-                {canDispatch && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Consolidation</Button>}
-                {isConsolidationWarehouse && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Receive at Consolidation</Button>}
-                {isConsolidationWarehouse && <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!complete || !consolidationReceived}><Route className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
-              </div>}
-              {status==="consolidated"&&<Button size="sm" onClick={()=>handoffHub(o.id)}>Transfer to Local Hub</Button>}
-              {status==="hub_handoff_pending"&&<div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button><span className="text-xs text-muted-foreground self-center">Confirm only after the local hub physically receives the complete order.</span></div>}
-              {["local_hub_ready","partner_pending"].includes(status||"")&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>One Delivery Job Ready</Badge>}
-            </div>})()}
-            {o.logisticsMode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" && <div className="space-y-2 rounded-xl border p-3">
-              <p className="text-sm font-semibold">Inter-district transfer</p>
-              <p className="text-xs text-muted-foreground">Source: {o.sourceWarehouseName || "Assigned source warehouse"} · Destination: {o.destinationWarehouseName || "Destination warehouse not assigned"}</p>
-              {o.currentWarehouseRole === "source" && ["received_transfer","quality_approved","stored"].includes(o.stage) && !["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(o.transferStatus || "") && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={!o.destinationWarehouseId}><Truck className="mr-2 h-4 w-4"/>Dispatch to Destination</Button>}
-              {o.currentWarehouseRole === "destination" && o.transferStatus === "destination_warehouse_in_transit" && <Button size="sm" onClick={()=>receiveDestination(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
-              {o.currentWarehouseRole === "destination" && o.transferStatus === "destination_warehouse_received" && <Button size="sm" onClick={()=>handoffHub(o.id)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
-              {o.transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
-              {o.transferStatus === "local_hub_ready" && <Badge variant="success">Local hub received · Final delivery job ready</Badge>}
-            </div>}
-            {o.logisticsMode === "farmer_to_warehouse_to_local_hub_to_delivery_partner" && <div className="space-y-2 rounded-xl border p-3">
-              <p className="text-sm font-semibold">Warehouse to local hub</p>
-              {["received_transfer","quality_approved","stored","ready_for_dispatch","delivery_decision"].includes(o.stage) && !["hub_handoff_pending","local_hub_ready"].includes(o.transferStatus || "") && <Button size="sm" onClick={()=>handoffHub(o.id)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
-              {o.transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
-              {o.transferStatus === "local_hub_ready" && <Badge variant="success">Local hub received · Final delivery job ready</Badge>}
-            </div>}
+            {(() => {
+              const multi = o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
+              const interDistrict = o.logisticsMode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner";
+              const sameDistrict = o.logisticsMode === "farmer_to_warehouse_to_local_hub_to_delivery_partner";
+              const con = consolidations.find((x:any)=>x.orderId===o.id);
+              const conStatus = o.consolidationStatus || con?.consolidationStatus || "";
+              const transferStatus = o.transferStatus || "";
+              const incomingRows = o.incoming || [];
+              const receiptComplete = incomingRows.length > 0 && incomingRows.every((x:any) =>
+                ["received","stored"].includes(x.status) && Number(x.receivedQuantity || 0) + 1e-9 >= Number(x.expectedQuantity || 0)
+              );
+              const storedComplete = incomingRows.length > 0 && incomingRows.every((x:any) => x.status === "stored");
+              const sourceRole = o.currentWarehouseRole === "source" || (o.sourceWarehouseId && o.sourceWarehouseId === o.warehouseId);
+              const destinationRole = o.currentWarehouseRole === "destination" || (o.destinationWarehouseId && o.destinationWarehouseId === o.warehouseId);
+              const consolidationRole = o.currentWarehouseRole === "consolidation" || (o.consolidationWarehouseId && o.consolidationWarehouseId === o.warehouseId);
+              const canReceiveAtSource = incomingRows.some((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status));
+              const nextAction = multi
+                ? (conStatus === "consolidated" ? "Transfer the complete order to the local hub" : "Receive every warehouse portion, then dispatch each portion to consolidation")
+                : interDistrict
+                  ? (transferStatus === "destination_warehouse_in_transit" ? "Confirm physical receipt at destination" : transferStatus === "destination_warehouse_received" ? "Transfer the complete order to the local hub" : "Receive at source, then dispatch to destination")
+                  : (["hub_handoff_pending"].includes(transferStatus) ? "Confirm the local hub physically received the order" : transferStatus === "local_hub_ready" ? "One final delivery job is ready" : "Receive the packed order, then transfer it to the local hub");
+              return <div className="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Process this order</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{multi ? "Multiple warehouses → Consolidation → Local Hub → One Delivery Partner → Customer" : interDistrict ? "Farm → Source Warehouse → Destination Warehouse → Local Hub → One Delivery Partner → Customer" : "Farm → Warehouse → Local Hub → One Delivery Partner → Customer"}</p>
+                  </div>
+                  <Badge variant="outline">{STAGES[o.stage] || o.stage || "Awaiting warehouse action"}</Badge>
+                </div>
+                <div className="rounded-lg bg-white p-3">
+                  <p className="text-xs font-medium text-muted-foreground">NEXT STEP</p>
+                  <p className="mt-1 text-sm font-semibold">{nextAction}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {!multi && !interDistrict && <>
+                    {incomingRows.some((x:any)=>x.status === "pending") && incomingRows.filter((x:any)=>x.status === "pending").map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
+                    {incomingRows.some((x:any)=>x.status === "received") && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store / Hold Packed Shipment</Button>)}
+                    <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={!receiptComplete || !["received","stored"].every((s:string)=>incomingRows.some((x:any)=>["received","stored"].includes(x.status))) || ["hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>
+                    {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
+                  </>}
+                  {interDistrict && <>
+                    {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={!receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Destination</Button>}
+                    {destinationRole && <Button size="sm" onClick={()=>receiveDestination(o.id)} disabled={transferStatus !== "destination_warehouse_in_transit"}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
+                    {destinationRole && <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={transferStatus !== "destination_warehouse_received"}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
+                    {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
+                  </>}
+                  {multi && <>
+                    {con?.canDispatchToConsolidation && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)} disabled={!storedComplete || Boolean(con?.sourceTransfer?.dispatched)}><Truck className="mr-2 h-4 w-4"/>Dispatch Portion to Consolidation</Button>}
+                    {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)} disabled={!con?.consolidation?.inTransitLegs && !con?.inTransitLegCount && Boolean(con?.allConsolidationLegsReceived)}><Warehouse className="mr-2 h-4 w-4"/>Receive Portions at Consolidation</Button>}
+                    {consolidationRole && <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived || !con?.allConsolidationLegsReceived || ["consolidated","hub_handoff_pending","local_hub_ready"].includes(conStatus)}><CheckCircle2 className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
+                    {consolidationRole && <Button size="sm" variant="outline" onClick={()=>handoffHub(o.id)} disabled={conStatus !== "consolidated"}><Route className="mr-2 h-4 w-4"/>Transfer Complete Order to Local Hub</Button>}
+                    {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveHub(o.id)} disabled={conStatus !== "hub_handoff_pending"}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
+                  </>}
+                </div>
+                {multi && <div className="grid gap-2 sm:grid-cols-3 text-xs">
+                  <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Warehouse portions</p><p className="mt-1 font-semibold">{con?.storedCount ?? 0}/{con?.incomingCount ?? 0} received + stored</p></div>
+                  <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Consolidation receipts</p><p className="mt-1 font-semibold">{con?.receivedConsolidationLegCount ?? (con?.allConsolidationLegsReceived ? "All received" : "Pending")}</p></div>
+                  <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Local hub</p><p className="mt-1 font-semibold">{o.localHubName || "Assigned local hub"}</p></div>
+                </div>}
+                {!multi && !interDistrict && !receiptComplete && <p className="text-xs text-amber-700">Receive and verify the full packed quantity first. The local-hub transfer remains disabled until the shipment is physically received.</p>}
+                {interDistrict && !o.destinationWarehouseId && <p className="text-xs text-amber-700">A destination warehouse has not been assigned yet. Dispatch is unavailable until the route assignment is complete.</p>}
+                {multi && !con?.allWarehousesReceived && <p className="text-xs text-amber-700">Waiting for all allocated farmer-packed portions to be received at their assigned warehouses.</p>}
+                {transferStatus === "local_hub_ready" && <p className="text-sm font-medium text-emerald-700">✓ Local hub receipt confirmed. The backend should expose one final delivery job for this original customer order.</p>}
+              </div>;
+            })()}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
         </div>
