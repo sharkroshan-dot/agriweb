@@ -978,6 +978,7 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     """Dispatch one received/stored farmer-packed portion from its source warehouse to the consolidation warehouse."""
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment transfers")
+    _enforce_warehouse_operating_window("downstream_transfer")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
@@ -1290,6 +1291,7 @@ async def handoff_farmer_fulfillment_to_local_hub(
     """Move the completed consolidated order to its one local hub and open one delivery job."""
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can hand off farmer fulfillment")
+    _enforce_warehouse_operating_window("downstream_transfer")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
@@ -1443,7 +1445,9 @@ async def _create_single_farmer_fulfillment_delivery_job(order_id: str, hub_doc:
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     existing = await delivery_job_repository.get_by_order_id(order_id)
-    if existing and existing.get("status") in ("open", "accepted", "assigned", "picked_up", "in_transit"):
+    # One final delivery job per customer order, even if a prior job is
+    # completed or cancelled. Never create a duplicate during receipt retries.
+    if existing:
         return {"jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}
 
     address = order.get("deliveryAddress") or {}
