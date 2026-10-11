@@ -32,6 +32,22 @@ const statusLabels: Record<string, string> = {
   rejected: "Rejected",
 };
 
+const humanIdFallback = (value: any, label: string) => {
+  if (!value) return label;
+  const text = String(value);
+  return /^[a-f0-9]{24}$/i.test(text) ? label : text;
+};
+
+const getFarmGroupKey = (item: any) =>
+  String(item.farmId || item.farmerId || item.farmName || item.farmerName || item.pickupLocation?.name || item.pickupLocation?.address || "unknown-farm");
+
+const getFarmDisplayName = (item: any) =>
+  item.farmName || item.farmerName || item.pickupLocation?.farmName ||
+  item.pickupLocation?.name || "Farm details unavailable";
+
+const getProductDisplayName = (item: any) =>
+  humanIdFallback(item.productName || item.product?.name || item.productId, "Product details unavailable");
+
 const emptyIncomingForm = {
   productId: "",
   farmerId: "",
@@ -83,12 +99,17 @@ export default function WarehouseIncomingPage() {
     const items = incomingData?.data?.incoming || [];
     const query = searchTerm.trim().toLowerCase();
 
-    if (!query) {
-      return items;
-    }
+    const readableItems = items.map((item: any) => ({
+      ...item,
+      displayFarmName: getFarmDisplayName(item),
+      displayProductName: getProductDisplayName(item),
+      displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber, "Order reference unavailable"),
+    }));
 
-    return items.filter((item: any) =>
-      [item.productName, item.productId, item.farmerName, item.farmerId, item.batchNumber]
+    if (!query) return readableItems;
+
+    return readableItems.filter((item: any) =>
+      [item.displayFarmName, item.displayProductName, item.displayOrderNumber, item.pickupLocation?.address, item.batchNumber, statusLabels[item.status] || item.status]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(query))
     );
@@ -242,8 +263,8 @@ export default function WarehouseIncomingPage() {
       {incomingList.length === 0 ? (
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
-        <div className="space-y-4">{incomingList.map((item: any) => {
-          const productName = item.productName || item.productId || "Incoming product";
+        <div className="space-y-6">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => <section key={farmKey} className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-slate-50 px-4 py-3"><div><h2 className="text-lg font-semibold">{farmItems[0].displayFarmName}</h2><p className="text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><Badge variant="outline">{farmItems.length} {farmItems.length === 1 ? "order / shipment" : "orders / shipments"}</Badge></div><div className="space-y-3">{farmItems.map((item: any) => {
+          const productName = item.displayProductName || getProductDisplayName(item);
           const isPackedFarmerTransfer = item.sourceMode === "farmer_fulfillment_transfer";
           const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt);
           const canReceiveStock = ["scheduled", "in_transit"].includes(item.status) &&
@@ -252,7 +273,7 @@ export default function WarehouseIncomingPage() {
             ? (item.orderId ? "/farmer-fulfillment" : "/transfers")
             : (item.status === "stored" ? "/stock" : "/quality-inspection");
           return (
-            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><span className="font-medium">{productName}</span><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From: {item.farmerName || item.farmerId || "Unknown Farmer"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); }}><Clock className="mr-2 h-4 w-4" />Track</Button>}{canReceiveStock && <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
+            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><div><p className="font-semibold">{productName}</p><p className="mt-1 text-sm text-muted-foreground">Order: {item.displayOrderNumber || "Order reference unavailable"}</p></div><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From farm: {item.displayFarmName || "Farm details unavailable"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); }}><Clock className="mr-2 h-4 w-4" />Track</Button>}{canReceiveStock && <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
                       {isPackedFarmerTransfer && !hasPhysicallyArrived && <Badge variant="outline" className="border-amber-300 text-amber-700">Awaiting Farm Pickup / Arrival</Badge>}
                       {isPackedFarmerTransfer && item.status === "received" && <Button size="sm" onClick={() => { window.location.href = nextPage; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Transfers</Button>}{!isPackedFarmerTransfer && item.status === "received" && <Button size="sm" onClick={() => openQualityDialog(item)}><ShieldCheck className="mr-2 h-4 w-4" />Quality Check</Button>}{!isPackedFarmerTransfer && item.status === "received" && item.qualityCheck === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)}><Package className="mr-2 h-4 w-4" />Store</Button>}{!isPackedFarmerTransfer && item.status === "stored" && <Button size="sm" variant="outline" onClick={() => { window.location.href = "/stock-management"; }}><Warehouse className="mr-2 h-4 w-4" />View Inventory</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<div className="relative">
                         <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${productName}`} aria-expanded={openMenuId === item.id} onClick={() => setOpenMenuId((current) => current === item.id ? null : item.id)}><MoreVertical className="h-4 w-4" /></Button>
@@ -265,7 +286,7 @@ export default function WarehouseIncomingPage() {
                         </div>}
                       </div></div></div></CardContent></Card>
           );
-        })}</div>
+        })}</div></section>)}</div>
       )}
 
       <Dialog open={showTrackDialog} onOpenChange={setShowTrackDialog}>
@@ -274,14 +295,14 @@ export default function WarehouseIncomingPage() {
           <div className="space-y-3 text-sm">
             <div className="rounded-lg border p-4">
               <p className="text-lg font-semibold">{selectedIncoming?.productName || selectedIncoming?.productId || "Incoming shipment"}</p>
-              <p className="mt-1 text-muted-foreground">Shipment ID: {selectedIncoming?.id || "—"}</p>
+              <p className="mt-1 text-muted-foreground">Shipment reference: {selectedIncoming?.orderNumber || selectedIncoming?.batchNumber || "Available in shipment record"}</p>
               <p className="mt-1">Status: <span className="font-semibold">{statusLabels[selectedIncoming?.status] || selectedIncoming?.status || "Unknown"}</span></p>
               <p className="mt-1">Expected quantity: {selectedIncoming?.quantity ?? "—"}</p>
               <p className="mt-1">Received quantity: {selectedIncoming?.quantityReceived ?? "Not received yet"}</p>
-              <p className="mt-1">Farmer: {selectedIncoming?.farmerName || selectedIncoming?.farmerId || "Unknown"}</p>
+              <p className="mt-1">Farm: {selectedIncoming?.displayFarmName || getFarmDisplayName(selectedIncoming || {})}</p>
               <p className="mt-1">Expected date: {formatDate(selectedIncoming?.expectedDate)}</p>
               {selectedIncoming?.arrivedWarehouseAt && <p className="mt-1">Warehouse arrival: {formatDate(selectedIncoming.arrivedWarehouseAt)}</p>}
-              {selectedIncoming?.pickupRouteId && <p className="mt-1">Pickup route: {String(selectedIncoming.pickupRouteId)}</p>}
+              {selectedIncoming?.pickupRouteNumber && <p className="mt-1">Pickup route: {selectedIncoming.pickupRouteNumber}</p>}
             </div>
             <div className="flex justify-end"><Button variant="outline" onClick={() => setShowTrackDialog(false)}>Close</Button></div>
           </div>
