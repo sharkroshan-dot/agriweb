@@ -112,6 +112,28 @@ export default function FarmerFulfillmentTransfersPage() {
             {o.sourceDistrict&&<Badge variant="secondary">From: {o.sourceDistrict}</Badge>}
             {o.destinationDistrict&&<Badge variant="secondary">To: {o.destinationDistrict}</Badge>}
           </div>
+          {(() => {
+            const interDistrict = o.farmerFulfillmentRouteType === "inter_district";
+            const direct = o.logisticsMode === "farmer_to_delivery_partner" || o.farmerFulfillmentRouteType === "nearby";
+            const steps = direct
+              ? [{title:"Farm pickup",detail:"Collect the sealed farmer-packed order",done:true},{title:"Delivery partner",detail:"Assign one partner for the final mile",done:Boolean(o.deliveryPartnerId) || ["local_hub_ready","delivered"].includes(o.stage)},{title:"Customer",detail:"Deliver the order",done:o.orderStatus==="delivered"}]
+              : interDistrict
+                ? [{title:"Farm pickup",detail:"Pickup team collects during 20:00–06:00 IST",done:["warehouse_arrived","received_transfer","quality_approved","stored","destination_warehouse_transfer_pending","hub_handoff_pending","local_hub_ready"].includes(o.stage)},{title:"Source warehouse",detail:"Receive quantity and verify sealed package; do not repack",done:["stored","destination_warehouse_transfer_pending","hub_handoff_pending","local_hub_ready"].includes(o.stage)},{title:"Destination warehouse",detail:"Transfer across districts during 06:00–20:00 IST",done:["hub_handoff_pending","local_hub_ready"].includes(o.stage)},{title:"Local hub",detail:"Receive shipment and open delivery handoff",done:o.stage==="local_hub_ready"},{title:"Delivery partner",detail:"One partner delivers the complete order",done:o.orderStatus==="delivered"}]
+                : [{title:"Farm pickup",detail:"Pickup team collects during 20:00–06:00 IST",done:["warehouse_arrived","received_transfer","quality_approved","stored","hub_handoff_pending","local_hub_ready"].includes(o.stage)},{title:"Source warehouse",detail:"Receive, inspect the sealed package and store",done:["stored","hub_handoff_pending","local_hub_ready"].includes(o.stage)},{title:"Local hub",detail:"Transfer during 06:00–20:00 IST",done:o.stage==="local_hub_ready"},{title:"Delivery partner",detail:"One partner delivers to the customer",done:o.orderStatus==="delivered"}];
+            const firstPending = steps.findIndex((step:any)=>!step.done);
+            return <section aria-label="Fulfillment process" className="rounded-xl border p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-semibold">Fulfillment process</h3><p className="text-xs text-muted-foreground">Live progress from the saved order and warehouse status</p></div><Badge variant="outline">{interDistrict?"Inter-district":direct?"Direct delivery":"Same-district"}</Badge></div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                {steps.map((step:any,index:number)=><div key={step.title} className={`min-w-0 rounded-lg border p-3 ${step.done?"border-emerald-200 bg-emerald-50/70":index===firstPending?"border-indigo-300 bg-indigo-50/70":"bg-muted/30"}`}>
+                  <div className="flex items-center gap-2"><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${step.done?"bg-emerald-600 text-white":index===firstPending?"bg-indigo-600 text-white":"bg-muted text-muted-foreground"}`}>{step.done?"✓":index+1}</span><p className="text-sm font-semibold">{step.title}</p></div>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">{step.detail}</p>
+                  <p className={`mt-2 text-xs font-medium ${step.done?"text-emerald-700":index===firstPending?"text-indigo-700":"text-muted-foreground"}`}>{step.done?"Completed":index===firstPending?"Current / next step":"Waiting"}</p>
+                </div>)}
+              </div>
+              {interDistrict && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district transfer is not complete until the destination warehouse receives the order. The current backend does not yet expose the destination dispatch/receipt actions; do not use “Send to Local Hub” as a substitute.</p>}
+              {!interDistrict && !direct && <p className="mt-3 text-xs text-muted-foreground">Operating windows: farm pickup 20:00–06:00 IST · warehouse-to-hub transfer 06:00–20:00 IST. This package stays sealed; no repacking or normal bulk-stock quality workflow.</p>}
+            </section>;
+          })()}
           <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">{o.isUnassigned?"Assignment":isConsolidationWarehouse?"Consolidation Receipt":"Warehouse Receipt"}</p><p className="mt-1 font-medium">{o.isUnassigned?"Not assigned":isConsolidationWarehouse?((o.consolidation?.receivedLegs||0)+"/"+(o.consolidation?.totalLegs||0)+" portions"):(`${receiveCount}/${o.incoming?.length||0} received`)}</p></div>
             <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">{o.isUnassigned?"Capacity":isConsolidationWarehouse?"Source Storage":"Quality"}</p><p className="mt-1 font-medium">{o.isUnassigned?"Review required":isConsolidationWarehouse?(o.consolidation?.allSourcePortionsStored?"All source portions stored":"Waiting for source storage"):(`${qualityCount}/${o.incoming?.length||0} approved`)}</p></div>
