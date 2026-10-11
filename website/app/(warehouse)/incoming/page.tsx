@@ -10,6 +10,7 @@ import { Badge } from "../../components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { cn, formatDate } from "../../lib/utils";
+import { PrefetchLink as Link } from "../../components/shared/prefetch-link";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
@@ -298,7 +299,7 @@ export default function WarehouseIncomingPage() {
       <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Two fulfillment workflows</p><p className="mt-1 text-sm leading-6 text-muted-foreground"><b>Farmer Fulfillment:</b> verify packed orders and quantities → optional temporary storage → Transfers / Multi-Warehouse Consolidation. Skip normal warehouse QC and repacking. <b>Normal Warehouse Fulfillment:</b> Receive → Quality Inspection → Store → Stock Management → Order Packing → Outgoing / Dispatch.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
+        <div className="flex flex-wrap items-center gap-2"><Button asChild variant="outline"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -323,12 +324,12 @@ export default function WarehouseIncomingPage() {
           const canConfirmAllPackets = packedFarmerGroup && eligibleToReceive.length > 0;
           const canReceiveAllBulk = !packedFarmerGroup && eligibleToReceive.length > 0;
           const confirmAllPackets = async () => {
-            if (!window.confirm(`Confirm receipt of all ${farmItems.length} packed orders from ${farmItems[0].displayFarmName}? Only continue after physically counting every packet.`)) return;
+            if (!window.confirm(`Confirm receipt of ${eligibleToReceive.length} eligible packed orders from ${farmItems[0].displayFarmName}? Only continue after physically counting every packet. Orders not yet physically arrived will remain pending.`)) return;
             setIsSaving(true);
             let succeeded = 0;
             try {
-              for (const row of farmItems) {
-                if (!row.id || !["scheduled", "in_transit"].includes(row.status)) continue;
+              for (const row of eligibleToReceive) {
+                if (!row.id || !["scheduled", "in_transit"].includes(row.status) || (isFarmerPackedIncoming(row) && !row.arrivedWarehouseAt)) continue;
                 await api.put(`/warehouse/me/incoming/${row.id}/receive`, undefined, { params: { quantity: Number(row.quantity || 0), usableQuantity: Number(row.quantity || 0), quality_check: "passed", notes: "Bulk packet receipt confirmed by warehouse staff after physical count." } });
                 succeeded++;
               }
