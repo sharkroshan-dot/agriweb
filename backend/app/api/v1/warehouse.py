@@ -583,10 +583,8 @@ async def get_farmer_fulfillment_transfers(
             # portion look ready for dispatch.
             if incoming and all(str(x.get("status") or "") == "stored" for x in incoming):
                 order_stage = "stored"
-            elif incoming and any(not x.get("arrivedWarehouseAt") for x in incoming):
-                order_stage = "awaiting_warehouse_receipt"
             elif incoming and any(str(x.get("status") or "") in ("scheduled", "in_transit") for x in incoming):
-                order_stage = "warehouse_arrived"
+                order_stage = "awaiting_warehouse_receipt" if any(not x.get("arrivedWarehouseAt") for x in incoming) else "warehouse_arrived"
             elif incoming and all(
                 str(x.get("status") or "") in ("received", "stored")
                 and str(x.get("qualityCheck") or "") == "passed"
@@ -619,7 +617,7 @@ async def get_farmer_fulfillment_transfers(
             # When the consolidation warehouse is also a source warehouse,
             # its own packed shipment must still pass collection, receipt,
             # quality and storage before the consolidation action is offered.
-            if incoming and any(not x.get("arrivedWarehouseAt") for x in incoming):
+            if incoming and any(str(x.get("status") or "") in ("scheduled", "in_transit") for x in incoming) and any(not x.get("arrivedWarehouseAt") for x in incoming):
                 order_stage = "awaiting_warehouse_receipt"
             elif incoming and all(str(x.get("status") or "") == "stored" for x in incoming):
                 if consolidation_status in ("hub_handoff_pending", "local_hub_ready"):
