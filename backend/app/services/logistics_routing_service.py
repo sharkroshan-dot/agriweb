@@ -458,6 +458,88 @@ async def allocate_farmer_fulfillment_warehouses(
         } if local_hub else None,
     }
 
+def _normalized_district(value: Any) -> str:
+    if isinstance(value, dict):
+        value = value.get("district") or value.get("city") or value.get("town") or value.get("county") or ""
+    return " ".join(str(value or "").strip().lower().replace(",", " ").split())
+
+
+def _order_districts(order: Dict[str, Any]) -> Tuple[str, str]:
+    farm = order.get("farmAddress") or order.get("pickupAddress") or {}
+    delivery = order.get("deliveryAddress") or {}
+    farm_district = _normalized_district(
+        order.get("farmDistrict") or order.get("originDistrict") or farm
+    )
+    delivery_district = _normalized_district(
+        delivery.get("district") or order.get("deliveryDistrict") or delivery
+    )
+    return farm_district, delivery_district
+
+
+async def _create_standard_farmer_pickup(order: Dict[str, Any], warehouse: Dict[str, Any], origin: Optional[Dict[str, Any]]) -> None:
+    """Create farm collection work for a single-source packed transfer.
+
+    This is a transfer of sealed farmer-packed goods, not warehouse fulfillment
+    inventory and not a multi-source consolidation job.
+    """
+    now = datetime.utcnow()
+    incoming_collection = MongoDB.get_collection("incoming_stock")
+    warehouse_id = warehouse["_id"]
+    farmer_id = order.get("farmerId") or order.get("farmer_id")
+    for item in order.get("items") or []:
+        quantity = float(item.get("quantity") or 0)
+        if quantity <= 0:
+            continue
+        existing = await incoming_collection.find_one({
+            "orderId": order["_id"],
+            "warehouseId": warehouse_id,
+            "productId": item.get("productId"),
+            "sourceMode": "farmer_fulfillment_transfer",
+            "deletedAt": None,
+        })
+        if existing:
+            continue
+        product_id = item.get("productId")
+        if product_id and ObjectId.is_valid(str(product_id)):
+            product_id = ObjectId(str(product_id))
+        incoming = {
+            "warehouseId": warehouse_id,
+            "productId": product_id,
+            "variantId": ObjectId(str(item["variantId"])) if item.get("variantId") and ObjectId.is_valid(str(item["variantId"])) else None,
+            "productName": item.get("productName") or item.get("name") or "Product",
+            "quantity": quantity,
+            "quantityReceived": 0,
+            "usableQuantity": 0,
+            "unit": item.get("unit") or "kg",
+            "farmerId": ObjectId(str(farmer_id)) if farmer_id and ObjectId.is_valid(str(farmer_id)) else None,
+            "orderId": order["_id"],
+            "orderNumber": order.get("orderNumber"),
+            "qualityCheck": "pending",
+            "warehouseTransferType": "packed_order_transfer",
+            "packingRequired": False,
+            "warehousePackingRequired": False,
+            "readyForPickup": True,
+            "readyForPickupAt": now,
+            "transferReadyForPickup": True,
+            "warehouseTransferReadyForPickup": True,
+            "pickupLocation": origin or order.get("farmLocation") or {},
+            "farmLocation": origin or {},
+            "status": "scheduled",
+            "sourceMode": "farmer_fulfillment_transfer",
+            "logisticsMode": order.get("logisticsMode"),
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        }
+        inserted = await incoming_collection.insert_one(incoming)
+        incoming["_id"] = inserted.inserted_id
+        await ensure_collection_job(
+            incoming,
+            collection_type="packed_orders_transfer",
+            source_mode="farmer_fulfillment_transfer",
+        )
+
+
 async def apply_partner_route(
     order: Dict[str, Any],
     route_mode: str,
@@ -675,26 +757,63 @@ async def apply_partner_route(
     # transfer point. The farmer has already packed the individual order, so
     # the warehouse must never create another packing task for this route.
     multi_warehouse = None
-    if mode == "long_distance" and str(order.get("fulfillmentMethod") or "").lower() in ("farmer", "farm_direct"):
-        multi_warehouse = await allocate_farmer_fulfillment_warehouses(
-            order,
-            origin,
-            destination,
+    is_farmer_fulfillment = str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").lower() in ("farmer", "farm_direct")
+    if mode == "long_distance" and is_farmer_fulfillment:
+        # Consolidation is opt-in and only for a customer order explicitly
+        # assembled from multiple supply sources. A normal packed order uses
+        # one source warehouse; district boundaries determine the transfer path.
+        explicit_consolidation = (
+            order.get("isMultiWarehouseConsolidation") is True
+            or order.get("fulfillmentPurpose") in ("event_bulk", "multi_source_customer_order")
+            or bool(order.get("consolidationRequested"))
         )
-        warehouse_ids = [ObjectId(x) for x in multi_warehouse["warehouseIds"]]
-        update["warehouseIds"] = warehouse_ids
-        update["warehouseCount"] = multi_warehouse["warehouseCount"]
-        update["warehouseAllocations"] = multi_warehouse["allocations"]
-        update["warehouseId"] = ObjectId(multi_warehouse["warehouseIds"][0]) if len(multi_warehouse["warehouseIds"]) == 1 else None
-        update["consolidationId"] = ObjectId(multi_warehouse["consolidationId"])
-        update["consolidationWarehouseId"] = ObjectId(multi_warehouse["consolidationWarehouse"]["id"])
-        update["consolidationWarehouseName"] = multi_warehouse["consolidationWarehouse"]["name"]
-        update["consolidationStatus"] = "collecting_from_warehouses"
-        if multi_warehouse.get("localHub"):
-            update["nearbyFulfillmentLocationId"] = ObjectId(multi_warehouse["localHub"]["id"])
-            update["nearbyFulfillmentLocation"] = multi_warehouse["localHub"]
-        update["transferStatus"] = "warehouse_consolidation_pending"
-        update["logisticsMode"] = "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+        farm_district, delivery_district = _order_districts(order)
+        inter_district = bool(farm_district and delivery_district and farm_district != delivery_district)
+        if explicit_consolidation:
+            multi_warehouse = await allocate_farmer_fulfillment_warehouses(order, origin, destination)
+            update["warehouseIds"] = [ObjectId(x) for x in multi_warehouse["warehouseIds"]]
+            update["warehouseCount"] = multi_warehouse["warehouseCount"]
+            update["warehouseAllocations"] = multi_warehouse["allocations"]
+            update["warehouseId"] = ObjectId(multi_warehouse["warehouseIds"][0]) if len(multi_warehouse["warehouseIds"]) == 1 else None
+            update["consolidationId"] = ObjectId(multi_warehouse["consolidationId"])
+            update["consolidationWarehouseId"] = ObjectId(multi_warehouse["consolidationWarehouse"]["id"])
+            update["consolidationWarehouseName"] = multi_warehouse["consolidationWarehouse"]["name"]
+            update["consolidationStatus"] = "collecting_from_warehouses"
+            if multi_warehouse.get("localHub"):
+                update["nearbyFulfillmentLocationId"] = ObjectId(multi_warehouse["localHub"]["id"])
+                update["nearbyFulfillmentLocation"] = multi_warehouse["localHub"]
+            update["transferStatus"] = "warehouse_consolidation_pending"
+            update["logisticsMode"] = "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+        else:
+            if not warehouse and origin:
+                warehouse = await nearest_warehouse(origin)
+            if not warehouse:
+                update["resourcePending"] = True
+                update["transferStatus"] = "warehouse_assignment_pending"
+                update["logisticsMode"] = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+            else:
+                update["warehouseId"] = warehouse["_id"]
+                update["warehouseIds"] = [warehouse["_id"]]
+                update["warehouseCount"] = 1
+                update["warehouseName"] = warehouse.get("name") or warehouse.get("warehouseName") or "Warehouse"
+                update["fulfillmentSource"] = "farmer"
+                update["warehouseRequiredForLastMile"] = True
+                update["currentFulfillmentLocation"] = warehouse.get("location") or warehouse.get("coordinates")
+                update["logisticsMode"] = (
+                    "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+                    if inter_district
+                    else "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+                )
+                update["transferStatus"] = "source_warehouse_pickup_pending"
+                update["farmerFulfillmentRouteType"] = "inter_district" if inter_district else "same_district"
+                update["sourceDistrict"] = farm_district or None
+                update["destinationDistrict"] = delivery_district or None
+                if inter_district and destination:
+                    destination_warehouse = await nearest_warehouse(destination)
+                    if destination_warehouse:
+                        update["destinationWarehouseId"] = destination_warehouse["_id"]
+                        update["destinationWarehouseName"] = destination_warehouse.get("name") or destination_warehouse.get("warehouseName") or "Destination Warehouse"
+                await _create_standard_farmer_pickup(order, warehouse, origin)
         await MongoDB.get_collection("orders").update_one({"_id": order["_id"]}, {"$set": update})
 
     return {
