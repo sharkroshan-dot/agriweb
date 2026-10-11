@@ -674,6 +674,7 @@ async def get_farmer_fulfillment_transfers(
             "localHubLocation": order.get("nearbyFulfillmentLocation") or order.get("localHubLocation"),
             "isConsolidationWarehouse": is_consolidation_warehouse,
             "consolidation": consolidation,
+            "transferStatus": order.get("transferStatus"),
             "sourceTransfer": {
                 "legCount": len(source_legs),
                 "inTransitLegs": sum(1 for x in source_legs if str(x.get("status") or "") == "in_transit"),
