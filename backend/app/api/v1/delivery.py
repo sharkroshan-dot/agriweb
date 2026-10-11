@@ -3750,5 +3750,24 @@ async def update_my_farmer_fulfillment_hub_transfer_status(
     )
     if not result.modified_count:
         raise HTTPException(status_code=409, detail="Transfer status changed. Refresh and try again.")
+    if transfer_status == "arrived_at_hub":
+        order_id = str(transfer.get("orderId") or "")
+        if ObjectId.is_valid(order_id):
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "transferStatus": "hub_arrived_pending_receipt",
+                "updatedAt": now,
+            })
+            order = await order_repository.get_by_id(order_id)
+            if order:
+                try:
+                    await NotificationService.send_order_workflow_update(
+                        order,
+                        stage="hub_arrived_pending_receipt",
+                        title=f"Order #{order.get('orderNumber') or order_id}: arrived at local hub",
+                        message="The pickup team recorded arrival at the local hub. Hub staff must confirm physical receipt before final delivery can begin.",
+                        actor_role="delivery",
+                    )
+                except Exception:
+                    logger.exception("Unable to notify warehouse about local-hub arrival")
     return {"success": True, "data": {"id": transfer_id, "status": next_status}, "message": "Transfer started" if transfer_status == "started" else "Arrival at local hub recorded. The hub must confirm receipt."}
 
