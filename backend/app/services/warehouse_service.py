@@ -284,8 +284,8 @@ class WarehouseService:
                     "quantityRejected": 0,
                     "pickupRouteId": ObjectId(route_id),
                     "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
-                    "sourceMode": "warehouse_pickup_route",
-                    "packingRequired": True,
+                    "sourceMode": "farmer_fulfillment_transfer",
+                    "packingRequired": False,
                     "status": "in_transit",
                     "updatedAt": datetime.utcnow(),
                 })
@@ -324,8 +324,8 @@ class WarehouseService:
                 "storageType": order.get("storageType") or "ambient",
                 "pickupRouteId": ObjectId(route_id),
                 "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
-                "sourceMode": "warehouse_pickup_route",
-                "packingRequired": True,
+                "sourceMode": "farmer_fulfillment_transfer",
+                "packingRequired": False,
             })
             if incoming_id:
                 row = await incoming_stock_repository.get_by_id(incoming_id)
