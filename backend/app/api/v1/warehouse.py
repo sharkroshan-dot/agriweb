@@ -54,7 +54,7 @@ class WarehouseIncomingQualityRequest(BaseModel):
 
 class WarehouseDeliveryRouteRequest(BaseModel):
     route: str = Field(..., pattern="^(nearby|long_distance)$")
-    radius: int = Field(10, ge=1, le=200)
+    radius: int = Field(15, ge=1, le=200)
 
 
 class WarehouseFarmerReturnRequest(BaseModel):
