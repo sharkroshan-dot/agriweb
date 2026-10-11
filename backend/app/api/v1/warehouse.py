@@ -432,9 +432,10 @@ async def get_farmer_fulfillment_transfers(
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
             ]},
             {"$or": [
-                {"deliveryDecision": "long_distance"},
-                {"deliveryPartnerRoute": "long_distance"},
+                {"deliveryDecision": {"$in": ["long_distance", "nearby"]}},
+                {"deliveryPartnerRoute": {"$in": ["long_distance", "nearby"]}},
                 {"logisticsMode": {"$in": [
+                    "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
@@ -795,10 +796,12 @@ async def get_farmer_fulfillment_transfers(
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
             ]},
             {"$or": [
-                {"deliveryDecision": "long_distance"},
-                {"deliveryPartnerRoute": "long_distance"},
+                {"deliveryDecision": {"$in": ["long_distance", "nearby"]}},
+                {"deliveryPartnerRoute": {"$in": ["long_distance", "nearby"]}},
                 {"logisticsMode": {"$in": [
+                    "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                    "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
                     "long_distance_pending",
                 ]}},
