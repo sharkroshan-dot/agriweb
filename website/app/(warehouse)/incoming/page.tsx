@@ -183,6 +183,18 @@ export default function WarehouseIncomingPage() {
       toast.error("Select an incoming shipment first");
       return;
     }
+    const expectedQuantity = Number(selectedIncoming.quantity || 0);
+    const actualQuantity = Number(receiveForm.quantity || 0);
+    const isFarmerPacked = selectedIncoming.sourceMode === "farmer_fulfillment_transfer";
+    const quantityMismatch = Math.abs(actualQuantity - expectedQuantity) > 0.001;
+    if (!isFarmerPacked && quantityMismatch && !receiveForm.notes.trim()) {
+      toast.error("The weight differs from the farmer's declared quantity. Add a discrepancy note before saving.");
+      return;
+    }
+    if (!isFarmerPacked && quantityMismatch) {
+      const accepted = window.confirm("The measured weight does not match the declared quantity. This receipt will remain pending quality review. Continue?");
+      if (!accepted) return;
+    }
 
     try {
       setIsSaving(true);
@@ -190,11 +202,11 @@ export default function WarehouseIncomingPage() {
         params: {
           quantity: Number(receiveForm.quantity),
           usableQuantity: Number(receiveForm.usableQuantity),
-          quality_check: receiveForm.qualityCheck,
+          quality_check: !isFarmerPacked && quantityMismatch ? "pending" : receiveForm.qualityCheck,
           notes: receiveForm.notes.trim() || undefined,
         },
       });
-      toast.success(selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation." : "Bulk stock received. Continue to Quality Inspection, then Store.");
+      toast.success(isFarmerPacked ? "Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation." : quantityMismatch ? "Weight discrepancy recorded. Keep stock on hold and contact the farm before quality approval." : "Bulk stock received. Continue to Quality Inspection, then Store.");
       setShowReceiveDialog(false);
       refetch();
     } catch (error) {
@@ -371,8 +383,9 @@ export default function WarehouseIncomingPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Confirm Packed Order Receipt" : "Receive Bulk Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so warehouse quality inspection and repacking are skipped." : "Record the received quantity. After receipt, complete Quality Inspection and Store before order packing."}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
-            <div><label className="text-sm font-medium">Received Quantity</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /></div>
-            <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Example: received 100 kg, usable 95 kg → the system creates a 5 kg shortage and blocks packing until resolved.</p></div>
+            <div className="rounded-lg border bg-slate-50 p-3 text-sm"><p className="font-medium">Farmer declared quantity: {selectedIncoming?.quantity ?? "—"} {selectedIncoming?.unit || "kg"}</p><p className="mt-1 text-muted-foreground">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Count the sealed packets and confirm the number of packed orders received." : "Weigh the bulk stock on the warehouse scale and enter the measured quantity below."}</p></div>
+            <div><label className="text-sm font-medium">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Received packet quantity / order units" : "Actual weight measured at warehouse (kg)"}</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Difference: {(Number(receiveForm.quantity || 0) - Number(selectedIncoming?.quantity || 0)).toFixed(2)} {selectedIncoming?.unit || "kg"}</p></div>
+            <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">If measured weight differs from declared weight, add a note. The stock stays pending quality review until the discrepancy is resolved.</p></div>
             {selectedIncoming?.sourceMode !== "farmer_fulfillment_transfer" && <div>
               <label className="text-sm font-medium">Quality Result</label>
               <Select value={receiveForm.qualityCheck} onValueChange={(value) => updateReceiveForm("qualityCheck", value)}>
