@@ -1191,6 +1191,82 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
 
 
 
+@router.put("/me/farmer-fulfillment/{order_id}/assign-nearby-delivery-partner")
+async def assign_nearby_farmer_fulfillment_delivery_partner(
+    order_id: str,
+    deliveryPartnerId: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Assign one approved final-mile partner to a physically received Nearby order."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign the final delivery partner")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    if source_id != warehouse_id:
+        raise HTTPException(status_code=403, detail="Only the assigned source warehouse can assign this order's final-mile partner")
+    route_type = str(order.get("farmerFulfillmentRouteType") or order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or "").strip().lower()
+    if route_type not in ("nearby", "direct", "farmer_to_delivery_partner") and str(order.get("logisticsMode") or "") != "farmer_to_delivery_partner":
+        raise HTTPException(status_code=409, detail="Only orders classified for Nearby direct delivery can use this action")
+    if str(order.get("deliveryType") or "").lower() == "pickup":
+        raise HTTPException(status_code=409, detail="Customer-pickup orders cannot be assigned a delivery partner")
+    incoming = await incoming_stock_repository.find_many({
+        "orderId": ObjectId(order_id),
+        "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
+        "deletedAt": None,
+    }, skip=0, limit=1000)
+    if not incoming:
+        raise HTTPException(status_code=409, detail="Confirm physical receipt in Incoming Stock before assigning final delivery")
+    def _received_quantity(row: dict) -> float:
+        for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "receivedQty"):
+            if row.get(key) is not None:
+                try: return float(row.get(key) or 0)
+                except (TypeError, ValueError): return 0.0
+        return float(row.get("quantity") or row.get("expectedQuantity") or 0) if str(row.get("status") or "").lower() in ("received", "stored") else 0.0
+    for row in incoming:
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        if str(row.get("status") or "").lower() not in ("received", "stored") or _received_quantity(row) + 1e-9 < expected:
+            raise HTTPException(status_code=409, detail="The complete shipment must be physically received before final delivery assignment")
+    members = await warehouse_pickup_team_repository.get_approved_members(warehouse_id)
+    member = next((m for m in members if str(m.get("deliveryPartnerId") or "") == deliveryPartnerId), None)
+    if not member:
+        raise HTTPException(status_code=400, detail="Select an approved delivery partner assigned to this warehouse")
+    profile_id = str(member.get("deliveryPartnerId") or "")
+    user_id = str(member.get("userId") or member.get("deliveryPartnerUserId") or "")
+    if not ObjectId.is_valid(profile_id) or not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="The selected delivery partner profile is incomplete")
+    if order.get("deliveryPartnerId") and str(order.get("deliveryPartnerId")) != profile_id:
+        raise HTTPException(status_code=409, detail="A final delivery partner is already assigned to this order")
+    if not await order_repository.assign_delivery_partner(order_id, profile_id):
+        raise HTTPException(status_code=409, detail="The delivery partner could not be assigned; refresh and retry")
+    now = datetime.utcnow()
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "deliveryPartnerId": ObjectId(profile_id),
+        "deliveryPartnerUserId": ObjectId(user_id),
+        "deliveryResponsibility": "delivery_partner",
+        "deliveryAssignedAt": now,
+        "deliveryAssignedBy": ObjectId(str(current_user["_id"])),
+        "updatedAt": now,
+    })
+    try:
+        partner = await delivery_repository.get_by_id(profile_id)
+        if partner:
+            user = await UserService.get_user_by_id(str(partner.get("userId") or user_id))
+            if user:
+                await order_repository.update_order_field(order_id, "deliveryPartnerName", f"{user.get('firstName', '')} {user.get('lastName', '')}".strip())
+        await NotificationService.send_custom_notification(user_id, f"Nearby Farmer Fulfillment order {order.get('orderNumber') or order_id} is assigned to you for final delivery.", title="Final Delivery Assigned", data={"type": "farmer_fulfillment_final_delivery", "orderId": order_id})
+    except Exception:
+        logger.exception("Unable to complete final delivery partner notification/enrichment")
+    await order_repository.append_tracking_event(order_id, "final_delivery_partner_assigned", "Final delivery partner assigned", "The fully received Nearby order has been assigned to one approved final-mile delivery partner.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"deliveryPartnerId": profile_id})
+    return {"success": True, "data": {"orderId": order_id, "deliveryPartnerId": profile_id}, "message": "Final delivery partner assigned"}
+
+
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-destination")
 async def dispatch_farmer_fulfillment_to_destination(
     order_id: str,
