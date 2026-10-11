@@ -111,6 +111,42 @@ export default function FarmerFulfillmentWarehousePage() {
       </div>
     </div>
 
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-xl font-bold">Warehouse workflow</h2>
+        <p className="text-sm text-muted-foreground">Choose the route that matches the order. The next-action buttons appear on each order card when its prerequisites are met.</p>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card className="border-blue-200">
+          <CardContent className="space-y-3 p-4">
+            <Badge variant="outline">Route 1 · Same district</Badge>
+            <h3 className="font-semibold">Farm → Warehouse → Local Hub → Delivery Partner → Customer</h3>
+            <ol className="space-y-2 text-sm">
+              {["Receive + verify farmer-packed order","Store / hold sealed package","Transfer complete order to the local hub","Confirm local-hub receipt","One final delivery job is opened"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800">{i+1}</span><span>{step}</span></li>)}
+            </ol>
+          </CardContent>
+        </Card>
+        <Card className="border-violet-200">
+          <CardContent className="space-y-3 p-4">
+            <Badge variant="outline">Route 2 · Inter-district</Badge>
+            <h3 className="font-semibold">Farm → Source Warehouse → Destination Warehouse → Local Hub → Delivery Partner → Customer</h3>
+            <ol className="space-y-2 text-sm">
+              {["Receive + verify at source warehouse","Dispatch to destination warehouse","Destination confirms physical receipt","Transfer complete order to the local hub","Confirm hub receipt; one delivery job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-800">{i+1}</span><span>{step}</span></li>)}
+            </ol>
+          </CardContent>
+        </Card>
+        <Card className="border-emerald-200">
+          <CardContent className="space-y-3 p-4">
+            <Badge variant="outline">Route 3 · Multi-warehouse</Badge>
+            <h3 className="font-semibold">Multiple Farms / Warehouses → Consolidation → Local Hub → Delivery Partner → Customer</h3>
+            <ol className="space-y-2 text-sm">
+              {["Receive each allocated packed portion","Each source warehouse dispatches its portion","Consolidation warehouse receives all portions","Complete consolidation of the original order","Transfer to local hub; confirm receipt; one job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">{i+1}</span><span>{step}</span></li>)}
+            </ol>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
+
     <Card className="border-indigo-100 bg-indigo-50/60"><CardContent className="p-5">
       <div className="grid gap-4 md:grid-cols-4 text-sm">
         {[
@@ -137,9 +173,16 @@ export default function FarmerFulfillmentWarehousePage() {
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
             {(() => {
-              const multi = o.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
-              const interDistrict = o.logisticsMode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner";
-              const sameDistrict = o.logisticsMode === "farmer_to_warehouse_to_local_hub_to_delivery_partner";
+              const mode = String(o.logisticsMode || "").toLowerCase();
+              const multi = mode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ||
+                mode.includes("multiple_warehouses") || Number(o.warehouseCount || 0) > 1 ||
+                (Array.isArray(o.warehouseAllocations) && o.warehouseAllocations.length > 1);
+              const interDistrict = !multi && (mode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" ||
+                mode.includes("destination_warehouse") || Boolean(o.destinationWarehouseId));
+              const sameDistrict = !multi && !interDistrict && (
+                mode === "farmer_to_warehouse_to_local_hub_to_delivery_partner" ||
+                mode === "farmer_to_warehouse" || Boolean(o.warehouseId)
+              );
               const con = consolidations.find((x:any)=>x.orderId===o.id);
               const conStatus = o.consolidationStatus || con?.consolidationStatus || "";
               const transferStatus = o.transferStatus || "";
@@ -171,18 +214,22 @@ export default function FarmerFulfillmentWarehousePage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {!multi && !interDistrict && <>
-                    {incomingRows.some((x:any)=>x.status === "pending") && incomingRows.filter((x:any)=>x.status === "pending").map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
-                    {incomingRows.some((x:any)=>x.status === "received") && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store / Hold Packed Shipment</Button>)}
+                    {incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
+                    {incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store / Hold Packed Shipment</Button>)}
                     <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={!receiptComplete || !["received","stored"].every((s:string)=>incomingRows.some((x:any)=>["received","stored"].includes(x.status))) || ["hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>
                     {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
                   </>}
                   {interDistrict && <>
+                    {sourceRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
+                    {sourceRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Shipment</Button>)}
                     {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={!receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Destination</Button>}
                     {destinationRole && <Button size="sm" onClick={()=>receiveDestination(o.id)} disabled={transferStatus !== "destination_warehouse_in_transit"}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
                     {destinationRole && <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={transferStatus !== "destination_warehouse_received"}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
                     {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
                   </>}
                   {multi && <>
+                    {!consolidationRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify Portion</Button>)}
+                    {!consolidationRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Portion</Button>)}
                     {con?.canDispatchToConsolidation && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)} disabled={!storedComplete || Boolean(con?.sourceTransfer?.dispatched)}><Truck className="mr-2 h-4 w-4"/>Dispatch Portion to Consolidation</Button>}
                     {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)} disabled={!con?.consolidation?.inTransitLegs && !con?.inTransitLegCount && Boolean(con?.allConsolidationLegsReceived)}><Warehouse className="mr-2 h-4 w-4"/>Receive Portions at Consolidation</Button>}
                     {consolidationRole && <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived || !con?.allConsolidationLegsReceived || ["consolidated","hub_handoff_pending","local_hub_ready"].includes(conStatus)}><CheckCircle2 className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
