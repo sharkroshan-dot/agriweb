@@ -23,9 +23,12 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
     ist = ZoneInfo("Asia/Kolkata")
     now_ist = datetime.now(ist)
     night_start = now_ist.replace(hour=20, minute=0, second=0, microsecond=0)
-    next_night_start = night_start if now_ist >= night_start else night_start
-    if now_ist < night_start:
-        next_night_start = night_start
+    if now_ist.hour < 6:
+        # If a job is created during an active overnight window, retain that
+        # current window rather than postponing collection by almost a day.
+        next_night_start = night_start - timedelta(days=1)
+    else:
+        next_night_start = night_start if now_ist >= night_start else night_start
     night_end = (next_night_start + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
     packing_required = bool(incoming.get("packingRequired", True))
     job_fields = {
