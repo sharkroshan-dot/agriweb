@@ -41,6 +41,8 @@ export default function FarmerFulfillmentTransfersPage() {
   const [selectedDestinationTeam,setSelectedDestinationTeam]=useState<Record<string,string>>({});
   const [selectedFarmPickupTeam,setSelectedFarmPickupTeam]=useState<Record<string,string>>({});
   const [planningFarmPickup,setPlanningFarmPickup]=useState<string|null>(null);
+  const [receiveQuantities,setReceiveQuantities]=useState<Record<string,string>>({});
+  const [receiveNotes,setReceiveNotes]=useState<Record<string,string>>({});
   const {data:pickupTeamData,refetch:refetchPickupTeams}=useQuery({
     queryKey:["farmerFulfillmentHubPickupTeams"],
     queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
@@ -76,10 +78,12 @@ export default function FarmerFulfillmentTransfersPage() {
   const receiveIncoming=async(item:any)=>{
     try{
       setBusy(item.id+":receive");
-      const quantity=Number(item.expectedQuantity??item.quantity??0);
-      if(!Number.isFinite(quantity)||quantity<=0) throw new Error("Expected quantity is missing or invalid");
-      await api.put("/warehouse/me/incoming/"+item.id+"/receive",undefined,{params:{quantity,quality_check:"passed",usableQuantity:quantity,notes:"Farmer-packed order received and package seal checked"}});
-      toast.success("Shipment received and quantity recorded");
+      const quantity=Number(receiveQuantities[item.id]??"");
+      const expected=Number(item.expectedQuantity??item.quantity??0);
+      if(!Number.isFinite(quantity)||quantity<=0) throw new Error("Enter the actual received quantity (greater than zero)");
+      if(Number.isFinite(expected)&&expected>0&&quantity>expected) throw new Error("Actual received quantity cannot exceed the expected quantity. Record and resolve the discrepancy first.");
+      await api.put("/warehouse/me/incoming/"+item.id+"/receive",undefined,{params:{quantity,quality_check:"pending",usableQuantity:quantity,notes:receiveNotes[item.id]?.trim()||"Farmer-packed shipment physically received; quality review pending"}});
+      toast.success("Physical receipt recorded. Continue the transfer workflow; do not repack this sealed order.");
       await refetch();
     }catch(e:any){toast.error(e?.message||"Unable to receive shipment");}
     finally{setBusy(null);}
@@ -290,7 +294,7 @@ export default function FarmerFulfillmentTransfersPage() {
           </section>}
           <div className="flex flex-wrap justify-end gap-2">
             <Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button>
-            {showReceiving&&o.incoming?.filter((x:any)=>["pending","scheduled","ready_for_pickup","in_transit"].includes(x.status)).map((item:any)=><Button key={item.id} onClick={()=>receiveIncoming(item)} disabled={busy===item.id+":receive"}><Truck className="mr-2 h-4 w-4"/>{busy===item.id+":receive"?"Receiving…":"Receive + Verify"}</Button>)}
+            {showReceiving&&o.incoming?.filter((x:any)=>["pending","scheduled","ready_for_pickup","in_transit"].includes(x.status)).map((item:any)=><div key={item.id} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"><div className="min-w-32 flex-1"><label className="mb-1 block text-xs font-medium">Actual received quantity</label><input aria-label={"Actual received quantity for "+String(item.productName||o.orderNumber||"shipment")} type="number" min="0.001" step="any" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={receiveQuantities[item.id]??""} onChange={e=>setReceiveQuantities(prev=>({...prev,[item.id]:e.target.value}))} placeholder={String(item.expectedQuantity??item.quantity??"Enter quantity")}/></div><div className="min-w-48 flex-1"><label className="mb-1 block text-xs font-medium">Receipt notes / discrepancy</label><input aria-label="Receipt notes" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={receiveNotes[item.id]??""} onChange={e=>setReceiveNotes(prev=>({...prev,[item.id]:e.target.value}))} placeholder="Seal condition, shortage, damage…"/></div><Button onClick={()=>receiveIncoming(item)} disabled={busy===item.id+":receive"||!receiveQuantities[item.id]||Number(receiveQuantities[item.id])<=0}><Truck className="mr-2 h-4 w-4"/>{busy===item.id+":receive"?"Recording…":"Confirm Physical Receipt"}</Button></div>)}
             {/* Farmer Fulfillment stock is already packed and sealed at the farm. Do not offer the normal bulk-storage action here; a complete physical receipt unlocks the next transfer. */}
             {o.incoming?.some((x:any)=>x.status==="received"&&Number(x.receivedQuantity??0)+1e-9<Number(x.expectedQuantity??0))&&<Badge variant="outline" className="self-center">Partial receipt — resolve the quantity difference before dispatch</Badge>}
             {interDistrict&&isSource&&<Button onClick={()=>dispatchDestination(o)} disabled={!receivedAtSource||!o.destinationWarehouseId||["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)||busy===o.id+":destination-dispatch"}><Truck className="mr-2 h-4 w-4"/>{busy===o.id+":destination-dispatch"?"Dispatching…":"Create Destination Transfer"}</Button>}
