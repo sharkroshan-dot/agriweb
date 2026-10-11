@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from bson import ObjectId
 from app.database.mongodb import MongoDB
@@ -63,6 +64,17 @@ class WarehouseFarmerReturnRequest(BaseModel):
 
 
 router = APIRouter()
+
+
+def _enforce_warehouse_operating_window(window: str) -> None:
+    """Enforce warehouse logistics windows in IST at the API boundary."""
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    is_farm_pickup_window = now.hour >= 20 or now.hour < 6
+    if window == "farm_pickup" and not is_farm_pickup_window:
+        raise HTTPException(status_code=409, detail="Farm pickup routes can only be assigned or started between 20:00 and 06:00 IST.")
+    if window == "downstream_transfer" and is_farm_pickup_window:
+        raise HTTPException(status_code=409, detail="Warehouse-to-warehouse and local-hub transfers can only be dispatched between 06:00 and 20:00 IST.")
+
 
 @router.get("/me", response_model=WarehouseResponse)
 async def get_my_warehouse(current_user: dict = Depends(get_current_user)):
@@ -804,6 +816,7 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     """
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment")
+    _enforce_warehouse_operating_window("downstream_transfer")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
@@ -1983,6 +1996,7 @@ async def create_pickup_routes(
 ):
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can create pickup routes")
+    _enforce_warehouse_operating_window("farm_pickup")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
