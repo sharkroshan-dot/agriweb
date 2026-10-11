@@ -2388,6 +2388,16 @@ async def get_my_incoming_stock(
         if farmer_id and ObjectId.is_valid(farmer_id):
             try:
                 farmer = await farmer_repository.get_by_id(farmer_id)
+                if not farmer:
+                    farmer = await farmer_repository.get_by_user_id(farmer_id)
+                farmer_user = None
+                if not farmer:
+                    try:
+                        farmer_user = await UserService.get_user_by_id(farmer_id)
+                        if farmer_user:
+                            farmer = await farmer_repository.get_by_user_id(farmer_id)
+                    except Exception:
+                        farmer_user = None
                 if farmer:
                     safe_item["farmName"] = (
                         farmer.get("farmName") or farmer.get("businessName")
