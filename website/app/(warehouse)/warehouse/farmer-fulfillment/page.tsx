@@ -171,6 +171,12 @@ export default function FarmerFulfillmentTransfersPage() {
     <div className="space-y-4">{rows.map((o:any)=>{
       const multi=o.logisticsMode==="farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
       const isConsolidationWarehouse=Boolean(o.isConsolidationWarehouse);
+      // These values are used by the action buttons below the progress IIFE too.
+      const interDistrict=o.farmerFulfillmentRouteType==="inter_district";
+      const isSource=o.currentWarehouseRole==="source";
+      const isDestination=o.currentWarehouseRole==="destination";
+      const transferStatus=String(o.transferStatus||"");
+      const receivedAtSource=["received_transfer","quality_approved","stored"].includes(o.stage);
       const lines=o.incoming?.length ? o.incoming : (multi && isConsolidationWarehouse ? (o.warehouseAllocations||[]) : (o.items||[]));
       const receiveCount=o.incoming?.filter((x:any)=>x.status==="received"||x.status==="stored").length||0;
       const qualityCount=o.incoming?.filter((x:any)=>x.qualityCheck==="passed").length||0;
