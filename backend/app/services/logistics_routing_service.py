@@ -606,9 +606,11 @@ async def apply_partner_route(
         route_requires_hub = True
         transfer_status = "hub_handoff_pending"
     elif mode == "nearby":
-        logistics_mode = "farmer_to_local_hub_to_delivery_partner"
-        route_requires_hub = True
-        transfer_status = "hub_handoff_pending"
+        # Nearby farmer-packed orders go directly from farm to the delivery
+        # partner. A local hub is not part of this route.
+        logistics_mode = "farmer_to_delivery_partner"
+        route_requires_hub = False
+        transfer_status = "partner_pending"
     else:
         logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
         route_requires_hub = True
@@ -624,8 +626,6 @@ async def apply_partner_route(
     # available; the farmer must not be asked to re-select the order.
     resource_pending = False
     if warehouse_route and mode == "long_distance" and not hub:
-        resource_pending = True
-    elif not warehouse_route and mode == "nearby" and not hub:
         resource_pending = True
     elif not warehouse_route and mode == "long_distance" and (not warehouse or not hub):
         resource_pending = True
@@ -649,7 +649,7 @@ async def apply_partner_route(
             "address": hub.get("address") or "",
             "coordinates": (hub.get("location") or {}).get("coordinates") or (hub.get("coordinates") or {}).get("coordinates") or [],
         }
-    elif hub:
+    elif hub and mode != "nearby":
         pickup = {
             "type": "local_hub",
             "id": str(hub.get("_id")),
@@ -664,7 +664,7 @@ async def apply_partner_route(
         "deliveryDispatchStatus": "pending",
         "deliveryDispatchAt": None,
         "deliveryRouteSequence": (
-            ["packed", "dispatch", "local_hub", "delivery_partner", "customer"]
+            ["packed", "farm_pickup", "delivery_partner", "customer"]
             if mode == "nearby"
             else ["packed", "dispatch", "warehouse", "local_hub", "delivery_partner", "customer"]
         ),
@@ -680,7 +680,7 @@ async def apply_partner_route(
             if mode == "nearby"
             else "warehouse_transfer_pending"
         ),
-        "partnerAssignmentOpen": mode == "nearby" and not resource_pending,
+        "partnerAssignmentOpen": (mode == "nearby" and not resource_pending),
         "partnerRequested": False,
         "nearbyFulfillmentRequired": route_requires_hub,
         "nearbyFulfillmentType": "local_hub" if route_requires_hub else None,
