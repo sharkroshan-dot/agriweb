@@ -65,19 +65,25 @@ export default function FarmerFulfillmentTransfersPage() {
     logisticsMode: row.logisticsMode===MULTI_WAREHOUSE_MODE ? "farmer_to_warehouse_to_local_hub_to_delivery_partner" : row.logisticsMode,
   }));
   const consolidationRows=allRows.filter((row:any)=>isTrueConsolidation(row));
-  const routeRank:Record<string,number>={nearby:0,same_district:1,inter_district:2,needs_location:3};
-  const displayRows=[...rows].sort((a:any,b:any)=>(routeRank[a.routeCategory]??3)-(routeRank[b.routeCategory]??3));
+  const isRouteQueueEligible=(row:any)=>!row.isUnassigned && row.physicalReceiptConfirmed===true;
+  const displayCategory=(row:any)=>isRouteQueueEligible(row)?String(row.routeCategory||"needs_location"):"waiting_receipt";
+  const routeRank:Record<string,number>={nearby:0,same_district:1,inter_district:2,needs_location:3,waiting_receipt:4};
+  const displayRows=[...rows].sort((a:any,b:any)=>
+    Number(isRouteQueueEligible(b))-Number(isRouteQueueEligible(a)) ||
+    (routeRank[displayCategory(a)]??4)-(routeRank[displayCategory(b)]??4)
+  );
   // Keep all three route queues visible even when a category currently has no orders.
-  // Counts are based on the live API response, not sample/demo data.
+  // Counts include only fully received shipments; pre-receipt and unassigned orders
+  // remain visible below in a separate operational queue.
   const routeSections=[
     {key:"nearby",title:"Nearby Delivery",subtitle:"Within the configured distance threshold · assign a final-mile delivery partner",accent:"border-emerald-200 bg-emerald-50/50"},
     {key:"same_district",title:"Same-District Warehouse Fulfillment",subtitle:"Beyond the nearby threshold · transfer the sealed order to the local hub",accent:"border-blue-200 bg-blue-50/50"},
     {key:"inter_district",title:"Inter-District Warehouse Fulfillment",subtitle:"Transfer to the destination warehouse first, confirm receipt, then send to the local hub",accent:"border-violet-200 bg-violet-50/50"},
   ];
   const routeCounts:Record<string,number>={
-    nearby:displayRows.filter((o:any)=>o.routeCategory==="nearby").length,
-    same_district:displayRows.filter((o:any)=>o.routeCategory==="same_district").length,
-    inter_district:displayRows.filter((o:any)=>o.routeCategory==="inter_district").length,
+    nearby:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="nearby").length,
+    same_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="same_district").length,
+    inter_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="inter_district").length,
   };
 
   const assignHubPickupTeam=async(order:any)=>{
@@ -134,8 +140,9 @@ export default function FarmerFulfillmentTransfersPage() {
     {!isLoading && consolidationRows.length>0 && <Card className="border-amber-200 bg-amber-50/60"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-amber-950">Separate multi-warehouse customer orders</p><p className="mt-1 text-sm text-amber-900/80">{consolidationRows.length} order(s) require portions from multiple supply sources for one customer. Manage them on the dedicated consolidation page.</p></div><Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation</Link></Button></CardContent></Card>}
     {isLoading?<div className="h-40 animate-pulse rounded-xl bg-muted"/>:data?.success===false || (data===undefined && !isLoading)?<Card className="border-red-200 p-8 text-center"><Warehouse className="mx-auto h-10 w-10 text-red-500"/><p className="mt-3 font-semibold">Unable to load Farmer Fulfillment transfers</p><p className="mt-1 text-sm text-muted-foreground">The transfer API did not return data. Check that the backend is running, your warehouse account is linked to a warehouse, and then retry.</p><Button className="mt-4" variant="outline" onClick={()=>refetch()}>Retry loading</Button></Card>:rows.length===0?<Card className="p-8 text-center"><Warehouse className="mx-auto h-12 w-12 text-muted-foreground"/><p className="mt-4 font-semibold">No standard Farmer Fulfillment transfers</p><p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">This page is for already-packed orders assigned to one source warehouse and sent directly to a local hub. Orders that combine portions from multiple warehouses belong on Multi-Warehouse Consolidation and are kept separate.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={()=>refetch()}>Refresh transfers</Button>{consolidationRows.length>0&&<Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation ({consolidationRows.length})</Link></Button>}</div></Card>:
     <div className="space-y-4">{displayRows.map((o:any,index:number)=>{
-      const category=String(o.routeCategory||"needs_location");
+      const category=displayCategory(o);
       const categoryLabels:Record<string,{title:string,description:string}>={
+        waiting_receipt:{title:"Waiting for Receipt or Warehouse Assignment",description:"These orders have not yet passed the full physical-receipt gate at this warehouse, or have no confirmed source warehouse. Complete Incoming Stock receipt or resolve assignment before route classification."},
         nearby:{title:"1. Nearby Delivery",description:"Distance is within the configured nearby threshold. Assign a final delivery partner for direct delivery; do not send these orders through the warehouse-to-hub route."},
         same_district:{title:"2. Same-District Warehouse Fulfillment",description:"Distance is outside the nearby threshold, but farm and customer are in the same district. Send the sealed order from the source warehouse to the local hub."},
         inter_district:{title:"3. Inter-District Warehouse Fulfillment",description:"Farm and customer are in different districts. Transfer to the destination-district warehouse first, confirm receipt, then send to the local hub."},
@@ -157,7 +164,7 @@ export default function FarmerFulfillmentTransfersPage() {
       const allIncomingArrived=Boolean(o.incoming?.length)&&o.incoming.every((x:any)=>Boolean(x.arrivedWarehouseAt));
       const hasUnstoredIncoming=Boolean(o.incoming?.length)&&o.incoming.some((x:any)=>x.status!=="stored");
       return <div key={o.id} className="space-y-3">
-      {(index===0||String(displayRows[index-1].routeCategory||"needs_location")!==category)&&<section className="rounded-xl border bg-muted/20 p-4"><h2 className="text-lg font-semibold">{section.title}</h2><p className="mt-1 text-sm text-muted-foreground">{section.description}</p><p className="mt-2 text-xs text-muted-foreground">{displayRows.filter((x:any)=>String(x.routeCategory||"needs_location")===category).length} order(s) · nearby threshold {Number(o.nearbyThresholdKm??10)} km</p></section>}
+      {(index===0||displayCategory(displayRows[index-1])!==category)&&<section className="rounded-xl border bg-muted/20 p-4"><h2 className="text-lg font-semibold">{section.title}</h2><p className="mt-1 text-sm text-muted-foreground">{section.description}</p><p className="mt-2 text-xs text-muted-foreground">{category==="waiting_receipt"?displayRows.filter((x:any)=>displayCategory(x)===category).length:displayRows.filter((x:any)=>isRouteQueueEligible(x)&&displayCategory(x)===category).length} order(s){category!=="waiting_receipt"&&" · nearby threshold "+Number(o.nearbyThresholdKm??10)+" km"}</p></section>}
       <Card className="overflow-hidden">
         <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {lines.length} allocated line(s)</p></div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader>
         <CardContent className="space-y-4">
