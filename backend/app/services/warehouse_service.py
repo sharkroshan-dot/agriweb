@@ -403,10 +403,28 @@ class WarehouseService:
                     await event_fulfillment_repo.update({"_id": ObjectId(str(fulfillment_id))}, {"status": "warehouse_received", "warehouseStatus": "received", "warehouseReceivedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
             except Exception:
                 logger.exception("Failed to synchronize event fulfillment after warehouse receipt")
-        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and quality_check == "passed" and str(incoming.get("status")) == "received":
+        if incoming.get("orderId") and str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer" and str(incoming.get("status")) == "received":
             try:
+                # Physical receipt advances the transfer stage. Farmer-packed
+                # orders do not pass through bulk-stock quality inspection.
                 from app.repositories.order_repository import order_repository
-                await order_repository.update({"_id": ObjectId(str(incoming["orderId"]))}, {"warehouseFulfillmentStage": "received_transfer", "warehouseCollectionStatus": "arrived_warehouse", "updatedAt": datetime.utcnow()})
+                await order_repository.update(
+                    {"_id": ObjectId(str(incoming["orderId"]))},
+                    {
+                        "warehouseFulfillmentStage": "received_transfer",
+                        "warehouseCollectionStatus": "arrived_warehouse",
+                        "warehouseReceivedAt": incoming.get("receivedAt") or datetime.utcnow(),
+                        "updatedAt": datetime.utcnow(),
+                    },
+                )
+                await order_repository.append_tracking_event(
+                    str(incoming["orderId"]),
+                    "farmer_fulfillment_warehouse_received",
+                    "Farmer-packed order received at warehouse",
+                    "The warehouse confirmed physical receipt. Continue to the transfer or consolidation workflow; do not repack this order.",
+                    actor_role="warehouse",
+                    metadata={"incomingStockId": str(incoming["_id"]), "nextAction": "farmer_fulfillment_transfer_or_consolidation"},
+                )
             except Exception:
                 logger.exception("Failed to update farmer transfer order after receipt")
 
