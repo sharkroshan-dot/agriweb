@@ -2039,14 +2039,14 @@ async def report_route_problem(
 # ---------------------------------------------------------------------------
 
 class DeliveryMapRadiusRequest(BaseModel):
-    radius: int = Field(10, ge=1, le=200)
+    radius: int = Field(15, ge=1, le=200)
     maxOrders: Optional[int] = Field(None, ge=1, le=500)
     maxWeightKg: Optional[float] = Field(None, ge=1, le=10000)
     maxRouteMinutes: Optional[int] = Field(None, ge=15, le=1440)
 
 
 class AssignOutsideRequest(BaseModel):
-    radius: int = Field(10, ge=1, le=200)
+    radius: int = Field(15, ge=1, le=200)
     mode: str = "marketplace"  # "marketplace" | "ai" | "manual"
     partnerIds: Optional[dict] = None  # orderId -> partnerId (explicit manual picks)
 
@@ -2054,7 +2054,7 @@ class AssignOutsideRequest(BaseModel):
 class SelfDeliveryPlanRequest(BaseModel):
     method: str = Field(..., pattern="^(route|radius)$")
     orderIds: list[str] = Field(default_factory=list, max_length=500)
-    radius: float = Field(10, ge=1, le=200)
+    radius: float = Field(15, ge=1, le=200)
     destination: Optional[dict] = None
 
 
@@ -2065,7 +2065,7 @@ class AssignmentUpdateRequest(BaseModel):
 
 class PartnerRouteRequest(BaseModel):
     route: str = Field(..., pattern="^(nearby|long_distance)$")
-    radius: int = Field(10, ge=1, le=200)
+    radius: int = Field(15, ge=1, le=200)
     orderIds: Optional[list[str]] = None
     mode: str = Field("marketplace", pattern="^(marketplace|manual|ai)$")
 
@@ -2460,7 +2460,7 @@ def _annotate_physical_stops(payloads: list[dict]) -> None:
 
 @router.get("/me/delivery-map")
 async def get_my_delivery_map(
-    radius: int = Query(10, ge=1, le=200),
+    radius: int = Query(15, ge=1, le=200),
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
     delivered: str = Query("today"),
