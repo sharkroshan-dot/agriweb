@@ -740,14 +740,12 @@ async def get_farmer_fulfillment_transfers(
         source_district = str(
             order.get("sourceDistrict") or order.get("farmerDistrict")
             or (farmer_profile or {}).get("district") or (farmer_profile or {}).get("farmDistrict")
-            or (farmer_profile or {}).get("farmCity")
-            or next((line.get("farmDistrict") or line.get("farmCity") for line in (order.get("items") or []) if line.get("farmDistrict") or line.get("farmCity")), "")
+            or next((line.get("farmDistrict") for line in (order.get("items") or []) if line.get("farmDistrict")), "")
             or ""
         ).strip().casefold()
         destination_district = str(
             order.get("destinationDistrict")
             or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
-            or (delivery_address.get("city") if isinstance(delivery_address, dict) else "")
             or ""
         ).strip().casefold()
         if calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
