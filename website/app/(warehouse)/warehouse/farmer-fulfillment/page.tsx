@@ -14,7 +14,7 @@ const labels: Record<string,string> = {
   awaiting_warehouse_receipt:"Awaiting Farm Pickup",
   collection_team_assigned:"Collection Team Assigned",
   warehouse_arrived:"Arrived at Warehouse — Receive & Inspect",
-  received_transfer:"Received — Quality Check",
+  received_transfer:"Received — Ready for Transfer",
   partial_received:"Partially Received",
   quality_approved:"Quality Approved — Store Stock",
   stored:"Stored — Ready for Handoff",
@@ -74,7 +74,6 @@ export default function FarmerFulfillmentTransfersPage() {
       await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-local-hub-pickup-team",undefined,{params:{deliveryPartnerId:partnerId}});
       toast.success("Pickup team assigned. The partner can now start the transfer to the local hub.");
       await refetch();
-      await refetchPickupTeams();
     }catch(e:any){toast.error(e?.message||"Unable to assign pickup team");}
     finally{setBusy(null);}
   };
@@ -182,7 +181,7 @@ export default function FarmerFulfillmentTransfersPage() {
           {interDistrict&&isSource&&receivedAtSource&&!transferStatus.startsWith("destination_warehouse_")&&!["hub_handoff_pending","local_hub_ready"].includes(transferStatus)&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: create the destination transfer, then assign an approved transfer team below.</p>}
           {interDistrict&&isDestination&&transferStatus==="destination_warehouse_arrived_pending_receipt"&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: verify physical arrival, then click Confirm Destination Receipt. Sending to the local hub is enabled only after receipt.</p>}
           {interDistrict&&isDestination&&transferStatus==="destination_warehouse_received"&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: click Send to Local Hub, then assign an approved local-hub transfer team.</p>}
-          {!interDistrict&&!isConsolidationWarehouse&&["quality_approved","stored","ready_for_dispatch"].includes(o.stage)&&!["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(transferStatus)&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: click Send to Local Hub. Then assign an approved pickup team, wait for partner arrival, and confirm Local Hub Receipt.</p>}
+          {!interDistrict&&!isConsolidationWarehouse&&["received_transfer","quality_approved","stored","ready_for_dispatch"].includes(o.stage)&&!["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(transferStatus)&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: the sealed order has been physically received. Click Send to Local Hub, assign an approved pickup team, wait for partner arrival, and confirm Local Hub Receipt. Do not repack or send it through bulk-stock quality/storage.</p>}
           {transferStatus==="hub_handoff_pending"&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: select an approved team and click Assign Pickup Team. The partner then starts the transfer and records arrival at the local hub.</p>}
           {transferStatus==="hub_arrived_pending_receipt"&&<p className="w-full rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950">Next action: the partner recorded arrival. Confirm Local Hub Receipt to make the final delivery job eligible.</p>}
           <section className="rounded-xl border-2 border-indigo-200 bg-indigo-50/60 p-4">
@@ -213,7 +212,7 @@ export default function FarmerFulfillmentTransfersPage() {
             {interDistrict&&isDestination&&<Button onClick={()=>receiveDestination(o)} disabled={transferStatus!=="destination_warehouse_arrived_pending_receipt"||busy===o.id+":destination-receive"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":destination-receive"?"Confirming…":"Confirm Destination Receipt"}</Button>}
             {interDistrict&&isDestination&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={transferStatus!=="destination_warehouse_received"||busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>Send to Local Hub</Button>}
             {o.farmerFulfillmentRouteType==="inter_district"&&<p className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district route: send to the destination warehouse first. The local-hub button remains disabled until destination receipt is confirmed.</p>}
-            {o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["stored","ready_for_dispatch","quality_approved"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
+            {o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["received_transfer","stored","ready_for_dispatch","quality_approved"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canReceive&&<Button onClick={()=>runTransferAction(o,"receiveConsolidation")} disabled={busy===o.id+":receiveConsolidation"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":receiveConsolidation"?"Receiving…":("Confirm Arrived Portions ("+o.consolidation.inTransitLegs+")")}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canComplete&&<Button onClick={()=>runTransferAction(o,"completeConsolidation")} disabled={busy===o.id+":completeConsolidation"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===o.id+":completeConsolidation"?"Completing…":"Complete Consolidation"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canHandoffLocalHub&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":handoffLocalHub"?"Sending…":"Send Consolidated Order to Local Hub"}</Button>}
