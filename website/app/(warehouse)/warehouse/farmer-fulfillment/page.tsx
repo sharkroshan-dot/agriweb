@@ -44,6 +44,8 @@ export default function FarmerFulfillmentTransfersPage() {
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
     refetchInterval:15000,
   });
+  const {data:teamPayload}=useQuery({queryKey:["warehouseFarmerFulfillmentPickupTeams"],queryFn:()=>api.get("/warehouse/me/pickup-team/members"),refetchInterval:30000});
+  const hubPickupTeams=Array.isArray(teamPayload?.data?.members)?teamPayload.data.members.map((m:any)=>({id:String(m.id||m._id||m.deliveryPartnerId),deliveryPartnerId:String(m.deliveryPartnerId||m.id||m._id),name:m.name||m.partnerName||m.firstName||"Pickup Partner",vehicleType:m.vehicleType||m.vehicle||"Vehicle",capacity:Number(m.capacity||m.vehicleCapacity||0)})):[];
   const transferPayload=data?.data?.transfers;
   const allRows=Array.isArray(transferPayload)?transferPayload:[];
   const MULTI_WAREHOUSE_MODE="farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
@@ -103,6 +105,25 @@ export default function FarmerFulfillmentTransfersPage() {
     finally{setBusy(null);}
   };
 
+  const dispatchDestination=async(order:any)=>{
+    try{setBusy(order.id+":destination-dispatch");await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-destination");toast.success("Destination transfer manifest created");await refetch();}
+    catch(e:any){toast.error(e?.message||"Unable to create destination transfer");}finally{setBusy(null);}
+  };
+  const assignDestinationPickupTeam=async(order:any)=>{
+    const partnerId=selectedDestinationTeam[order.id];if(!partnerId){toast.error("Select an approved transfer team first");return;}
+    try{setBusy(order.id+":destination-assign");await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-destination-pickup-team",undefined,{params:{deliveryPartnerId:partnerId}});toast.success("Destination transfer team assigned");await refetch();}
+    catch(e:any){toast.error(e?.message||"Unable to assign destination transfer team");}finally{setBusy(null);}
+  };
+  const receiveDestination=async(order:any)=>{
+    try{setBusy(order.id+":destination-receive");await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/receive-at-destination");toast.success("Destination warehouse receipt confirmed");await refetch();}
+    catch(e:any){toast.error(e?.message||"Unable to confirm destination receipt");}finally{setBusy(null);}
+  };
+  const assignNearbyDeliveryPartner=async(order:any)=>{
+    const partnerId=selectedHubTeam[order.id];if(!partnerId){toast.error("Select an approved delivery partner first");return;}
+    try{setBusy(order.id+":nearby-assign");await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-nearby-delivery-partner",undefined,{params:{deliveryPartnerId:partnerId}});toast.success("Final delivery partner assigned");await refetch();}
+    catch(e:any){toast.error(e?.message||"Unable to assign final delivery partner");}finally{setBusy(null);}
+  };
+
   const runTransferAction=async(order:any,action:"dispatch"|"receiveConsolidation"|"completeConsolidation"|"handoffLocalHub"|"confirmHubReceipt")=>{
     const routes={
       dispatch: order.logisticsMode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
@@ -156,7 +177,7 @@ export default function FarmerFulfillmentTransfersPage() {
                   {order.routeDistanceKm!==null&&order.routeDistanceKm!==undefined&&<Badge variant="secondary">{Number(order.routeDistanceKm).toFixed(1)} km</Badge>}
                   <Badge variant="outline">{labels[order.stage]||String(order.stage||"Received").replace(/_/g," ")}</Badge>
                 </div>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">{section.key==="nearby"?"Next: assign the final delivery partner.":section.key==="same_district"?"Next: dispatch the sealed order to the local hub.":"Next: confirm destination warehouse transfer and receipt."}</p>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{section.key==="nearby"?(order.deliveryPartnerId?"Final delivery partner assigned.":"Assign the final delivery partner below."):section.key==="same_district"?"Next: dispatch the sealed order to the local hub.":"Next: confirm destination warehouse transfer and receipt."}</p>{section.key==="nearby"&&!order.deliveryPartnerId&&<div className="mt-3 space-y-2"><select aria-label={"Delivery partner for "+(order.orderNumber||order.id)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={selectedHubTeam[order.id]||""} onChange={e=>setSelectedHubTeam(prev=>({...prev,[order.id]:e.target.value}))}><option value="">Select approved delivery partner</option>{hubPickupTeams.map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name} · {team.vehicleType} · {team.capacity} kg</option>)}</select><Button size="sm" className="w-full" onClick={()=>assignNearbyDeliveryPartner(order)} disabled={!selectedHubTeam[order.id]||busy===order.id+":nearby-assign"}>{busy===order.id+":nearby-assign"?"Assigning…":"Assign Final Delivery Partner"}</Button></div>}
               </div>)}</div>}
           </div>
           <div className="border-t bg-background p-3"><p className="text-xs text-muted-foreground">{isLoading?"Loading":orders.length===0?"Waiting for eligible received orders":`${orders.length} received order(s) · threshold ${Number(orders[0]?.nearbyThresholdKm??10)} km`}</p></div>
