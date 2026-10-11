@@ -445,6 +445,8 @@ async def get_farmer_fulfillment_transfers(
                 {"warehouseIds": {"$in": warehouse_refs}},
                 {"warehouseAllocations.warehouseId": {"$in": warehouse_refs}},
                 {"consolidationWarehouseId": {"$in": warehouse_refs}},
+                {"destinationWarehouseId": {"$in": warehouse_refs}},
+                {"destinationWarehouseIds": {"$in": warehouse_refs}},
             ]},
         ],
     }
@@ -489,12 +491,12 @@ async def get_farmer_fulfillment_transfers(
     result = []
     for order in orders:
         outgoing = await outgoing_stock_repository.find_many({
-            "orderId": order["_id"],
+            "orderId": {"$in": [order["_id"], str(order["_id"])]},
             "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
             "deletedAt": None,
         }, skip=0, limit=1000)
         incoming = await incoming_stock_repository.find_many({
-            "orderId": order["_id"],
+            "orderId": {"$in": [order["_id"], str(order["_id"])]},
             "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
             "deletedAt": None,
         }, skip=0, limit=1000)
@@ -503,6 +505,12 @@ async def get_farmer_fulfillment_transfers(
             logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
             and str(order.get("consolidationWarehouseId") or "") == warehouse_id
         )
+        # Identify this warehouse's role from persisted assignment fields, rather
+        # than showing the source warehouse as the destination (or vice versa).
+        source_warehouse_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+        destination_warehouse_id = str(order.get("destinationWarehouseId") or "")
+        is_destination_warehouse = bool(destination_warehouse_id and destination_warehouse_id == warehouse_id)
+        is_source_warehouse = bool(source_warehouse_id and source_warehouse_id == warehouse_id)
         consolidation = {
             "isConsolidationWarehouse": is_consolidation_warehouse,
             "canReceive": False,
@@ -651,16 +659,17 @@ async def get_farmer_fulfillment_transfers(
             "farmerFulfillmentRouteType": order.get("farmerFulfillmentRouteType"),
             "sourceDistrict": order.get("sourceDistrict"),
             "destinationDistrict": order.get("destinationDistrict"),
-            "sourceWarehouseId": str(order.get("warehouseId")) if order.get("warehouseId") else None,
-            "sourceWarehouseName": order.get("warehouseName") or warehouse.get("name") or warehouse.get("warehouseName"),
-            "destinationWarehouseId": str(order.get("destinationWarehouseId")) if order.get("destinationWarehouseId") else None,
+            "sourceWarehouseId": source_warehouse_id or None,
+            "sourceWarehouseName": order.get("sourceWarehouseName") or (order.get("warehouseName") if is_source_warehouse else None),
+            "destinationWarehouseId": destination_warehouse_id or None,
             "destinationWarehouseName": order.get("destinationWarehouseName"),
+            "currentWarehouseRole": "destination" if is_destination_warehouse else ("source" if is_source_warehouse else ("consolidation" if is_consolidation_warehouse else "assigned")) ,
             "deliveryPartnerId": str(order.get("deliveryPartnerId")) if order.get("deliveryPartnerId") else None,
             "routeDistanceKm": order.get("routeDistanceKm") or order.get("calculatedDistanceKm") or order.get("distanceKm"),
             "routeDecisionReason": order.get("routeDecisionReason"),
             "pickupSchedule": order.get("pickupSchedule") or {"timezone": "Asia/Kolkata", "start": "20:00", "end": "06:00"},
             "downstreamTransferSchedule": order.get("downstreamTransferSchedule") or {"timezone": "Asia/Kolkata", "start": "06:00", "end": "20:00"},
-            "sourceWarehouseLocation": warehouse.get("location"),
+            "sourceWarehouseLocation": order.get("sourceWarehouseLocation") or (warehouse.get("location") if is_source_warehouse else None),
             "destinationWarehouseLocation": order.get("destinationWarehouseLocation"),
             "localHubLocation": order.get("nearbyFulfillmentLocation") or order.get("localHubLocation"),
             "isConsolidationWarehouse": is_consolidation_warehouse,
