@@ -464,7 +464,7 @@ async def get_farmer_fulfillment_transfers(
     # authoritative link so the transfers page still shows the real shipment.
     transfer_incoming_rows = await incoming_stock_repository.find_many({
         "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
-        "sourceMode": "farmer_fulfillment_transfer",
+        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
         "deletedAt": None,
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
     known_order_ids = {str(item.get("_id")) for item in orders if item.get("_id")}
@@ -790,11 +790,20 @@ async def get_farmer_fulfillment_transfers(
         # from the route queues due to a schema-version mismatch.
         fully_received_lines = [
             row for row in incoming
-            if str(row.get("status") or "").strip().lower() in (
-                "received", "stored", "quality_check", "quality_checked", "approved", "quality_approved"
+            if (
+                str(row.get("status") or "").strip().lower() in ("stored", "approved", "quality_approved")
+                or (
+                    str(row.get("status") or "").strip().lower() in ("received", "quality_check", "quality_checked")
+                    and (
+                        # Legacy receipt rows sometimes record status but not both
+                        # quantity columns. In that schema, "received" is the
+                        # receipt confirmation; explicitly partial statuses never
+                        # pass this gate.
+                        _expected_qty(row) <= 0
+                        or _received_qty(row) + 1e-9 >= _expected_qty(row)
+                    )
+                )
             )
-            and _expected_qty(row) > 0
-            and _received_qty(row) + 1e-9 >= _expected_qty(row)
         ]
         physical_receipt_confirmed = (
             bool(incoming) and len(fully_received_lines) == len(incoming)
@@ -887,9 +896,9 @@ async def get_farmer_fulfillment_transfers(
                     and str(item.get("variantId") or "") == str(x.get("variantId") or "")
                 ), "Product"),
                 "unit": x.get("unit") or "kg",
-                "expectedQuantity": float(x.get("quantity") or 0),
-                "receivedQuantity": float(x.get("quantityReceived") or 0),
-                "usableQuantity": float(x.get("usableQuantity") or 0),
+                "expectedQuantity": float(x.get("quantity") or x.get("expectedQuantity") or x.get("plannedQuantity") or 0),
+                "receivedQuantity": float(x.get("quantityReceived") or x.get("receivedQuantity") or x.get("actualQuantityReceived") or 0),
+                "usableQuantity": float(x.get("usableQuantity") or x.get("acceptedQuantity") or 0),
                 "qualityCheck": x.get("qualityCheck"),
                 "sourceMode": x.get("sourceMode"),
                 "arrivedWarehouseAt": x.get("arrivedWarehouseAt"),
