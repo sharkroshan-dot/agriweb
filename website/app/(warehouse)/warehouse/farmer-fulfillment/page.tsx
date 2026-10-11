@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ArrowRight, CheckCircle2, PackageCheck, RefreshCw, Truck, Warehouse } from "lucide-react";
+import { ArrowRight, CheckCircle2, PackageCheck, RefreshCw, Truck, Warehouse, ClipboardCheck, Route } from "lucide-react";
 import { PrefetchLink as Link } from "../../../components/shared/prefetch-link";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -89,7 +89,7 @@ export default function FarmerFulfillmentTransfersPage() {
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Packed Transfers</h1><p className="mt-1 text-muted-foreground">Receive sealed farmer-packed orders, confirm the transfer, and route them to the correct next stop. Same-district orders go to the local hub; inter-district orders must transfer to a destination-district warehouse first. Never repack these orders.</p></div>
-      <Button variant="outline" size="icon" onClick={()=>refetch()}><RefreshCw className="h-4 w-4"/></Button>
+      <div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/incoming"><ClipboardCheck className="mr-2 h-4 w-4"/>Incoming Stock</Link></Button><Button asChild variant="outline"><Link href="/collections"><Route className="mr-2 h-4 w-4"/>Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>refetch()}><RefreshCw className="h-4 w-4"/></Button></div>
     </div>
     <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">The sealed farmer package is not a normal warehouse customer-order packing task. Use Incoming Stock to physically receive it, then Store after approval.</p></div></div></CardContent></Card>
     {!isLoading && consolidationRows.length>0 && <Card className="border-amber-200 bg-amber-50/60"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-amber-950">Separate multi-warehouse customer orders</p><p className="mt-1 text-sm text-amber-900/80">{consolidationRows.length} order(s) require portions from multiple supply sources for one customer. Manage them on the dedicated consolidation page.</p></div><Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation</Link></Button></CardContent></Card>}
