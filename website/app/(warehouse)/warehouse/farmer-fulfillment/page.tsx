@@ -76,14 +76,19 @@ export default function FarmerFulfillmentTransfersPage() {
   // Counts include only fully received shipments; pre-receipt and unassigned orders
   // remain visible below in a separate operational queue.
   const routeSections=[
-    {key:"nearby",title:"Nearby Delivery",subtitle:"Within the configured distance threshold · assign a final-mile delivery partner",accent:"border-emerald-200 bg-emerald-50/50"},
-    {key:"same_district",title:"Same-District Warehouse Fulfillment",subtitle:"Beyond the nearby threshold · transfer the sealed order to the local hub",accent:"border-blue-200 bg-blue-50/50"},
-    {key:"inter_district",title:"Inter-District Warehouse Fulfillment",subtitle:"Transfer to the destination warehouse first, confirm receipt, then send to the local hub",accent:"border-violet-200 bg-violet-50/50"},
+    {key:"nearby",title:"Nearby Delivery",subtitle:"Within the configured distance threshold · assign a final-mile delivery partner",accent:"border-emerald-200 bg-emerald-50/50",icon:Truck},
+    {key:"same_district",title:"Same-District Warehouse Fulfillment",subtitle:"Beyond the nearby threshold · transfer the sealed order to the local hub",accent:"border-blue-200 bg-blue-50/50",icon:Warehouse},
+    {key:"inter_district",title:"Inter-District Warehouse Fulfillment",subtitle:"Transfer to the destination warehouse first, confirm receipt, then send to the local hub",accent:"border-violet-200 bg-violet-50/50",icon:Route},
   ];
+  const routeOrders:Record<string,any[]> = {
+    nearby:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="nearby"),
+    same_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="same_district"),
+    inter_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="inter_district"),
+  };
   const routeCounts:Record<string,number>={
-    nearby:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="nearby").length,
-    same_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="same_district").length,
-    inter_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&o.routeCategory==="inter_district").length,
+    nearby:routeOrders.nearby.length,
+    same_district:routeOrders.same_district.length,
+    inter_district:routeOrders.inter_district.length,
   };
 
   const assignHubPickupTeam=async(order:any)=>{
@@ -130,12 +135,33 @@ export default function FarmerFulfillmentTransfersPage() {
       <div className="flex flex-wrap gap-2"><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();}}><RefreshCw className="h-4 w-4"/></Button></div>
     </div>
     <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">This page starts after Incoming Stock confirms physical receipt. Manage downstream transfer stages only: source-to-destination warehouse transfer when required, transfer to the local hub, and confirmation of hub receipt. Farm pickup belongs to Farm Collection and Pickup Routes; receipt belongs to Incoming Stock. Never repack sealed farmer-packed orders.</p></div></div></CardContent></Card>
-    <div className="grid gap-3 md:grid-cols-3" aria-label="Automatic fulfillment route queues">
-      {routeSections.map((section:any)=><section key={section.key} className={`rounded-xl border p-4 ${section.accent}`}>
-        <div className="flex items-start justify-between gap-3"><h2 className="text-sm font-semibold leading-5">{section.title}</h2><span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full border bg-background px-2 text-sm font-bold tabular-nums">{isLoading?"—":routeCounts[section.key]}</span></div>
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">{section.subtitle}</p>
-        <p className="mt-2 text-xs font-medium">{isLoading?"Loading live orders…":routeCounts[section.key]===0?"No orders in this section":"Orders appear below, grouped by route"}</p>
-      </section>)}
+    <div className="grid gap-4 lg:grid-cols-3" aria-label="Automatic fulfillment route queues">
+      {routeSections.map((section:any)=>{
+        const SectionIcon=section.icon;
+        const orders=routeOrders[section.key]||[];
+        return <section key={section.key} className={`flex min-w-0 flex-col overflow-hidden rounded-xl border bg-card shadow-sm ${section.accent}`}>
+          <div className="p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-2"><SectionIcon className="mt-0.5 h-5 w-5 shrink-0"/><h2 className="text-sm font-semibold leading-5">{section.title}</h2></div>
+              <span className="inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full border bg-background px-2 text-sm font-bold tabular-nums">{isLoading?"—":routeCounts[section.key]}</span>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{section.subtitle}</p>
+          </div>
+          <div className="flex-1 border-t bg-background/80 p-3">
+            {isLoading?<p className="py-3 text-sm text-muted-foreground">Loading live orders…</p>:orders.length===0?<div className="rounded-lg border border-dashed p-4 text-center"><PackageCheck className="mx-auto h-6 w-6 text-muted-foreground"/><p className="mt-2 text-sm font-medium">No orders in this section</p><p className="mt-1 text-xs text-muted-foreground">Only fully received orders with verified route data are counted here.</p></div>:
+              <div className="space-y-2">{orders.map((order:any)=><div key={order.id} className="rounded-lg border bg-card p-3">
+                <p className="break-words text-sm font-semibold">Order #{order.orderNumber||order.id}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{order.farmerName||"Farmer"} · {(order.items||[]).length} item line(s)</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {order.routeDistanceKm!==null&&order.routeDistanceKm!==undefined&&<Badge variant="secondary">{Number(order.routeDistanceKm).toFixed(1)} km</Badge>}
+                  <Badge variant="outline">{labels[order.stage]||String(order.stage||"Received").replace(/_/g," ")}</Badge>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">{section.key==="nearby"?"Next: assign the final delivery partner.":section.key==="same_district"?"Next: dispatch the sealed order to the local hub.":"Next: confirm destination warehouse transfer and receipt."}</p>
+              </div>)}</div>}
+          </div>
+          <div className="border-t bg-background p-3"><p className="text-xs text-muted-foreground">{isLoading?"Loading":orders.length===0?"Waiting for eligible received orders":`${orders.length} received order(s) · threshold ${Number(orders[0]?.nearbyThresholdKm??10)} km`}</p></div>
+        </section>;
+      })}
     </div>
     {!isLoading && consolidationRows.length>0 && <Card className="border-amber-200 bg-amber-50/60"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-amber-950">Separate multi-warehouse customer orders</p><p className="mt-1 text-sm text-amber-900/80">{consolidationRows.length} order(s) require portions from multiple supply sources for one customer. Manage them on the dedicated consolidation page.</p></div><Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation</Link></Button></CardContent></Card>}
     {isLoading?<div className="h-40 animate-pulse rounded-xl bg-muted"/>:data?.success===false || (data===undefined && !isLoading)?<Card className="border-red-200 p-8 text-center"><Warehouse className="mx-auto h-10 w-10 text-red-500"/><p className="mt-3 font-semibold">Unable to load Farmer Fulfillment transfers</p><p className="mt-1 text-sm text-muted-foreground">The transfer API did not return data. Check that the backend is running, your warehouse account is linked to a warehouse, and then retry.</p><Button className="mt-4" variant="outline" onClick={()=>refetch()}>Retry loading</Button></Card>:rows.length===0?<Card className="p-8 text-center"><Warehouse className="mx-auto h-12 w-12 text-muted-foreground"/><p className="mt-4 font-semibold">No standard Farmer Fulfillment transfers</p><p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">This page is for already-packed orders assigned to one source warehouse and sent directly to a local hub. Orders that combine portions from multiple warehouses belong on Multi-Warehouse Consolidation and are kept separate.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={()=>refetch()}>Refresh transfers</Button>{consolidationRows.length>0&&<Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation ({consolidationRows.length})</Link></Button>}</div></Card>:
