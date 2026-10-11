@@ -42,10 +42,21 @@ export default function FarmerFulfillmentTransfersPage() {
   });
   const allRows=data?.data?.transfers||[];
   const MULTI_WAREHOUSE_MODE="farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
-  // Keep this page focused on ordinary packed farmer orders. Multi-source orders
-  // have their own dedicated Multi-Warehouse Consolidation workflow.
-  const rows=allRows.filter((row:any)=>row.logisticsMode!==MULTI_WAREHOUSE_MODE);
-  const consolidationRows=allRows.filter((row:any)=>row.logisticsMode===MULTI_WAREHOUSE_MODE);
+  // Consolidation is for one customer order assembled from multiple supply sources,
+  // not merely an order carrying a legacy logisticsMode value.
+  const isTrueConsolidation=(row:any)=>{
+    const allocations=Array.isArray(row.warehouseAllocations)?row.warehouseAllocations:(Array.isArray(row.allocations)?row.allocations:[]);
+    const sourceWarehouseIds=new Set(allocations.map((a:any)=>String(a.warehouseId||a.sourceWarehouseId||"")).filter(Boolean));
+    const sourceCount=Number(row.warehouseCount||sourceWarehouseIds.size||0);
+    const explicitlyBulk= row.fulfillmentPurpose==="event_bulk" || row.isMultiWarehouseConsolidation===true || Boolean(row.consolidationId);
+    return row.logisticsMode===MULTI_WAREHOUSE_MODE && (sourceCount>1 || sourceWarehouseIds.size>1 || explicitlyBulk);
+  };
+  const rows=allRows.filter((row:any)=>!isTrueConsolidation(row)).map((row:any)=>({
+    ...row,
+    // A legacy single-source record should use the standard transfer action path.
+    logisticsMode: row.logisticsMode===MULTI_WAREHOUSE_MODE ? "farmer_to_warehouse_to_local_hub_to_delivery_partner" : row.logisticsMode,
+  }));
+  const consolidationRows=allRows.filter((row:any)=>isTrueConsolidation(row));
 
   const runTransferAction=async(order:any,action:"dispatch"|"receiveConsolidation"|"completeConsolidation"|"handoffLocalHub"|"confirmHubReceipt")=>{
     const routes={
