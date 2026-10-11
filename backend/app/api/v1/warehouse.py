@@ -424,6 +424,7 @@ async def get_farmer_fulfillment_transfers(
                 {"deliveryPartnerRoute": "long_distance"},
                 {"logisticsMode": {"$in": [
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                    "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
                 ]}},
             ]},
@@ -552,6 +553,7 @@ async def get_farmer_fulfillment_transfers(
             })
         if logistics_mode in (
             "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
             "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
         ):
             # Derive the displayed stage from this warehouse's own incoming
@@ -634,6 +636,11 @@ async def get_farmer_fulfillment_transfers(
             "orderStatus": order.get("orderStatus"),
             "stage": order_stage,
             "logisticsMode": logistics_mode,
+            "farmerFulfillmentRouteType": order.get("farmerFulfillmentRouteType"),
+            "sourceDistrict": order.get("sourceDistrict"),
+            "destinationDistrict": order.get("destinationDistrict"),
+            "destinationWarehouseId": str(order.get("destinationWarehouseId")) if order.get("destinationWarehouseId") else None,
+            "destinationWarehouseName": order.get("destinationWarehouseName"),
             "isConsolidationWarehouse": is_consolidation_warehouse,
             "consolidation": consolidation,
             "sourceTransfer": {
