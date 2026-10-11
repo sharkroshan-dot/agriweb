@@ -1569,7 +1569,7 @@ async def receive_farmer_fulfillment_at_local_hub(
     if not order or mode not in allowed_modes:
         raise HTTPException(status_code=404, detail="Farmer fulfillment order for local-hub receipt not found")
     warehouse_id = str(warehouse["_id"])
-    if str(order.get("transferStatus") or "") not in ("hub_handoff_pending", "local_hub_ready"):
+    if str(order.get("transferStatus") or "") not in ("hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready"):
         raise HTTPException(status_code=400, detail="Dispatch the order to the local hub before confirming receipt")
     if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
         if str(order.get("consolidationWarehouseId") or "") != warehouse_id:
