@@ -37,6 +37,44 @@ const labels: Record<string,string> = {
 
 export default function FarmerFulfillmentTransfersPage() {
   const [busy,setBusy]=useState<string|null>(null);
+  const receiveIncoming=async(item:any)=>{
+    try{
+      setBusy(item.id+":receive");
+      const quantity=Number(item.expectedQuantity??item.quantity??0);
+      if(!Number.isFinite(quantity)||quantity<=0) throw new Error("Expected quantity is missing or invalid");
+      await api.put("/warehouse/me/incoming/"+item.id+"/receive",undefined,{params:{quantity,quality_check:"passed",usableQuantity:quantity,notes:"Farmer-packed order received and package seal checked"}});
+      toast.success("Shipment received and quantity recorded");
+      await refetch();
+    }catch(e:any){toast.error(e?.message||"Unable to receive shipment");}
+    finally{setBusy(null);}
+  };
+  const storeIncoming=async(item:any)=>{
+    try{
+      setBusy(item.id+":store");
+      await api.put("/warehouse/me/incoming/"+item.id+"/store");
+      toast.success("Packed shipment storage recorded");
+      await refetch();
+    }catch(e:any){toast.error(e?.message||"Unable to record storage");}
+    finally{setBusy(null);}
+  };
+  const dispatchDestination=async(order:any)=>{
+    try{
+      setBusy(order.id+":destination-dispatch");
+      await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-destination");
+      toast.success("Shipment dispatched to destination warehouse");
+      await refetch();
+    }catch(e:any){toast.error(e?.message||"Destination dispatch failed");}
+    finally{setBusy(null);}
+  };
+  const receiveDestination=async(order:any)=>{
+    try{
+      setBusy(order.id+":destination-receive");
+      await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/receive-at-destination");
+      toast.success("Destination warehouse receipt confirmed");
+      await refetch();
+    }catch(e:any){toast.error(e?.message||"Destination receipt failed");}
+    finally{setBusy(null);}
+  };
   const {data,isLoading,refetch}=useQuery({
     queryKey:["warehouseFarmerFulfillmentTransfers"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
@@ -122,6 +160,10 @@ export default function FarmerFulfillmentTransfersPage() {
           {(() => {
             const interDistrict = o.farmerFulfillmentRouteType === "inter_district";
             const direct = o.logisticsMode === "farmer_to_delivery_partner" || o.farmerFulfillmentRouteType === "nearby";
+            const isSource = o.currentWarehouseRole === "source";
+            const isDestination = o.currentWarehouseRole === "destination";
+            const transferStatus = String(o.transferStatus || "");
+            const receivedAtSource = ["received_transfer","quality_approved","stored"].includes(o.stage);
             const steps = direct
               ? [{title:"Farm pickup",detail:"Collect the sealed farmer-packed order",done:true},{title:"Delivery partner",detail:"Assign one partner for the final mile",done:Boolean(o.deliveryPartnerId) || ["local_hub_ready","delivered"].includes(o.stage)},{title:"Customer",detail:"Deliver the order",done:o.orderStatus==="delivered"}]
               : interDistrict
@@ -137,7 +179,7 @@ export default function FarmerFulfillmentTransfersPage() {
                   <p className={`mt-2 text-xs font-medium ${step.done?"text-emerald-700":index===firstPending?"text-indigo-700":"text-muted-foreground"}`}>{step.done?"Completed":index===firstPending?"Current / next step":"Waiting"}</p>
                 </div>)}
               </div>
-              {interDistrict && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district transfer is not complete until the destination warehouse receives the order. The current backend does not yet expose the destination dispatch/receipt actions; do not use “Send to Local Hub” as a substitute.</p>}
+              {interDistrict && <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district orders must be received at the source, dispatched to the assigned destination warehouse, physically received there, and only then transferred to the local hub.</p>}
               {!interDistrict && !direct && <p className="mt-3 text-xs text-muted-foreground">Operating windows: farm pickup 20:00–06:00 IST · warehouse-to-hub transfer 06:00–20:00 IST. This package stays sealed; no repacking or normal bulk-stock quality workflow.</p>}
             </section>;
           })()}
@@ -151,8 +193,14 @@ export default function FarmerFulfillmentTransfersPage() {
           {o.isUnassigned&&<p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-5 text-amber-950">{o.message||"The delivery decision was saved, but no safe warehouse assignment exists yet. Check active warehouse status, configured capacity, and location data. No pickup team can be assigned until a source warehouse is selected."}</p>}
           {isConsolidationWarehouse&&multi&&<p className="rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-900">This warehouse is the consolidation destination. Receive arriving source portions, complete consolidation only after all source portions are stored and received here, then transfer the single combined order to the local hub.</p>}
           <div className="flex flex-wrap justify-end gap-2">
-            {showReceiving&&o.incoming?.length>0&&<Button asChild variant="outline"><Link href="/incoming"><Truck className="mr-2 h-4 w-4"/>Open Receiving / Quality</Link></Button>}
-            {o.farmerFulfillmentRouteType==="inter_district"&&<p className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district route: this sealed order must move from the source warehouse to the destination-district warehouse, then to the local hub. Do not dispatch it directly to the local hub. Destination transfer actions must be available before this step can be completed.</p>}
+            <Button asChild variant="outline"><Link href={"/collections?search="+encodeURIComponent(String(o.orderNumber||o.id))}><Route className="mr-2 h-4 w-4"/>Open Farm Collection</Link></Button>
+            <Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button>
+            {showReceiving&&o.incoming?.filter((x:any)=>["pending","scheduled","ready_for_pickup","in_transit"].includes(x.status)).map((item:any)=><Button key={item.id} onClick={()=>receiveIncoming(item)} disabled={busy===item.id+":receive"}><Truck className="mr-2 h-4 w-4"/>{busy===item.id+":receive"?"Receiving…":"Receive + Verify"}</Button>)}
+            {o.incoming?.filter((x:any)=>x.status==="received").map((item:any)=><Button key={item.id} variant="outline" onClick={()=>storeIncoming(item)} disabled={busy===item.id+":store"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===item.id+":store"?"Saving…":"Store / Hold Sealed Package"}</Button>)}
+            {interDistrict&&isSource&&<Button onClick={()=>dispatchDestination(o)} disabled={!receivedAtSource||!o.destinationWarehouseId||["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)||busy===o.id+":destination-dispatch"}><Truck className="mr-2 h-4 w-4"/>{busy===o.id+":destination-dispatch"?"Dispatching…":"Dispatch to Destination Warehouse"}</Button>}
+            {interDistrict&&isDestination&&<Button onClick={()=>receiveDestination(o)} disabled={transferStatus!=="destination_warehouse_in_transit"||busy===o.id+":destination-receive"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":destination-receive"?"Confirming…":"Confirm Destination Receipt"}</Button>}
+            {interDistrict&&isDestination&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={transferStatus!=="destination_warehouse_received"||busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>Send to Local Hub</Button>}
+            {o.farmerFulfillmentRouteType==="inter_district"&&<p className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district route: send to the destination warehouse first. The local-hub button remains disabled until destination receipt is confirmed.</p>}
             {o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canReceive&&<Button onClick={()=>runTransferAction(o,"receiveConsolidation")} disabled={busy===o.id+":receiveConsolidation"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":receiveConsolidation"?"Receiving…":("Confirm Arrived Portions ("+o.consolidation.inTransitLegs+")")}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canComplete&&<Button onClick={()=>runTransferAction(o,"completeConsolidation")} disabled={busy===o.id+":completeConsolidation"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===o.id+":completeConsolidation"?"Completing…":"Complete Consolidation"}</Button>}
