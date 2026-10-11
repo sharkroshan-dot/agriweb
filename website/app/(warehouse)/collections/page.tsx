@@ -319,7 +319,11 @@ export default function WarehouseCollectionsPage() {
               <span className="text-base font-semibold text-white">{warehouseName}</span>
             </div>
             <h1 className="mt-1 text-3xl font-extrabold tracking-tight sm:text-4xl">Farm Collection</h1>
-            <p className="mt-3 max-w-2xl text-base leading-7 text-white sm:text-lg">Select eligible farm pickups, then plan routes and assign collection teams.</p>
+            <p className="mt-3 max-w-2xl text-base leading-7 text-white sm:text-lg">Plan farm collections for the overnight window, then use daytime operations for warehouse-to-warehouse and local-hub transfers.</p>
+            <div className="mt-4 flex flex-wrap gap-2 text-sm">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-1.5"><Clock3 className="h-4 w-4"/>Farm pickup: 8:00 PM–6:00 AM IST</span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3 py-1.5"><Truck className="h-4 w-4"/>Warehouse / local hub transfers: 6:00 AM–8:00 PM IST</span>
+            </div>
           </div>
           <Button variant="secondary" size="icon" onClick={() => refetch()} aria-label="Refresh collection queue"><RefreshCw className="h-4 w-4" /></Button>
         </div>
