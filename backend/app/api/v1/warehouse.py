@@ -1043,7 +1043,7 @@ async def dispatch_farmer_fulfillment_to_destination(
         "destinationWarehouseId": ObjectId(destination_id),
         "deletedAt": None,
     })
-    if leg and str(leg.get("status") or "") in ("assigned", "in_transit", "arrived_at_destination", "received_at_destination"):
+    if leg and str(leg.get("status") or "") in ("awaiting_team_assignment", "assigned", "in_transit", "arrived_at_destination", "received_at_destination"):
         return {"success": True, "data": {"orderId": order_id, "status": leg["status"]}, "message": "This destination transfer already has a manifest."}
     now = datetime.utcnow()
     if leg:
