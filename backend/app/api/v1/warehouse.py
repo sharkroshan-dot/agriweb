@@ -2851,10 +2851,13 @@ async def receive_incoming_stock(
             detail="This farmer-packed shipment has not arrived at the warehouse yet. Complete Farm Collection → Arrived Warehouse first.",
         )
 
+    # Physical receipt is separate from quality approval. Bulk stock stays pending until
+    # the quality endpoint approves it; packed Farmer Fulfillment bypasses bulk QC.
+    is_farmer_fulfillment = str((incoming_record or {}).get("sourceMode") or "") == "farmer_fulfillment_transfer"
     incoming = await WarehouseService.receive_incoming(
         incoming_id,
         quantity,
-        quality_check,
+        "pending",
         notes,
         str(warehouse["_id"]),
         usable_quantity
@@ -2888,7 +2891,11 @@ async def receive_incoming_stock(
     return {
         "success": True,
         "data": incoming,
-        "message": "Stock received successfully" if quality_check == "passed" else "Stock rejected"
+        "message": (
+            "Farmer Fulfillment shipment received. Continue to transfers or consolidation."
+            if is_farmer_fulfillment
+            else "Physical receipt recorded. Complete quality inspection before storage."
+        )
     }
 
 @router.put("/me/incoming/{incoming_id}/quality")
