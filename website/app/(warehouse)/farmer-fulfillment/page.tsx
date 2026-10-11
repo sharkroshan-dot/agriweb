@@ -67,6 +67,14 @@ export default function FarmerFulfillmentWarehousePage() {
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-consolidation`);toast.success("Portion received at consolidation");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
   };
+  const dispatchDestination=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/dispatch-to-destination`);toast.success("Order dispatched to destination warehouse");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Destination dispatch failed");}
+  };
+  const receiveDestination=async(id:string)=>{
+    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-destination`);toast.success("Destination warehouse receipt confirmed");await refreshAll();}
+    catch(e:any){toast.error(e?.message||"Destination receipt failed");}
+  };
   const handoffHub=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/handoff-local-hub`);toast.success("Complete order handed to local hub");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Local hub handoff failed");}
@@ -128,7 +136,21 @@ export default function FarmerFulfillmentWarehousePage() {
               {status==="hub_handoff_pending"&&<div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button><span className="text-xs text-muted-foreground self-center">Confirm only after the local hub physically receives the complete order.</span></div>}
               {["local_hub_ready","partner_pending"].includes(status||"")&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>One Delivery Job Ready</Badge>}
             </div>})()}
-            {o.logisticsMode !== "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" && ["ready_for_dispatch","delivery_decision"].includes(o.stage)&&<Button asChild><a href="/outgoing"><Route className="mr-2 h-4 w-4"/>Choose Hub Route</a></Button>}
+            {o.logisticsMode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" && <div className="space-y-2 rounded-xl border p-3">
+              <p className="text-sm font-semibold">Inter-district transfer</p>
+              <p className="text-xs text-muted-foreground">Source: {o.sourceWarehouseName || "Assigned source warehouse"} · Destination: {o.destinationWarehouseName || "Destination warehouse not assigned"}</p>
+              {o.currentWarehouseRole === "source" && ["received_transfer","quality_approved","stored"].includes(o.stage) && !["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(o.transferStatus || "") && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={!o.destinationWarehouseId}><Truck className="mr-2 h-4 w-4"/>Dispatch to Destination</Button>}
+              {o.currentWarehouseRole === "destination" && o.transferStatus === "destination_warehouse_in_transit" && <Button size="sm" onClick={()=>receiveDestination(o.id)}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
+              {o.currentWarehouseRole === "destination" && o.transferStatus === "destination_warehouse_received" && <Button size="sm" onClick={()=>handoffHub(o.id)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
+              {o.transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
+              {o.transferStatus === "local_hub_ready" && <Badge variant="success">Local hub received · Final delivery job ready</Badge>}
+            </div>}
+            {o.logisticsMode === "farmer_to_warehouse_to_local_hub_to_delivery_partner" && <div className="space-y-2 rounded-xl border p-3">
+              <p className="text-sm font-semibold">Warehouse to local hub</p>
+              {["received_transfer","quality_approved","stored","ready_for_dispatch","delivery_decision"].includes(o.stage) && !["hub_handoff_pending","local_hub_ready"].includes(o.transferStatus || "") && <Button size="sm" onClick={()=>handoffHub(o.id)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
+              {o.transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}>Confirm Local Hub Receipt</Button>}
+              {o.transferStatus === "local_hub_ready" && <Badge variant="success">Local hub received · Final delivery job ready</Badge>}
+            </div>}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
         </div>
