@@ -65,6 +65,8 @@ export default function FarmerFulfillmentTransfersPage() {
     logisticsMode: row.logisticsMode===MULTI_WAREHOUSE_MODE ? "farmer_to_warehouse_to_local_hub_to_delivery_partner" : row.logisticsMode,
   }));
   const consolidationRows=allRows.filter((row:any)=>isTrueConsolidation(row));
+  const routeRank:Record<string,number>={nearby:0,same_district:1,inter_district:2,needs_location:3};
+  const displayRows=[...rows].sort((a:any,b:any)=>(routeRank[a.routeCategory]??3)-(routeRank[b.routeCategory]??3));
 
   const assignHubPickupTeam=async(order:any)=>{
     const partnerId=selectedHubTeam[order.id];
@@ -112,7 +114,15 @@ export default function FarmerFulfillmentTransfersPage() {
     <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">This page starts after Incoming Stock confirms physical receipt. Manage downstream transfer stages only: source-to-destination warehouse transfer when required, transfer to the local hub, and confirmation of hub receipt. Farm pickup belongs to Farm Collection and Pickup Routes; receipt belongs to Incoming Stock. Never repack sealed farmer-packed orders.</p></div></div></CardContent></Card>
     {!isLoading && consolidationRows.length>0 && <Card className="border-amber-200 bg-amber-50/60"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-amber-950">Separate multi-warehouse customer orders</p><p className="mt-1 text-sm text-amber-900/80">{consolidationRows.length} order(s) require portions from multiple supply sources for one customer. Manage them on the dedicated consolidation page.</p></div><Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation</Link></Button></CardContent></Card>}
     {isLoading?<div className="h-40 animate-pulse rounded-xl bg-muted"/>:data?.success===false || (data===undefined && !isLoading)?<Card className="border-red-200 p-8 text-center"><Warehouse className="mx-auto h-10 w-10 text-red-500"/><p className="mt-3 font-semibold">Unable to load Farmer Fulfillment transfers</p><p className="mt-1 text-sm text-muted-foreground">The transfer API did not return data. Check that the backend is running, your warehouse account is linked to a warehouse, and then retry.</p><Button className="mt-4" variant="outline" onClick={()=>refetch()}>Retry loading</Button></Card>:rows.length===0?<Card className="p-8 text-center"><Warehouse className="mx-auto h-12 w-12 text-muted-foreground"/><p className="mt-4 font-semibold">No standard Farmer Fulfillment transfers</p><p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">This page is for already-packed orders assigned to one source warehouse and sent directly to a local hub. Orders that combine portions from multiple warehouses belong on Multi-Warehouse Consolidation and are kept separate.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={()=>refetch()}>Refresh transfers</Button>{consolidationRows.length>0&&<Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation ({consolidationRows.length})</Link></Button>}</div></Card>:
-    <div className="space-y-4">{rows.map((o:any)=>{
+    <div className="space-y-4">{displayRows.map((o:any,index:number)=>{
+      const category=String(o.routeCategory||"needs_location");
+      const categoryLabels:Record<string,{title:string,description:string}>={
+        nearby:{title:"1. Nearby Delivery",description:"Distance is within the configured nearby threshold. Assign a final delivery partner for direct delivery; do not send these orders through the warehouse-to-hub route."},
+        same_district:{title:"2. Same-District Warehouse Fulfillment",description:"Distance is outside the nearby threshold, but farm and customer are in the same district. Send the sealed order from the source warehouse to the local hub."},
+        inter_district:{title:"3. Inter-District Warehouse Fulfillment",description:"Farm and customer are in different districts. Transfer to the destination-district warehouse first, confirm receipt, then send to the local hub."},
+        needs_location:{title:"Needs Location Data",description:"The backend cannot calculate a reliable distance or determine the district route. Add valid farm and customer coordinates/districts before dispatch."}
+      };
+      const section=categoryLabels[category]||categoryLabels.needs_location;
       const multi=o.logisticsMode==="farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
       const isConsolidationWarehouse=Boolean(o.isConsolidationWarehouse);
       // These values are used by the action buttons below the progress IIFE too.
@@ -127,7 +137,9 @@ export default function FarmerFulfillmentTransfersPage() {
       const storedCount=o.incoming?.filter((x:any)=>x.status==="stored").length||0;
       const allIncomingArrived=Boolean(o.incoming?.length)&&o.incoming.every((x:any)=>Boolean(x.arrivedWarehouseAt));
       const hasUnstoredIncoming=Boolean(o.incoming?.length)&&o.incoming.some((x:any)=>x.status!=="stored");
-      return <Card key={o.id} className="overflow-hidden">
+      return <div key={o.id} className="space-y-3">
+      {(index===0||String(displayRows[index-1].routeCategory||"needs_location")!==category)&&<section className="rounded-xl border bg-muted/20 p-4"><h2 className="text-lg font-semibold">{section.title}</h2><p className="mt-1 text-sm text-muted-foreground">{section.description}</p><p className="mt-2 text-xs text-muted-foreground">{displayRows.filter((x:any)=>String(x.routeCategory||"needs_location")===category).length} order(s) · nearby threshold {Number(o.nearbyThresholdKm??10)} km</p></section>}
+      <Card className="overflow-hidden">
         <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {lines.length} allocated line(s)</p></div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader>
         <CardContent className="space-y-4">
           <div className="mb-3 flex flex-wrap gap-2">
@@ -212,7 +224,7 @@ export default function FarmerFulfillmentTransfersPage() {
             {interDistrict&&isDestination&&<Button onClick={()=>receiveDestination(o)} disabled={transferStatus!=="destination_warehouse_arrived_pending_receipt"||busy===o.id+":destination-receive"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":destination-receive"?"Confirming…":"Confirm Destination Receipt"}</Button>}
             {interDistrict&&isDestination&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={transferStatus!=="destination_warehouse_received"||busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>Send to Local Hub</Button>}
             {o.farmerFulfillmentRouteType==="inter_district"&&<p className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district route: send to the destination warehouse first. The local-hub button remains disabled until destination receipt is confirmed.</p>}
-            {o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["received_transfer","stored","ready_for_dispatch","quality_approved"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
+            {category!=="nearby"&&category!=="needs_location"&&o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["received_transfer","stored","ready_for_dispatch","quality_approved"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canReceive&&<Button onClick={()=>runTransferAction(o,"receiveConsolidation")} disabled={busy===o.id+":receiveConsolidation"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":receiveConsolidation"?"Receiving…":("Confirm Arrived Portions ("+o.consolidation.inTransitLegs+")")}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canComplete&&<Button onClick={()=>runTransferAction(o,"completeConsolidation")} disabled={busy===o.id+":completeConsolidation"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===o.id+":completeConsolidation"?"Completing…":"Complete Consolidation"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canHandoffLocalHub&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":handoffLocalHub"?"Sending…":"Send Consolidated Order to Local Hub"}</Button>}
@@ -229,7 +241,8 @@ export default function FarmerFulfillmentTransfersPage() {
             {o.stage==="local_hub_ready"&&<Badge variant="success" className="self-center"><CheckCircle2 className="mr-1 h-3 w-3"/>Local hub received · Delivery job ready</Badge>}
           </div>
         </CardContent>
-      </Card>;
+      </Card>
+      </div>;
     })}</div>}
   </div>;
 }
