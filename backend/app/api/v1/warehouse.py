@@ -1611,7 +1611,7 @@ async def receive_farmer_fulfillment_at_local_hub(
 
     now = datetime.utcnow()
     await transfer_collection.update_one(
-        {"_id": transfer["_id"], "status": "in_transit"},
+        {"_id": transfer["_id"], "status": {"$in": ["in_transit", "arrived_at_hub"]}},
         {"$set": {"status": "received", "receivedAt": now, "receivedBy": ObjectId(str(current_user["_id"])), "updatedAt": now}},
     )
     await order_repository.update(
