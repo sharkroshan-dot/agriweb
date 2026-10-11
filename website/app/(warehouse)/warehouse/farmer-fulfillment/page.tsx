@@ -31,6 +31,8 @@ const labels: Record<string,string> = {
   source_portion_received_at_consolidation:"Portion Received at Consolidation",
   warehouse_assignment_pending:"Awaiting Warehouse Assignment",
   long_distance_pending:"Awaiting Warehouse Assignment",
+  source_warehouse_pickup_pending:"Awaiting Farm Pickup",
+  destination_warehouse_transfer_pending:"Awaiting Destination Warehouse Transfer",
 };
 
 export default function FarmerFulfillmentTransfersPage() {
@@ -86,7 +88,7 @@ export default function FarmerFulfillmentTransfersPage() {
 
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Packed Transfers</h1><p className="mt-1 text-muted-foreground">Already-packed farmer orders assigned to this warehouse. Confirm physical receipt, store only if needed, then send the complete order to the local hub. Multi-warehouse bulk/event orders are handled separately in Multi-Warehouse Consolidation. Never repack these orders.</p></div>
+      <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Packed Transfers</h1><p className="mt-1 text-muted-foreground">Receive sealed farmer-packed orders, confirm the transfer, and route them to the correct next stop. Same-district orders go to the local hub; inter-district orders must transfer to a destination-district warehouse first. Never repack these orders.</p></div>
       <Button variant="outline" size="icon" onClick={()=>refetch()}><RefreshCw className="h-4 w-4"/></Button>
     </div>
     <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">The sealed farmer package is not a normal warehouse customer-order packing task. Use Incoming Stock to physically receive it, then Store after approval.</p></div></div></CardContent></Card>
@@ -105,18 +107,24 @@ export default function FarmerFulfillmentTransfersPage() {
       return <Card key={o.id} className="overflow-hidden">
         <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {lines.length} allocated line(s)</p></div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader>
         <CardContent className="space-y-4">
+          <div className="mb-3 flex flex-wrap gap-2">
+            <Badge variant="outline">{o.farmerFulfillmentRouteType==="inter_district"?"Inter-district transfer":o.farmerFulfillmentRouteType==="same_district"?"Same-district transfer":o.logisticsMode==="farmer_to_delivery_partner"?"Direct farm pickup":"Warehouse transfer"}</Badge>
+            {o.sourceDistrict&&<Badge variant="secondary">From: {o.sourceDistrict}</Badge>}
+            {o.destinationDistrict&&<Badge variant="secondary">To: {o.destinationDistrict}</Badge>}
+          </div>
           <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">{o.isUnassigned?"Assignment":isConsolidationWarehouse?"Consolidation Receipt":"Warehouse Receipt"}</p><p className="mt-1 font-medium">{o.isUnassigned?"Not assigned":isConsolidationWarehouse?((o.consolidation?.receivedLegs||0)+"/"+(o.consolidation?.totalLegs||0)+" portions"):(`${receiveCount}/${o.incoming?.length||0} received`)}</p></div>
             <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">{o.isUnassigned?"Capacity":isConsolidationWarehouse?"Source Storage":"Quality"}</p><p className="mt-1 font-medium">{o.isUnassigned?"Review required":isConsolidationWarehouse?(o.consolidation?.allSourcePortionsStored?"All source portions stored":"Waiting for source storage"):(`${qualityCount}/${o.incoming?.length||0} approved`)}</p></div>
             <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Stored</p><p className="mt-1 font-medium">{o.isUnassigned?"Not received":isConsolidationWarehouse?(o.consolidation?.allSourcePortionsStored?"All source portions stored":"Not all portions stored"):(`${storedCount}/${o.incoming?.length||0} stored`)}</p></div>
-            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Destination</p><p className="mt-1 font-medium">{o.isUnassigned?"Waiting for source warehouse":isConsolidationWarehouse?"Consolidation intake":multi?("Consolidation · "+(o.consolidationWarehouseName||"Warehouse")):("Local hub · "+(o.localHubName||"Assigned hub"))}</p></div>
+            <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Destination</p><p className="mt-1 font-medium">{o.isUnassigned?"Waiting for source warehouse":isConsolidationWarehouse?"Consolidation intake":multi?("Consolidation · "+(o.consolidationWarehouseName||"Warehouse")):o.farmerFulfillmentRouteType==="inter_district"?("Destination warehouse · "+(o.destinationWarehouseName||"Assignment required")):("Local hub · "+(o.localHubName||"Assigned hub"))}</p></div>
           </div>
           <div className="flex flex-wrap gap-2">{lines.map((i:any)=><Badge key={(i.warehouseId||"local")+"-"+i.productId+"-"+(i.variantId||"")} variant="secondary">{i.warehouseName?i.warehouseName+" · ":""}{i.productName||"Product"}: {i.expectedQuantity??i.quantity??0} {i.unit||"kg"}</Badge>)}</div>
           {o.isUnassigned&&<p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-5 text-amber-950">{o.message||"The delivery decision was saved, but no safe warehouse assignment exists yet. Check active warehouse status, configured capacity, and location data. No pickup team can be assigned until a source warehouse is selected."}</p>}
           {isConsolidationWarehouse&&multi&&<p className="rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-xs text-indigo-900">This warehouse is the consolidation destination. Receive arriving source portions, complete consolidation only after all source portions are stored and received here, then transfer the single combined order to the local hub.</p>}
           <div className="flex flex-wrap justify-end gap-2">
             {showReceiving&&o.incoming?.length>0&&<Button asChild variant="outline"><Link href="/incoming"><Truck className="mr-2 h-4 w-4"/>Open Receiving / Quality</Link></Button>}
-            {!isConsolidationWarehouse&&["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
+            {o.farmerFulfillmentRouteType==="inter_district"&&<p className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district route: this sealed order must move from the source warehouse to the destination-district warehouse, then to the local hub. Do not dispatch it directly to the local hub. Destination transfer actions must be available before this step can be completed.</p>}
+            {o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canReceive&&<Button onClick={()=>runTransferAction(o,"receiveConsolidation")} disabled={busy===o.id+":receiveConsolidation"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":receiveConsolidation"?"Receiving…":("Confirm Arrived Portions ("+o.consolidation.inTransitLegs+")")}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canComplete&&<Button onClick={()=>runTransferAction(o,"completeConsolidation")} disabled={busy===o.id+":completeConsolidation"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===o.id+":completeConsolidation"?"Completing…":"Complete Consolidation"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canHandoffLocalHub&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":handoffLocalHub"?"Sending…":"Send Consolidated Order to Local Hub"}</Button>}
