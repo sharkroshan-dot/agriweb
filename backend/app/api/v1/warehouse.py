@@ -1077,7 +1077,7 @@ async def dispatch_farmer_fulfillment_to_destination(
         actor_id=str(current_user["_id"]), actor_role="warehouse",
         metadata={"sourceWarehouseId": source_id, "destinationWarehouseId": destination_id},
     )
-    return {"success": True, "data": {"orderId": order_id, "status": "in_transit", "destinationWarehouseId": destination_id}, "message": "Order dispatched to destination warehouse."}
+    return {"success": True, "data": {"orderId": order_id, "status": "awaiting_team_assignment", "destinationWarehouseId": destination_id}, "message": "Transfer manifest created. Assign an approved pickup team before the partner can start the route."}
 
 
 @router.put("/me/farmer-fulfillment/{order_id}/assign-destination-pickup-team")
