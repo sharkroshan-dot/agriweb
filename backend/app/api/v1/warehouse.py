@@ -1210,7 +1210,7 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
     source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
     if source_id != warehouse_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can assign this order's final-mile partner")
-    route_type = str(order.get("farmerFulfillmentRouteType") or order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or "").strip().lower()
+    route_type = str(order.get("farmerFulfillmentRouteType") or order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or order.get("routeCategory") or "").strip().lower()
     if route_type not in ("nearby", "direct", "farmer_to_delivery_partner") and str(order.get("logisticsMode") or "") != "farmer_to_delivery_partner":
         raise HTTPException(status_code=409, detail="Only orders classified for Nearby direct delivery can use this action")
     if str(order.get("deliveryType") or "").lower() == "pickup":
