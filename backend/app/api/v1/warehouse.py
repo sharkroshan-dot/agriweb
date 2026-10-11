@@ -1167,12 +1167,16 @@ async def complete_farmer_fulfillment_consolidation(
     not_stored = []
     for row in incoming:
         key = (str(row.get("warehouseId")), str(row.get("productId")), str(row.get("variantId") or ""))
-        if str(row.get("status")) != "stored":
+        # Farmer Fulfillment receipts are already-packed customer order portions.
+        # A verified physical receipt is sufficient; do not require bulk inventory storage.
+        is_packed_farmer_transfer = str(row.get("sourceMode") or "") == "farmer_fulfillment_transfer"
+        acceptable_receipt_statuses = ("received", "stored") if is_packed_farmer_transfer else ("stored",)
+        if str(row.get("status")) not in acceptable_receipt_statuses:
             not_stored.append(row)
             continue
-        qty = row.get("usableQuantity")
+        qty = row.get("quantityReceived") if is_packed_farmer_transfer else row.get("usableQuantity")
         if qty is None:
-            qty = row.get("quantityReceived")
+            qty = row.get("usableQuantity")
         if qty is None:
             qty = row.get("quantity")
         received[key] = received.get(key, 0.0) + max(0.0, float(qty or 0))
@@ -1196,7 +1200,7 @@ async def complete_farmer_fulfillment_consolidation(
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "Every warehouse portion must be received, quality-checked, stored at its source warehouse, dispatched, and received at the consolidation warehouse before consolidation.",
+                "message": "Every farmer-packed portion must be physically received with the required quantity, dispatched, and received at the consolidation warehouse before consolidation. Normal bulk inventory storage is not required for Farmer Fulfillment.",
                 "missingPortions": missing,
                 "unstoredReceipts": len(not_stored),
                 "pendingConsolidationLegs": len(not_received_at_consolidation),
@@ -2503,6 +2507,8 @@ async def update_incoming_quality(
     incoming = await incoming_stock_repository.get_by_id(incoming_id)
     if not incoming or str(incoming.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Incoming shipment not found")
+    if str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer":
+        raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Skip warehouse quality inspection and continue to Farmer Fulfillment Transfers / Consolidation.")
     if str(incoming.get("status") or "") != "received":
         raise HTTPException(status_code=400, detail="Receive the physical shipment before quality inspection")
     if data.usableQuantity is not None and float(data.usableQuantity) > float(incoming.get("quantityReceived") or incoming.get("quantity") or 0):
@@ -2573,6 +2579,9 @@ async def store_incoming_stock(
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
+    existing_incoming = await incoming_stock_repository.get_by_id(incoming_id)
+    if existing_incoming and str(existing_incoming.get("warehouseId")) == str(warehouse["_id"]) and str(existing_incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer":
+        raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Storage is optional; continue to Farmer Fulfillment Transfers / Consolidation instead of adding this order to bulk inventory.")
     incoming = await WarehouseService.store_incoming(
         incoming_id, str(warehouse["_id"])
     )
