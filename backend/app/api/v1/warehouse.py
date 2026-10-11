@@ -4161,3 +4161,82 @@ async def get_warehouse_stats(
             }
         }
     }
+
+
+@router.put("/me/farmer-fulfillment/{order_id}/assign-local-hub-pickup-team")
+async def assign_farmer_fulfillment_local_hub_pickup_team(
+    order_id: str,
+    deliveryPartnerId: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Assign an approved warehouse pickup team to carry a sealed order to its local hub."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign local-hub pickup teams")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    mode = str(order.get("logisticsMode") or "")
+    if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        authorized = str(order.get("consolidationWarehouseId") or "") == warehouse_id
+        ready = str(order.get("consolidationStatus") or "") == "hub_handoff_pending"
+    elif mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        authorized = str(order.get("destinationWarehouseId") or "") == warehouse_id
+        ready = str(order.get("transferStatus") or "") == "hub_handoff_pending"
+    else:
+        authorized = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") == warehouse_id
+        ready = str(order.get("transferStatus") or "") == "hub_handoff_pending"
+    if not authorized:
+        raise HTTPException(status_code=403, detail="This order is not assigned to your warehouse for local-hub transfer")
+    if not ready:
+        raise HTTPException(status_code=409, detail="Send the sealed order to the local-hub transfer stage before assigning a pickup team")
+    members = await warehouse_pickup_team_repository.get_approved_members(warehouse_id)
+    membership = next((m for m in members if str(m.get("deliveryPartnerId") or m.get("userId") or "") == deliveryPartnerId), None)
+    if not membership:
+        raise HTTPException(status_code=400, detail="Select an approved pickup team assigned to this warehouse")
+    profile_id = str(membership.get("deliveryPartnerId") or "")
+    partner_user_id = str(membership.get("userId") or membership.get("deliveryPartnerUserId") or "")
+    if not ObjectId.is_valid(profile_id) or not ObjectId.is_valid(partner_user_id):
+        raise HTTPException(status_code=400, detail="The selected pickup team is missing a valid partner profile or user account")
+    transfer_collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
+    transfer = await transfer_collection.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
+    if not transfer:
+        raise HTTPException(status_code=409, detail="Create the local-hub transfer first, then assign the pickup team")
+    if str(transfer.get("status") or "") == "received":
+        raise HTTPException(status_code=409, detail="The local hub has already received this order")
+    if transfer.get("assignedDeliveryPartnerId") and str(transfer.get("assignedDeliveryPartnerId")) != profile_id:
+        raise HTTPException(status_code=409, detail="A pickup team is already assigned to this transfer")
+    now = datetime.utcnow()
+    await transfer_collection.update_one(
+        {"_id": transfer["_id"], "status": {"$in": ["in_transit", "assigned"]}},
+        {"$set": {
+            "status": "assigned",
+            "assignedDeliveryPartnerId": ObjectId(profile_id),
+            "assignedPartnerUserId": ObjectId(partner_user_id),
+            "assignedBy": ObjectId(str(current_user["_id"])),
+            "assignedAt": now,
+            "updatedAt": now,
+        }},
+    )
+    refreshed = await transfer_collection.find_one({"_id": transfer["_id"]})
+    if not refreshed or str(refreshed.get("assignedDeliveryPartnerId") or "") != profile_id:
+        raise HTTPException(status_code=409, detail="Transfer assignment changed. Refresh and try again.")
+    try:
+        await NotificationService.send_custom_notification(
+            partner_user_id,
+            f"Local-hub transfer for order {order.get('orderNumber') or order_id} is assigned to you. Start the transfer and confirm arrival at the hub.",
+            title="Local-Hub Pickup Assigned",
+            data={"type": "farmer_fulfillment_hub_transfer", "transferId": str(transfer["_id"]), "orderId": order_id},
+        )
+    except Exception:
+        logger.exception("Unable to notify pickup partner about local-hub transfer")
+    return {"success": True, "data": {
+        "transferId": str(transfer["_id"]), "orderId": order_id,
+        "status": refreshed.get("status"), "deliveryPartnerId": profile_id,
+        "deliveryPartnerName": membership.get("name") or membership.get("fullName") or "Pickup Team",
+    }, "message": "Pickup team assigned to local-hub transfer"}
+
+
