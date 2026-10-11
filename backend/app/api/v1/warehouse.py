@@ -525,8 +525,12 @@ async def get_farmer_fulfillment_transfers(
             legs_received = bool(legs) and all(
                 str(x.get("status") or "") == "received_at_consolidation" for x in legs
             )
+            # Farmer Fulfillment portions are already packed. A physically received
+            # receipt is sufficient; optional temporary storage must not block consolidation.
             all_source_stored = bool(all_source_incoming) and all(
-                str(x.get("status") or "") == "stored" for x in all_source_incoming
+                str(x.get("status") or "") in ("received", "stored")
+                and float(x.get("quantityReceived") or 0) >= float(x.get("quantity") or 0)
+                for x in all_source_incoming
             )
             in_transit_legs = [x for x in legs if str(x.get("status") or "") == "in_transit"]
             hub_transfer = await MongoDB.get_collection("farmer_fulfillment_hub_transfers").find_one({
@@ -572,7 +576,11 @@ async def get_farmer_fulfillment_transfers(
             logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
             and not is_consolidation_warehouse
             and incoming
-            and all(str(x.get("status") or "") == "stored" for x in incoming)
+            and all(
+                str(x.get("status") or "") in ("received", "stored")
+                and float(x.get("quantityReceived") or 0) >= float(x.get("quantity") or 0)
+                for x in incoming
+            )
             and source_legs
             and all(str(x.get("status") or "") in ("in_transit", "received_at_consolidation") for x in source_legs)
         ):
