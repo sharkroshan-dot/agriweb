@@ -2383,6 +2383,30 @@ async def get_my_incoming_stock(
         safe_item = make_json_safe(item)
         safe_item["id"] = str(item.get("_id", item.get("id", "")))
 
+        # Keep Incoming Stock aligned with Farm Collection's physical-arrival state.
+        # Older records may still say scheduled even after the collection reached the warehouse.
+        collection_id = str(item.get("collectionId") or "")
+        if collection_id and ObjectId.is_valid(collection_id):
+            try:
+                collection_job = await warehouse_collection_repository.get_by_id(collection_id)
+                if collection_job and str(collection_job.get("status") or "") == "arrived_warehouse":
+                    safe_item["arrivedWarehouseAt"] = (
+                        safe_item.get("arrivedWarehouseAt")
+                        or collection_job.get("arrivedWarehouseAt")
+                        or collection_job.get("updatedAt")
+                        or collection_job.get("updated_at")
+                    )
+                    safe_item["warehouseArrivalConfirmed"] = True
+                    safe_item["collectionStatus"] = "arrived_warehouse"
+                    if str(safe_item.get("status") or "") == "scheduled":
+                        safe_item["status"] = "in_transit"
+                    if collection_job.get("sourceMode"):
+                        safe_item["sourceMode"] = collection_job.get("sourceMode")
+                    if collection_job.get("packingRequired") is not None:
+                        safe_item["packingRequired"] = collection_job.get("packingRequired")
+            except Exception:
+                logger.exception("Could not sync incoming shipment arrival from collection %s", collection_id)
+
         # Resolve Mongo IDs into human-readable names for the warehouse receiving UI.
         farmer_id = str(item.get("farmerId") or "")
         if farmer_id and ObjectId.is_valid(farmer_id):
