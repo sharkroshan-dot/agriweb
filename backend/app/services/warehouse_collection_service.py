@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from app.repositories.warehouse_collection_repository import (
     warehouse_collection_repository,
     COLLECTION_READY,
@@ -16,6 +17,16 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         or incoming.get("transferReadyForPickup")
         or incoming.get("warehouseTransferReadyForPickup")
     )
+    # Shared operating windows are stored in India Standard Time (IST).
+    # Farm collection is overnight; warehouse-to-warehouse/local-hub transfers
+    # are daytime activities.
+    ist = ZoneInfo("Asia/Kolkata")
+    now_ist = datetime.now(ist)
+    night_start = now_ist.replace(hour=20, minute=0, second=0, microsecond=0)
+    next_night_start = night_start if now_ist >= night_start else night_start
+    if now_ist < night_start:
+        next_night_start = night_start
+    night_end = (next_night_start + timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
     packing_required = bool(incoming.get("packingRequired", True))
     job_fields = {
         "warehouseId": incoming["warehouseId"],
@@ -37,6 +48,22 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         "pickupResolutionStatus": incoming.get("pickupResolutionStatus"),
         "pickupResolutionMessage": incoming.get("pickupResolutionMessage"),
         "readyAt": incoming.get("readyForPickupAt") or incoming.get("warehouseTransferReadyAt") or datetime.utcnow(),
+        "pickupSchedule": {
+            "window": "overnight",
+            "timezone": "Asia/Kolkata",
+            "startAt": next_night_start.isoformat(),
+            "endAt": night_end.isoformat(),
+            "startLocal": "20:00",
+            "endLocal": "06:00",
+            "purpose": "farm_collection",
+        },
+        "downstreamTransferSchedule": {
+            "window": "daytime",
+            "timezone": "Asia/Kolkata",
+            "startLocal": "06:00",
+            "endLocal": "20:00",
+            "purpose": "warehouse_to_warehouse_or_local_hub",
+        },
     }
 
     existing = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
