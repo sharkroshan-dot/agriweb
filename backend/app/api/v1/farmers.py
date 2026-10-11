@@ -2038,6 +2038,10 @@ async def report_route_problem(
 # Order Map — radius-based self-delivery / delivery-partner assignment
 # ---------------------------------------------------------------------------
 
+# Fixed business rule for automatic nearby-vs-long-distance routing.
+# The user-selected map radius is a visual filter, not a routing threshold.
+NEARBY_DELIVERY_THRESHOLD_KM = 15.0
+
 class DeliveryMapRadiusRequest(BaseModel):
     radius: int = Field(15, ge=1, le=200)
     maxOrders: Optional[int] = Field(None, ge=1, le=500)
@@ -3422,7 +3426,7 @@ async def create_self_delivery_plan(
                 "lng": lng,
                 "location": {"lat": lat, "lng": lng},
             }
-            route_result = await apply_partner_route(routing_order, partner_route, body.radius)
+            route_result = await apply_partner_route(routing_order, partner_route, NEARBY_DELIVERY_THRESHOLD_KM)
             refreshed = await order_repository.get_by_id(oid) or order
 
             # Nearby orders can go to the local hub and then the delivery
@@ -3616,7 +3620,7 @@ async def choose_delivery_partner_route(
         if lat is None:
             continue
         dist = _haversine_km(farm["lat"], farm["lng"], lat, lng)
-        is_nearby = dist <= body.radius
+        is_nearby = dist <= NEARBY_DELIVERY_THRESHOLD_KM
         if (body.route == "nearby" and not is_nearby) or (body.route == "long_distance" and is_nearby):
             continue
         targets.append((order, dist))
@@ -3626,7 +3630,7 @@ async def choose_delivery_partner_route(
 
     results = []
     for order, dist in targets:
-        route = await apply_partner_route(order, body.route, body.radius)
+        route = await apply_partner_route(order, body.route, NEARBY_DELIVERY_THRESHOLD_KM)
         # The delivery partner receives the order only after the physical
         # route has been selected. Nearby and long-distance both use the
         # delivery marketplace; the difference is the upstream handoff path.
