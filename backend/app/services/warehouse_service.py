@@ -287,6 +287,9 @@ class WarehouseService:
                     "sourceMode": "farmer_fulfillment_transfer",
                     "packingRequired": False,
                     "status": "in_transit",
+                    # The route is only materialized here after the pickup team
+                    # has completed/returned the route to the warehouse.
+                    "arrivedWarehouseAt": datetime.utcnow(),
                     "updatedAt": datetime.utcnow(),
                 })
                 existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
@@ -326,6 +329,8 @@ class WarehouseService:
                 "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
                 "sourceMode": "farmer_fulfillment_transfer",
                 "packingRequired": False,
+                # Incoming records are created only after the route returns to warehouse.
+                "arrivedWarehouseAt": datetime.utcnow(),
             })
             if incoming_id:
                 row = await incoming_stock_repository.get_by_id(incoming_id)
