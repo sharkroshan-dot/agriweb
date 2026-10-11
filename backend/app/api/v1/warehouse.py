@@ -481,10 +481,22 @@ async def get_farmer_fulfillment_transfers(
             or ""
         ).strip().lower()
         linked_status = str(linked_order.get("orderStatus") or linked_order.get("status") or "").lower()
-        if (
-            linked_method not in ("farmer", "farm_direct")
-            or linked_status in ("delivered", "completed", "cancelled", "refunded")
-        ):
+        linked_logistics = str(linked_order.get("logisticsMode") or "").strip().lower()
+        # A dedicated incoming row with sourceMode=farmer_fulfillment_transfer
+        # is the authoritative proof that this order belongs in the warehouse
+        # transfer workflow. Older orders may not have fulfillmentMethod,
+        # fulfillment_route, or logisticsMode populated consistently.
+        is_farmer_transfer = (
+            linked_method in ("farmer", "farm_direct")
+            or linked_logistics in (
+                "farmer_to_delivery_partner",
+                "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+                "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+            )
+            or str(incoming_row.get("sourceMode") or "") == "farmer_fulfillment_transfer"
+        )
+        if not is_farmer_transfer or linked_status in ("delivered", "completed", "cancelled", "refunded"):
             continue
         orders.append(linked_order)
         known_order_ids.add(linked_order_id)
