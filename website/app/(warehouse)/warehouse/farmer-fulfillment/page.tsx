@@ -39,12 +39,40 @@ export default function FarmerFulfillmentTransfersPage() {
   const [busy,setBusy]=useState<string|null>(null);
   const [selectedHubTeam,setSelectedHubTeam]=useState<Record<string,string>>({});
   const [selectedDestinationTeam,setSelectedDestinationTeam]=useState<Record<string,string>>({});
+  const [selectedFarmPickupTeam,setSelectedFarmPickupTeam]=useState<Record<string,string>>({});
+  const [planningFarmPickup,setPlanningFarmPickup]=useState<string|null>(null);
   const {data:pickupTeamData,refetch:refetchPickupTeams}=useQuery({
     queryKey:["farmerFulfillmentHubPickupTeams"],
     queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
     staleTime:30000,
   });
   const hubPickupTeams=Array.isArray(pickupTeamData?.data?.members)?pickupTeamData.data.members:[];
+  const {data:collectionData,refetch:refetchCollections}=useQuery({
+    queryKey:["farmerFulfillmentInlineCollections"],
+    queryFn:()=>api.get("/warehouse/me/collections",{params:{status:"all"}}),
+    refetchInterval:10000,
+  });
+  const inlineCollectionJobs=Array.isArray(collectionData?.data?.collections)?collectionData.data.collections:[];
+  const matchingCollectionJobs=(order:any)=>inlineCollectionJobs.filter((job:any)=>
+    String(job.orderNumber||"")===String(order.orderNumber||"") ||
+    String(job.orderId||"")===String(order.id||"") ||
+    String(job.orderId||"")===String(order._id||"")
+  );
+  const planFarmPickupInline=async(order:any)=>{
+    const teamId=selectedFarmPickupTeam[order.id];
+    if(!teamId){toast.error("Select an approved pickup team");return;}
+    const jobs=matchingCollectionJobs(order).filter((job:any)=>["ready_for_pickup","team_assigned"].includes(String(job.status||""))&&!job.pickupRouteId);
+    if(!jobs.length){toast.error("No unplanned Ready for Pickup job is linked to this order");return;}
+    const team=hubPickupTeams.find((x:any)=>String(x.deliveryPartnerId)===teamId);
+    if(!team||Number(team.capacity||0)<=0){toast.error("Choose an approved pickup team with registered vehicle capacity");return;}
+    try{
+      setPlanningFarmPickup(order.id);
+      await api.post("/warehouse/me/pickup-routes",{collectionIds:jobs.map((job:any)=>String(job.id||job._id)),maxWeightKg:Number(team.capacity),assignmentMode:"assign_team",deliveryPartnerId:teamId});
+      toast.success("Farm pickup route planned and assigned");
+      await Promise.all([refetchCollections(),refetch()]);
+    }catch(e:any){toast.error(e?.message||"Unable to plan farm pickup");}
+    finally{setPlanningFarmPickup(null);}
+  };
   const receiveIncoming=async(item:any)=>{
     try{
       setBusy(item.id+":receive");
@@ -250,12 +278,17 @@ export default function FarmerFulfillmentTransfersPage() {
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 <Button asChild><Link href={"/collections?search="+encodeURIComponent(String(o.orderNumber||o.id))}><Route className="mr-2 h-4 w-4"/>Open Farm Collection</Link></Button>
-                <Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button>
-              </div>
+                  </div>
             </div>
           </section>
+          {["awaiting_warehouse_receipt","source_warehouse_pickup_pending","awaiting_farm_pickup","collection_team_assigned"].includes(String(o.stage||"")) && <section className="space-y-3 rounded-xl border-2 border-emerald-200 bg-emerald-50/50 p-4">
+            <div><h3 className="font-semibold text-emerald-950">Farm pickup — process on this page</h3><p className="text-sm text-emerald-900/80">Review pickup status and assign a route here without navigating away.</p></div>
+            {matchingCollectionJobs(o).length===0 ? <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">No farm collection job is linked to this order yet. A pickup route cannot be assigned until the backend has a collection job.</p> : <div className="space-y-2">
+              {matchingCollectionJobs(o).map((job:any)=><div key={String(job.id||job._id)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-3"><div><p className="font-medium">{job.farmerName||o.farmerName||"Farmer"} · {job.productName||"Order pickup"}</p><p className="text-xs text-muted-foreground">Status: {String(job.status||"unknown").replace(/_/g," ")}</p></div><Badge variant="outline">{job.pickupRouteId?"Route assigned":String(job.status||"pending").replace(/_/g," ")}</Badge></div>)}
+              {matchingCollectionJobs(o).some((job:any)=>["ready_for_pickup","team_assigned"].includes(String(job.status||""))&&!job.pickupRouteId) && <div className="flex flex-wrap items-center gap-2"><select aria-label="Farm pickup team" className="h-10 min-w-56 rounded-md border bg-white px-3 text-sm" value={selectedFarmPickupTeam[o.id]||""} onChange={e=>setSelectedFarmPickupTeam(prev=>({...prev,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{hubPickupTeams.filter((team:any)=>Number(team.capacity)>0).map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name||"Pickup Partner"} · {team.vehicleType||"Vehicle"} · {team.capacity} kg</option>)}</select><Button onClick={()=>planFarmPickupInline(o)} disabled={!selectedFarmPickupTeam[o.id]||planningFarmPickup===o.id}>{planningFarmPickup===o.id?"Planning route…":"Plan & Assign Farm Pickup"}</Button><Button variant="outline" onClick={()=>refetchCollections()}>Refresh pickup status</Button></div>}
+            </div>}
+          </section>}
           <div className="flex flex-wrap justify-end gap-2">
-            <Button asChild variant="outline"><Link href={"/collections?search="+encodeURIComponent(String(o.orderNumber||o.id))}><Route className="mr-2 h-4 w-4"/>Open Farm Collection</Link></Button>
             <Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button>
             {showReceiving&&o.incoming?.filter((x:any)=>["pending","scheduled","ready_for_pickup","in_transit"].includes(x.status)).map((item:any)=><Button key={item.id} onClick={()=>receiveIncoming(item)} disabled={busy===item.id+":receive"}><Truck className="mr-2 h-4 w-4"/>{busy===item.id+":receive"?"Receiving…":"Receive + Verify"}</Button>)}
             {/* Farmer Fulfillment stock is already packed and sealed at the farm. Do not offer the normal bulk-storage action here; a complete physical receipt unlocks the next transfer. */}
