@@ -651,34 +651,107 @@ async def get_farmer_fulfillment_transfers(
             else:
                 order_stage = "consolidation_waiting_for_sources"
 
-        # Classify after physical receipt using farm-to-customer distance. Prefer saved
-        # coordinates; if unavailable, keep the order unclassified rather than guessing.
+        # Resolve route data from the saved order AND its farmer profile. Order
+        # snapshots in older records often omit coordinates even when the profile
+        # contains a GeoJSON Point (coordinates are [longitude, latitude]).
         def _coords(value):
+            if isinstance(value, (list, tuple)) and len(value) >= 2:
+                try:
+                    # GeoJSON coordinate arrays are [longitude, latitude].
+                    lon, lat = float(value[0]), float(value[1])
+                    if -90 <= lat <= 90 and -180 <= lon <= 180:
+                        return (lat, lon)
+                except (TypeError, ValueError):
+                    return None
             if not isinstance(value, dict):
                 return None
+            coordinates = value.get("coordinates")
+            if isinstance(coordinates, (list, tuple)) and len(coordinates) >= 2:
+                # GeoJSON Point uses [longitude, latitude].
+                point = _coords(coordinates)
+                if point:
+                    return point
             lat = value.get("latitude", value.get("lat"))
-            lon = value.get("longitude", value.get("lng", value.get("lon")))
+            lon = value.get("longitude", value.get("lng", value.get("lon", value.get("long"))))
             try:
                 lat, lon = float(lat), float(lon)
                 if -90 <= lat <= 90 and -180 <= lon <= 180:
                     return (lat, lon)
             except (TypeError, ValueError):
                 pass
+            # Some address/profile schemas nest the actual point.
+            for key in ("location", "farmLocation", "coordinates", "geo", "address"):
+                nested = value.get(key)
+                if isinstance(nested, (dict, list, tuple)):
+                    point = _coords(nested)
+                    if point:
+                        return point
             return None
-        farm_location = next((x for x in (order.get("farmerLocation"), order.get("farmLocation"), order.get("originLocation"), order.get("pickupLocation"), order.get("farmerAddress")) if _coords(x)), None)
-        customer_location = next((x for x in (order.get("deliveryAddress"), order.get("customerLocation"), order.get("shippingAddress")) if _coords(x)), None)
-        calculated_distance_km = order.get("routeDistanceKm") or order.get("calculatedDistanceKm") or order.get("distanceKm")
-        if calculated_distance_km is None and farm_location and customer_location:
+
+        farmer_profile = None
+        farmer_id_value = order.get("farmerId")
+        if farmer_id_value:
+            try:
+                farmer_profile = await farmer_repository.get_by_id(str(farmer_id_value))
+                if not farmer_profile:
+                    farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id_value))
+            except Exception:
+                farmer_profile = None
+
+        item_locations = []
+        for line in (order.get("items") or []):
+            item_locations.extend([
+                line.get("farmLocation"), line.get("location"),
+                {"latitude": line.get("farmLatitude"), "longitude": line.get("farmLongitude")},
+                {"latitude": line.get("latitude"), "longitude": line.get("longitude")},
+            ])
+        farm_candidates = [
+            order.get("farmerLocation"), order.get("farmLocation"),
+            order.get("originLocation"), order.get("pickupLocation"),
+            order.get("farmerAddress"),
+            (farmer_profile or {}).get("farmLocation"),
+            (farmer_profile or {}).get("location"),
+            (farmer_profile or {}).get("farmAddress"),
+            *item_locations,
+        ]
+        farm_point = next((point for value in farm_candidates if (point := _coords(value))), None)
+
+        delivery_address = order.get("deliveryAddress") or {}
+        customer_candidates = [
+            delivery_address.get("location") if isinstance(delivery_address, dict) else None,
+            delivery_address,
+            order.get("customerLocation"), order.get("shippingAddress"),
+        ]
+        customer_point = next((point for value in customer_candidates if (point := _coords(value))), None)
+
+        calculated_distance_km = order.get("routeDistanceKm")
+        if calculated_distance_km is None:
+            calculated_distance_km = order.get("calculatedDistanceKm")
+        if calculated_distance_km is None:
+            calculated_distance_km = order.get("distanceKm")
+        if calculated_distance_km is None and farm_point and customer_point:
             import math
-            lat1, lon1 = _coords(farm_location)
-            lat2, lon2 = _coords(customer_location)
+            lat1, lon1 = farm_point
+            lat2, lon2 = customer_point
             p1, p2 = math.radians(lat1), math.radians(lat2)
-            dlat, dlon = math.radians(lat2-lat1), math.radians(lon2-lon1)
-            a = math.sin(dlat/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dlon/2)**2
-            calculated_distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1-a)))
+            dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+            a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+            calculated_distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
+
         threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 10.0)
-        source_district = str(order.get("sourceDistrict") or order.get("farmerDistrict") or "").strip().casefold()
-        destination_district = str(order.get("destinationDistrict") or (order.get("deliveryAddress") or {}).get("district") or "").strip().casefold()
+        source_district = str(
+            order.get("sourceDistrict") or order.get("farmerDistrict")
+            or (farmer_profile or {}).get("district") or (farmer_profile or {}).get("farmDistrict")
+            or (farmer_profile or {}).get("farmCity")
+            or next((line.get("farmDistrict") or line.get("farmCity") for line in (order.get("items") or []) if line.get("farmDistrict") or line.get("farmCity")), "")
+            or ""
+        ).strip().casefold()
+        destination_district = str(
+            order.get("destinationDistrict")
+            or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
+            or (delivery_address.get("city") if isinstance(delivery_address, dict) else "")
+            or ""
+        ).strip().casefold()
         if calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
             route_category = "nearby"
         elif source_district and destination_district:
@@ -690,8 +763,26 @@ async def get_farmer_fulfillment_transfers(
         elif route_category in ("same_district", "inter_district"):
             route_type = route_category
         else:
+            # Preserve a previously saved, explicit decision as a hint only; the
+            # UI still shows Needs Location until the distance/district is verified.
             route_type = order.get("farmerFulfillmentRouteType")
-        
+
+        # A route queue begins only after the source warehouse has physically
+        # received the shipment. Pre-receipt and unassigned records remain visible
+        # for operational follow-up but must not inflate route queue counts.
+        physical_receipt_confirmed = (
+            order_stage in ("received_transfer", "quality_approved", "stored", "ready_for_dispatch",
+                            "destination_warehouse_transfer_pending", "destination_warehouse_in_transit",
+                            "destination_warehouse_arrived_pending_receipt", "destination_warehouse_received",
+                            "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready",
+                            "consolidated", "consolidation_portions_received", "consolidation_in_transit")
+            or any(
+                str(x.get("status") or "") in ("received", "stored")
+                and bool(x.get("arrivedWarehouseAt"))
+                for x in incoming
+            )
+        )
+
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber"),
@@ -711,6 +802,8 @@ async def get_farmer_fulfillment_transfers(
             "nearbyThresholdKm": threshold_km,
             "routeCategory": route_category,
             "distanceCalculationStatus": "calculated" if calculated_distance_km is not None else "missing_coordinates",
+            "physicalReceiptConfirmed": physical_receipt_confirmed,
+            "routeDataComplete": route_category != "needs_location",
             "farmerFulfillmentRouteType": route_type,
             "routeDecisionReason": order.get("routeDecisionReason"),
             "pickupSchedule": order.get("pickupSchedule") or {"timezone": "Asia/Kolkata", "start": "20:00", "end": "06:00"},
