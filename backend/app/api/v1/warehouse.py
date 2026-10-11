@@ -1043,12 +1043,12 @@ async def dispatch_farmer_fulfillment_to_destination(
         "destinationWarehouseId": ObjectId(destination_id),
         "deletedAt": None,
     })
-    if leg and str(leg.get("status") or "") in ("in_transit", "received_at_destination"):
-        return {"success": True, "data": {"orderId": order_id, "status": leg["status"]}, "message": "This destination transfer has already been dispatched."}
+    if leg and str(leg.get("status") or "") in ("assigned", "in_transit", "arrived_at_destination", "received_at_destination"):
+        return {"success": True, "data": {"orderId": order_id, "status": leg["status"]}, "message": "This destination transfer already has a manifest."}
     now = datetime.utcnow()
     if leg:
         await legs.update_one({"_id": leg["_id"]}, {"$set": {
-            "status": "in_transit", "dispatchedAt": now,
+            "status": "awaiting_team_assignment", "dispatchedAt": now,
             "dispatchedBy": ObjectId(str(current_user["_id"])), "updatedAt": now,
         }})
     else:
@@ -1060,14 +1060,14 @@ async def dispatch_farmer_fulfillment_to_destination(
             "sourceWarehouseName": order.get("sourceWarehouseName") or order.get("warehouseName") or warehouse.get("name"),
             "destinationWarehouseId": ObjectId(destination_id),
             "destinationWarehouseName": order.get("destinationWarehouseName"),
-            "status": "in_transit",
+            "status": "awaiting_team_assignment",
             "dispatchedAt": now,
             "dispatchedBy": ObjectId(str(current_user["_id"])),
             "createdAt": now, "updatedAt": now, "deletedAt": None,
         })
     await order_repository.update({"_id": ObjectId(order_id)}, {
-        "transferStatus": "destination_warehouse_in_transit",
-        "warehouseFulfillmentStage": "destination_warehouse_in_transit",
+        "transferStatus": "destination_warehouse_transfer_pending",
+        "warehouseFulfillmentStage": "destination_warehouse_transfer_pending",
         "updatedAt": now,
     })
     await order_repository.append_tracking_event(
@@ -1077,6 +1077,55 @@ async def dispatch_farmer_fulfillment_to_destination(
         metadata={"sourceWarehouseId": source_id, "destinationWarehouseId": destination_id},
     )
     return {"success": True, "data": {"orderId": order_id, "status": "in_transit", "destinationWarehouseId": destination_id}, "message": "Order dispatched to destination warehouse."}
+
+
+@router.put("/me/farmer-fulfillment/{order_id}/assign-destination-pickup-team")
+async def assign_farmer_fulfillment_destination_pickup_team(
+    order_id: str,
+    deliveryPartnerId: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Assign an approved source-warehouse pickup team to the inter-district leg."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign transfer teams")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    if str(warehouse["_id"]) != source_id:
+        raise HTTPException(status_code=403, detail="Only the source warehouse can assign the destination transfer team")
+    if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=400, detail="This order does not use an inter-district transfer")
+    members = await warehouse_pickup_team_repository.get_approved_members(source_id)
+    member = next((m for m in members if str(m.get("deliveryPartnerId") or "") == deliveryPartnerId), None)
+    if not member:
+        raise HTTPException(status_code=400, detail="Select an approved pickup team assigned to the source warehouse")
+    profile_id = str(member.get("deliveryPartnerId") or "")
+    user_id = str(member.get("userId") or member.get("deliveryPartnerUserId") or "")
+    if not ObjectId.is_valid(profile_id) or not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=400, detail="The selected team is missing a valid partner profile or user account")
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    leg = await legs.find_one({"orderId": ObjectId(order_id), "legType": "warehouse_to_destination_warehouse", "sourceWarehouseId": ObjectId(source_id), "deletedAt": None})
+    if not leg:
+        raise HTTPException(status_code=409, detail="Dispatch the sealed order to create the transfer manifest first")
+    if str(leg.get("status") or "") not in ("awaiting_team_assignment", "assigned"):
+        raise HTTPException(status_code=409, detail="The transfer has already started or arrived")
+    if leg.get("assignedDeliveryPartnerId") and str(leg.get("assignedDeliveryPartnerId")) != profile_id:
+        raise HTTPException(status_code=409, detail="A team is already assigned to this transfer")
+    now = datetime.utcnow()
+    await legs.update_one({"_id": leg["_id"], "status": {"$in": ["awaiting_team_assignment", "assigned"]}}, {"$set": {
+        "status": "assigned", "assignedDeliveryPartnerId": ObjectId(profile_id),
+        "assignedPartnerUserId": ObjectId(user_id), "assignedBy": ObjectId(str(current_user["_id"])),
+        "assignedAt": now, "updatedAt": now,
+    }})
+    try:
+        await NotificationService.send_custom_notification(user_id, f"Inter-district transfer for order {order.get('orderNumber') or order_id} is assigned to you. Start the route and confirm arrival at the destination warehouse.", title="Warehouse Transfer Assigned", data={"type": "farmer_fulfillment_warehouse_transfer", "orderId": order_id})
+    except Exception:
+        logger.exception("Unable to notify partner about inter-district transfer")
+    return {"success": True, "data": {"orderId": order_id, "status": "assigned", "deliveryPartnerId": profile_id}, "message": "Approved pickup team assigned to destination transfer"}
 
 
 @router.post("/me/farmer-fulfillment/{order_id}/receive-at-destination")
