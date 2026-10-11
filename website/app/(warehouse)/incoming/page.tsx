@@ -80,6 +80,10 @@ export default function WarehouseIncomingPage() {
   const [receiveForm, setReceiveForm] = useState(emptyReceiveForm);
   const [selectedIncoming, setSelectedIncoming] = useState<any>(null);
   const [qualityNotes, setQualityNotes] = useState("");
+  const [showBulkReceiveDialog, setShowBulkReceiveDialog] = useState(false);
+  const [bulkFarmItems, setBulkFarmItems] = useState<any[]>([]);
+  const [bulkMeasuredQuantities, setBulkMeasuredQuantities] = useState<Record<string, string>>({});
+  const [bulkReceiveNotes, setBulkReceiveNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const { data: incomingData, isLoading, refetch } = useQuery({
@@ -144,6 +148,34 @@ export default function WarehouseIncomingPage() {
     setShowReceiveDialog(true);
   };
 
+  const openBulkReceiveDialog = (items: any[]) => {
+    setBulkFarmItems(items);
+    setBulkMeasuredQuantities(Object.fromEntries(items.map((item) => [item.id, String(item.quantity ?? "")])));
+    setBulkReceiveNotes("");
+    setShowBulkReceiveDialog(true);
+  };
+
+  const handleBulkReceive = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!bulkFarmItems.length) return;
+    const invalid = bulkFarmItems.find((item) => !Number.isFinite(Number(bulkMeasuredQuantities[item.id])) || Number(bulkMeasuredQuantities[item.id]) <= 0);
+    if (invalid) { toast.error("Enter a valid measured quantity for every order before confirming."); return; }
+    const mismatches = bulkFarmItems.filter((item) => Math.abs(Number(bulkMeasuredQuantities[item.id]) - Number(item.quantity || 0)) > 0.001);
+    if (mismatches.length && !bulkReceiveNotes.trim()) { toast.error("Add a note explaining the weight difference before saving."); return; }
+    if (mismatches.length && !window.confirm(String(mismatches.length) + " order(s) have a weight difference. They will remain pending quality review. Continue?")) return;
+    setIsSaving(true); let succeeded = 0;
+    try {
+      for (const item of bulkFarmItems) {
+        const measured = Number(bulkMeasuredQuantities[item.id]);
+        await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: measured, usableQuantity: measured, quality_check: "pending", notes: bulkReceiveNotes.trim() || undefined } });
+        succeeded++;
+      }
+      toast.success("Received " + succeeded + " shipment(s). Weight differences remain pending quality review.");
+      setShowBulkReceiveDialog(false); await refetch();
+    } catch (error: any) {
+      toast.error("Processed " + succeeded + " of " + bulkFarmItems.length + ". Refresh and review remaining shipments before retrying."); await refetch();
+    } finally { setIsSaving(false); }
+  };
   const handleScheduleIncoming = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -279,7 +311,9 @@ export default function WarehouseIncomingPage() {
           const packedFarmerGroup = farmItems.every((row: any) => row.sourceMode === "farmer_fulfillment_transfer");
           const expectedTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
           const receivedCount = farmItems.filter((row: any) => row.status === "received" || row.status === "stored").length;
-          const canConfirmAllPackets = packedFarmerGroup && farmItems.length > 0 && farmItems.every((row: any) => ["scheduled", "in_transit"].includes(row.status) && Boolean(row.arrivedWarehouseAt));
+          const eligibleToReceive = farmItems.filter((row: any) => ["scheduled", "in_transit"].includes(row.status) && (row.sourceMode !== "farmer_fulfillment_transfer" || Boolean(row.arrivedWarehouseAt)));
+          const canConfirmAllPackets = packedFarmerGroup && eligibleToReceive.length > 0;
+          const canReceiveAllBulk = !packedFarmerGroup && eligibleToReceive.length > 0;
           const confirmAllPackets = async () => {
             if (!window.confirm(`Confirm receipt of all ${farmItems.length} packed orders from ${farmItems[0].displayFarmName}? Only continue after physically counting every packet.`)) return;
             setIsSaving(true);
@@ -297,7 +331,7 @@ export default function WarehouseIncomingPage() {
               await refetch();
             } finally { setIsSaving(false); }
           };
-          return <section key={farmKey} className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-4 py-3"><div><h2 className="text-lg font-semibold">{farmItems[0].displayFarmName}</h2><p className="text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p><p className="mt-1 text-sm font-medium">{farmItems.length} orders · {packedFarmerGroup ? `${farmItems.length} packed packets` : `Expected bulk weight: ${expectedTotal.toLocaleString()} kg`} · {receivedCount}/{farmItems.length} received</p></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{farmItems.length} {farmItems.length === 1 ? "order" : "orders"}</Badge>{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}</div></div><div className="space-y-3">{farmItems.map((item: any) => {
+          return <section key={farmKey} className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-4 py-3"><div><h2 className="text-lg font-semibold">{farmItems[0].displayFarmName}</h2><p className="text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p><p className="mt-1 text-sm font-medium">{farmItems.length} orders · {packedFarmerGroup ? `${farmItems.length} packed packets` : `Expected bulk weight: ${expectedTotal.toLocaleString()} kg`} · {receivedCount}/{farmItems.length} received</p></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{farmItems.length} {farmItems.length === 1 ? "order" : "orders"}</Badge>{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}{canReceiveAllBulk && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />Receive All Bulk Stock</Button>}</div></div><div className="space-y-3">{farmItems.map((item: any) => {
           const productName = item.displayProductName || getProductDisplayName(item);
           const isPackedFarmerTransfer = item.sourceMode === "farmer_fulfillment_transfer";
           const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt);
@@ -324,6 +358,16 @@ export default function WarehouseIncomingPage() {
         })}</div>
       )}
 
+      <Dialog open={showBulkReceiveDialog} onOpenChange={setShowBulkReceiveDialog}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader><DialogTitle>Receive All Bulk Stock — {bulkFarmItems[0]?.displayFarmName || "Farm"}</DialogTitle><DialogDescription>Enter the scale-measured weight for each bulk shipment. Matching quantities can proceed to quality inspection; discrepancies stay pending review.</DialogDescription></DialogHeader>
+          <form className="space-y-4" onSubmit={handleBulkReceive}>
+            <div className="space-y-3">{bulkFarmItems.map((item) => <div key={item.id} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_150px] sm:items-center"><div><p className="font-semibold">{item.displayProductName || getProductDisplayName(item)}</p><p className="text-sm text-muted-foreground">Order {item.displayOrderNumber || "reference unavailable"} · Farmer declared: {item.quantity} {item.unit || "kg"}</p></div><div><label className="text-sm font-medium">Measured kg</label><Input type="number" min="0.01" step="0.01" value={bulkMeasuredQuantities[item.id] ?? ""} onChange={(e) => setBulkMeasuredQuantities((current) => ({ ...current, [item.id]: e.target.value }))} required /></div></div>)}</div>
+            <div><label className="text-sm font-medium">Notes / discrepancy details</label><Input value={bulkReceiveNotes} onChange={(e) => setBulkReceiveNotes(e.target.value)} placeholder="Required if any measured weight differs" /></div>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowBulkReceiveDialog(false)}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving receipts..." : "Confirm All Receipts"}</Button></div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={showTrackDialog} onOpenChange={setShowTrackDialog}>
         <DialogContent>
           <DialogHeader><DialogTitle>Shipment Tracking</DialogTitle><DialogDescription>Current warehouse receiving status and shipment details.</DialogDescription></DialogHeader>
