@@ -859,7 +859,10 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     if not hub_id or not ObjectId.is_valid(str(hub_id)):
         raise HTTPException(status_code=400, detail="No approved local hub is assigned to this order")
     hubs = MongoDB.get_collection("fulfillment_hubs")
-    hub_transfers = MongoDB.get_collection("hub_transfers")
+    # Use the same transfer manifest collection consumed by partner assignment,
+    # partner route status, and local-hub receipt. A separate legacy hub_transfers
+    # record left the assigned partner unable to find the manifest.
+    hub_transfers = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
     hub = await hubs.find_one({
         "_id": ObjectId(str(hub_id)),
         "isLocalFulfillmentHub": True,
@@ -869,7 +872,7 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     })
     if not hub:
         raise HTTPException(status_code=404, detail="Approved local hub not found")
-    existing = await hub_transfers.find_one({"orderId": ObjectId(order_id), "status": {"$in": ["in_transit", "received"]}})
+    existing = await hub_transfers.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
     if existing:
         return {"success": True, "data": {"status": "already_transferred", "transferId": str(existing["_id"])}, "message": "This order is already in the local-hub transfer flow."}
     quantity = sum(float(x.get("usableQuantity") or x.get("quantityReceived") or 0) for x in incoming)
@@ -881,13 +884,17 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     now = datetime.utcnow()
     transfer = {
         "orderId": ObjectId(order_id),
+        "localHubId": ObjectId(str(hub_id)),
         "hubId": ObjectId(str(hub_id)),
+        "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
+        "sourceWarehouseName": warehouse.get("name"),
         "quantity": quantity,
         "sourceLocation": source,
         "destinationLocation": hub.get("location"),
         "status": "in_transit",
         "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
         "farmerFulfillment": True,
+        "deletedAt": None,
         "createdAt": now,
         "updatedAt": now,
         "farmerId": order.get("farmerId"),
@@ -897,7 +904,7 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     result = await hub_transfers.insert_one(transfer)
     await hubs.update_one({"_id": ObjectId(str(hub_id))}, {"$inc": {"availableCapacity": -quantity}, "$set": {"updatedAt": now}})
     await order_repository.update({"_id": ObjectId(order_id)}, {
-        "transferStatus": "in_transit",
+        "transferStatus": "hub_handoff_pending",
         "warehouseFulfillmentStage": "local_hub_transfer_pending",
         "nearbyFulfillmentLocationId": ObjectId(str(hub_id)),
         "updatedAt": now,
@@ -4207,6 +4214,8 @@ async def assign_farmer_fulfillment_local_hub_pickup_team(
         raise HTTPException(status_code=409, detail="Create the local-hub transfer first, then assign the pickup team")
     if str(transfer.get("status") or "") == "received":
         raise HTTPException(status_code=409, detail="The local hub has already received this order")
+    if str(transfer.get("status") or "") not in ("in_transit", "assigned"):
+        raise HTTPException(status_code=409, detail=f"Transfer cannot be assigned from status {transfer.get('status')}")
     if transfer.get("assignedDeliveryPartnerId") and str(transfer.get("assignedDeliveryPartnerId")) != profile_id:
         raise HTTPException(status_code=409, detail="A pickup team is already assigned to this transfer")
     now = datetime.utcnow()
