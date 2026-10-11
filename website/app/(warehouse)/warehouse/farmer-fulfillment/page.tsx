@@ -39,93 +39,6 @@ export default function FarmerFulfillmentTransfersPage() {
   const [busy,setBusy]=useState<string|null>(null);
   const [selectedHubTeam,setSelectedHubTeam]=useState<Record<string,string>>({});
   const [selectedDestinationTeam,setSelectedDestinationTeam]=useState<Record<string,string>>({});
-  const [selectedFarmPickupTeam,setSelectedFarmPickupTeam]=useState<Record<string,string>>({});
-  const [planningFarmPickup,setPlanningFarmPickup]=useState<string|null>(null);
-  const [receiveQuantities,setReceiveQuantities]=useState<Record<string,string>>({});
-  const [receiveNotes,setReceiveNotes]=useState<Record<string,string>>({});
-  const {data:pickupTeamData,refetch:refetchPickupTeams}=useQuery({
-    queryKey:["farmerFulfillmentHubPickupTeams"],
-    queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
-    staleTime:30000,
-  });
-  const hubPickupTeams=Array.isArray(pickupTeamData?.data?.members)?pickupTeamData.data.members:[];
-  const {data:collectionData,refetch:refetchCollections}=useQuery({
-    queryKey:["farmerFulfillmentInlineCollections"],
-    queryFn:()=>api.get("/warehouse/me/collections",{params:{status:"all"}}),
-    refetchInterval:10000,
-  });
-  const inlineCollectionJobs=Array.isArray(collectionData?.data?.collections)?collectionData.data.collections:[];
-  const matchingCollectionJobs=(order:any)=>inlineCollectionJobs.filter((job:any)=>
-    String(job.orderNumber||"")===String(order.orderNumber||"") ||
-    String(job.orderId||"")===String(order.id||"") ||
-    String(job.orderId||"")===String(order._id||"")
-  );
-  const planFarmPickupInline=async(order:any)=>{
-    const teamId=selectedFarmPickupTeam[order.id];
-    if(!teamId){toast.error("Select an approved pickup team");return;}
-    const jobs=matchingCollectionJobs(order).filter((job:any)=>["ready_for_pickup","team_assigned"].includes(String(job.status||""))&&!job.pickupRouteId);
-    if(!jobs.length){toast.error("No unplanned Ready for Pickup job is linked to this order");return;}
-    const team=hubPickupTeams.find((x:any)=>String(x.deliveryPartnerId)===teamId);
-    if(!team||Number(team.capacity||0)<=0){toast.error("Choose an approved pickup team with registered vehicle capacity");return;}
-    try{
-      setPlanningFarmPickup(order.id);
-      await api.post("/warehouse/me/pickup-routes",{collectionIds:jobs.map((job:any)=>String(job.id||job._id)),maxWeightKg:Number(team.capacity),assignmentMode:"assign_team",deliveryPartnerId:teamId});
-      toast.success("Farm pickup route planned and assigned");
-      await Promise.all([refetchCollections(),refetch()]);
-    }catch(e:any){toast.error(e?.message||"Unable to plan farm pickup");}
-    finally{setPlanningFarmPickup(null);}
-  };
-  const receiveIncoming=async(item:any)=>{
-    try{
-      setBusy(item.id+":receive");
-      const quantity=Number(receiveQuantities[item.id]??"");
-      const expected=Number(item.expectedQuantity??item.quantity??0);
-      if(!Number.isFinite(quantity)||quantity<=0) throw new Error("Enter the actual received quantity (greater than zero)");
-      if(Number.isFinite(expected)&&expected>0&&quantity>expected) throw new Error("Actual received quantity cannot exceed the expected quantity. Record and resolve the discrepancy first.");
-      await api.put("/warehouse/me/incoming/"+item.id+"/receive",undefined,{params:{quantity,quality_check:"pending",usableQuantity:quantity,notes:receiveNotes[item.id]?.trim()||"Farmer-packed shipment physically received; quality review pending"}});
-      toast.success("Physical receipt recorded. Continue the transfer workflow; do not repack this sealed order.");
-      await refetch();
-    }catch(e:any){toast.error(e?.message||"Unable to receive shipment");}
-    finally{setBusy(null);}
-  };
-  const storeIncoming=async(item:any)=>{
-    try{
-      setBusy(item.id+":store");
-      await api.put("/warehouse/me/incoming/"+item.id+"/store");
-      toast.success("Packed shipment storage recorded");
-      await refetch();
-    }catch(e:any){toast.error(e?.message||"Unable to record storage");}
-    finally{setBusy(null);}
-  };
-  const dispatchDestination=async(order:any)=>{
-    try{
-      setBusy(order.id+":destination-dispatch");
-      await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-destination");
-      toast.success("Shipment dispatched to destination warehouse");
-      await refetch();
-    }catch(e:any){toast.error(e?.message||"Destination dispatch failed");}
-    finally{setBusy(null);}
-  };
-  const assignDestinationPickupTeam=async(order:any)=>{
-    const partnerId=selectedDestinationTeam[order.id];
-    if(!partnerId){toast.error("Select an approved pickup team first");return;}
-    try{
-      setBusy(order.id+":destination-assign");
-      await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-destination-pickup-team",undefined,{params:{deliveryPartnerId:partnerId}});
-      toast.success("Inter-district transfer team assigned. The partner can start the route.");
-      await refetch();
-    }catch(e:any){toast.error(e?.message||"Unable to assign destination transfer team");}
-    finally{setBusy(null);}
-  };
-  const receiveDestination=async(order:any)=>{
-    try{
-      setBusy(order.id+":destination-receive");
-      await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/receive-at-destination");
-      toast.success("Destination warehouse receipt confirmed");
-      await refetch();
-    }catch(e:any){toast.error(e?.message||"Destination receipt failed");}
-    finally{setBusy(null);}
-  };
   const {data,isLoading,refetch}=useQuery({
     queryKey:["warehouseFarmerFulfillmentTransfers"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
@@ -194,10 +107,10 @@ export default function FarmerFulfillmentTransfersPage() {
 
   return <div className="space-y-6">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Packed Transfers</h1><p className="mt-1 text-muted-foreground">Receive sealed farmer-packed orders, confirm the transfer, and route them to the correct next stop. Same-district orders go to the local hub; inter-district orders must transfer to a destination-district warehouse first. Never repack these orders.</p></div>
-      <div className="flex flex-wrap gap-2"><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();refetchCollections();}}><RefreshCw className="h-4 w-4"/></Button></div>
+      <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Farmer Fulfillment Transfers</h1><p className="mt-1 text-muted-foreground">Manage already-packed orders after physical receipt: transfer to the destination warehouse when required, send to the local hub, and confirm hub receipt. Pickup planning and incoming receipt belong on their own pages.</p></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();}}><RefreshCw className="h-4 w-4"/></Button></div>
     </div>
-    <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">Process the order directly from its card below: assign farm pickup, record warehouse receipt, route to the local hub or destination warehouse, assign transfer teams, and confirm arrivals. Sealed farmer-packed orders do not use normal bulk-stock storage or repacking.</p></div></div></CardContent></Card>
+    <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">This page starts after Incoming Stock confirms physical receipt. Manage downstream transfer stages only: source-to-destination warehouse transfer when required, transfer to the local hub, and confirmation of hub receipt. Farm pickup belongs to Farm Collection and Pickup Routes; receipt belongs to Incoming Stock. Never repack sealed farmer-packed orders.</p></div></div></CardContent></Card>
     {!isLoading && consolidationRows.length>0 && <Card className="border-amber-200 bg-amber-50/60"><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-amber-950">Separate multi-warehouse customer orders</p><p className="mt-1 text-sm text-amber-900/80">{consolidationRows.length} order(s) require portions from multiple supply sources for one customer. Manage them on the dedicated consolidation page.</p></div><Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation</Link></Button></CardContent></Card>}
     {isLoading?<div className="h-40 animate-pulse rounded-xl bg-muted"/>:data?.success===false || (data===undefined && !isLoading)?<Card className="border-red-200 p-8 text-center"><Warehouse className="mx-auto h-10 w-10 text-red-500"/><p className="mt-3 font-semibold">Unable to load Farmer Fulfillment transfers</p><p className="mt-1 text-sm text-muted-foreground">The transfer API did not return data. Check that the backend is running, your warehouse account is linked to a warehouse, and then retry.</p><Button className="mt-4" variant="outline" onClick={()=>refetch()}>Retry loading</Button></Card>:rows.length===0?<Card className="p-8 text-center"><Warehouse className="mx-auto h-12 w-12 text-muted-foreground"/><p className="mt-4 font-semibold">No standard Farmer Fulfillment transfers</p><p className="mx-auto mt-2 max-w-2xl text-sm text-muted-foreground">This page is for already-packed orders assigned to one source warehouse and sent directly to a local hub. Orders that combine portions from multiple warehouses belong on Multi-Warehouse Consolidation and are kept separate.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><Button variant="outline" onClick={()=>refetch()}>Refresh transfers</Button>{consolidationRows.length>0&&<Button asChild><Link href="/warehouse/multi-warehouse-consolidation"><Warehouse className="mr-2 h-4 w-4"/>Open Multi-Warehouse Consolidation ({consolidationRows.length})</Link></Button>}</div></Card>:
     <div className="space-y-4">{rows.map((o:any)=>{
@@ -285,18 +198,10 @@ export default function FarmerFulfillmentTransfersPage() {
                   </div>
             </div>
           </section>
-          {["awaiting_warehouse_receipt","source_warehouse_pickup_pending","awaiting_farm_pickup","collection_team_assigned"].includes(String(o.stage||"")) && <section className="space-y-3 rounded-xl border-2 border-emerald-200 bg-emerald-50/50 p-4">
-            <div><h3 className="font-semibold text-emerald-950">Farm pickup — process on this page</h3><p className="text-sm text-emerald-900/80">Review pickup status and assign a route here without navigating away.</p></div>
-            {matchingCollectionJobs(o).length===0 ? <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">No farm collection job is linked to this order yet. A pickup route cannot be assigned until the backend has a collection job.</p> : <div className="space-y-2">
-              {matchingCollectionJobs(o).map((job:any)=><div key={String(job.id||job._id)} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-white p-3"><div><p className="font-medium">{job.farmerName||o.farmerName||"Farmer"} · {job.productName||"Order pickup"}</p><p className="text-xs text-muted-foreground">Status: {String(job.status||"unknown").replace(/_/g," ")}</p></div><Badge variant="outline">{job.pickupRouteId?"Route assigned":String(job.status||"pending").replace(/_/g," ")}</Badge></div>)}
-              {matchingCollectionJobs(o).some((job:any)=>["ready_for_pickup","team_assigned"].includes(String(job.status||""))&&!job.pickupRouteId) && <div className="flex flex-wrap items-center gap-2"><select aria-label="Farm pickup team" className="h-10 min-w-56 rounded-md border bg-white px-3 text-sm" value={selectedFarmPickupTeam[o.id]||""} onChange={e=>setSelectedFarmPickupTeam(prev=>({...prev,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{hubPickupTeams.filter((team:any)=>Number(team.capacity)>0).map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name||"Pickup Partner"} · {team.vehicleType||"Vehicle"} · {team.capacity} kg</option>)}</select><Button onClick={()=>planFarmPickupInline(o)} disabled={!selectedFarmPickupTeam[o.id]||planningFarmPickup===o.id}>{planningFarmPickup===o.id?"Planning route…":"Plan & Assign Farm Pickup"}</Button><Button variant="outline" onClick={()=>refetchCollections()}>Refresh pickup status</Button></div>}
-            </div>}
-          </section>}
+          {["awaiting_warehouse_receipt","source_warehouse_pickup_pending","awaiting_farm_pickup","collection_team_assigned"].includes(String(o.stage||"")) && <section className="rounded-xl border border-amber-200 bg-amber-50/60 p-4"><p className="font-semibold text-amber-950">Waiting for physical receipt</p><p className="mt-1 text-sm text-amber-900">Complete farm pickup in Farm Collection / Pickup Routes, then confirm actual receipt in Incoming Stock. Downstream transfer actions remain unavailable until receipt is recorded.</p><div className="mt-3 flex flex-wrap gap-2"><Button asChild variant="outline"><Link href={"/collections?search="+encodeURIComponent(String(o.orderNumber||o.id))}><Route className="mr-2 h-4 w-4"/>Open Farm Collection</Link></Button><Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button></div></section>}
           <div className="flex flex-wrap justify-end gap-2">
-            <Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button>
-            {showReceiving&&o.incoming?.filter((x:any)=>["pending","scheduled","ready_for_pickup","in_transit"].includes(x.status)).map((item:any)=><div key={item.id} className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"><div className="min-w-32 flex-1"><label className="mb-1 block text-xs font-medium">Actual received quantity</label><input aria-label={"Actual received quantity for "+String(item.productName||o.orderNumber||"shipment")} type="number" min="0.001" step="any" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={receiveQuantities[item.id]??""} onChange={e=>setReceiveQuantities(prev=>({...prev,[item.id]:e.target.value}))} placeholder={String(item.expectedQuantity??item.quantity??"Enter quantity")}/></div><div className="min-w-48 flex-1"><label className="mb-1 block text-xs font-medium">Receipt notes / discrepancy</label><input aria-label="Receipt notes" className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={receiveNotes[item.id]??""} onChange={e=>setReceiveNotes(prev=>({...prev,[item.id]:e.target.value}))} placeholder="Seal condition, shortage, damage…"/></div><Button onClick={()=>receiveIncoming(item)} disabled={busy===item.id+":receive"||!receiveQuantities[item.id]||Number(receiveQuantities[item.id])<=0}><Truck className="mr-2 h-4 w-4"/>{busy===item.id+":receive"?"Recording…":"Confirm Physical Receipt"}</Button></div>)}
-            {/* Farmer Fulfillment stock is already packed and sealed at the farm. Do not offer the normal bulk-storage action here; a complete physical receipt unlocks the next transfer. */}
-            {o.incoming?.some((x:any)=>x.status==="received"&&Number(x.receivedQuantity??0)+1e-9<Number(x.expectedQuantity??0))&&<Badge variant="outline" className="self-center">Partial receipt — resolve the quantity difference before dispatch</Badge>}
+            {showReceiving&&<Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Complete Receipt in Incoming Stock</Link></Button>}
+            {o.incoming?.some((x:any)=>x.status==="received"&&Number(x.quantityReceived??0)+1e-9<Number(x.quantity??0))&&<Badge variant="outline" className="self-center">Partial receipt — resolve quantity discrepancy in Incoming Stock before dispatch</Badge>}
             {interDistrict&&isSource&&<Button onClick={()=>dispatchDestination(o)} disabled={!receivedAtSource||!o.destinationWarehouseId||["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)||busy===o.id+":destination-dispatch"}><Truck className="mr-2 h-4 w-4"/>{busy===o.id+":destination-dispatch"?"Dispatching…":"Create Destination Transfer"}</Button>}
             {interDistrict&&isSource&&transferStatus==="destination_warehouse_transfer_pending"&&<div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
               <label className="text-sm font-medium text-indigo-950" htmlFor={"destination-team-"+o.id}>Warehouse transfer team</label>
