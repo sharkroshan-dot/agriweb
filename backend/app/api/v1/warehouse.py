@@ -650,6 +650,47 @@ async def get_farmer_fulfillment_transfers(
             else:
                 order_stage = "consolidation_waiting_for_sources"
 
+        # Classify after physical receipt using farm-to-customer distance. Prefer saved
+        # coordinates; if unavailable, keep the order unclassified rather than guessing.
+        def _coords(value):
+            if not isinstance(value, dict):
+                return None
+            lat = value.get("latitude", value.get("lat"))
+            lon = value.get("longitude", value.get("lng", value.get("lon")))
+            try:
+                lat, lon = float(lat), float(lon)
+                if -90 <= lat <= 90 and -180 <= lon <= 180:
+                    return (lat, lon)
+            except (TypeError, ValueError):
+                pass
+            return None
+        farm_location = next((x for x in (order.get("farmerLocation"), order.get("farmLocation"), order.get("originLocation"), order.get("pickupLocation"), order.get("farmerAddress")) if _coords(x)), None)
+        customer_location = next((x for x in (order.get("deliveryAddress"), order.get("customerLocation"), order.get("shippingAddress")) if _coords(x)), None)
+        calculated_distance_km = order.get("routeDistanceKm") or order.get("calculatedDistanceKm") or order.get("distanceKm")
+        if calculated_distance_km is None and farm_location and customer_location:
+            import math
+            lat1, lon1 = _coords(farm_location)
+            lat2, lon2 = _coords(customer_location)
+            p1, p2 = math.radians(lat1), math.radians(lat2)
+            dlat, dlon = math.radians(lat2-lat1), math.radians(lon2-lon1)
+            a = math.sin(dlat/2)**2 + math.cos(p1)*math.cos(p2)*math.sin(dlon/2)**2
+            calculated_distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1-a)))
+        threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 10.0)
+        source_district = str(order.get("sourceDistrict") or order.get("farmerDistrict") or "").strip().casefold()
+        destination_district = str(order.get("destinationDistrict") or (order.get("deliveryAddress") or {}).get("district") or "").strip().casefold()
+        if calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
+            route_category = "nearby"
+        elif source_district and destination_district:
+            route_category = "same_district" if source_district == destination_district else "inter_district"
+        else:
+            route_category = "needs_location"
+        if route_category == "nearby":
+            route_type = "nearby"
+        elif route_category in ("same_district", "inter_district"):
+            route_type = route_category
+        else:
+            route_type = order.get("farmerFulfillmentRouteType")
+        
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber"),
@@ -665,7 +706,11 @@ async def get_farmer_fulfillment_transfers(
             "destinationWarehouseName": order.get("destinationWarehouseName"),
             "currentWarehouseRole": "destination" if is_destination_warehouse else ("source" if is_source_warehouse else ("consolidation" if is_consolidation_warehouse else "assigned")) ,
             "deliveryPartnerId": str(order.get("deliveryPartnerId")) if order.get("deliveryPartnerId") else None,
-            "routeDistanceKm": order.get("routeDistanceKm") or order.get("calculatedDistanceKm") or order.get("distanceKm"),
+            "routeDistanceKm": calculated_distance_km,
+            "nearbyThresholdKm": threshold_km,
+            "routeCategory": route_category,
+            "distanceCalculationStatus": "calculated" if calculated_distance_km is not None else "missing_coordinates",
+            "farmerFulfillmentRouteType": route_type,
             "routeDecisionReason": order.get("routeDecisionReason"),
             "pickupSchedule": order.get("pickupSchedule") or {"timezone": "Asia/Kolkata", "start": "20:00", "end": "06:00"},
             "downstreamTransferSchedule": order.get("downstreamTransferSchedule") or {"timezone": "Asia/Kolkata", "start": "06:00", "end": "20:00"},
