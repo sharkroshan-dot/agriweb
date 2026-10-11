@@ -367,8 +367,8 @@ export default function WarehouseIncomingPage() {
                         {openMenuId === item.id && <div className="absolute right-0 top-10 z-20 min-w-44 rounded-md border bg-background p-1 shadow-lg">
                           <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); setOpenMenuId(null); }}>View shipment details</button>
                           {canReceiveStock && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { openReceiveDialog(item); setOpenMenuId(null); }}>Receive stock</button>}
-                          {item.status === "received" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { openQualityDialog(item); setOpenMenuId(null); }}>Quality inspection</button>}
-                          {item.status === "received" && item.qualityCheck === "passed" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { void handleStoreIncoming(item); setOpenMenuId(null); }}>Store stock</button>}
+                          {!isPackedFarmerTransfer && item.status === "received" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { openQualityDialog(item); setOpenMenuId(null); }}>Quality inspection</button>}
+                          {!isPackedFarmerTransfer && item.status === "received" && item.qualityCheck === "passed" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { void handleStoreIncoming(item); setOpenMenuId(null); }}>Store stock</button>}
                           <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { void refetch(); setOpenMenuId(null); }}>Refresh status</button>
                         </div>}
                       </div></div></div></CardContent></Card>
