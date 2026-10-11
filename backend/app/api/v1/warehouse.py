@@ -778,16 +778,33 @@ async def get_farmer_fulfillment_transfers(
         # A route queue begins only after the source warehouse has physically
         # received the shipment. Pre-receipt and unassigned records remain visible
         # for operational follow-up but must not inflate route queue counts.
+        def _received_qty(row):
+            return float(row.get("quantityReceived") or row.get("receivedQuantity") or row.get("actualQuantityReceived") or 0)
+
+        def _expected_qty(row):
+            return float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
+
+        # The Incoming Stock UI has used both quantity/quantityReceived and
+        # expectedQuantity/receivedQuantity across legacy records. Normalize
+        # those aliases here so a completed receipt is not silently excluded
+        # from the route queues due to a schema-version mismatch.
+        fully_received_lines = [
+            row for row in incoming
+            if str(row.get("status") or "").strip().lower() in (
+                "received", "stored", "quality_check", "quality_checked", "approved", "quality_approved"
+            )
+            and _expected_qty(row) > 0
+            and _received_qty(row) + 1e-9 >= _expected_qty(row)
+        ]
         physical_receipt_confirmed = (
-            order_stage in ("received_transfer", "quality_approved", "stored", "ready_for_dispatch",
-                            "destination_warehouse_transfer_pending", "destination_warehouse_in_transit",
-                            "destination_warehouse_arrived_pending_receipt", "destination_warehouse_received",
-                            "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready",
-                            "consolidated", "consolidation_portions_received", "consolidation_in_transit")
-            or any(
-                str(x.get("status") or "") in ("received", "stored")
-                and float(x.get("quantityReceived") or 0) + 1e-9 >= float(x.get("quantity") or 0)
-                for x in incoming
+            bool(incoming) and len(fully_received_lines) == len(incoming)
+        ) or (
+            not incoming and order_stage in (
+                "received_transfer", "quality_approved", "stored", "ready_for_dispatch",
+                "destination_warehouse_transfer_pending", "destination_warehouse_in_transit",
+                "destination_warehouse_arrived_pending_receipt", "destination_warehouse_received",
+                "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready",
+                "consolidated", "consolidation_portions_received", "consolidation_in_transit"
             )
         )
 
@@ -811,6 +828,8 @@ async def get_farmer_fulfillment_transfers(
             "routeCategory": route_category,
             "distanceCalculationStatus": "calculated" if calculated_distance_km is not None else "missing_coordinates",
             "physicalReceiptConfirmed": physical_receipt_confirmed,
+            "receivedLineCount": len(fully_received_lines),
+            "incomingLineCount": len(incoming),
             "routeDataComplete": route_category != "needs_location",
             "farmerFulfillmentRouteType": route_type,
             "routeDecisionReason": order.get("routeDecisionReason"),
