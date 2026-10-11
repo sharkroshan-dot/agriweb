@@ -853,8 +853,16 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
         "sourceMode": "farmer_fulfillment_transfer",
         "deletedAt": None,
     }, skip=0, limit=1000)
-    if not incoming or any(str(x.get("status")) != "stored" for x in incoming):
-        raise HTTPException(status_code=400, detail="Receive, quality-check and store the farmer-packed shipment first")
+    # Farmer Fulfillment shipments arrive already packed and sealed. Physical
+    # receipt is required, but bulk-inventory storage is intentionally optional
+    # and the storage endpoint rejects these sealed transfers.
+    if not incoming or any(
+        str(x.get("status") or "") not in ("received", "stored")
+        or not x.get("arrivedWarehouseAt")
+        or float(x.get("quantityReceived") or 0) + 1e-9 < float(x.get("quantity") or 0)
+        for x in incoming
+    ):
+        raise HTTPException(status_code=400, detail="Confirm physical arrival and complete quantity receipt before dispatching the sealed farmer-packed order")
     hub_id = order.get("nearbyFulfillmentLocationId")
     if not hub_id or not ObjectId.is_valid(str(hub_id)):
         raise HTTPException(status_code=400, detail="No approved local hub is assigned to this order")
