@@ -128,7 +128,6 @@ export default function FarmerFulfillmentTransfersPage() {
       const storedCount=o.incoming?.filter((x:any)=>x.status==="stored").length||0;
       const allIncomingArrived=Boolean(o.incoming?.length)&&o.incoming.every((x:any)=>Boolean(x.arrivedWarehouseAt));
       const hasUnstoredIncoming=Boolean(o.incoming?.length)&&o.incoming.some((x:any)=>x.status!=="stored");
-      const showReceiving=allIncomingArrived&&hasUnstoredIncoming||["warehouse_arrived","received_transfer","partial_received","quality_approved"].includes(o.stage);
       return <Card key={o.id} className="overflow-hidden">
         <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {lines.length} allocated line(s)</p></div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader>
         <CardContent className="space-y-4">
