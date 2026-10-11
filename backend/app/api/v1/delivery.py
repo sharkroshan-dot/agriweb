@@ -3690,3 +3690,65 @@ async def accept_delivery_job(
         "data": serialize_job_for_partner(refreshed, reveal=True),
         "message": "Delivery job accepted",
     }
+
+
+@router.get("/me/farmer-fulfillment-hub-transfers")
+async def get_my_farmer_fulfillment_hub_transfers(current_user: dict = Depends(get_current_user)):
+    """List local-hub transfers assigned to this delivery partner."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can view assigned hub transfers")
+    transfers_collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
+    rows = await transfers_collection.find({
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+        "status": {"$in": ["assigned", "in_transit", "arrived_at_hub"]},
+    }).sort("assignedAt", -1).to_list(length=200)
+    output = []
+    for row in rows:
+        for key in ("_id", "orderId", "localHubId", "sourceWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId"):
+            if row.get(key) is not None:
+                row[key if key != "_id" else "id"] = str(row[key])
+        output.append(row)
+    return {"success": True, "data": {"transfers": output}}
+
+
+@router.put("/me/farmer-fulfillment-hub-transfers/{transfer_id}/status")
+async def update_my_farmer_fulfillment_hub_transfer_status(
+    transfer_id: str,
+    transfer_status: str = Query(..., alias="status", pattern="^(started|arrived_at_hub)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Pickup partner starts the warehouse-to-hub journey and confirms physical hub arrival."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update hub transfers")
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid transfer ID")
+    collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
+    transfer = await collection.find_one({
+        "_id": ObjectId(transfer_id),
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Assigned local-hub transfer not found")
+    current = str(transfer.get("status") or "")
+    transitions = {"assigned": "started", "started": "in_transit", "in_transit": "arrived_at_hub"}
+    now = datetime.utcnow()
+    if transfer_status == "started":
+        if current != "assigned":
+            raise HTTPException(status_code=409, detail=f"Cannot start transfer from status {current}")
+        next_status = "in_transit"
+        time_field = "startedAt"
+    else:
+        if current not in ("in_transit", "started"):
+            raise HTTPException(status_code=409, detail=f"Cannot confirm hub arrival from status {current}")
+        next_status = "arrived_at_hub"
+        time_field = "arrivedAtHubAt"
+    result = await collection.update_one(
+        {"_id": transfer["_id"], "status": current, "assignedPartnerUserId": ObjectId(str(current_user["_id"]))},
+        {"$set": {"status": next_status, time_field: now, "updatedAt": now}},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Transfer status changed. Refresh and try again.")
+    return {"success": True, "data": {"id": transfer_id, "status": next_status}, "message": "Transfer started" if transfer_status == "started" else "Arrival at local hub recorded. The hub must confirm receipt."}
+
