@@ -41,6 +41,10 @@ const humanIdFallback = (value: any, label: string) => {
 const getFarmGroupKey = (item: any) =>
   String(item.farmId || item.farmerId || item.farmName || item.farmerName || item.pickupLocation?.name || item.pickupLocation?.address || "unknown-farm");
 
+const isFarmerPackedIncoming = (item: any) =>
+  item?.sourceMode === "farmer_fulfillment_transfer" ||
+  (item?.packingRequired === false && Boolean(item?.pickupRouteId || item?.collectionId));
+
 const getFarmDisplayName = (item: any) =>
   item.farmName || item.farmerName || item.pickupLocation?.farmName ||
   item.pickupLocation?.name || "Farm details unavailable";
@@ -308,13 +312,13 @@ export default function WarehouseIncomingPage() {
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
         <div className="space-y-6">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => {
-          const packedFarmerGroup = farmItems.every((row: any) => row.sourceMode === "farmer_fulfillment_transfer");
+          const packedFarmerGroup = farmItems.every((row: any) => isFarmerPackedIncoming(row));
           const expectedTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
           const receivedCount = farmItems.filter((row: any) => row.status === "received" || row.status === "stored").length;
           const pendingCount = Math.max(0, farmItems.length - receivedCount);
           const receivedQuantityTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantityReceived ?? ((row.status === "received" || row.status === "stored") ? row.quantity : 0) ?? 0), 0);
           const declaredTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
-          const eligibleToReceive = farmItems.filter((row: any) => ["scheduled", "in_transit"].includes(row.status) && (row.sourceMode !== "farmer_fulfillment_transfer" || Boolean(row.arrivedWarehouseAt)));
+          const eligibleToReceive = farmItems.filter((row: any) => ["scheduled", "in_transit"].includes(row.status) && (!isFarmerPackedIncoming(row) || Boolean(row.arrivedWarehouseAt)));
           const canConfirmAllPackets = packedFarmerGroup && eligibleToReceive.length > 0;
           const canReceiveAllBulk = !packedFarmerGroup && eligibleToReceive.length > 0;
           const confirmAllPackets = async () => {
@@ -336,7 +340,7 @@ export default function WarehouseIncomingPage() {
           };
           return <section key={farmKey} className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-4 py-3"><div><h2 className="text-lg font-semibold">{farmItems[0].displayFarmName}</h2><p className="text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p><div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4"><div className="rounded-md border bg-white px-3 py-2"><p className="text-muted-foreground">Total orders</p><p className="text-lg font-bold">{farmItems.length}</p></div><div className="rounded-md border bg-white px-3 py-2"><p className="text-muted-foreground">{packedFarmerGroup ? "Packed packets" : "Farmer declared"}</p><p className="text-lg font-bold">{packedFarmerGroup ? farmItems.length : declaredTotal.toLocaleString() + " kg"}</p></div><div className="rounded-md border bg-white px-3 py-2"><p className="text-muted-foreground">Received</p><p className="text-lg font-bold">{receivedCount} orders</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? receivedCount + " packets" : receivedQuantityTotal.toLocaleString() + " kg recorded"}</p></div><div className="rounded-md border bg-white px-3 py-2"><p className="text-muted-foreground">Remaining</p><p className="text-lg font-bold">{pendingCount} orders</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? pendingCount + " packets" : Math.max(0, declaredTotal - receivedQuantityTotal).toLocaleString() + " kg to reconcile"}</p></div></div></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{farmItems.length} {farmItems.length === 1 ? "order" : "orders"}</Badge>{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}{canReceiveAllBulk && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />Receive All Bulk Stock</Button>}</div></div><div className="space-y-3">{farmItems.map((item: any) => {
           const productName = item.displayProductName || getProductDisplayName(item);
-          const isPackedFarmerTransfer = item.sourceMode === "farmer_fulfillment_transfer";
+          const isPackedFarmerTransfer = isFarmerPackedIncoming(item);
           const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt);
           const canReceiveStock = ["scheduled", "in_transit"].includes(item.status) &&
             (!isPackedFarmerTransfer || hasPhysicallyArrived);
@@ -429,12 +433,12 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Confirm Packed Order Receipt" : "Receive Bulk Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so warehouse quality inspection and repacking are skipped." : "Record the received quantity. After receipt, complete Quality Inspection and Store before order packing."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Bulk Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so warehouse quality inspection and repacking are skipped." : "Record the received quantity. After receipt, complete Quality Inspection and Store before order packing."}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
             <div className="rounded-lg border bg-slate-50 p-3 text-sm"><p className="font-medium">Farmer declared quantity: {selectedIncoming?.quantity ?? "—"} {selectedIncoming?.unit || "kg"}</p><p className="mt-1 text-muted-foreground">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Count the sealed packets and confirm the number of packed orders received." : "Weigh the bulk stock on the warehouse scale and enter the measured quantity below."}</p></div>
             <div><label className="text-sm font-medium">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Received packet quantity / order units" : "Actual weight measured at warehouse (kg)"}</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Difference: {(Number(receiveForm.quantity || 0) - Number(selectedIncoming?.quantity || 0)).toFixed(2)} {selectedIncoming?.unit || "kg"}</p></div>
             <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">If measured weight differs from declared weight, add a note. The stock stays pending quality review until the discrepancy is resolved.</p></div>
-            {selectedIncoming?.sourceMode !== "farmer_fulfillment_transfer" && <div>
+            {!isFarmerPackedIncoming(selectedIncoming) && <div>
               <label className="text-sm font-medium">Quality Result</label>
               <Select value={receiveForm.qualityCheck} onValueChange={(value) => updateReceiveForm("qualityCheck", value)}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select quality result" /></SelectTrigger>
