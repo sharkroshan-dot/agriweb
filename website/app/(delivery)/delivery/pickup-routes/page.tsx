@@ -142,6 +142,11 @@ export default function DeliveryPickupRoutesPage() {
     queryFn: () => api.get("/delivery/me/pickup-routes"),
     refetchInterval: 10000,
   });
+  const hubTransfersQ = useQuery({
+    queryKey: ["myFarmerFulfillmentHubTransfers"],
+    queryFn: () => api.get("/delivery/me/farmer-fulfillment-hub-transfers"),
+    refetchInterval: 5000,
+  });
   const [actual, setActual] = useState<Record<string, string>>({});
   const [expandedFarmStops, setExpandedFarmStops] = useState<Record<string, boolean>>({});
   const marketplaceQ = useQuery({
@@ -153,6 +158,7 @@ export default function DeliveryPickupRoutesPage() {
   const routes = routesQ.data?.data?.routes || [];
   const pickupJobs = marketplaceQ.data?.data?.openJobs || [];
   const acceptedPickupJobs = marketplaceQ.data?.data?.acceptedJobs || [];
+  const hubTransfers = hubTransfersQ.data?.data?.transfers || [];
 
   const accept = async (routeId: string) => {
     try {
@@ -178,6 +184,16 @@ export default function DeliveryPickupRoutesPage() {
       toast.error(e?.response?.data?.detail || e?.message || "This pickup job is no longer available");
       await marketplaceQ.refetch();
       await routesQ.refetch();
+    }
+  };
+
+  const actOnHubTransfer = async (transfer:any,status:"started"|"arrived_at_hub") => {
+    try {
+      await api.put("/delivery/me/farmer-fulfillment-hub-transfers/"+transfer.id+"/status", undefined, {params:{status}});
+      toast.success(status==="started"?"Warehouse-to-hub transfer started":"Arrival at local hub recorded. Hub staff must confirm receipt.");
+      await hubTransfersQ.refetch();
+    } catch(e:any) {
+      toast.error(e?.message || "Unable to update local-hub transfer");
     }
   };
 
@@ -209,6 +225,33 @@ export default function DeliveryPickupRoutesPage() {
           Open routes are offered to every approved pickup partner. The first partner to accept gets the route.
         </p>
       </div>
+
+      {hubTransfers.length > 0 && (
+        <Card className="border-indigo-200">
+          <CardHeader className="border-b bg-indigo-50/70">
+            <CardTitle className="flex items-center gap-2 text-base"><Warehouse className="h-5 w-5"/>Warehouse → Local Hub Transfers</CardTitle>
+            <p className="text-sm text-muted-foreground">Transport the sealed order to its assigned local hub. Record departure and physical arrival; the hub must separately confirm receipt.</p>
+          </CardHeader>
+          <CardContent className="space-y-3 p-5">
+            {hubTransfers.map((transfer:any)=>(
+              <div key={transfer.id} className="rounded-xl border p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="font-semibold">Order {transfer.orderNumber || transfer.orderId}</p>
+                    <p className="text-sm text-muted-foreground">Destination: {transfer.localHubName || "Assigned local hub"}</p>
+                    <p className="text-sm text-muted-foreground">Quantity: {transfer.quantity ?? "See sealed manifest"} · Status: {String(transfer.status||"assigned").replace(/_/g," ")}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {transfer.status==="assigned"&&<Button onClick={()=>actOnHubTransfer(transfer,"started")}><Navigation className="mr-2 h-4 w-4"/>Start Transfer</Button>}
+                    {["in_transit","started"].includes(String(transfer.status))&&<Button onClick={()=>actOnHubTransfer(transfer,"arrived_at_hub")}><MapPin className="mr-2 h-4 w-4"/>Arrived at Local Hub</Button>}
+                    {transfer.status==="arrived_at_hub"&&<Badge variant="outline">Waiting for hub receipt</Badge>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {pickupJobs.length > 0 && (
         <Card className="border-blue-200">
