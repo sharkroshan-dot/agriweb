@@ -4211,7 +4211,7 @@ async def assign_farmer_fulfillment_local_hub_pickup_team(
         raise HTTPException(status_code=409, detail="A pickup team is already assigned to this transfer")
     now = datetime.utcnow()
     await transfer_collection.update_one(
-        {"_id": transfer["_id"], "status": {"$in": ["in_transit", "assigned"]}},
+        {"_id": transfer["_id"], "status": "in_transit"},
         {"$set": {
             "status": "assigned",
             "assignedDeliveryPartnerId": ObjectId(profile_id),
