@@ -788,8 +788,15 @@ async def get_farmer_fulfillment_transfers(
         # expectedQuantity/receivedQuantity across legacy records. Normalize
         # those aliases here so a completed receipt is not silently excluded
         # from the route queues due to a schema-version mismatch.
-        fully_received_lines = [
+        transfer_receipt_rows = [
             row for row in incoming
+            if str(row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+        ]
+        # Prefer the dedicated farmer-transfer receipts so unrelated incoming
+        # inventory lines for the same order cannot block or inflate this workflow.
+        receipt_rows = transfer_receipt_rows or incoming
+        fully_received_lines = [
+            row for row in receipt_rows
             if (
                 str(row.get("status") or "").strip().lower() in ("stored", "approved", "quality_approved")
                 or (
@@ -806,9 +813,9 @@ async def get_farmer_fulfillment_transfers(
             )
         ]
         physical_receipt_confirmed = (
-            bool(incoming) and len(fully_received_lines) == len(incoming)
+            bool(receipt_rows) and len(fully_received_lines) == len(receipt_rows)
         ) or (
-            not incoming and order_stage in (
+            not receipt_rows and order_stage in (
                 "received_transfer", "quality_approved", "stored", "ready_for_dispatch",
                 "destination_warehouse_transfer_pending", "destination_warehouse_in_transit",
                 "destination_warehouse_arrived_pending_receipt", "destination_warehouse_received",
@@ -838,7 +845,7 @@ async def get_farmer_fulfillment_transfers(
             "distanceCalculationStatus": "calculated" if calculated_distance_km is not None else "missing_coordinates",
             "physicalReceiptConfirmed": physical_receipt_confirmed,
             "receivedLineCount": len(fully_received_lines),
-            "incomingLineCount": len(incoming),
+            "incomingLineCount": len(receipt_rows),
             "routeDataComplete": route_category != "needs_location",
             "farmerFulfillmentRouteType": route_type,
             "routeDecisionReason": order.get("routeDecisionReason"),
