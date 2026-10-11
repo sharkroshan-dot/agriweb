@@ -778,7 +778,7 @@ async def get_farmer_fulfillment_transfers(
                             "consolidated", "consolidation_portions_received", "consolidation_in_transit")
             or any(
                 str(x.get("status") or "") in ("received", "stored")
-                and bool(x.get("arrivedWarehouseAt"))
+                and float(x.get("quantityReceived") or 0) + 1e-9 >= float(x.get("quantity") or 0)
                 for x in incoming
             )
         )
