@@ -3707,7 +3707,9 @@ async def get_my_farmer_fulfillment_hub_transfers(current_user: dict = Depends(g
     for row in rows:
         for key in ("_id", "orderId", "localHubId", "sourceWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId"):
             if row.get(key) is not None:
-                row[key if key != "_id" else "id"] = str(row[key])
+                row[key] = str(row[key])
+                if key == "_id":
+                    row["id"] = row[key]
         output.append(row)
     return {"success": True, "data": {"transfers": output}}
 
