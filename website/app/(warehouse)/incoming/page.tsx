@@ -263,7 +263,29 @@ export default function WarehouseIncomingPage() {
       {incomingList.length === 0 ? (
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
-        <div className="space-y-6">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => <section key={farmKey} className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-slate-50 px-4 py-3"><div><h2 className="text-lg font-semibold">{farmItems[0].displayFarmName}</h2><p className="text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><Badge variant="outline">{farmItems.length} {farmItems.length === 1 ? "order / shipment" : "orders / shipments"}</Badge></div><div className="space-y-3">{farmItems.map((item: any) => {
+        <div className="space-y-6">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => {
+          const packedFarmerGroup = farmItems.every((row: any) => row.sourceMode === "farmer_fulfillment_transfer");
+          const expectedTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
+          const receivedCount = farmItems.filter((row: any) => row.status === "received" || row.status === "stored").length;
+          const canConfirmAllPackets = packedFarmerGroup && farmItems.length > 0 && farmItems.every((row: any) => ["scheduled", "in_transit"].includes(row.status) && Boolean(row.arrivedWarehouseAt));
+          const confirmAllPackets = async () => {
+            if (!window.confirm(`Confirm receipt of all ${farmItems.length} packed orders from ${farmItems[0].displayFarmName}? Only continue after physically counting every packet.`)) return;
+            setIsSaving(true);
+            let succeeded = 0;
+            try {
+              for (const row of farmItems) {
+                if (!row.id || !["scheduled", "in_transit"].includes(row.status)) continue;
+                await api.put(`/warehouse/me/incoming/${row.id}/receive`, undefined, { params: { quantity: Number(row.quantity || 0), usableQuantity: Number(row.quantity || 0), quality_check: "passed", notes: "Bulk packet receipt confirmed by warehouse staff after physical count." } });
+                succeeded++;
+              }
+              toast.success(`Received ${succeeded} of ${farmItems.length} packed orders. Review any remaining orders below.`);
+              await refetch();
+            } catch (error: any) {
+              toast.error(`Received ${succeeded} orders before an error. Refresh and review remaining packets.`);
+              await refetch();
+            } finally { setIsSaving(false); }
+          };
+          return <section key={farmKey} className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-slate-50 px-4 py-3"><div><h2 className="text-lg font-semibold">{farmItems[0].displayFarmName}</h2><p className="text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p><p className="mt-1 text-sm font-medium">{farmItems.length} orders · {packedFarmerGroup ? `${farmItems.length} packed packets` : `Expected bulk weight: ${expectedTotal.toLocaleString()} kg`} · {receivedCount}/{farmItems.length} received</p></div><div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{farmItems.length} {farmItems.length === 1 ? "order" : "orders"}</Badge>{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}</div></div><div className="space-y-3">{farmItems.map((item: any) => {
           const productName = item.displayProductName || getProductDisplayName(item);
           const isPackedFarmerTransfer = item.sourceMode === "farmer_fulfillment_transfer";
           const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt);
@@ -286,7 +308,8 @@ export default function WarehouseIncomingPage() {
                         </div>}
                       </div></div></div></CardContent></Card>
           );
-        })}</div></section>)}</div>
+        })}</div></section>;
+        })}</div>
       )}
 
       <Dialog open={showTrackDialog} onOpenChange={setShowTrackDialog}>
