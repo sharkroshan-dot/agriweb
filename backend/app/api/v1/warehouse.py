@@ -9,6 +9,7 @@ from app.repositories.warehouse_repository import warehouse_repository
 from app.repositories.farmer_repository import farmer_repository
 from app.repositories.delivery_repository import delivery_repository
 from app.repositories.order_repository import order_repository
+from app.repositories.product_repository import product_repository
 from app.repositories.outgoing_stock_repository import outgoing_stock_repository
 from app.repositories.incoming_stock_repository import incoming_stock_repository
 from app.schemas.warehouse import (
@@ -2381,6 +2382,62 @@ async def get_my_incoming_stock(
     for item in incoming:
         safe_item = make_json_safe(item)
         safe_item["id"] = str(item.get("_id", item.get("id", "")))
+
+        # Resolve Mongo IDs into human-readable names for the warehouse receiving UI.
+        farmer_id = str(item.get("farmerId") or "")
+        if farmer_id and ObjectId.is_valid(farmer_id):
+            try:
+                farmer = await farmer_repository.get_by_id(farmer_id)
+                if farmer:
+                    safe_item["farmName"] = (
+                        farmer.get("farmName") or farmer.get("businessName")
+                        or farmer.get("name") or farmer.get("farm_name")
+                    )
+                    user_id = str(farmer.get("userId") or "")
+                    if user_id and ObjectId.is_valid(user_id):
+                        farmer_user = await UserService.get_user_by_id(user_id)
+                        if farmer_user:
+                            full_name = " ".join(filter(None, [
+                                farmer_user.get("firstName"), farmer_user.get("lastName")
+                            ])).strip()
+                            safe_item["farmerName"] = full_name or safe_item.get("farmerName")
+                            safe_item["farmerPhone"] = farmer_user.get("phone")
+                    safe_item["farmAddress"] = (
+                        farmer.get("farmAddress") or farmer.get("address")
+                        or farmer.get("location", {}).get("address")
+                        if isinstance(farmer.get("location"), dict)
+                        else farmer.get("farmAddress") or farmer.get("address")
+                    )
+            except Exception:
+                logger.exception("Could not resolve farmer display details for incoming shipment %s", safe_item["id"])
+
+        product_id = str(item.get("productId") or "")
+        if product_id and ObjectId.is_valid(product_id):
+            try:
+                product = await product_repository.get_by_id(product_id)
+                if product:
+                    safe_item["productName"] = product.get("name") or product.get("productName") or "Product name unavailable"
+                else:
+                    safe_item["productName"] = safe_item.get("productName") or "Product name unavailable"
+            except Exception:
+                logger.exception("Could not resolve product name for incoming shipment %s", safe_item["id"])
+
+        order_id = str(item.get("orderId") or "")
+        if order_id and ObjectId.is_valid(order_id):
+            try:
+                order = await order_repository.get_by_id(order_id)
+                if order:
+                    safe_item["orderNumber"] = order.get("orderNumber") or f"Order #{order_id[-6:].upper()}"
+                    safe_item["customerName"] = safe_item.get("customerName") or " ".join(filter(None, [
+                        (order.get("customer") or {}).get("firstName") if isinstance(order.get("customer"), dict) else None,
+                        (order.get("customer") or {}).get("lastName") if isinstance(order.get("customer"), dict) else None,
+                    ])).strip() or "Customer details unavailable"
+            except Exception:
+                logger.exception("Could not resolve order details for incoming shipment %s", safe_item["id"])
+        safe_item["farmName"] = safe_item.get("farmName") or safe_item.get("farmerName") or "Farm details unavailable"
+        safe_item["farmerName"] = safe_item.get("farmerName") or safe_item["farmName"]
+        safe_item["productName"] = safe_item.get("productName") or "Product name unavailable"
+        safe_item["orderNumber"] = safe_item.get("orderNumber") or "Order reference unavailable"
         safe_incoming.append(safe_item)
     return {
         "success": True,
