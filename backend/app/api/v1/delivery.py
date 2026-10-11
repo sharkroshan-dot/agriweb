@@ -3692,6 +3692,89 @@ async def accept_delivery_job(
     }
 
 
+@router.get("/me/farmer-fulfillment-warehouse-transfers")
+async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Depends(get_current_user)):
+    """List inter-district warehouse legs assigned to this delivery partner."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can view warehouse transfers")
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    rows = await legs.find({
+        "legType": "warehouse_to_destination_warehouse",
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+        "status": {"$in": ["assigned", "in_transit", "arrived_at_destination"]},
+    }).sort("assignedAt", -1).to_list(length=200)
+    output = []
+    for row in rows:
+        item = dict(row)
+        for key in ("_id", "orderId", "sourceWarehouseId", "destinationWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId"):
+            if item.get(key) is not None:
+                item[key] = str(item[key])
+        item["id"] = item.pop("_id", str(row.get("_id")))
+        order = await order_repository.get_by_id(str(row.get("orderId") or ""))
+        if order:
+            item["orderNumber"] = order.get("orderNumber") or item.get("orderNumber")
+        output.append(item)
+    return {"success": True, "data": {"transfers": output}}
+
+
+@router.put("/me/farmer-fulfillment-warehouse-transfers/{transfer_id}/status")
+async def update_my_farmer_fulfillment_warehouse_transfer_status(
+    transfer_id: str,
+    transfer_status: str = Query(..., alias="status", pattern="^(started|arrived_at_destination)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Partner records departure and physical arrival at the destination warehouse."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update warehouse transfers")
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid transfer ID")
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    leg = await legs.find_one({
+        "_id": ObjectId(transfer_id),
+        "legType": "warehouse_to_destination_warehouse",
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+    })
+    if not leg:
+        raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
+    current = str(leg.get("status") or "")
+    if transfer_status == "started":
+        if current != "assigned":
+            raise HTTPException(status_code=409, detail=f"Cannot start transfer from status {current}")
+        next_status, time_field = "in_transit", "startedAt"
+    else:
+        if current != "in_transit":
+            raise HTTPException(status_code=409, detail=f"Cannot confirm destination arrival from status {current}")
+        next_status, time_field = "arrived_at_destination", "arrivedAtDestination"
+    now = datetime.utcnow()
+    result = await legs.update_one(
+        {"_id": leg["_id"], "status": current, "assignedPartnerUserId": ObjectId(str(current_user["_id"]))},
+        {"$set": {"status": next_status, time_field: now, "updatedAt": now}},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Transfer status changed. Refresh and try again.")
+    if transfer_status == "arrived_at_destination":
+        order_id = str(leg.get("orderId") or "")
+        if ObjectId.is_valid(order_id):
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "transferStatus": "destination_warehouse_arrived_pending_receipt",
+                "updatedAt": now,
+            })
+            order = await order_repository.get_by_id(order_id)
+            if order:
+                try:
+                    await NotificationService.send_order_workflow_update(
+                        order, stage="destination_warehouse_arrived_pending_receipt",
+                        title=f"Order #{order.get('orderNumber') or order_id}: arrived at destination warehouse",
+                        message="The transfer partner recorded arrival. Destination warehouse staff must confirm physical receipt before sending the order to the local hub.",
+                        actor_role="delivery",
+                    )
+                except Exception:
+                    logger.exception("Unable to notify destination warehouse about arrival")
+    return {"success": True, "data": {"id": transfer_id, "status": next_status}, "message": "Transfer started" if transfer_status == "started" else "Arrival at destination recorded. Warehouse receipt is required."}
+
+
 @router.get("/me/farmer-fulfillment-hub-transfers")
 async def get_my_farmer_fulfillment_hub_transfers(current_user: dict = Depends(get_current_user)):
     """List local-hub transfers assigned to this delivery partner."""
