@@ -1159,10 +1159,10 @@ async def receive_farmer_fulfillment_at_destination(
         raise HTTPException(status_code=404, detail="No source-to-destination transfer manifest exists")
     if str(leg.get("status") or "") == "received_at_destination":
         return {"success": True, "data": {"orderId": order_id, "status": "received_at_destination"}, "message": "Destination warehouse receipt was already confirmed."}
-    if str(leg.get("status") or "") != "in_transit":
-        raise HTTPException(status_code=400, detail="The order must be dispatched by the source warehouse before receipt")
+    if str(leg.get("status") or "") != "arrived_at_destination":
+        raise HTTPException(status_code=400, detail="The assigned transfer partner must record arrival before warehouse receipt")
     now = datetime.utcnow()
-    await legs.update_one({"_id": leg["_id"], "status": "in_transit"}, {"$set": {
+    await legs.update_one({"_id": leg["_id"], "status": "arrived_at_destination"}, {"$set": {
         "status": "received_at_destination", "receivedAtDestination": now,
         "receivedByDestination": ObjectId(str(current_user["_id"])), "updatedAt": now,
     }})
