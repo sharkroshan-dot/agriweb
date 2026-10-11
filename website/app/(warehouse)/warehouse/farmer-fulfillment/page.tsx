@@ -38,6 +38,7 @@ const labels: Record<string,string> = {
 export default function FarmerFulfillmentTransfersPage() {
   const [busy,setBusy]=useState<string|null>(null);
   const [selectedHubTeam,setSelectedHubTeam]=useState<Record<string,string>>({});
+  const [selectedDestinationTeam,setSelectedDestinationTeam]=useState<Record<string,string>>({});
   const {data:pickupTeamData,refetch:refetchPickupTeams}=useQuery({
     queryKey:["farmerFulfillmentHubPickupTeams"],
     queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
@@ -71,6 +72,17 @@ export default function FarmerFulfillmentTransfersPage() {
       toast.success("Shipment dispatched to destination warehouse");
       await refetch();
     }catch(e:any){toast.error(e?.message||"Destination dispatch failed");}
+    finally{setBusy(null);}
+  };
+  const assignDestinationPickupTeam=async(order:any)=>{
+    const partnerId=selectedDestinationTeam[order.id];
+    if(!partnerId){toast.error("Select an approved pickup team first");return;}
+    try{
+      setBusy(order.id+":destination-assign");
+      await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-destination-pickup-team",undefined,{params:{deliveryPartnerId:partnerId}});
+      toast.success("Inter-district transfer team assigned. The partner can start the route.");
+      await refetch();
+    }catch(e:any){toast.error(e?.message||"Unable to assign destination transfer team");}
     finally{setBusy(null);}
   };
   const receiveDestination=async(order:any)=>{
@@ -217,8 +229,16 @@ export default function FarmerFulfillmentTransfersPage() {
             <Button asChild variant="outline"><Link href={"/incoming?search="+encodeURIComponent(String(o.orderNumber||o.id))}><ClipboardCheck className="mr-2 h-4 w-4"/>Open Incoming Stock</Link></Button>
             {showReceiving&&o.incoming?.filter((x:any)=>["pending","scheduled","ready_for_pickup","in_transit"].includes(x.status)).map((item:any)=><Button key={item.id} onClick={()=>receiveIncoming(item)} disabled={busy===item.id+":receive"}><Truck className="mr-2 h-4 w-4"/>{busy===item.id+":receive"?"Receiving…":"Receive + Verify"}</Button>)}
             {o.incoming?.filter((x:any)=>x.status==="received").map((item:any)=><Button key={item.id} variant="outline" onClick={()=>storeIncoming(item)} disabled={busy===item.id+":store"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===item.id+":store"?"Saving…":"Store / Hold Sealed Package"}</Button>)}
-            {interDistrict&&isSource&&<Button onClick={()=>dispatchDestination(o)} disabled={!receivedAtSource||!o.destinationWarehouseId||["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)||busy===o.id+":destination-dispatch"}><Truck className="mr-2 h-4 w-4"/>{busy===o.id+":destination-dispatch"?"Dispatching…":"Dispatch to Destination Warehouse"}</Button>}
-            {interDistrict&&isDestination&&<Button onClick={()=>receiveDestination(o)} disabled={transferStatus!=="destination_warehouse_in_transit"||busy===o.id+":destination-receive"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":destination-receive"?"Confirming…":"Confirm Destination Receipt"}</Button>}
+            {interDistrict&&isSource&&<Button onClick={()=>dispatchDestination(o)} disabled={!receivedAtSource||!o.destinationWarehouseId||["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)||busy===o.id+":destination-dispatch"}><Truck className="mr-2 h-4 w-4"/>{busy===o.id+":destination-dispatch"?"Dispatching…":"Create Destination Transfer"}</Button>}
+            {interDistrict&&isSource&&transferStatus==="destination_warehouse_transfer_pending"&&<div className="flex w-full flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+              <label className="text-sm font-medium text-indigo-950" htmlFor={"destination-team-"+o.id}>Warehouse transfer team</label>
+              <select id={"destination-team-"+o.id} className="h-10 min-w-56 rounded-md border bg-white px-3 text-sm text-slate-900" value={selectedDestinationTeam[o.id]||""} onChange={e=>setSelectedDestinationTeam(prev=>({...prev,[o.id]:e.target.value}))}>
+                <option value="">Select approved pickup team</option>
+                {hubPickupTeams.map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name||"Pickup Partner"} · {team.vehicleType||"Vehicle"} · {team.capacity||0} kg</option>)}
+              </select>
+              <Button onClick={()=>assignDestinationPickupTeam(o)} disabled={!selectedDestinationTeam[o.id]||busy===o.id+":destination-assign"}>{busy===o.id+":destination-assign"?"Assigning…":"Assign Transfer Team"}</Button>
+            </div>}
+            {interDistrict&&isDestination&&<Button onClick={()=>receiveDestination(o)} disabled={transferStatus!=="destination_warehouse_arrived_pending_receipt"||busy===o.id+":destination-receive"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":destination-receive"?"Confirming…":"Confirm Destination Receipt"}</Button>}
             {interDistrict&&isDestination&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={transferStatus!=="destination_warehouse_received"||busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>Send to Local Hub</Button>}
             {o.farmerFulfillmentRouteType==="inter_district"&&<p className="w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">Inter-district route: send to the destination warehouse first. The local-hub button remains disabled until destination receipt is confirmed.</p>}
             {o.farmerFulfillmentRouteType!=="inter_district"&&!isConsolidationWarehouse&&["stored","ready_for_dispatch"].includes(o.stage)&&<Button onClick={()=>runTransferAction(o,"dispatch")} disabled={busy===o.id+":dispatch"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":dispatch"?"Dispatching…":multi?"Send to Consolidation":"Send to Local Hub"}</Button>}
