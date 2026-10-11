@@ -989,6 +989,138 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
 
 
 
+@router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-destination")
+async def dispatch_farmer_fulfillment_to_destination(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Dispatch a sealed farmer-packed order from source to destination warehouse."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch farmer fulfillment transfers")
+    _enforce_warehouse_operating_window("downstream_transfer")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=404, detail="Inter-district farmer fulfillment order not found")
+    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    destination_id = str(order.get("destinationWarehouseId") or "")
+    warehouse_id = str(warehouse["_id"])
+    if not destination_id or source_id == destination_id:
+        raise HTTPException(status_code=400, detail="A different destination warehouse must be assigned before dispatch")
+    if warehouse_id != source_id:
+        raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this order")
+    incoming = await incoming_stock_repository.find_many({
+        "orderId": ObjectId(order_id),
+        "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+        "sourceMode": "farmer_fulfillment_transfer",
+        "deletedAt": None,
+    }, skip=0, limit=1000)
+    if not incoming or any(
+        str(row.get("status") or "") not in ("received", "stored")
+        or float(row.get("quantityReceived") or 0) + 1e-9 < float(row.get("quantity") or 0)
+        for row in incoming
+    ):
+        raise HTTPException(status_code=400, detail="Physically receive the complete farmer-packed shipment before dispatch")
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    leg = await legs.find_one({
+        "orderId": ObjectId(order_id),
+        "legType": "warehouse_to_destination_warehouse",
+        "sourceWarehouseId": ObjectId(source_id),
+        "destinationWarehouseId": ObjectId(destination_id),
+        "deletedAt": None,
+    })
+    if leg and str(leg.get("status") or "") in ("in_transit", "received_at_destination"):
+        return {"success": True, "data": {"orderId": order_id, "status": leg["status"]}, "message": "This destination transfer has already been dispatched."}
+    now = datetime.utcnow()
+    if leg:
+        await legs.update_one({"_id": leg["_id"]}, {"$set": {
+            "status": "in_transit", "dispatchedAt": now,
+            "dispatchedBy": ObjectId(str(current_user["_id"])), "updatedAt": now,
+        }})
+    else:
+        await legs.insert_one({
+            "orderId": ObjectId(order_id),
+            "orderNumber": order.get("orderNumber"),
+            "legType": "warehouse_to_destination_warehouse",
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": order.get("sourceWarehouseName") or order.get("warehouseName") or warehouse.get("name"),
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": order.get("destinationWarehouseName"),
+            "status": "in_transit",
+            "dispatchedAt": now,
+            "dispatchedBy": ObjectId(str(current_user["_id"])),
+            "createdAt": now, "updatedAt": now, "deletedAt": None,
+        })
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "transferStatus": "destination_warehouse_in_transit",
+        "warehouseFulfillmentStage": "destination_warehouse_in_transit",
+        "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id, "warehouse_transfer_dispatched", "Order dispatched to destination warehouse",
+        "The sealed farmer-packed customer order has left the source warehouse for the assigned destination warehouse.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"sourceWarehouseId": source_id, "destinationWarehouseId": destination_id},
+    )
+    return {"success": True, "data": {"orderId": order_id, "status": "in_transit", "destinationWarehouseId": destination_id}, "message": "Order dispatched to destination warehouse."}
+
+
+@router.post("/me/farmer-fulfillment/{order_id}/receive-at-destination")
+async def receive_farmer_fulfillment_at_destination(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record physical receipt of a sealed order at its destination warehouse."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can receive farmer fulfillment transfers")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=404, detail="Inter-district farmer fulfillment order not found")
+    destination_id = str(order.get("destinationWarehouseId") or "")
+    warehouse_id = str(warehouse["_id"])
+    if not destination_id or warehouse_id != destination_id:
+        raise HTTPException(status_code=403, detail="Only the assigned destination warehouse can confirm receipt")
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    leg = await legs.find_one({
+        "orderId": ObjectId(order_id),
+        "legType": "warehouse_to_destination_warehouse",
+        "destinationWarehouseId": ObjectId(warehouse_id),
+        "deletedAt": None,
+    })
+    if not leg:
+        raise HTTPException(status_code=404, detail="No source-to-destination transfer manifest exists")
+    if str(leg.get("status") or "") == "received_at_destination":
+        return {"success": True, "data": {"orderId": order_id, "status": "received_at_destination"}, "message": "Destination warehouse receipt was already confirmed."}
+    if str(leg.get("status") or "") != "in_transit":
+        raise HTTPException(status_code=400, detail="The order must be dispatched by the source warehouse before receipt")
+    now = datetime.utcnow()
+    await legs.update_one({"_id": leg["_id"], "status": "in_transit"}, {"$set": {
+        "status": "received_at_destination", "receivedAtDestination": now,
+        "receivedByDestination": ObjectId(str(current_user["_id"])), "updatedAt": now,
+    }})
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "transferStatus": "destination_warehouse_received",
+        "warehouseFulfillmentStage": "destination_warehouse_received",
+        "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id, "destination_warehouse_received", "Order received at destination warehouse",
+        "The destination warehouse confirmed physical receipt of the sealed farmer-packed order.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"destinationWarehouseId": warehouse_id, "sourceWarehouseId": str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")},
+    )
+    return {"success": True, "data": {"orderId": order_id, "status": "received_at_destination"}, "message": "Destination warehouse receipt recorded."}
+
+
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-consolidation")
 async def dispatch_farmer_fulfillment_to_consolidation(
     order_id: str,
@@ -1318,12 +1450,44 @@ async def handoff_farmer_fulfillment_to_local_hub(
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
     order = await order_repository.get_by_id(order_id)
-    if not order or str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
-        raise HTTPException(status_code=404, detail="Consolidated farmer fulfillment order not found")
-    if str(order.get("consolidationStatus")) != "consolidated":
-        raise HTTPException(status_code=400, detail="Complete consolidation after all warehouse receipts are stored first")
-    if str(order.get("consolidationWarehouseId") or "") != str(warehouse["_id"]):
-        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can hand the complete order to the local hub")
+    mode = str((order or {}).get("logisticsMode") or "")
+    allowed_modes = (
+        "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+    )
+    if not order or mode not in allowed_modes:
+        raise HTTPException(status_code=404, detail="Farmer fulfillment order for local-hub transfer not found")
+    warehouse_id = str(warehouse["_id"])
+    if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        if str(order.get("consolidationStatus")) != "consolidated":
+            raise HTTPException(status_code=400, detail="Complete consolidation after all warehouse portions have arrived")
+        if str(order.get("consolidationWarehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the consolidation warehouse can hand the complete order to the local hub")
+    elif mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        if str(order.get("destinationWarehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the destination warehouse can hand this order to the local hub")
+        destination_leg = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find_one({
+            "orderId": ObjectId(order_id), "legType": "warehouse_to_destination_warehouse",
+            "destinationWarehouseId": ObjectId(warehouse_id), "status": "received_at_destination", "deletedAt": None,
+        })
+        if not destination_leg:
+            raise HTTPException(status_code=400, detail="Confirm destination warehouse receipt before transferring to the local hub")
+    else:
+        source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+        if source_id != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the assigned warehouse can transfer this order to the local hub")
+        incoming_rows = await incoming_stock_repository.find_many({
+            "orderId": ObjectId(order_id),
+            "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+            "sourceMode": "farmer_fulfillment_transfer", "deletedAt": None,
+        }, skip=0, limit=1000)
+        if not incoming_rows or any(str(row.get("status") or "") not in ("received", "stored") for row in incoming_rows):
+            raise HTTPException(status_code=400, detail="Receive the packed order at the warehouse before transferring it to the local hub")
+    if str(order.get("transferStatus") or "") in ("hub_handoff_pending", "local_hub_ready"):
+        existing_hub_transfer = await MongoDB.get_collection("farmer_fulfillment_hub_transfers").find_one({"orderId": ObjectId(order_id), "deletedAt": None})
+        if existing_hub_transfer and str(existing_hub_transfer.get("status") or "") in ("in_transit", "received"):
+            raise HTTPException(status_code=409, detail="A local-hub transfer already exists for this order")
 
     hub = order.get("nearbyFulfillmentLocation") or {}
     hub_id = order.get("nearbyFulfillmentLocationId")
@@ -1342,6 +1506,8 @@ async def handoff_farmer_fulfillment_to_local_hub(
             "orderId": ObjectId(order_id),
             "orderNumber": order.get("orderNumber"),
             "consolidationId": order.get("consolidationId"),
+            "transferType": "consolidated_order_to_hub" if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" else "farmer_order_to_hub",
+            "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
             "localHubId": ObjectId(str(hub_id)),
             "localHubName": hub_doc.get("name") or hub_doc.get("hubName") or "Local Fulfillment Hub",
             "status": "in_transit",
@@ -1361,7 +1527,7 @@ async def handoff_farmer_fulfillment_to_local_hub(
         {"_id": ObjectId(order_id)},
         {
             "transferStatus": "hub_handoff_pending",
-            "consolidationStatus": "hub_handoff_pending",
+            **({"consolidationStatus": "hub_handoff_pending"} if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" else {}),
             "deliveryPickupLocation": {
                 "type": "local_hub",
                 "id": str(hub_doc["_id"]),
@@ -1393,12 +1559,25 @@ async def receive_farmer_fulfillment_at_local_hub(
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
     order = await order_repository.get_by_id(order_id)
-    if not order or str(order.get("logisticsMode") or "") != "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
-        raise HTTPException(status_code=404, detail="Farmer fulfillment consolidation not found")
-    if str(order.get("consolidationStatus")) not in ("hub_handoff_pending", "local_hub_ready"):
-        raise HTTPException(status_code=400, detail="Complete consolidation and local-hub handoff first")
-    if str(order.get("consolidationWarehouseId") or "") != str(warehouse["_id"]):
-        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can confirm local-hub receipt")
+    mode = str((order or {}).get("logisticsMode") or "")
+    allowed_modes = (
+        "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+    )
+    if not order or mode not in allowed_modes:
+        raise HTTPException(status_code=404, detail="Farmer fulfillment order for local-hub receipt not found")
+    warehouse_id = str(warehouse["_id"])
+    if str(order.get("transferStatus") or "") not in ("hub_handoff_pending", "local_hub_ready"):
+        raise HTTPException(status_code=400, detail="Dispatch the order to the local hub before confirming receipt")
+    if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        if str(order.get("consolidationWarehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the consolidation warehouse can confirm local-hub receipt")
+    elif mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        if str(order.get("destinationWarehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the destination warehouse can confirm local-hub receipt")
+    elif str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") != warehouse_id:
+        raise HTTPException(status_code=403, detail="Only the assigned warehouse can confirm local-hub receipt")
 
     hub_id = order.get("nearbyFulfillmentLocationId")
     if not hub_id:
@@ -1431,7 +1610,7 @@ async def receive_farmer_fulfillment_at_local_hub(
         {"_id": ObjectId(order_id)},
         {
             "transferStatus": "local_hub_ready",
-            "consolidationStatus": "local_hub_ready",
+            **({"consolidationStatus": "local_hub_ready"} if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" else {}),
             "localHubReceivedAt": now,
             "updatedAt": now,
         },
