@@ -44,7 +44,7 @@ export default function FarmerFulfillmentTransfersPage() {
     queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
     staleTime:30000,
   });
-  const hubPickupTeams=pickupTeamData?.data?.members||[];
+  const hubPickupTeams=Array.isArray(pickupTeamData?.data?.members)?pickupTeamData.data.members:[];
   const receiveIncoming=async(item:any)=>{
     try{
       setBusy(item.id+":receive");
@@ -99,7 +99,8 @@ export default function FarmerFulfillmentTransfersPage() {
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
     refetchInterval:15000,
   });
-  const allRows=data?.data?.transfers||[];
+  const transferPayload=data?.data?.transfers;
+  const allRows=Array.isArray(transferPayload)?transferPayload:[];
   const MULTI_WAREHOUSE_MODE="farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner";
   // Consolidation is for one customer order assembled from multiple supply sources,
   // not merely an order carrying a legacy logisticsMode value.
@@ -112,6 +113,9 @@ export default function FarmerFulfillmentTransfersPage() {
   };
   const rows=allRows.filter((row:any)=>!isTrueConsolidation(row)).map((row:any)=>({
     ...row,
+    incoming: Array.isArray(row.incoming)?row.incoming:[],
+    items: Array.isArray(row.items)?row.items:[],
+    warehouseAllocations: Array.isArray(row.warehouseAllocations)?row.warehouseAllocations:[],
     // A legacy single-source record should use the standard transfer action path.
     logisticsMode: row.logisticsMode===MULTI_WAREHOUSE_MODE ? "farmer_to_warehouse_to_local_hub_to_delivery_partner" : row.logisticsMode,
   }));
