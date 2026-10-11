@@ -1060,6 +1060,7 @@ async def dispatch_farmer_fulfillment_to_destination(
             "sourceWarehouseName": order.get("sourceWarehouseName") or order.get("warehouseName") or warehouse.get("name"),
             "destinationWarehouseId": ObjectId(destination_id),
             "destinationWarehouseName": order.get("destinationWarehouseName"),
+            "quantity": sum(float(row.get("quantityReceived") or row.get("quantity") or 0) for row in incoming),
             "status": "awaiting_team_assignment",
             "dispatchedAt": now,
             "dispatchedBy": ObjectId(str(current_user["_id"])),
@@ -1113,6 +1114,12 @@ async def assign_farmer_fulfillment_destination_pickup_team(
         raise HTTPException(status_code=409, detail="Dispatch the sealed order to create the transfer manifest first")
     if str(leg.get("status") or "") not in ("awaiting_team_assignment", "assigned"):
         raise HTTPException(status_code=409, detail="The transfer has already started or arrived")
+    required_capacity = float(leg.get("quantity") or 0)
+    team_capacity = float(member.get("capacity") or member.get("vehicleCapacity") or 0)
+    if required_capacity <= 0:
+        raise HTTPException(status_code=400, detail="Transfer quantity is missing; cannot validate vehicle capacity")
+    if team_capacity < required_capacity:
+        raise HTTPException(status_code=400, detail=f"Selected vehicle capacity ({team_capacity:g} kg) is below the shipment quantity ({required_capacity:g} kg)")
     if leg.get("assignedDeliveryPartnerId") and str(leg.get("assignedDeliveryPartnerId")) != profile_id:
         raise HTTPException(status_code=409, detail="A team is already assigned to this transfer")
     now = datetime.utcnow()
@@ -4274,6 +4281,12 @@ async def assign_farmer_fulfillment_local_hub_pickup_team(
         raise HTTPException(status_code=409, detail="The local hub has already received this order")
     if str(transfer.get("status") or "") not in ("in_transit", "assigned"):
         raise HTTPException(status_code=409, detail=f"Transfer cannot be assigned from status {transfer.get('status')}")
+    required_capacity = float(transfer.get("quantity") or 0)
+    team_capacity = float(membership.get("capacity") or membership.get("vehicleCapacity") or 0)
+    if required_capacity <= 0:
+        raise HTTPException(status_code=400, detail="Transfer quantity is missing; cannot validate vehicle capacity")
+    if team_capacity < required_capacity:
+        raise HTTPException(status_code=400, detail=f"Selected vehicle capacity ({team_capacity:g} kg) is below the shipment quantity ({required_capacity:g} kg)")
     if transfer.get("assignedDeliveryPartnerId") and str(transfer.get("assignedDeliveryPartnerId")) != profile_id:
         raise HTTPException(status_code=409, detail="A pickup team is already assigned to this transfer")
     now = datetime.utcnow()
