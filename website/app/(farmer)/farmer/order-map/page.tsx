@@ -34,7 +34,7 @@ import { Map } from "../../../components/shared/map";
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
 
-const RADIUS_OPTIONS = [2, 5, 10, 20, 50] as const;
+const RADIUS_OPTIONS = [2, 5, 10, 15, 20, 50] as const;
 const MIN_RADIUS_KM = 1;
 const MAX_RADIUS_KM = 500;
 const FALLBACK_CENTER = { lat: 11.1271, lng: 78.6569 };
@@ -278,7 +278,7 @@ export default function FarmerOrderMapPage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
 
-  const [radiusKm, setRadiusKm] = useState<number>(10);
+  const [radiusKm, setRadiusKm] = useState<number>(15);
   const [selfDeliveryMethod, setSelfDeliveryMethod] = useState<"route" | "radius">("radius");
   const [mapFilterMode, setMapFilterMode] = useState<"all" | "radius" | "route">("all");
   const [deliveredWindow, setDeliveredWindow] = useState<string>("today");
