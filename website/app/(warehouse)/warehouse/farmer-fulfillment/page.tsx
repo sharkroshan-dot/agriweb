@@ -37,6 +37,13 @@ const labels: Record<string,string> = {
 
 export default function FarmerFulfillmentTransfersPage() {
   const [busy,setBusy]=useState<string|null>(null);
+  const [selectedHubTeam,setSelectedHubTeam]=useState<Record<string,string>>({});
+  const {data:pickupTeamData,refetch:refetchPickupTeams}=useQuery({
+    queryKey:["farmerFulfillmentHubPickupTeams"],
+    queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
+    staleTime:30000,
+  });
+  const hubPickupTeams=pickupTeamData?.data?.members||[];
   const receiveIncoming=async(item:any)=>{
     try{
       setBusy(item.id+":receive");
@@ -97,6 +104,19 @@ export default function FarmerFulfillmentTransfersPage() {
     logisticsMode: row.logisticsMode===MULTI_WAREHOUSE_MODE ? "farmer_to_warehouse_to_local_hub_to_delivery_partner" : row.logisticsMode,
   }));
   const consolidationRows=allRows.filter((row:any)=>isTrueConsolidation(row));
+
+  const assignHubPickupTeam=async(order:any)=>{
+    const partnerId=selectedHubTeam[order.id];
+    if(!partnerId){toast.error("Select an approved pickup team first");return;}
+    try{
+      setBusy(order.id+":assignHubTeam");
+      await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-local-hub-pickup-team",undefined,{params:{deliveryPartnerId:partnerId}});
+      toast.success("Pickup team assigned. The partner can now start the transfer to the local hub.");
+      await refetch();
+      await refetchPickupTeams();
+    }catch(e:any){toast.error(e?.message||"Unable to assign pickup team");}
+    finally{setBusy(null);}
+  };
 
   const runTransferAction=async(order:any,action:"dispatch"|"receiveConsolidation"|"completeConsolidation"|"handoffLocalHub"|"confirmHubReceipt")=>{
     const routes={
@@ -205,8 +225,16 @@ export default function FarmerFulfillmentTransfersPage() {
             {isConsolidationWarehouse&&o.consolidation?.canReceive&&<Button onClick={()=>runTransferAction(o,"receiveConsolidation")} disabled={busy===o.id+":receiveConsolidation"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":receiveConsolidation"?"Receiving…":("Confirm Arrived Portions ("+o.consolidation.inTransitLegs+")")}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canComplete&&<Button onClick={()=>runTransferAction(o,"completeConsolidation")} disabled={busy===o.id+":completeConsolidation"}><PackageCheck className="mr-2 h-4 w-4"/>{busy===o.id+":completeConsolidation"?"Completing…":"Complete Consolidation"}</Button>}
             {isConsolidationWarehouse&&o.consolidation?.canHandoffLocalHub&&<Button onClick={()=>runTransferAction(o,"handoffLocalHub")} disabled={busy===o.id+":handoffLocalHub"}><ArrowRight className="mr-2 h-4 w-4"/>{busy===o.id+":handoffLocalHub"?"Sending…":"Send Consolidated Order to Local Hub"}</Button>}
-            {isConsolidationWarehouse&&o.consolidation?.canConfirmHubReceipt&&<Button onClick={()=>runTransferAction(o,"confirmHubReceipt")} disabled={busy===o.id+":confirmHubReceipt"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":confirmHubReceipt"?"Confirming…":"Confirm Local Hub Receipt"}</Button>}
-            {o.stage==="hub_handoff_pending"&&<Badge variant="outline" className="self-center">Waiting for local-hub receipt</Badge>}
+            {o.transferStatus==="hub_handoff_pending"&&<div className="flex flex-wrap items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3">
+              <label className="text-sm font-medium text-indigo-950" htmlFor={"hub-team-"+o.id}>Local-hub transfer team</label>
+              <select id={"hub-team-"+o.id} className="h-10 min-w-56 rounded-md border bg-white px-3 text-sm text-slate-900" value={selectedHubTeam[o.id]||""} onChange={e=>setSelectedHubTeam(prev=>({...prev,[o.id]:e.target.value}))}>
+                <option value="">Select approved pickup team</option>
+                {hubPickupTeams.map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name||"Pickup Partner"} · {team.vehicleType||"Vehicle"} · {team.capacity||0} kg</option>)}
+              </select>
+              <Button onClick={()=>assignHubPickupTeam(o)} disabled={!selectedHubTeam[o.id]||busy===o.id+":assignHubTeam"}>{busy===o.id+":assignHubTeam"?"Assigning…":"Assign Pickup Team"}</Button>
+            </div>}
+            {(o.transferStatus==="hub_arrived_pending_receipt"||isConsolidationWarehouse&&o.consolidation?.canConfirmHubReceipt)&&<Button onClick={()=>runTransferAction(o,"confirmHubReceipt")} disabled={busy===o.id+":confirmHubReceipt"}><CheckCircle2 className="mr-2 h-4 w-4"/>{busy===o.id+":confirmHubReceipt"?"Confirming…":"Confirm Local Hub Receipt"}</Button>}
+            {o.stage==="hub_handoff_pending"&&o.transferStatus!=="hub_arrived_pending_receipt"&&<Badge variant="outline" className="self-center">Transfer assigned/in progress · waiting for hub arrival</Badge>}
             {o.stage==="local_hub_ready"&&<Badge variant="success" className="self-center"><CheckCircle2 className="mr-1 h-3 w-3"/>Local hub received · Delivery job ready</Badge>}
           </div>
         </CardContent>
