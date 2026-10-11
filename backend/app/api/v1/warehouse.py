@@ -884,7 +884,9 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     now = datetime.utcnow()
     transfer = {
         "orderId": ObjectId(order_id),
+        "orderNumber": order.get("orderNumber") or order_id,
         "localHubId": ObjectId(str(hub_id)),
+        "localHubName": hub.get("name") or hub.get("hubName") or "Local Fulfillment Hub",
         "hubId": ObjectId(str(hub_id)),
         "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
         "sourceWarehouseName": warehouse.get("name"),
