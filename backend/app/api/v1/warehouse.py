@@ -1596,7 +1596,7 @@ async def receive_farmer_fulfillment_at_local_hub(
     transfer = await transfer_collection.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
     if not transfer:
         raise HTTPException(status_code=400, detail="Local hub transfer manifest does not exist")
-    if str(transfer.get("status")) != "in_transit":
+    if str(transfer.get("status")) not in ("in_transit", "arrived_at_hub"):
         if str(transfer.get("status")) == "received":
             job = await _create_single_farmer_fulfillment_delivery_job(order_id, hub_doc, current_user)
             return {"success": True, "data": job, "message": "Local hub receipt was already confirmed; one final delivery job is reused."}
