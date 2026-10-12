@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { RefreshCw, Warehouse, PackageCheck, Route, MapPin, Truck, CheckCircle2 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -35,6 +36,14 @@ const STAGES: Record<string,string> = {
 };
 
 export default function FarmerFulfillmentWarehousePage() {
+  const [selectedTeams,setSelectedTeams]=useState<Record<string,string>>({});
+  const [assigningOrder,setAssigningOrder]=useState<string|null>(null);
+  const {data:teamsData}=useQuery({
+    queryKey:["warehouseApprovedPickupTeams"],
+    queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
+    refetchInterval:30000,
+  });
+  const pickupTeams=teamsData?.data?.members||teamsData?.data?.pickupTeams||teamsData?.members||[];
   const {data,isLoading,refetch}=useQuery({
     queryKey:["farmerFulfillmentTransfers"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
@@ -90,6 +99,20 @@ export default function FarmerFulfillmentWarehousePage() {
   const receiveConsolidation=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-consolidation`);toast.success("Portion received at consolidation");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
+  };
+  const assignPickupTeam=async(id:string,leg:"destination"|"hub")=>{
+    const deliveryPartnerId=selectedTeams[id];
+    if(!deliveryPartnerId){toast.error("Select an approved pickup team first.");return;}
+    try{
+      setAssigningOrder(id);
+      const endpoint=leg==="destination"
+        ? `/warehouse/me/farmer-fulfillment/${id}/assign-destination-pickup-team`
+        : `/warehouse/me/farmer-fulfillment/${id}/assign-local-hub-pickup-team`;
+      await api.put(endpoint,undefined,{params:{deliveryPartnerId}});
+      toast.success(leg==="destination"?"Destination transfer pickup team assigned":"Local-hub pickup team assigned");
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Pickup-team assignment failed");}
+    finally{setAssigningOrder(null);}
   };
   const dispatchDestination=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/dispatch-to-destination`);toast.success("Order dispatched to destination warehouse");await refreshAll();}
@@ -223,6 +246,8 @@ export default function FarmerFulfillmentWarehousePage() {
                 ["received","stored"].includes(x.status) && Number(x.receivedQuantity || 0) + 1e-9 >= Number(x.expectedQuantity || 0)
               );
               const storedComplete = incomingRows.length > 0 && incomingRows.every((x:any) => x.status === "stored");
+              const routeCategory=String(o.routeCategory||"needs_location");
+              const routeNeedsReview=routeCategory==="needs_location" || !o.routeDataComplete;
               const sourceRole = o.currentWarehouseRole === "source" || (o.sourceWarehouseId && o.sourceWarehouseId === o.warehouseId);
               const destinationRole = o.currentWarehouseRole === "destination" || (o.destinationWarehouseId && o.destinationWarehouseId === o.warehouseId);
               const consolidationRole = o.currentWarehouseRole === "consolidation" || (o.consolidationWarehouseId && o.consolidationWarehouseId === o.warehouseId);
@@ -244,17 +269,21 @@ export default function FarmerFulfillmentWarehousePage() {
                   <p className="text-xs font-medium text-muted-foreground">NEXT STEP</p>
                   <p className="mt-1 text-sm font-semibold">{nextAction}</p>
                 </div>
+                {routeCategory==="nearby" && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">Distance: {o.routeDistanceKm==null?"Not calculated":Number(o.routeDistanceKm).toFixed(1)+" km"} · Threshold: {o.nearbyThresholdKm??15} km. Use direct final delivery only when the order is configured for warehouse-to-customer delivery.</div>}
+                {routeNeedsReview && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Route dispatch is blocked: coordinates or district details are missing. Correct the farm/customer location and refresh before selecting a route.</div>}
                 <div className="flex flex-wrap gap-2">
                   {!multi && !interDistrict && <>
                     {incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
                     {incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store / Hold Packed Shipment</Button>)}
-                    <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={!receiptComplete || !["received","stored"].every((s:string)=>incomingRows.some((x:any)=>["received","stored"].includes(x.status))) || ["hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>
+                    <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={routeNeedsReview || !receiptComplete || !["received","stored"].every((s:string)=>incomingRows.some((x:any)=>["received","stored"].includes(x.status))) || ["hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Plan / Transfer to Local Hub</Button>
+                    {transferStatus==="hub_handoff_pending" && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Pickup team"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" variant="outline" disabled={!selectedTeams[o.id]||assigningOrder===o.id} onClick={()=>assignPickupTeam(o.id,"hub")}>{assigningOrder===o.id?"Assigning…":"Assign Pickup Team"}</Button></div>}
                     {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
                   </>}
                   {interDistrict && <>
                     {sourceRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
                     {sourceRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Shipment</Button>)}
-                    {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={!receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Dispatch to Destination</Button>}
+                    {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={routeNeedsReview || !receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Plan Route / Create Destination Transfer</Button>}
+                    {sourceRole && transferStatus==="destination_warehouse_in_transit" && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Pickup team"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" variant="outline" disabled={!selectedTeams[o.id]||assigningOrder===o.id} onClick={()=>assignPickupTeam(o.id,"destination")}>{assigningOrder===o.id?"Assigning…":"Assign Transfer Team"}</Button></div>}
                     {destinationRole && <Button size="sm" onClick={()=>receiveDestination(o.id)} disabled={transferStatus !== "destination_warehouse_in_transit"}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
                     {destinationRole && <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={transferStatus !== "destination_warehouse_received"}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
                     {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
