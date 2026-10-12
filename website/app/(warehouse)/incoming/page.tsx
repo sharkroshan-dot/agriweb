@@ -325,7 +325,7 @@ export default function WarehouseIncomingPage() {
           const canReceiveAllBulk = !packedFarmerGroup && eligibleToReceive.length > 0;
           const allPackedOrdersReceived = packedFarmerGroup && farmItems.every((row: any) => row.status === "received" || row.status === "stored");
           const farmHasConsolidation = farmItems.some((row: any) =>
-            Boolean(row.consolidationId || row.consolidationGroupId || row.isMultiWarehouseConsolidation === true || row.fulfillmentPurpose === "event_bulk")
+            Boolean(row.consolidationId || row.consolidationGroupId || row.isMultiWarehouseConsolidation === true)
           );
           const farmContinueHref = farmHasConsolidation ? "/warehouse/multi-warehouse-consolidation" : "/warehouse/farmer-fulfillment";
           const confirmAllPackets = async () => {
@@ -356,8 +356,7 @@ export default function WarehouseIncomingPage() {
           const requiresConsolidation = Boolean(
             item.consolidationId ||
             item.consolidationGroupId ||
-            item.isMultiWarehouseConsolidation === true ||
-            item.fulfillmentPurpose === "event_bulk"
+            item.isMultiWarehouseConsolidation === true
           );
           // Use the actual warehouse sidebar routes (the (warehouse) route group
           // does not add a URL segment, but the nested /warehouse page does).
