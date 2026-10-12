@@ -1045,20 +1045,50 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
     order_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Explicitly link a physically received packed farm order to this warehouse."""
+    """Resolve source warehouse assignment and ensure packed farm pickup records exist.
+
+    This action never confirms receipt. If no incoming shipment exists, it creates
+    scheduled packed-transfer lines and farm collection jobs; physical receipt
+    must still be confirmed from Incoming Stock.
+    """
     if current_user.get("role") != "warehouse":
-        raise HTTPException(status_code=403, detail="Only warehouse managers can assign a source warehouse")
+        raise HTTPException(status_code=403, detail="Only warehouse managers can resolve source warehouse assignment")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid order ID")
+
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     order = await order_repository.get_by_id(order_id)
     if not warehouse or not order:
         raise HTTPException(status_code=404, detail="Order or warehouse not found")
     if str(order.get("orderStatus") or order.get("status") or "").lower() in {"delivered", "completed", "cancelled", "refunded"}:
         raise HTTPException(status_code=409, detail="Completed or cancelled orders cannot be assigned")
+    fulfillment_method = str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").strip().lower()
+    decision = str(order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or "").strip().lower()
+    mode = str(order.get("logisticsMode") or "").strip().lower()
+    if fulfillment_method not in {"farmer", "farm_direct"} and decision not in {"nearby", "long_distance"} and mode not in {
+        "farmer_to_delivery_partner", "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+        "long_distance_pending",
+    }:
+        raise HTTPException(status_code=409, detail="This order is not marked for Farmer Fulfillment transfer")
+    if not order.get("items"):
+        raise HTTPException(status_code=409, detail="The packed order has no item lines to assign")
+
+    warehouse_id = str(warehouse["_id"])
+    warehouse_status = str(warehouse.get("status") or "").strip().lower()
+    if warehouse.get("isActive") is False or (warehouse_status and warehouse_status not in {"active", "approved", "operational"}):
+        raise HTTPException(status_code=409, detail="Your warehouse is not active. Activate it before assigning packed orders.")
+    if not warehouse.get("location") and not warehouse.get("coordinates"):
+        raise HTTPException(status_code=409, detail="Configure this warehouse's map location before assigning source shipments.")
+
+    # Never reassign a shipment that already belongs to another warehouse.
+    assigned_source = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    if assigned_source and assigned_source != warehouse_id:
+        raise HTTPException(status_code=409, detail=f"This order is already assigned to another source warehouse ({assigned_source}).")
+
     incoming_rows = await incoming_stock_repository.find_many({
         "orderId": {"$in": [ObjectId(order_id), order_id]},
-        "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
+        "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
         "deletedAt": None,
     }, skip=0, limit=1000)
     packed_rows = [row for row in incoming_rows if (
@@ -1067,36 +1097,143 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
         or str(row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
         or bool(row.get("orderId") and row.get("pickupRouteId"))
     )]
-    if not packed_rows:
-        raise HTTPException(status_code=409, detail="No packed Farmer Fulfillment receipt is linked to this order at your warehouse. Confirm Farm Collection and receipt first.")
-    def receipt_complete(row: dict) -> bool:
-        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
-        received = row.get("quantityReceived", row.get("receivedQuantity"))
-        if received is None and str(row.get("status") or "").lower() in {"received", "stored"}:
-            received = expected
-        return str(row.get("status") or "").lower() in {"received", "stored"} and bool(row.get("arrivedWarehouseAt") or row.get("receivedAt") or row.get("received_at")) and float(received or 0) + 1e-9 >= expected
-    if any(not receipt_complete(row) for row in packed_rows):
-        raise HTTPException(status_code=409, detail="Confirm the full physical quantity in Incoming Stock before assigning this order")
+
     now = datetime.utcnow()
-    delivery_decision = str(order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or "").strip().lower()
-    logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner" if delivery_decision == "nearby" else "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+    if packed_rows:
+        # Recovery of a legacy order is allowed only after its complete physical
+        # receipt is recorded. A pending shipment is reconciled below instead.
+        def receipt_complete(row: dict) -> bool:
+            expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+            received = row.get("quantityReceived", row.get("receivedQuantity"))
+            if received is None and str(row.get("status") or "").lower() in {"received", "stored"}:
+                received = expected
+            has_receipt_time = bool(row.get("arrivedWarehouseAt") or row.get("receivedAt") or row.get("received_at"))
+            return str(row.get("status") or "").lower() in {"received", "stored"} and has_receipt_time and float(received or 0) + 1e-9 >= expected
+        if any(not receipt_complete(row) for row in packed_rows):
+            # The assignment is already represented by an incoming record. Do not
+            # create a duplicate; let Incoming Stock finish physical receiving.
+            return {
+                "success": True,
+                "data": {"orderId": order_id, "warehouseId": warehouse_id, "incomingCount": len(packed_rows), "receiptPending": True},
+                "message": "Source warehouse and packed pickup records already exist. Complete physical receipt in Incoming Stock before routing.",
+            }
+    else:
+        # Capacity is a hard requirement: a warehouse with missing/zero capacity
+        # must not silently act as an unlimited fallback.
+        total_capacity = float(warehouse.get("totalCapacity") or 0)
+        used_capacity = float(warehouse.get("usedCapacity") or 0)
+        required_capacity = sum(float(line.get("quantity") or 0) for line in order.get("items") or [])
+        if required_capacity <= 0:
+            raise HTTPException(status_code=409, detail="The order has no positive packed quantity.")
+        if total_capacity <= 0:
+            raise HTTPException(status_code=409, detail="Configure a positive total capacity for this warehouse before assigning orders.")
+        if total_capacity - used_capacity + 1e-9 < required_capacity:
+            raise HTTPException(status_code=409, detail=f"Insufficient warehouse capacity. Available: {max(0, total_capacity-used_capacity):g}; required: {required_capacity:g}.")
+
+        # Use the saved farm/pickup snapshot first; fall back to the farmer profile
+        # so a missing order snapshot doesn't invent a farm location.
+        farm_location = (
+            order.get("farmLocation") or order.get("originLocation")
+            or order.get("pickupLocation") or order.get("farmerLocation")
+        )
+        farmer_id = str(order.get("farmerId") or "")
+        farmer = None
+        if not farm_location and farmer_id and ObjectId.is_valid(farmer_id):
+            farmer = await farmer_repository.get_by_id(farmer_id)
+            if farmer:
+                farm_location = farmer.get("location") or farmer.get("farmLocation") or farmer.get("address")
+        if not farm_location:
+            raise HTTPException(status_code=409, detail="Farm pickup location is missing. Add the farmer's verified address or coordinates before creating a pickup job.")
+
+        def has_coordinates(value: Any) -> bool:
+            if not isinstance(value, dict):
+                return False
+            coords = value.get("coordinates")
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    return -180 <= float(coords[0]) <= 180 and -90 <= float(coords[1]) <= 90
+                except (TypeError, ValueError):
+                    return False
+            lat = value.get("latitude", value.get("lat"))
+            lon = value.get("longitude", value.get("lng", value.get("lon")))
+            try:
+                return -90 <= float(lat) <= 90 and -180 <= float(lon) <= 180
+            except (TypeError, ValueError):
+                return False
+        if not has_coordinates(farm_location):
+            raise HTTPException(status_code=409, detail="Farm pickup coordinates are missing or invalid. Save a verified farm pin before assigning the warehouse.")
+
+        # Create one scheduled Incoming Stock line per packed order item. This is
+        # a pickup/receipt record only: no receipt timestamp, quantityReceived,
+        # quality approval, storage or warehouse packing is fabricated.
+        created_rows = []
+        for line in order.get("items") or []:
+            quantity = float(line.get("quantity") or 0)
+            if quantity <= 0:
+                continue
+            incoming_doc = {
+                "warehouseId": ObjectId(warehouse_id),
+                "orderId": ObjectId(order_id),
+                "orderNumber": order.get("orderNumber"),
+                "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                "productId": ObjectId(str(line.get("productId"))) if ObjectId.is_valid(str(line.get("productId") or "")) else line.get("productId"),
+                "variantId": ObjectId(str(line.get("variantId"))) if ObjectId.is_valid(str(line.get("variantId") or "")) else line.get("variantId"),
+                "productName": line.get("productName") or line.get("name") or "Product",
+                "quantity": quantity,
+                "expectedQuantity": quantity,
+                "unit": line.get("unit") or "kg",
+                "sourceMode": "farmer_fulfillment_transfer",
+                "collectionType": "packed_orders_transfer",
+                "fulfillmentType": "farmer_fulfillment",
+                "packingRequired": False,
+                "warehousePackingRequired": False,
+                "packingVerified": True,
+                "readyForPickup": True,
+                "pickupLocation": farm_location,
+                "farmLocation": farm_location,
+                "status": "scheduled",
+                "quantityReceived": 0,
+                "qualityCheck": "pending",
+                "createdAt": now,
+                "updatedAt": now,
+                "deletedAt": None,
+            }
+            incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
+            if not incoming_id:
+                raise HTTPException(status_code=500, detail="Could not create the packed shipment's Incoming Stock record.")
+            incoming_doc["_id"] = ObjectId(str(incoming_id))
+            created_rows.append(incoming_doc)
+            await ensure_collection_job(incoming_doc, collection_type="packed_orders_transfer", source_mode="farmer_fulfillment_transfer")
+
+        if not created_rows:
+            raise HTTPException(status_code=409, detail="No valid packed item quantities were available to create pickup records.")
+
+    logistics_mode = (
+        "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+        if decision == "nearby"
+        else "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+    )
     await order_repository.update({"_id": ObjectId(order_id)}, {
-        "warehouseId": ObjectId(str(warehouse["_id"])),
-        "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
+        "warehouseId": ObjectId(warehouse_id),
+        "sourceWarehouseId": ObjectId(warehouse_id),
         "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
-        "sourceWarehouseLocation": warehouse.get("location"),
+        "sourceWarehouseLocation": warehouse.get("location") or warehouse.get("coordinates"),
         "logisticsMode": logistics_mode,
-        "warehouseFulfillmentStage": "received_transfer",
+        "warehouseFulfillmentStage": "awaiting_warehouse_receipt",
         "updatedAt": now,
     })
     await order_repository.append_tracking_event(
-        order_id, "farmer_fulfillment_source_warehouse_recovered",
-        "Packed order linked to source warehouse",
-        "Warehouse assignment was recovered from the physically received packed-order receipt.",
+        order_id, "farmer_fulfillment_source_warehouse_assigned",
+        "Packed order assigned to source warehouse",
+        "Source warehouse assignment and packed pickup/receipt records were reconciled. Physical receipt remains pending in Incoming Stock.",
         actor_id=str(current_user["_id"]), actor_role="warehouse",
-        metadata={"warehouseId": str(warehouse["_id"])},
+        metadata={"warehouseId": warehouse_id, "incomingCount": len(packed_rows) if packed_rows else len(created_rows)},
     )
-    return {"success": True, "message": "Source warehouse assigned from the verified packed receipt. Refresh transfers to classify the route."}
+    return {
+        "success": True,
+        "data": {"orderId": order_id, "warehouseId": warehouse_id, "warehouseName": warehouse.get("name") or warehouse.get("warehouseName"), "incomingCount": len(packed_rows) if packed_rows else len(created_rows), "receiptPending": True},
+        "message": "Source warehouse assigned and packed pickup records ensured. Complete physical receipt in Incoming Stock before routing.",
+    }
 
 
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-local-hub")
