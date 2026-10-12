@@ -562,10 +562,13 @@ async def get_farmer_fulfillment_transfers(
             or len(order.get("warehouseAllocations") or []) > 1
             or len(order.get("warehouseIds") or []) > 1
         )
-        is_allocated_source_warehouse = any(
-            str(allocation.get("warehouseId") or "") == warehouse_id
-            for allocation in (order.get("warehouseAllocations") or [])
-            if isinstance(allocation, dict)
+        is_allocated_source_warehouse = (
+            any(
+                str(allocation.get("warehouseId") or "") == warehouse_id
+                for allocation in (order.get("warehouseAllocations") or [])
+                if isinstance(allocation, dict)
+            )
+            or any(str(assigned_id) == warehouse_id for assigned_id in (order.get("warehouseIds") or []))
         )
         is_source_warehouse = bool(source_warehouse_id and source_warehouse_id == warehouse_id) or is_allocated_source_warehouse
         consolidation = {
@@ -881,8 +884,8 @@ async def get_farmer_fulfillment_transfers(
             "farmerFulfillmentRouteType": order.get("farmerFulfillmentRouteType"),
             "sourceDistrict": order.get("sourceDistrict"),
             "destinationDistrict": order.get("destinationDistrict"),
-            "sourceWarehouseId": source_warehouse_id or None,
-            "sourceWarehouseName": order.get("sourceWarehouseName") or (order.get("warehouseName") if is_source_warehouse else None),
+            "sourceWarehouseId": (warehouse_id if is_allocated_source_warehouse else source_warehouse_id) or None,
+            "sourceWarehouseName": order.get("sourceWarehouseName") or (order.get("warehouseName") if is_source_warehouse and not is_allocated_source_warehouse else (warehouse.get("name") or warehouse.get("warehouseName") if is_allocated_source_warehouse else None)),
             "destinationWarehouseId": destination_warehouse_id or None,
             "destinationWarehouseName": order.get("destinationWarehouseName"),
             "currentWarehouseRole": "destination" if is_destination_warehouse else ("source" if is_source_warehouse else ("consolidation" if is_consolidation_warehouse else "assigned")) ,
@@ -986,6 +989,7 @@ async def get_farmer_fulfillment_transfers(
                     "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+                    "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
                     "long_distance_pending",
                 ]}},
             ]},
