@@ -815,9 +815,7 @@ async def get_farmer_fulfillment_transfers(
             route_category = "same_district" if source_district == destination_district else "inter_district"
         else:
             route_category = "needs_location"
-        if route_category == "nearby":
-            route_type = "nearby"
-        elif route_category in ("same_district", "inter_district"):
+        if route_category in ("nearby", "same_district", "inter_district", "multi_warehouse"):
             route_type = route_category
         else:
             # Preserve a previously saved, explicit decision as a hint only; the
