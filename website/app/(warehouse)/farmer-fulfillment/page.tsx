@@ -233,6 +233,7 @@ export default function FarmerFulfillmentWarehousePage() {
             <ol className="space-y-2 text-sm">
               {["Receive and verify at the source warehouse","Assign a destination warehouse and transfer pickup team","Destination confirms physical receipt","Transfer the complete order to the local hub","Confirm hub receipt; one final delivery job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">{i+1}</span><span>{step}</span></li>)}
             </ol>
+            <p className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-900">Multi-warehouse exception: receive each allocated sealed portion at its source, dispatch every portion to consolidation, confirm all portions arrived, then send the consolidated order to the local hub. Only one final delivery job is created.</p>
           </CardContent>
         </Card>
       </div>
