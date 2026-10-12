@@ -506,6 +506,9 @@ async def get_farmer_fulfillment_transfers(
         packed_receipt = (
             str(incoming_row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
             or incoming_row.get("packingRequired") is False
+            or str(incoming_row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+            or str(incoming_row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
+            or str(incoming_row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
         )
         is_farmer_transfer = (
             linked_method in ("farmer", "farm_direct")
