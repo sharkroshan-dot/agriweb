@@ -1053,6 +1053,65 @@ async def get_farmer_fulfillment_transfers(
 
 
 
+@router.post("/me/farmer-fulfillment/{order_id}/recover-source-warehouse")
+async def recover_packed_farmer_fulfillment_source_warehouse(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Explicitly link a physically received packed farm order to this warehouse."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign a source warehouse")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("orderStatus") or order.get("status") or "").lower() in {"delivered", "completed", "cancelled", "refunded"}:
+        raise HTTPException(status_code=409, detail="Completed or cancelled orders cannot be assigned")
+    incoming_rows = await incoming_stock_repository.find_many({
+        "orderId": {"$in": [ObjectId(order_id), order_id]},
+        "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
+        "deletedAt": None,
+    }, skip=0, limit=1000)
+    packed_rows = [row for row in incoming_rows if (
+        str(row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+        or row.get("packingRequired") is False
+        or str(row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+        or bool(row.get("orderId") and row.get("pickupRouteId"))
+    )]
+    if not packed_rows:
+        raise HTTPException(status_code=409, detail="No packed Farmer Fulfillment receipt is linked to this order at your warehouse. Confirm Farm Collection and receipt first.")
+    def receipt_complete(row: dict) -> bool:
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        received = row.get("quantityReceived", row.get("receivedQuantity"))
+        if received is None and str(row.get("status") or "").lower() in {"received", "stored"}:
+            received = expected
+        return str(row.get("status") or "").lower() in {"received", "stored"} and bool(row.get("arrivedWarehouseAt") or row.get("receivedAt") or row.get("received_at")) and float(received or 0) + 1e-9 >= expected
+    if any(not receipt_complete(row) for row in packed_rows):
+        raise HTTPException(status_code=409, detail="Confirm the full physical quantity in Incoming Stock before assigning this order")
+    now = datetime.utcnow()
+    delivery_decision = str(order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or "").strip().lower()
+    logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner" if delivery_decision == "nearby" else "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "warehouseId": ObjectId(str(warehouse["_id"])),
+        "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
+        "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
+        "sourceWarehouseLocation": warehouse.get("location"),
+        "logisticsMode": logistics_mode,
+        "warehouseFulfillmentStage": "received_transfer",
+        "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id, "farmer_fulfillment_source_warehouse_recovered",
+        "Packed order linked to source warehouse",
+        "Warehouse assignment was recovered from the physically received packed-order receipt.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"warehouseId": str(warehouse["_id"])},
+    )
+    return {"success": True, "message": "Source warehouse assigned from the verified packed receipt. Refresh transfers to classify the route."}
+
+
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-local-hub")
 async def dispatch_single_farmer_fulfillment_to_local_hub(
     order_id: str,
