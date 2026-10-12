@@ -64,6 +64,9 @@ export default function FarmerFulfillmentWarehousePage() {
   };
   const transfersRaw=data?.data?.transfers||[];
   const transfers=[...transfersRaw].sort((a:any,b:any)=>(routeOrder[a.routeCategory]??4)-(routeOrder[b.routeCategory]??4));
+  // Only fully received orders with verified routing belong in actionable queues.
+  const eligibleTransfers=transfers.filter((o:any)=>o.physicalReceiptConfirmed && o.routeDataComplete && o.routeCategory!=="needs_location" && o.currentWarehouseRole!=="assigned" && !String(o.logisticsMode||"").includes("multiple_warehouses"));
+  const waitingTransfers=transfers.filter((o:any)=>!eligibleTransfers.some((ready:any)=>ready.id===o.id));
   const {data:consolidationData,refetch:refetchConsolidations}=useQuery({
     queryKey:["farmerFulfillmentConsolidations"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),
@@ -187,11 +190,11 @@ export default function FarmerFulfillmentWarehousePage() {
     <section className="space-y-3">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div><h2 className="text-xl font-bold">Automatic distance routing</h2><p className="text-sm text-muted-foreground">Default threshold: 15 km. A configured order/warehouse threshold overrides the default.</p></div>
-        <Badge variant="outline">{transfers.filter((o:any)=>o.physicalReceiptConfirmed).length} receipt-confirmed orders in workflow</Badge>
+        <Badge variant="outline">{eligibleTransfers.length} eligible received orders</Badge>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {(["nearby","same_district","inter_district","needs_location"] as const).map((category) => {
-          const rows=transfers.filter((o:any)=>o.routeCategory===category);
+          const rows=eligibleTransfers.filter((o:any)=>o.routeCategory===category);
           return <Card key={category} className={category==="needs_location"?"border-amber-300 bg-amber-50/40":"border-slate-200"}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{routeLabels[category]}</h3><Badge variant={category==="needs_location"?"outline":"secondary"}>{rows.length}</Badge></div>
@@ -215,7 +218,7 @@ export default function FarmerFulfillmentWarehousePage() {
 
     {isLoading?<div className="h-32 animate-pulse rounded-xl bg-muted"/>:transfers.length===0?
       <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No farmer-packed transfers</h3><p className="mt-2 text-sm text-muted-foreground">Long-distance farmer fulfillment orders routed through this warehouse will appear here.</p></Card>:
-      <div className="space-y-4">{transfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || transfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
+      <div className="space-y-4">{eligibleTransfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || eligibleTransfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber}</h3><Badge variant="outline">{STAGES[o.stage]||o.stage}</Badge><Badge variant="secondary">Farmer Packed</Badge></div>
@@ -232,7 +235,7 @@ export default function FarmerFulfillmentWarehousePage() {
               const multi = mode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ||
                 mode.includes("multiple_warehouses") || Number(o.warehouseCount || 0) > 1 ||
                 (Array.isArray(o.warehouseAllocations) && o.warehouseAllocations.length > 1);
-              const interDistrict = !multi && (mode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" ||
+              const interDistrict = !multi && (o.routeCategory==="inter_district" || mode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" ||
                 mode.includes("destination_warehouse") || Boolean(o.destinationWarehouseId));
               const sameDistrict = !multi && !interDistrict && (
                 mode === "farmer_to_warehouse_to_local_hub_to_delivery_partner" ||
@@ -319,5 +322,20 @@ export default function FarmerFulfillmentWarehousePage() {
           </div>
         </div>
       </CardContent></Card></>)}</div>}
+    {waitingTransfers.length>0 && <section className="space-y-3">
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <h2 className="font-semibold text-amber-950">Waiting for Receipt or Warehouse Assignment</h2>
+        <p className="mt-1 text-sm text-amber-900">These orders are not yet eligible for route processing. Confirm full physical receipt in Incoming Stock, assign a source warehouse, or resolve missing location data first.</p>
+        <Badge variant="outline" className="mt-2">{waitingTransfers.length} order(s)</Badge>
+      </div>
+      {waitingTransfers.map((o:any)=><Card key={o.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber||o.id}</h3><Badge variant="outline">{o.currentWarehouseRole==="assigned"?"Awaiting Warehouse Assignment":o.physicalReceiptConfirmed?"Needs Location Data":"Awaiting Physical Receipt"}</Badge></div>
+          <p className="mt-1 text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {o.items?.length||0} allocated line(s)</p>
+          <p className="mt-1 text-xs text-muted-foreground">{o.currentWarehouseRole==="assigned"?"No source warehouse is assigned to this order.":!o.physicalReceiptConfirmed?"Complete Incoming Stock receipt before routing.":"Add verified farm/customer coordinates or district details before dispatch."}</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={()=>{window.location.href="/incoming";}}>Open Incoming Stock</Button>
+      </CardContent></Card>)}
+    </section>}
   </div>;
 }
