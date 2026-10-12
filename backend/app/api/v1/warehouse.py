@@ -1254,7 +1254,75 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         raise HTTPException(status_code=400, detail="The selected delivery partner profile is incomplete")
     if order.get("deliveryPartnerId") and str(order.get("deliveryPartnerId")) != profile_id:
         raise HTTPException(status_code=409, detail="A final delivery partner is already assigned to this order")
+    # A partner assignment must create/update the delivery marketplace job as well
+    # as the order field; otherwise the order can look assigned in the warehouse UI
+    # but never appear in the partner's actionable queue.
+    source = warehouse.get("location") or order.get("currentFulfillmentLocation") or order.get("originLocation") or {}
+    source_coords = source.get("coordinates") if isinstance(source, dict) else None
+    if not source_coords or len(source_coords) < 2:
+        lat = source.get("lat", source.get("latitude")) if isinstance(source, dict) else None
+        lng = source.get("lng", source.get("longitude")) if isinstance(source, dict) else None
+        if lat is not None and lng is not None:
+            source_coords = [float(lng), float(lat)]
+    address = order.get("deliveryAddress") or {}
+    destination = address.get("location") or address.get("deliveryLocation") or {}
+    destination_coords = destination.get("coordinates") if isinstance(destination, dict) else None
+    if not destination_coords or len(destination_coords) < 2:
+        lat = address.get("lat", address.get("latitude"))
+        lng = address.get("lng", address.get("longitude"))
+        if lat is not None and lng is not None:
+            destination_coords = [float(lng), float(lat)]
+    if not source_coords or len(source_coords) < 2 or not destination_coords or len(destination_coords) < 2:
+        raise HTTPException(status_code=409, detail="Warehouse pickup and customer delivery coordinates are required before creating the final delivery job")
+    pickup = {
+        "type": "warehouse",
+        "id": warehouse_id,
+        "name": warehouse.get("name") or "Source Warehouse",
+        "address": source.get("address") or warehouse.get("address") or "",
+        "coordinates": [float(source_coords[0]), float(source_coords[1])],
+    }
+    patched_order = dict(order)
+    patched_order["deliveryPickupLocation"] = pickup
+    patched_order.pop("nearbyFulfillmentLocation", None)
+    patched_order.pop("nearbyFulfillmentLocationId", None)
+    distance_km = _haversine_km(float(source_coords[1]), float(source_coords[0]), float(destination_coords[1]), float(destination_coords[0]))
+    existing_job = await delivery_job_repository.get_by_order_id(order_id)
+    if existing_job:
+        job_id = str(existing_job["_id"])
+        await delivery_job_repository.collection.update_one(
+            {"_id": existing_job["_id"], "deletedAt": None},
+            {"$set": {
+                "jobType": "farmer_fulfillment_nearby_delivery",
+                "deliveryPickupLocation": pickup,
+                "pickupLocation": pickup,
+                "eligiblePartnerIds": [ObjectId(profile_id)],
+                "assignedPartnerId": ObjectId(profile_id),
+                "assignedPartnerUserId": ObjectId(user_id),
+                "status": "open",
+                "updatedAt": datetime.utcnow(),
+            }},
+        )
+    else:
+        job_doc = build_job_document(patched_order, {
+            "name": pickup["name"], "address": pickup["address"],
+            "lat": float(source_coords[1]), "lng": float(source_coords[0]),
+        }, distance_km, eligible_partner_ids=[profile_id])
+        job_doc.update({
+            "jobType": "farmer_fulfillment_nearby_delivery",
+            "deliveryPickupLocation": pickup,
+            "pickupLocation": pickup,
+            "eligiblePartnerIds": [ObjectId(profile_id)],
+            "assignedPartnerId": ObjectId(profile_id),
+            "assignedPartnerUserId": ObjectId(user_id),
+            "sourceWarehouseId": ObjectId(warehouse_id),
+            "status": "open",
+            "singleFinalDelivery": True,
+        })
+        job_id = await delivery_job_repository.create_job(job_doc)
+        if not job_id:
+            raise HTTPException(status_code=409, detail="Could not create a delivery-partner job for this Nearby order")
     if not await order_repository.assign_delivery_partner(order_id, profile_id):
+        # The marketplace job is idempotent by order; retrying can safely reuse it.
         raise HTTPException(status_code=409, detail="The delivery partner could not be assigned; refresh and retry")
     now = datetime.utcnow()
     await order_repository.update({"_id": ObjectId(order_id)}, {
@@ -1263,6 +1331,10 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         "deliveryResponsibility": "delivery_partner",
         "deliveryAssignedAt": now,
         "deliveryAssignedBy": ObjectId(str(current_user["_id"])),
+        "deliveryPartnerJobId": ObjectId(job_id),
+        "deliveryPickupLocation": pickup,
+        "deliveryDecisionStatus": "partner_pending",
+        "partnerAssignmentOpen": False,
         "updatedAt": now,
     })
     try:
@@ -1271,11 +1343,24 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
             user = await UserService.get_user_by_id(str(partner.get("userId") or user_id))
             if user:
                 await order_repository.update_order_field(order_id, "deliveryPartnerName", f"{user.get('firstName', '')} {user.get('lastName', '')}".strip())
-        await NotificationService.send_custom_notification(user_id, f"Nearby Farmer Fulfillment order {order.get('orderNumber') or order_id} is assigned to you for final delivery.", title="Final Delivery Assigned", data={"type": "farmer_fulfillment_final_delivery", "orderId": order_id})
+        await NotificationService.send_custom_notification(user_id, f"Nearby Farmer Fulfillment order {order.get('orderNumber') or order_id} is assigned to you for final delivery.", title="Final Delivery Assigned", data={"type": "farmer_fulfillment_final_delivery", "jobId": job_id, "orderId": order_id})
     except Exception:
         logger.exception("Unable to complete final delivery partner notification/enrichment")
-    await order_repository.append_tracking_event(order_id, "final_delivery_partner_assigned", "Final delivery partner assigned", "The fully received Nearby order has been assigned to one approved final-mile delivery partner.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"deliveryPartnerId": profile_id})
-    return {"success": True, "data": {"orderId": order_id, "deliveryPartnerId": profile_id}, "message": "Final delivery partner assigned"}
+    await order_repository.append_tracking_event(order_id, "final_delivery_partner_assigned", "Final delivery partner assigned", "The fully received Nearby order has a delivery job at the source warehouse and is assigned to one approved final-mile delivery partner.", actor_id=str(current_user["_id"]), actor_role="warehouse", metadata={"deliveryPartnerId": profile_id, "deliveryJobId": job_id, "pickupLocation": pickup})
+    try:
+        refreshed_order = await order_repository.get_by_id(order_id)
+        if refreshed_order:
+            await NotificationService.send_order_workflow_update(
+                refreshed_order,
+                stage="nearby_final_delivery_assigned",
+                title=f"Order #{order.get('orderNumber') or order_id}: final delivery assigned",
+                message="A delivery partner has been assigned and the order is ready for final-mile pickup at the source warehouse.",
+                actor_role="warehouse",
+                priority=NotificationPriority.HIGH,
+            )
+    except Exception:
+        logger.exception("Unable to notify order participants after Nearby final delivery assignment")
+    return {"success": True, "data": {"orderId": order_id, "deliveryPartnerId": profile_id, "deliveryJobId": job_id, "pickupLocation": pickup}, "message": "Final delivery partner and delivery job assigned"}
 
 
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-destination")
