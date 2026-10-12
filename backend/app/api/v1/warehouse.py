@@ -1578,11 +1578,27 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
     source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
     if source_id != warehouse_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can assign this order's final-mile partner")
-    route_type = str(order.get("farmerFulfillmentRouteType") or order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or order.get("routeCategory") or "").strip().lower()
-    if route_type not in ("nearby", "direct", "farmer_to_delivery_partner") and str(order.get("logisticsMode") or "") != "farmer_to_delivery_partner":
-        raise HTTPException(status_code=409, detail="Only orders classified for Nearby direct delivery can use this action")
-    if str(order.get("deliveryType") or "").lower() == "pickup":
+    logistics_mode = str(order.get("logisticsMode") or "").strip().lower()
+    direct_modes = {
+        logistics_mode,
+        str(order.get("deliveryMode") or "").strip().lower(),
+        str(order.get("fulfillmentMode") or "").strip().lower(),
+        str(order.get("deliveryRoute") or "").strip().lower(),
+    }
+    direct_delivery_configured = (
+        "farmer_to_delivery_partner" in direct_modes
+        or bool(direct_modes.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"}))
+    )
+    if not direct_delivery_configured:
+        raise HTTPException(status_code=409, detail="This order is not configured for direct warehouse-to-customer delivery. Use the local-hub or destination-warehouse route instead.")
+    if str(order.get("deliveryType") or "").strip().lower() == "pickup":
         raise HTTPException(status_code=409, detail="Customer-pickup orders cannot be assigned a delivery partner")
+    if str(order.get("orderStatus") or order.get("status") or "").strip().lower() in ("cancelled", "canceled", "refunded", "delivered", "completed"):
+        raise HTTPException(status_code=409, detail="A cancelled or completed order cannot be assigned for final delivery")
+    if str(order.get("deliveryPartnerJobId") or "").strip():
+        existing_assigned_partner = str(order.get("deliveryPartnerId") or "")
+        if existing_assigned_partner and existing_assigned_partner != deliveryPartnerId:
+            raise HTTPException(status_code=409, detail="A different final delivery partner is already assigned to this order")
     incoming = await incoming_stock_repository.find_many({
         "orderId": ObjectId(order_id),
         "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
@@ -1642,7 +1658,10 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
     patched_order["deliveryPickupLocation"] = pickup
     patched_order.pop("nearbyFulfillmentLocation", None)
     patched_order.pop("nearbyFulfillmentLocationId", None)
-    distance_km = _haversine_km(float(source_coords[1]), float(source_coords[0]), float(destination_coords[1]), float(destination_coords[0]))
+    route_distance_km = _haversine_km(float(source_coords[1]), float(source_coords[0]), float(destination_coords[1]), float(destination_coords[0]))
+    threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    if route_distance_km > threshold_km:
+        raise HTTPException(status_code=409, detail=f"This order is {route_distance_km:.1f} km away, beyond the {threshold_km:g} km Nearby threshold. Use warehouse fulfillment routing instead.")
     existing_job = await delivery_job_repository.get_by_order_id(order_id)
     if existing_job:
         job_id = str(existing_job["_id"])
@@ -1663,7 +1682,7 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         job_doc = build_job_document(patched_order, {
             "name": pickup["name"], "address": pickup["address"],
             "lat": float(source_coords[1]), "lng": float(source_coords[0]),
-        }, distance_km, eligible_partner_ids=[profile_id])
+        }, route_distance_km, eligible_partner_ids=[profile_id])
         job_doc.update({
             "jobType": "farmer_fulfillment_nearby_delivery",
             "deliveryPickupLocation": pickup,
