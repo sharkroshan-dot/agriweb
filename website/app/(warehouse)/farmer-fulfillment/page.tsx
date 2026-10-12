@@ -70,7 +70,11 @@ export default function FarmerFulfillmentWarehousePage() {
   const transfers=[...transfersRaw].sort((a:any,b:any)=>(routeOrder[a.routeCategory]??4)-(routeOrder[b.routeCategory]??4));
   // Only fully received orders with verified routing belong in actionable queues.
   const eligibleTransfers=transfers.filter((o:any)=>o.physicalReceiptConfirmed && o.routeDataComplete && o.routeCategory!=="needs_location" && o.currentWarehouseRole!=="assigned");
-  const waitingTransfers=transfers.filter((o:any)=>!eligibleTransfers.some((ready:any)=>ready.id===o.id));
+  // Consolidation warehouses must see inbound legs before receipt, but those
+  // orders must not inflate the fully-received route-planning count.
+  const inboundConsolidationTransfers=transfers.filter((o:any)=>o.isConsolidationWarehouse && Number(o.consolidation?.inTransitLegs||0)>0 && o.routeDataComplete);
+  const visibleTransfers=[...eligibleTransfers,...inboundConsolidationTransfers.filter((o:any)=>!eligibleTransfers.some((ready:any)=>ready.id===o.id))];
+  const waitingTransfers=transfers.filter((o:any)=>!visibleTransfers.some((ready:any)=>ready.id===o.id));
   const {data:consolidationData,refetch:refetchConsolidations}=useQuery({
     queryKey:["farmerFulfillmentConsolidations"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),
@@ -269,7 +273,7 @@ export default function FarmerFulfillmentWarehousePage() {
         <div><h3 className="font-semibold">Plan transfer routes</h3><p className="text-sm text-muted-foreground">Select fully received orders in the same route category. Route manifests are created in order; each transfer still requires an approved pickup-team assignment.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="same_district")} onClick={()=>planSelectedTransfers("same_district")}>{planningRoute?"Planning…":"Plan Same-District Routes"}</Button><Button disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="inter_district")} onClick={()=>planSelectedTransfers("inter_district")}>{planningRoute?"Planning…":"Plan Inter-District Routes"}</Button></div>
       </div>
-      <div className="space-y-4">{eligibleTransfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || eligibleTransfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
+      <div className="space-y-4">{visibleTransfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || visibleTransfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber}</h3><Badge variant="outline">{STAGES[o.stage]||o.stage}</Badge><Badge variant="secondary">Farmer Packed</Badge></div>
