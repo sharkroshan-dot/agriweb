@@ -222,7 +222,7 @@ export default function FarmerFulfillmentWarehousePage() {
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {(["nearby","same_district","inter_district","needs_location"] as const).map((category) => {
-          const rows=eligibleTransfers.filter((o:any)=>o.routeCategory===category);
+          const rows=transfers.filter((o:any)=>o.routeCategory===category && !String(o.logisticsMode||"").includes("multiple_warehouses"));
           return <Card key={category} className={category==="needs_location"?"border-amber-300 bg-amber-50/40":"border-slate-200"}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{routeLabels[category]}</h3><Badge variant={category==="needs_location"?"outline":"secondary"}>{rows.length}</Badge></div>
@@ -378,7 +378,15 @@ export default function FarmerFulfillmentWarehousePage() {
           <p className="mt-1 text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {o.items?.length||0} allocated line(s)</p>
           <p className="mt-1 text-xs text-muted-foreground">{o.currentWarehouseRole==="assigned"?"No source warehouse is assigned to this order.":!o.physicalReceiptConfirmed?"Complete Incoming Stock receipt before routing.":"Add verified farm/customer coordinates or district details before dispatch."}</p>
         </div>
-        <Button size="sm" variant="outline" onClick={()=>{window.location.href="/incoming";}}>Open Incoming Stock</Button>
+        <div className="flex flex-wrap gap-2">
+          {(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-xs">
+            <span>{x.productName||"Packed order"} · expected {x.expectedQuantity} · received {x.receivedQuantity||0} · {x.status||"pending"}</span>
+            {["pending","scheduled","in_transit","ready_for_pickup"].includes(String(x.status||"").toLowerCase()) && <Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}
+            {String(x.status||"").toLowerCase()==="received" && <Button size="sm" variant="outline" onClick={()=>store(x.id)}>Store Sealed Shipment</Button>}
+            {(x.status==="rejected"||x.qualityCheck==="failed") && <Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}
+          </div>)}
+          {o.routeCategory!=="needs_location" && o.physicalReceiptConfirmed && <Badge variant="outline">Refresh to enable route actions</Badge>}
+        </div>
       </CardContent></Card>)}
     </section>}
   </div>;
