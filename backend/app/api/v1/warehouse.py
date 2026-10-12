@@ -748,7 +748,8 @@ async def get_farmer_fulfillment_transfers(
             a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
             calculated_distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
 
-        threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 10.0)
+        # Farmer Fulfillment transfer routing uses a 15 km default unless an explicit order/warehouse threshold is configured.
+        threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
         source_district = str(
             order.get("sourceDistrict") or order.get("farmerDistrict")
             or (farmer_profile or {}).get("district") or (farmer_profile or {}).get("farmDistrict")
