@@ -51,17 +51,19 @@ export default function FarmerFulfillmentWarehousePage() {
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
     refetchInterval:15000,
   });
-  const routeOrder: Record<string, number> = { nearby: 0, same_district: 1, inter_district: 2, needs_location: 3 };
+  const routeOrder: Record<string, number> = { nearby: 0, same_district: 1, inter_district: 2, multi_warehouse: 3, needs_location: 4 };
   const routeLabels: Record<string, string> = {
     nearby: "Nearby delivery",
     same_district: "Same-district warehouse → local hub",
     inter_district: "Inter-district → destination warehouse",
+    multi_warehouse: "Multi-warehouse consolidation",
     needs_location: "Needs location / route review",
   };
   const routeDescriptions: Record<string, string> = {
     nearby: "Within the configured distance threshold. Assign a final delivery partner for direct source-warehouse-to-customer delivery when eligible.",
     same_district: "Beyond the nearby threshold, with matching source and destination districts. Plan the sealed transfer to the local hub and assign a pickup team.",
     inter_district: "Beyond the nearby threshold and in a different district. Dispatch to the destination warehouse first, then continue to the local hub.",
+    multi_warehouse: "Receive each allocated sealed portion at its assigned source warehouse, transfer portions to the consolidation warehouse, then send the complete order to the local hub for one final delivery job.",
     needs_location: "Distance or district information is incomplete. Resolve the address/coordinates before dispatch; do not auto-assign a route.",
   };
   const transfersRaw=data?.data?.transfers||[];
@@ -227,9 +229,9 @@ export default function FarmerFulfillmentWarehousePage() {
         <div><h2 className="text-xl font-bold">Automatic distance routing</h2><p className="text-sm text-muted-foreground">Default threshold: 15 km. A configured order/warehouse threshold overrides the default.</p></div>
         <Badge variant="outline">{eligibleTransfers.length} eligible received orders</Badge>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {(["nearby","same_district","inter_district","needs_location"] as const).map((category) => {
-          const rows=transfers.filter((o:any)=>o.routeCategory===category && !String(o.logisticsMode||"").includes("multiple_warehouses"));
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {(["nearby","same_district","inter_district","multi_warehouse","needs_location"] as const).map((category) => {
+          const rows=transfers.filter((o:any)=>o.routeCategory===category);
           return <Card key={category} className={category==="needs_location"?"border-amber-300 bg-amber-50/40":"border-slate-200"}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{routeLabels[category]}</h3><Badge variant={category==="needs_location"?"outline":"secondary"}>{rows.length}</Badge></div>
@@ -315,7 +317,7 @@ export default function FarmerFulfillmentWarehousePage() {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Process this order</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{multi ? "Multiple warehouses → Consolidation → Local Hub → One Delivery Partner → Customer" : routeCategory==="nearby" ? "Source Warehouse → Final Delivery Partner → Customer" : interDistrict ? "Source Warehouse → Destination Warehouse → Local Hub → Final Delivery Partner → Customer" : sameDistrict ? "Source Warehouse → Local Hub → Final Delivery Partner → Customer" : "Resolve route classification before dispatch"}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{multi ? "Allocated Source Warehouses → Consolidation Warehouse → Local Hub → One Final Delivery Partner → Customer" : routeCategory==="nearby" ? "Source Warehouse → Final Delivery Partner → Customer" : interDistrict ? "Source Warehouse → Destination Warehouse → Local Hub → Final Delivery Partner → Customer" : sameDistrict ? "Source Warehouse → Local Hub → Final Delivery Partner → Customer" : "Resolve route classification before dispatch"}</p>
                   </div>
                   <Badge variant="outline">{STAGES[o.stage] || o.stage || "Awaiting warehouse action"}</Badge>
                 </div>
