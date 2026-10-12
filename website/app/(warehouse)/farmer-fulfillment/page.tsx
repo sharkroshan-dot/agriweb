@@ -85,6 +85,13 @@ export default function FarmerFulfillmentWarehousePage() {
       await refreshAll();
     }catch(e:any){toast.error(e?.message||"Return request failed");}
   };
+  const recoverSourceWarehouse=async(orderId:string)=>{
+    try{
+      await api.post(`/warehouse/me/farmer-fulfillment/${orderId}/recover-source-warehouse`);
+      toast.success("Source warehouse assigned from the received packed shipment");
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Could not assign source warehouse");}
+  };
   const receive=async(id:string,qty:number)=>{
     try {
       await api.put(`/warehouse/me/incoming/${id}/receive`,undefined,{params:{quantity:qty,quality_check:"passed",usableQuantity:qty,notes:"Farmer-packed fulfillment received at warehouse"}});
@@ -379,6 +386,7 @@ export default function FarmerFulfillmentWarehousePage() {
           <p className="mt-1 text-xs text-muted-foreground">{o.currentWarehouseRole==="assigned"?"No source warehouse is assigned to this order.":!o.physicalReceiptConfirmed?"Complete Incoming Stock receipt before routing.":"Add verified farm/customer coordinates or district details before dispatch."}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {o.isUnassigned && <Button size="sm" onClick={()=>recoverSourceWarehouse(o.id)}>Recover Source Warehouse from Receipt</Button>}
           {(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-xs">
             <span>{x.productName||"Packed order"} · expected {x.expectedQuantity} · received {x.receivedQuantity||0} · {x.status||"pending"}</span>
             {["pending","scheduled","in_transit","ready_for_pickup"].includes(String(x.status||"").toLowerCase()) && <Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}
