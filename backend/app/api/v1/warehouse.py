@@ -1723,8 +1723,16 @@ async def assign_farmer_fulfillment_destination_warehouse(
     order = await order_repository.get_by_id(order_id)
     if not source_warehouse or not order:
         raise HTTPException(status_code=404, detail="Order or warehouse not found")
-    if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
-        raise HTTPException(status_code=409, detail="Destination assignment is only for inter-district Farmer Fulfillment orders")
+    logistics_mode = str(order.get("logisticsMode") or "").strip().lower()
+    fulfillment_method = str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").strip().lower()
+    if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=409, detail="Multi-warehouse orders must use consolidation, not a single destination-warehouse transfer")
+    if fulfillment_method not in ("farmer", "farm_direct") and logistics_mode not in (
+        "farmer_to_delivery_partner",
+        "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+    ):
+        raise HTTPException(status_code=409, detail="This order is not configured for Farmer Fulfillment")
 
     source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
     if source_id != str(source_warehouse["_id"]):
@@ -1747,16 +1755,28 @@ async def assign_farmer_fulfillment_destination_warehouse(
     delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
     if not isinstance(delivery_address, dict):
         delivery_address = {}
-    customer_location = (
-        delivery_address.get("location")
-        or order.get("customerLocation")
-        or delivery_address
-    )
-    customer_district = str(
-        delivery_address.get("district")
-        or order.get("destinationDistrict")
+    customer_location = delivery_address.get("location") or order.get("customerLocation") or delivery_address
+    customer_district = str(delivery_address.get("district") or order.get("destinationDistrict") or "").strip().casefold()
+    source_district = str(
+        order.get("sourceDistrict") or order.get("farmerDistrict")
+        or source_warehouse.get("district")
+        or ((source_warehouse.get("address") or {}).get("district") if isinstance(source_warehouse.get("address"), dict) else "")
         or ""
     ).strip().casefold()
+    farmer_id = str(order.get("farmerId") or "")
+    if not source_district and farmer_id and ObjectId.is_valid(farmer_id):
+        farmer_profile = await farmer_repository.get_by_id(farmer_id)
+        if farmer_profile:
+            source_district = str(farmer_profile.get("district") or farmer_profile.get("farmDistrict") or "").strip().casefold()
+    source_location = source_warehouse.get("location") or source_warehouse.get("coordinates")
+    route_distance = distance_km(source_location, customer_location) if isinstance(customer_location, dict) else None
+    nearby_threshold = float(order.get("nearbyDeliveryThresholdKm") or source_warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    if not source_district or not customer_district:
+        raise HTTPException(status_code=409, detail="Verified source and customer districts are required before assigning an inter-district destination")
+    if source_district == customer_district:
+        raise HTTPException(status_code=409, detail="This order belongs in Same-District routing, not Inter-District routing")
+    if route_distance is not None and route_distance <= nearby_threshold:
+        raise HTTPException(status_code=409, detail=f"This order is within the {nearby_threshold:g} km Nearby threshold; use Nearby delivery instead")
     required_capacity = sum(float(item.get("quantity") or 0) for item in (order.get("items") or []))
     if required_capacity <= 0:
         raise HTTPException(status_code=409, detail="The order has no positive quantity for destination capacity validation")
@@ -1810,6 +1830,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         "destinationDistrict": destination.get("district") or destination_address.get("district") or customer_district,
         "destinationWarehouseAssignedAt": now,
         "destinationWarehouseAssignedBy": ObjectId(str(current_user["_id"])),
+        "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
         "updatedAt": now,
     })
     await order_repository.append_tracking_event(
