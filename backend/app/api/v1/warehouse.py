@@ -438,7 +438,6 @@ async def get_farmer_fulfillment_transfers(
                     "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
-                    "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
                 ]}},
             ]},
             {"$or": [
@@ -492,10 +491,12 @@ async def get_farmer_fulfillment_transfers(
                 "farmer_to_delivery_partner",
                 "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                 "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
-                "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
             )
             or str(incoming_row.get("sourceMode") or "") == "farmer_fulfillment_transfer"
         )
+        if linked_logistics == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+            # Multi-source bulk orders have their own consolidation workspace.
+            continue
         if not is_farmer_transfer or linked_status in ("delivered", "completed", "cancelled", "refunded"):
             continue
         orders.append(linked_order)
@@ -514,6 +515,9 @@ async def get_farmer_fulfillment_transfers(
             "deletedAt": None,
         }, skip=0, limit=1000)
         logistics_mode = str(order.get("logisticsMode") or "")
+        # Multi-farm bulk orders are processed exclusively in Multi-Warehouse Consolidation.
+        if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+            continue
         is_consolidation_warehouse = (
             logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
             and str(order.get("consolidationWarehouseId") or "") == warehouse_id
@@ -715,17 +719,15 @@ async def get_farmer_fulfillment_transfers(
                 {"latitude": line.get("farmLatitude"), "longitude": line.get("farmLongitude")},
                 {"latitude": line.get("latitude"), "longitude": line.get("longitude")},
             ])
-        farm_candidates = [
-            order.get("farmerLocation"), order.get("farmLocation"),
-            order.get("originLocation"), order.get("pickupLocation"),
-            order.get("farmerAddress"),
-            (farmer_profile or {}).get("farmLocation"),
-            (farmer_profile or {}).get("location"),
-            (farmer_profile or {}).get("farmAddress"),
-            *item_locations,
-        ]
-        farm_point = next((point for value in farm_candidates if (point := _coords(value))), None)
-
+        # Nearby routing is based on source-warehouse-to-customer distance, not
+        # farm-to-customer distance. Legacy generic distance fields may represent
+        # the farm leg and must not classify the warehouse delivery route.
+        source_location = (
+            order.get("sourceWarehouseLocation")
+            or (warehouse.get("location") if is_source_warehouse else None)
+            or order.get("warehouseLocation")
+        )
+        source_point = _coords(source_location)
         delivery_address = order.get("deliveryAddress") or {}
         customer_candidates = [
             delivery_address.get("location") if isinstance(delivery_address, dict) else None,
@@ -734,12 +736,8 @@ async def get_farmer_fulfillment_transfers(
         ]
         customer_point = next((point for value in customer_candidates if (point := _coords(value))), None)
 
-        calculated_distance_km = order.get("routeDistanceKm")
-        if calculated_distance_km is None:
-            calculated_distance_km = order.get("calculatedDistanceKm")
-        if calculated_distance_km is None:
-            calculated_distance_km = order.get("distanceKm")
-        if calculated_distance_km is None and farm_point and customer_point:
+        calculated_distance_km = order.get("warehouseToCustomerDistanceKm")
+        if calculated_distance_km is None and source_point and customer_point:
             import math
             lat1, lon1 = farm_point
             lat2, lon2 = customer_point
@@ -939,7 +937,6 @@ async def get_farmer_fulfillment_transfers(
                     "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
-                    "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
                     "long_distance_pending",
                 ]}},
             ]},
