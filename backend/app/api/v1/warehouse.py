@@ -1564,6 +1564,20 @@ async def receive_farmer_fulfillment_at_destination(
         actor_id=str(current_user["_id"]), actor_role="warehouse",
         metadata={"destinationWarehouseId": warehouse_id, "sourceWarehouseId": str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")},
     )
+    try:
+        refreshed_order = await order_repository.get_by_id(order_id)
+        if refreshed_order:
+            await NotificationService.send_order_workflow_update(
+                refreshed_order,
+                stage="destination_warehouse_received",
+                status="transfer_received",
+                title=f"Order #{order.get('orderNumber') or order_id}: destination warehouse received",
+                message="The destination warehouse confirmed physical receipt. Continue with the local-hub transfer workflow.",
+                actor_role="warehouse",
+                priority=NotificationPriority.HIGH,
+            )
+    except Exception:
+        logger.exception("Failed to notify order participants after destination warehouse receipt")
     return {"success": True, "data": {"orderId": order_id, "status": "received_at_destination"}, "message": "Destination warehouse receipt recorded."}
 
 
