@@ -1826,7 +1826,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         "data": {
             "destinationWarehouseId": destination_id,
             "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
-            "destinationDistrict": destination.get("district") or (destination.get("address") or {}).get("district") or customer_district,
+            "destinationDistrict": destination.get("district") or destination_address.get("district") or customer_district,
             "alreadyAssigned": False,
         },
         "message": "Destination warehouse assigned using customer location and available capacity. Confirm the transfer manifest before dispatch.",
