@@ -823,9 +823,15 @@ async def get_farmer_fulfillment_transfers(
             # Distance classifies proximity; only explicit direct-delivery configuration
             # authorizes the Nearby final-mile workflow.
             route_category = "nearby"
-        elif source_district and destination_district:
-            route_category = "same_district" if source_district == destination_district else "inter_district"
+        elif source_district and destination_district and source_district != destination_district:
+            # District mismatch is enough to identify the inter-district path;
+            # destination assignment still validates its warehouse and capacity.
+            route_category = "inter_district"
+        elif calculated_distance_km is not None and source_district and destination_district and source_district == destination_district:
+            route_category = "same_district"
         else:
+            # Same-district routing requires a known distance to distinguish it
+            # from Nearby. Do not offer a route that backend must later reject.
             route_category = "needs_location"
         if route_category in ("nearby", "same_district", "inter_district", "multi_warehouse"):
             route_type = route_category
