@@ -40,7 +40,21 @@ export default function FarmerFulfillmentWarehousePage() {
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-transfers"),
     refetchInterval:15000,
   });
-  const transfers=data?.data?.transfers||[];
+  const routeOrder: Record<string, number> = { nearby: 0, same_district: 1, inter_district: 2, needs_location: 3 };
+  const routeLabels: Record<string, string> = {
+    nearby: "Nearby delivery",
+    same_district: "Same-district warehouse → local hub",
+    inter_district: "Inter-district → destination warehouse",
+    needs_location: "Needs location / route review",
+  };
+  const routeDescriptions: Record<string, string> = {
+    nearby: "Within the configured distance threshold. Assign a final delivery partner for direct source-warehouse-to-customer delivery when eligible.",
+    same_district: "Beyond the nearby threshold, with matching source and destination districts. Plan the sealed transfer to the local hub and assign a pickup team.",
+    inter_district: "Beyond the nearby threshold and in a different district. Dispatch to the destination warehouse first, then continue to the local hub.",
+    needs_location: "Distance or district information is incomplete. Resolve the address/coordinates before dispatch; do not auto-assign a route.",
+  };
+  const transfersRaw=data?.data?.transfers||[];
+  const transfers=[...transfersRaw].sort((a:any,b:any)=>(routeOrder[a.routeCategory]??4)-(routeOrder[b.routeCategory]??4));
   const {data:consolidationData,refetch:refetchConsolidations}=useQuery({
     queryKey:["farmerFulfillmentConsolidations"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),
@@ -106,7 +120,7 @@ export default function FarmerFulfillmentWarehousePage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div><div className="flex items-center gap-2 text-sm text-indigo-200"><Warehouse className="h-4 w-4"/>Farmer Fulfillment Transfer</div>
         <h1 className="mt-1 text-3xl font-bold">Packed Farmer Orders</h1>
-        <p className="mt-2 max-w-3xl text-sm text-slate-200">These orders are already packed and verified by the farmer. This warehouse process does not repack the order.</p></div>
+        <p className="mt-2 max-w-3xl text-sm text-slate-200">These orders are already packed and verified by the farmer. This warehouse process does not repack the order. After physical receipt, orders are classified automatically using the 15 km default threshold.</p></div>
         <Button variant="secondary" size="icon" onClick={()=>refetch()}><RefreshCw className="h-4 w-4"/></Button>
       </div>
     </div>
@@ -147,6 +161,24 @@ export default function FarmerFulfillmentWarehousePage() {
       </div>
     </section>
 
+    <section className="space-y-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div><h2 className="text-xl font-bold">Automatic distance routing</h2><p className="text-sm text-muted-foreground">Default threshold: 15 km. A configured order/warehouse threshold overrides the default.</p></div>
+        <Badge variant="outline">{transfers.filter((o:any)=>o.physicalReceiptConfirmed).length} receipt-confirmed orders in workflow</Badge>
+      </div>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {(["nearby","same_district","inter_district","needs_location"] as const).map((category) => {
+          const rows=transfers.filter((o:any)=>o.routeCategory===category);
+          return <Card key={category} className={category==="needs_location"?"border-amber-300 bg-amber-50/40":"border-slate-200"}>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{routeLabels[category]}</h3><Badge variant={category==="needs_location"?"outline":"secondary"}>{rows.length}</Badge></div>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{routeDescriptions[category]}</p>
+            </CardContent>
+          </Card>;
+        })}
+      </div>
+    </section>
+
     <Card className="border-indigo-100 bg-indigo-50/60"><CardContent className="p-5">
       <div className="grid gap-4 md:grid-cols-4 text-sm">
         {[
@@ -160,7 +192,7 @@ export default function FarmerFulfillmentWarehousePage() {
 
     {isLoading?<div className="h-32 animate-pulse rounded-xl bg-muted"/>:transfers.length===0?
       <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No farmer-packed transfers</h3><p className="mt-2 text-sm text-muted-foreground">Long-distance farmer fulfillment orders routed through this warehouse will appear here.</p></Card>:
-      <div className="space-y-4">{transfers.map((o:any)=><Card key={o.id}><CardContent className="p-5">
+      <div className="space-y-4">{transfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || transfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber}</h3><Badge variant="outline">{STAGES[o.stage]||o.stage}</Badge><Badge variant="secondary">Farmer Packed</Badge></div>
@@ -251,6 +283,6 @@ export default function FarmerFulfillmentWarehousePage() {
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
         </div>
-      </CardContent></Card>)}</div>}
+      </CardContent></Card></>)}</div>}
   </div>;
 }
