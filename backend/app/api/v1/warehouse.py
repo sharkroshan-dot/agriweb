@@ -870,9 +870,13 @@ async def get_farmer_fulfillment_transfers(
                 "consolidated", "consolidation_portions_received", "consolidation_in_transit"
             )
         ) or (
-            # At a consolidation warehouse, incoming transfer legs are the physical
-            # receipt record for portions arriving from other source warehouses.
-            is_consolidation_warehouse and bool(consolidation.get("canReceive") or consolidation.get("receivedLegs"))
+            # A consolidation warehouse counts as physically received only after
+            # every inbound leg has arrived and any local source portion is also
+            # fully received. In-transit legs are actionable, but are not receipts.
+            is_consolidation_warehouse
+            and int(consolidation.get("totalLegs") or 0) > 0
+            and int(consolidation.get("receivedLegs") or 0) >= int(consolidation.get("totalLegs") or 0)
+            and (not receipt_rows or len(fully_received_lines) == len(receipt_rows))
         )
 
         result.append({
