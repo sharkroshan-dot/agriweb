@@ -1794,12 +1794,13 @@ async def assign_farmer_fulfillment_destination_warehouse(
     scored.sort(key=lambda row: (row[0], row[1]))
     destination = scored[0][2]
     destination_id = str(destination["_id"])
+    destination_address = destination.get("address") if isinstance(destination.get("address"), dict) else {}
     now = datetime.utcnow()
     await order_repository.update({"_id": ObjectId(order_id)}, {
         "destinationWarehouseId": ObjectId(destination_id),
         "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
         "destinationWarehouseLocation": destination.get("location") or destination.get("coordinates"),
-        "destinationDistrict": destination.get("district") or (destination.get("address") or {}).get("district") or customer_district,
+        "destinationDistrict": destination.get("district") or destination_address.get("district") or customer_district,
         "destinationWarehouseAssignedAt": now,
         "destinationWarehouseAssignedBy": ObjectId(str(current_user["_id"])),
         "updatedAt": now,
