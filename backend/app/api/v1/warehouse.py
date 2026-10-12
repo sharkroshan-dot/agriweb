@@ -2438,6 +2438,7 @@ async def handoff_farmer_fulfillment_to_local_hub(
     order = await order_repository.get_by_id(order_id)
     mode = str((order or {}).get("logisticsMode") or "")
     allowed_modes = (
+        "farmer_to_delivery_partner",
         "farmer_to_warehouse_to_local_hub_to_delivery_partner",
         "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
         "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
@@ -2463,6 +2464,39 @@ async def handoff_farmer_fulfillment_to_local_hub(
         source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
         if source_id != warehouse_id:
             raise HTTPException(status_code=403, detail="Only the assigned warehouse can transfer this order to the local hub")
+        # Nearby orders must use direct final-mile assignment. This local-hub
+        # action is only valid when verified distance exceeds the threshold and
+        # source/customer districts match.
+        delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+        if not isinstance(delivery_address, dict):
+            delivery_address = {}
+        customer_location = delivery_address.get("location") or order.get("customerLocation") or delivery_address
+        source_location = warehouse.get("location") or warehouse.get("coordinates") or order.get("sourceWarehouseLocation")
+        route_distance_km = distance_km(source_location, customer_location) if isinstance(customer_location, dict) and isinstance(source_location, dict) else None
+        threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+        farmer_profile = None
+        farmer_id = str(order.get("farmerId") or "")
+        if farmer_id and ObjectId.is_valid(farmer_id):
+            farmer_profile = await farmer_repository.get_by_id(farmer_id)
+        source_district = str(
+            order.get("sourceDistrict") or order.get("farmerDistrict")
+            or warehouse.get("district")
+            or ((warehouse.get("address") or {}).get("district") if isinstance(warehouse.get("address"), dict) else "")
+            or (farmer_profile or {}).get("district") or (farmer_profile or {}).get("farmDistrict") or ""
+        ).strip().casefold()
+        destination_district = str(delivery_address.get("district") or order.get("destinationDistrict") or "").strip().casefold()
+        if not source_district or not destination_district or route_distance_km is None:
+            raise HTTPException(status_code=409, detail="Verified source/customer districts and coordinates are required before creating a Same-District local-hub transfer")
+        if source_district != destination_district:
+            raise HTTPException(status_code=409, detail="Customer is in a different district. Use Inter-District warehouse fulfillment.")
+        if route_distance_km <= threshold_km:
+            raise HTTPException(status_code=409, detail=f"This order is within the {threshold_km:g} km Nearby threshold. Use direct delivery only if the order is configured for it.")
+        if mode != "farmer_to_warehouse_to_local_hub_to_delivery_partner":
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+                "updatedAt": datetime.utcnow(),
+            })
+            mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
         incoming_rows = await incoming_stock_repository.find_many({
             "orderId": ObjectId(order_id),
             "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
