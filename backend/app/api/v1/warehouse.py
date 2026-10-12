@@ -24,7 +24,7 @@ from app.schemas.warehouse import (
 )
 from app.services.warehouse_service import WarehouseService
 from app.services.user_service import UserService
-from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses
+from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses, distance_km
 from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
@@ -1700,6 +1700,129 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
     except Exception:
         logger.exception("Unable to notify order participants after Nearby final delivery assignment")
     return {"success": True, "data": {"orderId": order_id, "deliveryPartnerId": profile_id, "deliveryJobId": job_id, "pickupLocation": pickup}, "message": "Final delivery partner and delivery job assigned"}
+
+
+@router.post("/me/farmer-fulfillment/{order_id}/assign-destination-warehouse")
+async def assign_farmer_fulfillment_destination_warehouse(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Choose an active, capacity-checked destination warehouse for an inter-district packed order."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can assign a destination warehouse")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    source_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not source_warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        raise HTTPException(status_code=409, detail="Destination assignment is only for inter-district Farmer Fulfillment orders")
+
+    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    if source_id != str(source_warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the assigned source warehouse can choose the destination warehouse")
+    existing_destination_id = str(order.get("destinationWarehouseId") or "")
+    if existing_destination_id:
+        if existing_destination_id == source_id:
+            raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
+        return {
+            "success": True,
+            "data": {
+                "destinationWarehouseId": existing_destination_id,
+                "destinationWarehouseName": order.get("destinationWarehouseName"),
+                "destinationDistrict": order.get("destinationDistrict"),
+                "alreadyAssigned": True,
+            },
+            "message": "A destination warehouse is already assigned.",
+        }
+
+    delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+    if not isinstance(delivery_address, dict):
+        delivery_address = {}
+    customer_location = (
+        delivery_address.get("location")
+        or order.get("customerLocation")
+        or delivery_address
+    )
+    customer_district = str(
+        delivery_address.get("district")
+        or order.get("destinationDistrict")
+        or ""
+    ).strip().casefold()
+    required_capacity = sum(float(item.get("quantity") or 0) for item in (order.get("items") or []))
+    if required_capacity <= 0:
+        raise HTTPException(status_code=409, detail="The order has no positive quantity for destination capacity validation")
+
+    candidates = await MongoDB.get_collection("warehouses").find({
+        "deletedAt": None,
+        "$or": [
+            {"status": {"$regex": "^(active|approved|operational)$", "$options": "i"}, "isActive": {"$ne": False}},
+            {"isActive": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
+        ],
+    }).to_list(length=200)
+    scored = []
+    for candidate in candidates:
+        candidate_id = str(candidate.get("_id") or "")
+        if not candidate_id or candidate_id == source_id:
+            continue
+        try:
+            await warehouse_repository.sync_capacity_usage(candidate_id)
+            refreshed = await warehouse_repository.get_by_id(candidate_id)
+            if refreshed:
+                candidate.update(refreshed)
+        except Exception:
+            continue
+        total_capacity = float(candidate.get("totalCapacity") or 0)
+        used_capacity = float(candidate.get("usedCapacity") or 0)
+        if total_capacity <= 0 or total_capacity - used_capacity + 1e-9 < required_capacity:
+            continue
+        candidate_address = candidate.get("address") if isinstance(candidate.get("address"), dict) else {}
+        candidate_district = str(candidate.get("district") or candidate_address.get("district") or "").strip().casefold()
+        point = candidate.get("location") or candidate.get("coordinates")
+        distance = distance_km(customer_location, point) if isinstance(customer_location, dict) else None
+        district_match = bool(customer_district and candidate_district == customer_district)
+        if not district_match and distance is None:
+            continue
+        scored.append((0 if district_match else 1, distance if distance is not None else float("inf"), candidate))
+
+    if not scored:
+        raise HTTPException(
+            status_code=409,
+            detail="No different active warehouse with enough available capacity could be matched to the customer district/location. Configure warehouse capacity and customer delivery location first.",
+        )
+    scored.sort(key=lambda row: (row[0], row[1]))
+    destination = scored[0][2]
+    destination_id = str(destination["_id"])
+    now = datetime.utcnow()
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "destinationWarehouseId": ObjectId(destination_id),
+        "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
+        "destinationWarehouseLocation": destination.get("location") or destination.get("coordinates"),
+        "destinationDistrict": destination.get("district") or (destination.get("address") or {}).get("district") or customer_district,
+        "destinationWarehouseAssignedAt": now,
+        "destinationWarehouseAssignedBy": ObjectId(str(current_user["_id"])),
+        "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id,
+        "destination_warehouse_assigned",
+        "Destination warehouse assigned",
+        f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected using customer district/location and available capacity.",
+        actor_id=str(current_user["_id"]),
+        actor_role="warehouse",
+        metadata={"sourceWarehouseId": source_id, "destinationWarehouseId": destination_id},
+    )
+    return {
+        "success": True,
+        "data": {
+            "destinationWarehouseId": destination_id,
+            "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
+            "destinationDistrict": destination.get("district") or (destination.get("address") or {}).get("district") or customer_district,
+            "alreadyAssigned": False,
+        },
+        "message": "Destination warehouse assigned using customer location and available capacity. Confirm the transfer manifest before dispatch.",
+    }
 
 
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-destination")
