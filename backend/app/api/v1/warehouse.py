@@ -1109,14 +1109,8 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
                 received = expected
             has_receipt_time = bool(row.get("arrivedWarehouseAt") or row.get("receivedAt") or row.get("received_at"))
             return str(row.get("status") or "").lower() in {"received", "stored"} and has_receipt_time and float(received or 0) + 1e-9 >= expected
-        if any(not receipt_complete(row) for row in packed_rows):
-            # The assignment is already represented by an incoming record. Do not
-            # create a duplicate; let Incoming Stock finish physical receiving.
-            return {
-                "success": True,
-                "data": {"orderId": order_id, "warehouseId": warehouse_id, "incomingCount": len(packed_rows), "receiptPending": True},
-                "message": "Source warehouse and packed pickup records already exist. Complete physical receipt in Incoming Stock before routing.",
-            }
+        # Existing packed rows (including pending receipt rows) are authoritative.
+        # Reuse them without duplication, then persist the missing order assignment.
     else:
         # Capacity is a hard requirement: a warehouse with missing/zero capacity
         # must not silently act as an unlimited fallback.
