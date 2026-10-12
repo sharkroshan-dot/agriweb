@@ -111,7 +111,6 @@ const mergeFarmStopsForDisplay = (input: any[]) => {
       orderCount: customerOrderKeys.size,
       collectionIds: uniqueOrders.map((order: any) => order.collectionId).filter(Boolean),
       collectionId: uniqueOrders.find((order: any) => order.collectionId)?.collectionId || group.collectionId,
-      orderCount: uniqueOrders.length,
       quantity: uniqueOrders.reduce((sum: number, order: any) => sum + Number(order.quantity || 0), 0),
       actualQuantity: uniqueOrders.reduce((sum: number, order: any) => sum + Number(order.actualQuantity || 0), 0),
       status: farmStatus,
