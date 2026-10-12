@@ -38,6 +38,8 @@ const STAGES: Record<string,string> = {
 export default function FarmerFulfillmentWarehousePage() {
   const [selectedTeams,setSelectedTeams]=useState<Record<string,string>>({});
   const [assigningOrder,setAssigningOrder]=useState<string|null>(null);
+  const [selectedRouteOrders,setSelectedRouteOrders]=useState<Record<string,boolean>>({});
+  const [planningRoute,setPlanningRoute]=useState(false);
   const {data:teamsData}=useQuery({
     queryKey:["warehouseApprovedPickupTeams"],
     queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
@@ -102,6 +104,32 @@ export default function FarmerFulfillmentWarehousePage() {
   const receiveConsolidation=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-consolidation`);toast.success("Portion received at consolidation");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
+  };
+  const toggleRouteOrder=(id:string,checked:boolean)=>setSelectedRouteOrders(current=>({...current,[id]:checked}));
+  const planSelectedTransfers=async(category:"same_district"|"inter_district")=>{
+    const chosen=eligibleTransfers.filter((o:any)=>selectedRouteOrders[o.id] && o.routeCategory===category);
+    if(!chosen.length){toast.error("Select at least one eligible order in this route category.");return;}
+    setPlanningRoute(true);
+    const failures:string[]=[];
+    let completed=0;
+    try{
+      // Persist each route leg through the existing guarded backend endpoints. The
+      // backend validates full receipt, warehouse role and route prerequisites.
+      for(const order of chosen){
+        try{
+          if(category==="inter_district"){
+            await api.post(`/warehouse/me/farmer-fulfillment/${order.id}/dispatch-to-destination`);
+          }else{
+            await api.post(`/warehouse/me/farmer-fulfillment/${order.id}/handoff-local-hub`);
+          }
+          completed++;
+        }catch(e:any){failures.push(`${order.orderNumber||order.id}: ${e?.message||"route creation failed"}`);}
+      }
+      if(completed)toast.success(`Created ${completed} ${category==="inter_district"?"destination transfer manifest(s)":"local-hub transfer(s)"}. Assign pickup teams on each order card.`);
+      if(failures.length)toast.error(failures.slice(0,2).join("; "));
+      setSelectedRouteOrders(current=>{const next={...current};chosen.forEach((o:any)=>{delete next[o.id];});return next;});
+      await refreshAll();
+    }finally{setPlanningRoute(false);}
   };
   const assignPickupTeam=async(id:string,leg:"destination"|"hub")=>{
     const deliveryPartnerId=selectedTeams[id];
@@ -218,12 +246,17 @@ export default function FarmerFulfillmentWarehousePage() {
 
     {isLoading?<div className="h-32 animate-pulse rounded-xl bg-muted"/>:transfers.length===0?
       <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No farmer-packed transfers</h3><p className="mt-2 text-sm text-muted-foreground">Long-distance farmer fulfillment orders routed through this warehouse will appear here.</p></Card>:
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
+        <div><h3 className="font-semibold">Plan transfer routes</h3><p className="text-sm text-muted-foreground">Select fully received orders in the same route category. Route manifests are created in order; each transfer still requires an approved pickup-team assignment.</p></div>
+        <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="same_district")} onClick={()=>planSelectedTransfers("same_district")}>{planningRoute?"Planning…":"Plan Same-District Routes"}</Button><Button disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="inter_district")} onClick={()=>planSelectedTransfers("inter_district")}>{planningRoute?"Planning…":"Plan Inter-District Routes"}</Button></div>
+      </div>
       <div className="space-y-4">{eligibleTransfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || eligibleTransfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber}</h3><Badge variant="outline">{STAGES[o.stage]||o.stage}</Badge><Badge variant="secondary">Farmer Packed</Badge></div>
             <p className="mt-2 text-sm text-muted-foreground">Farmer: {o.farmerName||"Assigned Farmer"} · Warehouse: {o.warehouseName}</p>
             <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3"/>Customer: {[o.deliveryAddress?.addressLine1,o.deliveryAddress?.city,o.deliveryAddress?.state].filter(Boolean).join(", ")||"Address unavailable"}</p>
+            {["same_district","inter_district"].includes(String(o.routeCategory)) && <label className="mt-3 flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(selectedRouteOrders[o.id])} onChange={e=>toggleRouteOrder(o.id,e.target.checked)} /> Include in {o.routeCategory==="inter_district"?"inter-district":"same-district"} route planning</label>}
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
               <div className="rounded-lg border bg-white p-3 text-sm"><p className="text-xs text-muted-foreground">Source warehouse</p><p className="mt-1 font-medium">{o.sourceWarehouseName||"Not assigned"}</p><p className="text-xs text-muted-foreground">{o.sourceDistrict||"Source district not recorded"}</p></div>
               <div className="rounded-lg border bg-white p-3 text-sm"><p className="text-xs text-muted-foreground">Destination warehouse</p><p className="mt-1 font-medium">{o.destinationWarehouseName||(o.routeCategory==="inter_district"?"Not assigned":"Not required for this route")}</p><p className="text-xs text-muted-foreground">{o.destinationDistrict||"Destination district not recorded"}</p></div>
