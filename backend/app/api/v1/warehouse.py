@@ -461,10 +461,18 @@ async def get_farmer_fulfillment_transfers(
     # If the incoming transfer row exists but an older order is missing its
     # assignment/logistics metadata, use that physical warehouse record as the
     # authoritative link so the transfers page still shows the real shipment.
+    # Farmer-packed receipts can be created by either the dedicated transfer
+    # flow or the Farm Collection bulk-receipt flow. Both are valid links into
+    # this workspace; do not hide a packed order merely because an older receipt
+    # row lacks sourceMode=farmer_fulfillment_transfer.
     transfer_incoming_rows = await incoming_stock_repository.find_many({
         "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
-        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
         "deletedAt": None,
+        "$or": [
+            {"sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"}},
+            {"packingRequired": False},
+            {"pickupRouteId": {"$exists": True, "$nin": [None, ""]}},
+        ],
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
     known_order_ids = {str(item.get("_id")) for item in orders if item.get("_id")}
     for incoming_row in transfer_incoming_rows:
@@ -485,6 +493,11 @@ async def get_farmer_fulfillment_transfers(
         # is the authoritative proof that this order belongs in the warehouse
         # transfer workflow. Older orders may not have fulfillmentMethod,
         # fulfillment_route, or logisticsMode populated consistently.
+        packed_receipt = (
+            str(incoming_row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or incoming_row.get("packingRequired") is False
+            or bool(incoming_row.get("pickupRouteId"))
+        )
         is_farmer_transfer = (
             linked_method in ("farmer", "farm_direct")
             or linked_logistics in (
@@ -492,7 +505,7 @@ async def get_farmer_fulfillment_transfers(
                 "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                 "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
             )
-            or str(incoming_row.get("sourceMode") or "") == "farmer_fulfillment_transfer"
+            or packed_receipt
         )
         if linked_logistics == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
             # Multi-source bulk orders have their own consolidation workspace.
