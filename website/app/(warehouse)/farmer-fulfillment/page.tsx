@@ -56,7 +56,7 @@ export default function FarmerFulfillmentWarehousePage() {
     nearby: "Nearby delivery",
     same_district: "Same-district warehouse → local hub",
     inter_district: "Inter-district → destination warehouse",
-    multi_warehouse: "Multi-warehouse consolidation",
+    multi_warehouse: "Inter-district · Multi-warehouse consolidation",
     needs_location: "Needs location / route review",
   };
   const routeDescriptions: Record<string, string> = {
@@ -210,10 +210,10 @@ export default function FarmerFulfillmentWarehousePage() {
       <div className="grid gap-4 xl:grid-cols-3">
         <Card className="border-blue-200">
           <CardContent className="space-y-3 p-4">
-            <Badge variant="outline">Route 1 · Same district</Badge>
-            <h3 className="font-semibold">Farm → Warehouse → Local Hub → Delivery Partner → Customer</h3>
+            <Badge variant="outline">Route 1 · Nearby</Badge>
+            <h3 className="font-semibold">Farm → Source Warehouse → Final Delivery Partner → Customer</h3>
             <ol className="space-y-2 text-sm">
-              {["Receive + verify farmer-packed order","Store / hold sealed package","Transfer complete order to the local hub","Confirm local-hub receipt","One final delivery job is opened"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800">{i+1}</span><span>{step}</span></li>)}
+              {["Receive and verify the sealed farmer-packed order","Assign one approved final-mile delivery partner","Create one delivery job for the customer"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-800">{i+1}</span><span>{step}</span></li>)}
             </ol>
           </CardContent>
         </Card>
@@ -228,8 +228,8 @@ export default function FarmerFulfillmentWarehousePage() {
         </Card>
         <Card className="border-emerald-200">
           <CardContent className="space-y-3 p-4">
-            <Badge variant="outline">Route 3 · Multi-warehouse</Badge>
-            <h3 className="font-semibold">Multiple Farms / Warehouses → Consolidation → Local Hub → Delivery Partner → Customer</h3>
+            <Badge variant="outline">Route 3 · Inter-district special case</Badge>
+            <h3 className="font-semibold">Multiple Source Warehouses → Consolidation Warehouse → Local Hub → One Final Delivery Partner → Customer</h3>
             <ol className="space-y-2 text-sm">
               {["Receive each allocated packed portion","Each source warehouse dispatches its portion","Consolidation warehouse receives all portions","Complete consolidation of the original order","Transfer to local hub; confirm receipt; one job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">{i+1}</span><span>{step}</span></li>)}
             </ol>
@@ -243,9 +243,9 @@ export default function FarmerFulfillmentWarehousePage() {
         <div><h2 className="text-xl font-bold">Automatic distance routing</h2><p className="text-sm text-muted-foreground">Default threshold: 15 km. A configured order/warehouse threshold overrides the default.</p></div>
         <Badge variant="outline">{eligibleTransfers.length} eligible received orders</Badge>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        {(["nearby","same_district","inter_district","multi_warehouse","needs_location"] as const).map((category) => {
-          const rows=transfers.filter((o:any)=>o.routeCategory===category);
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {(["nearby","same_district","inter_district","needs_location"] as const).map((category) => {
+          const rows=transfers.filter((o:any)=>o.routeCategory===category || (category==="inter_district" && o.routeCategory==="multi_warehouse"));
           return <Card key={category} className={category==="needs_location"?"border-amber-300 bg-amber-50/40":"border-slate-200"}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{routeLabels[category]}</h3><Badge variant={category==="needs_location"?"outline":"secondary"}>{rows.length}</Badge></div>
