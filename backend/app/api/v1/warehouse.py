@@ -24,7 +24,7 @@ from app.schemas.warehouse import (
 )
 from app.services.warehouse_service import WarehouseService
 from app.services.user_service import UserService
-from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses, distance_km
+from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses, distance_km, nearest_local_hub
 from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
@@ -2516,14 +2516,41 @@ async def handoff_farmer_fulfillment_to_local_hub(
             raise HTTPException(status_code=409, detail="A local-hub transfer already exists for this order")
 
     hub = order.get("nearbyFulfillmentLocation") or {}
-    hub_id = order.get("nearbyFulfillmentLocationId")
-    if not hub_id:
-        raise HTTPException(status_code=400, detail="No local hub has been selected for this order")
-
+    hub_id = order.get("nearbyFulfillmentLocationId") or order.get("localHubId")
     hub_collection = MongoDB.get_collection("fulfillment_hubs")
-    hub_doc = await hub_collection.find_one({"_id": ObjectId(str(hub_id)), "deletedAt": None, "isActive": True, "approvalStatus": "approved"})
+    hub_doc = None
+    if hub_id and ObjectId.is_valid(str(hub_id)):
+        hub_doc = await hub_collection.find_one({
+            "_id": ObjectId(str(hub_id)), "deletedAt": None,
+            "isActive": True, "approvalStatus": "approved",
+        })
     if not hub_doc:
-        raise HTTPException(status_code=400, detail="Selected local hub is unavailable")
+        delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+        if not isinstance(delivery_address, dict):
+            delivery_address = {}
+        customer_location = delivery_address.get("location") or order.get("customerLocation") or delivery_address
+        if not isinstance(customer_location, dict) or distance_km(customer_location, customer_location) is None:
+            raise HTTPException(status_code=409, detail="Customer delivery coordinates are required to select an approved local hub")
+        total_quantity = sum(float(item.get("quantity") or 0) for item in (order.get("items") or []))
+        hub_doc = await nearest_local_hub(customer_location, total_quantity)
+        if not hub_doc:
+            raise HTTPException(status_code=409, detail="No active approved local hub with sufficient available capacity could be found near the customer")
+        hub_id = hub_doc["_id"]
+        hub = {
+            "id": str(hub_doc["_id"]),
+            "name": hub_doc.get("name") or hub_doc.get("hubName") or "Local Fulfillment Hub",
+            "address": hub_doc.get("address") or "",
+            "location": hub_doc.get("location") or hub_doc.get("coordinates") or {},
+        }
+        await order_repository.update({"_id": ObjectId(order_id)}, {
+            "nearbyFulfillmentLocationId": ObjectId(str(hub_id)),
+            "nearbyFulfillmentLocation": hub,
+            "localHubId": ObjectId(str(hub_id)),
+            "localHubName": hub["name"],
+            "updatedAt": datetime.utcnow(),
+        })
+    else:
+        hub_id = hub_doc["_id"]
 
     transfer_collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
     existing_transfer = await transfer_collection.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
