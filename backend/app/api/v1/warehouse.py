@@ -557,7 +557,17 @@ async def get_farmer_fulfillment_transfers(
         source_warehouse_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
         destination_warehouse_id = str(order.get("destinationWarehouseId") or "")
         is_destination_warehouse = bool(destination_warehouse_id and destination_warehouse_id == warehouse_id)
-        is_source_warehouse = bool(source_warehouse_id and source_warehouse_id == warehouse_id)
+        is_multi_warehouse_order = (
+            logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+            or len(order.get("warehouseAllocations") or []) > 1
+            or len(order.get("warehouseIds") or []) > 1
+        )
+        is_allocated_source_warehouse = any(
+            str(allocation.get("warehouseId") or "") == warehouse_id
+            for allocation in (order.get("warehouseAllocations") or [])
+            if isinstance(allocation, dict)
+        )
+        is_source_warehouse = bool(source_warehouse_id and source_warehouse_id == warehouse_id) or is_allocated_source_warehouse
         consolidation = {
             "isConsolidationWarehouse": is_consolidation_warehouse,
             "canReceive": False,
