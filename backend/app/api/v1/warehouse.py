@@ -1738,19 +1738,6 @@ async def assign_farmer_fulfillment_destination_warehouse(
     if source_id != str(source_warehouse["_id"]):
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can choose the destination warehouse")
     existing_destination_id = str(order.get("destinationWarehouseId") or "")
-    if existing_destination_id:
-        if existing_destination_id == source_id:
-            raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
-        return {
-            "success": True,
-            "data": {
-                "destinationWarehouseId": existing_destination_id,
-                "destinationWarehouseName": order.get("destinationWarehouseName"),
-                "destinationDistrict": order.get("destinationDistrict"),
-                "alreadyAssigned": True,
-            },
-            "message": "A destination warehouse is already assigned.",
-        }
 
     delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
     if not isinstance(delivery_address, dict):
@@ -1777,6 +1764,24 @@ async def assign_farmer_fulfillment_destination_warehouse(
         raise HTTPException(status_code=409, detail="This order belongs in Same-District routing, not Inter-District routing")
     if route_distance is not None and route_distance <= nearby_threshold:
         raise HTTPException(status_code=409, detail=f"This order is within the {nearby_threshold:g} km Nearby threshold; use Nearby delivery instead")
+    if existing_destination_id:
+        if existing_destination_id == source_id:
+            raise HTTPException(status_code=409, detail="Destination warehouse must be different from the source warehouse")
+        if logistics_mode != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+                "updatedAt": datetime.utcnow(),
+            })
+        return {
+            "success": True,
+            "data": {
+                "destinationWarehouseId": existing_destination_id,
+                "destinationWarehouseName": order.get("destinationWarehouseName"),
+                "destinationDistrict": order.get("destinationDistrict"),
+                "alreadyAssigned": True,
+            },
+            "message": "A destination warehouse is already assigned.",
+        }
     required_capacity = sum(float(item.get("quantity") or 0) for item in (order.get("items") or []))
     if required_capacity <= 0:
         raise HTTPException(status_code=409, detail="The order has no positive quantity for destination capacity validation")
