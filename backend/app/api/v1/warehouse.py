@@ -509,6 +509,8 @@ async def get_farmer_fulfillment_transfers(
             or str(incoming_row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
             or str(incoming_row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
             or str(incoming_row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
+            # Match Incoming Stock's packed-order detection for legacy rows.
+            or bool(incoming_row.get("orderId") and incoming_row.get("pickupRouteId"))
         )
         is_farmer_transfer = (
             linked_method in ("farmer", "farm_direct")
