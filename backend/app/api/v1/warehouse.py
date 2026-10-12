@@ -1237,7 +1237,15 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
         dlat, dlon = lat2 - lat1, lon2 - lon1
         a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
-    source_district = str(order.get("sourceDistrict") or order.get("farmerDistrict") or "").strip().casefold()
+    source_district_value = order.get("sourceDistrict") or order.get("farmerDistrict") or ""
+    if not source_district_value:
+        farmer_id_for_route = str(order.get("farmerId") or "")
+        if farmer_id_for_route and ObjectId.is_valid(farmer_id_for_route):
+            farmer_for_route = await farmer_repository.get_by_id(farmer_id_for_route)
+            if not farmer_for_route:
+                farmer_for_route = await farmer_repository.get_by_user_id(farmer_id_for_route)
+            source_district_value = (farmer_for_route or {}).get("district") or (farmer_for_route or {}).get("farmDistrict") or ""
+    source_district = str(source_district_value).strip().casefold()
     destination_district = str(order.get("destinationDistrict") or (address.get("district") if isinstance(address, dict) else "") or "").strip().casefold()
     if distance_km is not None and distance_km <= threshold_km:
         route_category = "nearby"
