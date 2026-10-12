@@ -392,15 +392,15 @@ export default function FarmerFulfillmentWarehousePage() {
       </CardContent></Card></>)}</div>}
     {waitingTransfers.length>0 && <section className="space-y-3">
       <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
-        <h2 className="font-semibold text-amber-950">Waiting for Receipt or Warehouse Assignment</h2>
-        <p className="mt-1 text-sm text-amber-900">These orders are not yet eligible for route processing. Confirm full physical receipt in Incoming Stock, assign a source warehouse, or resolve missing location data first.</p>
+        <h2 className="font-semibold text-amber-950">Waiting for the Next Required Step</h2>
+        <p className="mt-1 text-sm text-amber-900">Orders stay here until their specific blocker is resolved: warehouse assignment, physical receipt, incoming consolidation portions, or verified route location data.</p>
         <Badge variant="outline" className="mt-2">{waitingTransfers.length} order(s)</Badge>
       </div>
       {waitingTransfers.map((o:any)=><Card key={o.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber||o.id}</h3><Badge variant="outline">{o.currentWarehouseRole==="assigned"?"Awaiting Warehouse Assignment":o.physicalReceiptConfirmed?"Needs Location Data":"Awaiting Physical Receipt"}</Badge></div>
+          <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber||o.id}</h3><Badge variant="outline">{o.currentWarehouseRole==="assigned"?"Awaiting Warehouse Assignment":o.isConsolidationWarehouse && String(o.logisticsMode||"").includes("multiple_warehouses") && !o.physicalReceiptConfirmed?"Waiting for Warehouse Portions":o.physicalReceiptConfirmed?"Needs Location Data":"Awaiting Physical Receipt"}</Badge></div>
           <p className="mt-1 text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {o.items?.length||0} allocated line(s)</p>
-          <p className="mt-1 text-xs text-muted-foreground">{o.currentWarehouseRole==="assigned"?"No source warehouse is assigned to this order.":!o.physicalReceiptConfirmed?"Complete Incoming Stock receipt before routing.":"Add verified farm/customer coordinates or district details before dispatch."}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{o.currentWarehouseRole==="assigned"?"This warehouse is not linked to a source, destination, or consolidation assignment.":o.isConsolidationWarehouse && String(o.logisticsMode||"").includes("multiple_warehouses") && !o.physicalReceiptConfirmed?"Waiting for the allocated source warehouses to dispatch their packed portions. Confirm receipt when inbound legs arrive.":!o.physicalReceiptConfirmed?"Complete the physical receipt for this warehouse's packed portion before dispatch.":"Add verified farm/customer coordinates or district details before dispatch."}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {o.isUnassigned && <Button size="sm" onClick={()=>recoverSourceWarehouse(o.id)}>Assign Source Warehouse & Prepare Pickup</Button>}
@@ -410,7 +410,6 @@ export default function FarmerFulfillmentWarehousePage() {
             {String(x.status||"").toLowerCase()==="received" && <Button size="sm" variant="outline" onClick={()=>store(x.id)}>Store Sealed Shipment</Button>}
             {(x.status==="rejected"||x.qualityCheck==="failed") && <Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}
           </div>)}
-          {o.routeCategory!=="needs_location" && o.physicalReceiptConfirmed && <Badge variant="outline">Refresh to enable route actions</Badge>}
         </div>
       </CardContent></Card>)}
     </section>}
