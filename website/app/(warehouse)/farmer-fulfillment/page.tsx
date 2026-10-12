@@ -241,12 +241,17 @@ export default function FarmerFulfillmentWarehousePage() {
               const multi = mode === "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" ||
                 mode.includes("multiple_warehouses") || Number(o.warehouseCount || 0) > 1 ||
                 (Array.isArray(o.warehouseAllocations) && o.warehouseAllocations.length > 1);
-              const interDistrict = !multi && (o.routeCategory==="inter_district" || mode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" ||
-                mode.includes("destination_warehouse") || Boolean(o.destinationWarehouseId));
-              const sameDistrict = !multi && !interDistrict && (
-                mode === "farmer_to_warehouse_to_local_hub_to_delivery_partner" ||
-                mode === "farmer_to_warehouse" || Boolean(o.warehouseId)
-              );
+              // The backend's verified distance/district classifier is authoritative.
+              // Legacy logisticsMode/warehouseId fields are fallback hints only; they
+              // must not override a verified Nearby or Same-District decision.
+              const hasVerifiedRouteCategory = ["nearby","same_district","inter_district","needs_location"].includes(String(o.routeCategory||""));
+              const interDistrict = !multi && (o.routeCategory==="inter_district" || (!hasVerifiedRouteCategory && (
+                mode === "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" ||
+                mode.includes("destination_warehouse") || Boolean(o.destinationWarehouseId)
+              )));
+              const sameDistrict = !multi && (o.routeCategory==="same_district" || (!hasVerifiedRouteCategory && (
+                mode === "farmer_to_warehouse_to_local_hub_to_delivery_partner" || mode === "farmer_to_warehouse"
+              )));
               const con = consolidations.find((x:any)=>x.orderId===o.id);
               const conStatus = o.consolidationStatus || con?.consolidationStatus || "";
               const transferStatus = o.transferStatus || "";
@@ -270,7 +275,7 @@ export default function FarmerFulfillmentWarehousePage() {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="text-sm font-semibold text-slate-900">Process this order</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{multi ? "Multiple warehouses → Consolidation → Local Hub → One Delivery Partner → Customer" : interDistrict ? "Farm → Source Warehouse → Destination Warehouse → Local Hub → One Delivery Partner → Customer" : "Farm → Warehouse → Local Hub → One Delivery Partner → Customer"}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{multi ? "Multiple warehouses → Consolidation → Local Hub → One Delivery Partner → Customer" : routeCategory==="nearby" ? "Source Warehouse → Final Delivery Partner → Customer" : interDistrict ? "Source Warehouse → Destination Warehouse → Local Hub → Final Delivery Partner → Customer" : sameDistrict ? "Source Warehouse → Local Hub → Final Delivery Partner → Customer" : "Resolve route classification before dispatch"}</p>
                   </div>
                   <Badge variant="outline">{STAGES[o.stage] || o.stage || "Awaiting warehouse action"}</Badge>
                 </div>
@@ -287,17 +292,17 @@ export default function FarmerFulfillmentWarehousePage() {
                     {transferStatus!=="local_hub_ready" && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved final delivery partner</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Delivery partner"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" disabled={!selectedTeams[o.id]||assigningOrder===o.id||!receiptComplete||routeNeedsReview} onClick={async()=>{try{setAssigningOrder(o.id);await api.put(`/warehouse/me/farmer-fulfillment/${o.id}/assign-nearby-delivery-partner`,undefined,{params:{deliveryPartnerId:selectedTeams[o.id]}});toast.success("Final delivery partner assigned and delivery job created");await refreshAll();}catch(e:any){toast.error(e?.message||"Partner assignment failed");}finally{setAssigningOrder(null);}}}>{assigningOrder===o.id?"Assigning…":"Assign Final Delivery Partner"}</Button></div>}
                     {o.deliveryPartnerId && <Badge variant="success">Final partner assigned · {o.deliveryPartnerId}</Badge>}
                   </>}
-                  {!multi && !interDistrict && routeCategory!=="nearby" && <>
+                  {!multi && !interDistrict && routeCategory==="same_district" && <>
                     {incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
                     {incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store / Hold Packed Shipment</Button>)}
-                    <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={routeNeedsReview || !receiptComplete || !["received","stored"].every((s:string)=>incomingRows.some((x:any)=>["received","stored"].includes(x.status))) || ["hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Plan / Transfer to Local Hub</Button>
+                    <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={routeNeedsReview || !receiptComplete || !["received","stored"].every((s:string)=>["received","stored"].includes(s) && incomingRows.some((x:any)=>["received","stored"].includes(x.status))) || ["hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Plan Route & Create Local-Hub Transfer</Button>
                     {transferStatus==="hub_handoff_pending" && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Pickup team"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" variant="outline" disabled={!selectedTeams[o.id]||assigningOrder===o.id} onClick={()=>assignPickupTeam(o.id,"hub")}>{assigningOrder===o.id?"Assigning…":"Assign Pickup Team"}</Button></div>}
                     {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
                   </>}
                   {interDistrict && <>
                     {sourceRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
                     {sourceRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Shipment</Button>)}
-                    {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={routeNeedsReview || !receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Plan Route / Create Destination Transfer</Button>}
+                    {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={routeNeedsReview || !receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Plan Inter-District Route & Create Transfer</Button>}
                     {sourceRole && transferStatus==="destination_warehouse_in_transit" && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Pickup team"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" variant="outline" disabled={!selectedTeams[o.id]||assigningOrder===o.id} onClick={()=>assignPickupTeam(o.id,"destination")}>{assigningOrder===o.id?"Assigning…":"Assign Transfer Team"}</Button></div>}
                     {destinationRole && <Button size="sm" onClick={()=>receiveDestination(o.id)} disabled={transferStatus !== "destination_warehouse_in_transit"}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
                     {destinationRole && <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={transferStatus !== "destination_warehouse_received"}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
