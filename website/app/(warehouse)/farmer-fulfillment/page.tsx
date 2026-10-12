@@ -219,19 +219,19 @@ export default function FarmerFulfillmentWarehousePage() {
         </Card>
         <Card className="border-violet-200">
           <CardContent className="space-y-3 p-4">
-            <Badge variant="outline">Route 2 · Inter-district</Badge>
-            <h3 className="font-semibold">Farm → Source Warehouse → Destination Warehouse → Local Hub → Delivery Partner → Customer</h3>
+            <Badge variant="outline">Route 2 · Same district</Badge>
+            <h3 className="font-semibold">Farm → Source Warehouse → Local Hub → Final Delivery Partner → Customer</h3>
             <ol className="space-y-2 text-sm">
-              {["Receive + verify at source warehouse","Dispatch to destination warehouse","Destination confirms physical receipt","Transfer complete order to the local hub","Confirm hub receipt; one delivery job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-800">{i+1}</span><span>{step}</span></li>)}
+              {["Receive and verify the sealed farmer-packed order","Create a local-hub transfer and assign a pickup team","Confirm local-hub receipt; one final delivery job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-bold text-violet-800">{i+1}</span><span>{step}</span></li>)}
             </ol>
           </CardContent>
         </Card>
         <Card className="border-emerald-200">
           <CardContent className="space-y-3 p-4">
-            <Badge variant="outline">Route 3 · Inter-district special case</Badge>
-            <h3 className="font-semibold">Multiple Source Warehouses → Consolidation Warehouse → Local Hub → One Final Delivery Partner → Customer</h3>
+            <Badge variant="outline">Route 3 · Inter-district</Badge>
+            <h3 className="font-semibold">Farm → Source Warehouse → Destination Warehouse → Local Hub → Final Delivery Partner → Customer</h3>
             <ol className="space-y-2 text-sm">
-              {["Receive each allocated packed portion","Each source warehouse dispatches its portion","Consolidation warehouse receives all portions","Complete consolidation of the original order","Transfer to local hub; confirm receipt; one job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">{i+1}</span><span>{step}</span></li>)}
+              {["Receive and verify at the source warehouse","Assign a destination warehouse and transfer pickup team","Destination confirms physical receipt","Transfer the complete order to the local hub","Confirm hub receipt; one final delivery job opens"].map((step,i)=><li key={step} className="flex gap-2"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-xs font-bold text-emerald-800">{i+1}</span><span>{step}</span></li>)}
             </ol>
           </CardContent>
         </Card>
