@@ -3388,7 +3388,15 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery"):
+            continue
+        # Nearby Farmer Fulfillment is assigned to a specific partner; do not
+        # leak that job to every driver in the open marketplace.
+        eligible_ids = {str(value) for value in (job.get("eligiblePartnerIds") or [])}
+        assigned_partner = str(job.get("assignedPartnerId") or "")
+        if eligible_ids and partner_id not in eligible_ids:
+            continue
+        if assigned_partner and assigned_partner != partner_id:
             continue
         coords = (job.get("pickupLocation") or {}).get("coordinates")
         dist = None
@@ -3399,7 +3407,7 @@ async def get_my_delivery_jobs(
     accepted_jobs = await delivery_job_repository.get_jobs_for_partner(partner_id)
     accepted_list = []
     for job in accepted_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery"):
             continue
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
     accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
