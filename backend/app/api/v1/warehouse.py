@@ -1032,20 +1032,30 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     if str(order.get("warehouseId") or "") != str(warehouse["_id"]):
         raise HTTPException(status_code=403, detail="This order is assigned to another warehouse")
     incoming = await incoming_stock_repository.find_many({
-        "orderId": ObjectId(order_id),
-        "warehouseId": ObjectId(str(warehouse["_id"])),
-        "sourceMode": "farmer_fulfillment_transfer",
+        "orderId": {"$in": [ObjectId(order_id), order_id]},
+        "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
+        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
         "deletedAt": None,
     }, skip=0, limit=1000)
     # Farmer Fulfillment shipments arrive already packed and sealed. Physical
     # receipt is required, but bulk-inventory storage is intentionally optional
-    # and the storage endpoint rejects these sealed transfers.
-    if not incoming or any(
-        str(x.get("status") or "") not in ("received", "stored")
-        or not x.get("arrivedWarehouseAt")
-        or float(x.get("quantityReceived") or 0) + 1e-9 < float(x.get("quantity") or 0)
-        for x in incoming
-    ):
+    # and the storage endpoint rejects these sealed transfers. Support legacy
+    # quantity/status field names, but never allow a partial receipt to dispatch.
+    def _complete_sealed_receipt(row: dict) -> bool:
+        receipt_status = str(row.get("status") or "").strip().lower()
+        received = next(
+            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "receivedQty") if row.get(key) is not None),
+            None,
+        )
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        if received is None:
+            received = expected if receipt_status in ("received", "stored") else 0
+        try:
+            has_receipt_time = bool(row.get("arrivedWarehouseAt") or row.get("receivedAt") or row.get("received_at"))
+            return receipt_status in ("received", "stored") and has_receipt_time and float(received or 0) + 1e-9 >= expected
+        except (TypeError, ValueError):
+            return False
+    if not incoming or any(not _complete_sealed_receipt(x) for x in incoming):
         raise HTTPException(status_code=400, detail="Confirm physical arrival and complete quantity receipt before dispatching the sealed farmer-packed order")
     hub_id = order.get("nearbyFulfillmentLocationId")
     if not hub_id or not ObjectId.is_valid(str(hub_id)):
@@ -1292,16 +1302,25 @@ async def dispatch_farmer_fulfillment_to_destination(
     if warehouse_id != source_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this order")
     incoming = await incoming_stock_repository.find_many({
-        "orderId": ObjectId(order_id),
+        "orderId": {"$in": [ObjectId(order_id), order_id]},
         "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
-        "sourceMode": "farmer_fulfillment_transfer",
+        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
         "deletedAt": None,
     }, skip=0, limit=1000)
-    if not incoming or any(
-        str(row.get("status") or "") not in ("received", "stored")
-        or float(row.get("quantityReceived") or 0) + 1e-9 < float(row.get("quantity") or 0)
-        for row in incoming
-    ):
+    def _complete_transfer_receipt(row: dict) -> bool:
+        receipt_status = str(row.get("status") or "").strip().lower()
+        received = next(
+            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "receivedQty") if row.get(key) is not None),
+            None,
+        )
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        if received is None:
+            received = expected if receipt_status in ("received", "stored") else 0
+        try:
+            return receipt_status in ("received", "stored") and float(received or 0) + 1e-9 >= expected
+        except (TypeError, ValueError):
+            return False
+    if not incoming or any(not _complete_transfer_receipt(row) for row in incoming):
         raise HTTPException(status_code=400, detail="Physically receive the complete farmer-packed shipment before dispatch")
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
     leg = await legs.find_one({
