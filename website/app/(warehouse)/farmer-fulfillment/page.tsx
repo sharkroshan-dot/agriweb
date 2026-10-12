@@ -351,10 +351,10 @@ export default function FarmerFulfillmentWarehousePage() {
                     {transferStatus === "hub_handoff_pending" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
                   </>}
                   {multi && <>
-                    {!consolidationRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify Portion</Button>)}
-                    {!consolidationRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Portion</Button>)}
+                    {sourceRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify Portion</Button>)}
+                    {sourceRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Portion</Button>)}
                     {con?.canDispatchToConsolidation && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)} disabled={!storedComplete || Boolean(con?.sourceTransfer?.dispatched)}><Truck className="mr-2 h-4 w-4"/>Dispatch Portion to Consolidation</Button>}
-                    {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)} disabled={!con?.consolidation?.inTransitLegs && !con?.inTransitLegCount && Boolean(con?.allConsolidationLegsReceived)}><Warehouse className="mr-2 h-4 w-4"/>Receive Portions at Consolidation</Button>}
+                    {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)} disabled={!Number(con?.inTransitLegCount||0) || Boolean(con?.allConsolidationLegsReceived)}><Warehouse className="mr-2 h-4 w-4"/>Receive Portions at Consolidation</Button>}
                     {consolidationRole && <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived || !con?.allConsolidationLegsReceived || ["consolidated","hub_handoff_pending","local_hub_ready"].includes(conStatus)}><CheckCircle2 className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
                     {consolidationRole && <Button size="sm" variant="outline" onClick={()=>handoffHub(o.id)} disabled={conStatus !== "consolidated"}><Route className="mr-2 h-4 w-4"/>Transfer Complete Order to Local Hub</Button>}
                     {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveHub(o.id)} disabled={conStatus !== "hub_handoff_pending"}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
@@ -362,7 +362,7 @@ export default function FarmerFulfillmentWarehousePage() {
                 </div>
                 {multi && <div className="grid gap-2 sm:grid-cols-3 text-xs">
                   <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Warehouse portions</p><p className="mt-1 font-semibold">{con?.storedCount ?? 0}/{con?.incomingCount ?? 0} received + stored</p></div>
-                  <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Consolidation receipts</p><p className="mt-1 font-semibold">{con?.receivedConsolidationLegCount ?? (con?.allConsolidationLegsReceived ? "All received" : "Pending")}</p></div>
+                  <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Consolidation receipts</p><p className="mt-1 font-semibold">{`${con?.receivedConsolidationLegCount ?? 0}/${con?.totalConsolidationLegCount ?? 0} received`}</p></div>
                   <div className="rounded-lg bg-white p-3"><p className="text-muted-foreground">Local hub</p><p className="mt-1 font-semibold">{o.localHubName || "Assigned local hub"}</p></div>
                 </div>}
                 {!multi && !interDistrict && !receiptComplete && <p className="text-xs text-amber-700">Receive and verify the full packed quantity first. The local-hub transfer remains disabled until the shipment is physically received.</p>}
