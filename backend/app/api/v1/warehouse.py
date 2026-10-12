@@ -465,21 +465,32 @@ async def get_farmer_fulfillment_transfers(
     # flow or the Farm Collection bulk-receipt flow. Both are valid links into
     # this workspace; do not hide a packed order merely because an older receipt
     # row lacks sourceMode=farmer_fulfillment_transfer.
+    # Read from the same warehouse-scoped source as Incoming Stock. Some legacy
+    # receipts store warehouseId as ObjectId and others as string, and older
+    # packed collection receipts may be linked by order number rather than order _id.
     transfer_incoming_rows = await incoming_stock_repository.find_many({
-        "warehouseId": {"$in": [warehouse_oid, warehouse_id]},
         "deletedAt": None,
-        "$or": [
-            {"sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"}},
-            {"packingRequired": False},
+        "$and": [
+            {"warehouseId": {"$in": [warehouse_oid, warehouse_id]}},
+            {"$or": [
+                {"sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"}},
+                {"packingRequired": False},
+                {"pickupRouteId": {"$exists": True, "$nin": [None, ""]}},
+            ]},
         ],
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
     known_order_ids = {str(item.get("_id")) for item in orders if item.get("_id")}
     for incoming_row in transfer_incoming_rows:
         linked_order_id = str(incoming_row.get("orderId") or "")
-        if not linked_order_id or linked_order_id in known_order_ids:
-            continue
-        linked_order = await order_repository.get_by_id(linked_order_id)
+        linked_order = await order_repository.get_by_id(linked_order_id) if ObjectId.is_valid(linked_order_id) else None
         if not linked_order:
+            linked_order_number = str(incoming_row.get("orderNumber") or incoming_row.get("orderNo") or "")
+            if linked_order_number:
+                linked_order = await order_repository.find_one({"orderNumber": linked_order_number, "deletedAt": None})
+        if not linked_order:
+            continue
+        linked_order_id = str(linked_order.get("_id") or "")
+        if not linked_order_id or linked_order_id in known_order_ids:
             continue
         linked_method = str(
             linked_order.get("fulfillmentMethod")
