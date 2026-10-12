@@ -492,6 +492,27 @@ async def get_farmer_fulfillment_transfers(
         linked_order_id = str(linked_order.get("_id") or "")
         if not linked_order_id or linked_order_id in known_order_ids:
             continue
+        # A packed farm collection receipt physically received by this warehouse
+        # is the authoritative source-warehouse link for older orders whose
+        # parent order missed warehouse assignment metadata.
+        linked_receipt_is_packed = (
+            str(incoming_row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or incoming_row.get("packingRequired") is False
+            or str(incoming_row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+            or bool(incoming_row.get("orderId") and incoming_row.get("pickupRouteId"))
+        )
+        if linked_receipt_is_packed and not (
+            linked_order.get("warehouseId") or linked_order.get("sourceWarehouseId")
+            or linked_order.get("warehouseAllocations") or linked_order.get("warehouseIds")
+        ):
+            linked_order["warehouseId"] = warehouse_oid
+            linked_order["sourceWarehouseId"] = warehouse_oid
+            linked_order["sourceWarehouseName"] = warehouse.get("name") or warehouse.get("warehouseName")
+            linked_order["logisticsMode"] = (
+                "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+                if str(linked_order.get("deliveryDecision") or linked_order.get("deliveryPartnerRoute") or "").lower() == "nearby"
+                else "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+            )
         linked_method = str(
             linked_order.get("fulfillmentMethod")
             or linked_order.get("fulfillment_route")
