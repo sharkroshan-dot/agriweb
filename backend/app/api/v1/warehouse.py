@@ -867,7 +867,7 @@ async def get_farmer_fulfillment_transfers(
                 "destination_warehouse_transfer_pending", "destination_warehouse_in_transit",
                 "destination_warehouse_arrived_pending_receipt", "destination_warehouse_received",
                 "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready",
-                "consolidated", "consolidation_portions_received", "consolidation_in_transit"
+                "consolidated", "consolidation_portions_received"
             )
         ) or (
             # A consolidation warehouse counts as physically received only after
