@@ -1472,7 +1472,39 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "sourceMode": "farmer_fulfillment_transfer",
             "deletedAt": None,
         }, skip=0, limit=1000)
-        stored = [x for x in incoming if str(x.get("status")) == "stored"]
+        received_or_stored = [
+            row for row in incoming
+            if str(row.get("status") or "").strip().lower() in ("received", "stored")
+            and float(row.get("quantityReceived") or row.get("receivedQuantity") or row.get("actualQuantityReceived") or row.get("quantity") or 0) + 1e-9
+                >= float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
+        ]
+        expected_by_portion = {}
+        for allocation in (order.get("warehouseAllocations") or []):
+            key = (
+                str(allocation.get("warehouseId") or ""),
+                str(allocation.get("productId") or ""),
+                str(allocation.get("variantId") or ""),
+            )
+            expected_by_portion[key] = expected_by_portion.get(key, 0.0) + float(allocation.get("quantity") or 0)
+        received_by_portion = {}
+        for row in received_or_stored:
+            key = (
+                str(row.get("warehouseId") or ""),
+                str(row.get("productId") or ""),
+                str(row.get("variantId") or ""),
+            )
+            quantity_received = row.get("quantityReceived")
+            if quantity_received is None:
+                quantity_received = row.get("receivedQuantity")
+            if quantity_received is None:
+                quantity_received = row.get("actualQuantityReceived")
+            if quantity_received is None:
+                quantity_received = row.get("quantity")
+            received_by_portion[key] = received_by_portion.get(key, 0.0) + max(0.0, float(quantity_received or 0))
+        all_warehouses_received = bool(expected_by_portion) and all(
+            received_by_portion.get(key, 0.0) + 1e-9 >= required
+            for key, required in expected_by_portion.items()
+        )
         consolidation_legs = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find({
             "orderId": order["_id"],
             "legType": "warehouse_to_consolidation",
@@ -1495,8 +1527,8 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "warehouseCount": int(order.get("warehouseCount") or 1),
             "sourceWarehouseId": str(warehouse["_id"]) if any(str(a.get("warehouseId")) == str(warehouse["_id"]) for a in (order.get("warehouseAllocations") or [])) else None,
             "incomingCount": len(incoming),
-            "storedCount": len(stored),
-            "allWarehousesReceived": bool(incoming) and len(stored) == len(incoming),
+            "storedCount": len(received_or_stored),
+            "allWarehousesReceived": all_warehouses_received,
             "allConsolidationLegsReceived": bool(consolidation_legs) and len(received_consolidation_legs) == len(consolidation_legs),
             "canDispatchToConsolidation": any(str(a.get("warehouseId")) == str(warehouse["_id"]) for a in (order.get("warehouseAllocations") or [])),
             "isConsolidationWarehouse": str(order.get("consolidationWarehouseId") or "") == str(warehouse["_id"]),
