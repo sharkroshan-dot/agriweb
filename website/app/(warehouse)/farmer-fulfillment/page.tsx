@@ -67,7 +67,7 @@ export default function FarmerFulfillmentWarehousePage() {
   const transfersRaw=data?.data?.transfers||[];
   const transfers=[...transfersRaw].sort((a:any,b:any)=>(routeOrder[a.routeCategory]??4)-(routeOrder[b.routeCategory]??4));
   // Only fully received orders with verified routing belong in actionable queues.
-  const eligibleTransfers=transfers.filter((o:any)=>o.physicalReceiptConfirmed && o.routeDataComplete && o.routeCategory!=="needs_location" && o.currentWarehouseRole!=="assigned" && !String(o.logisticsMode||"").includes("multiple_warehouses"));
+  const eligibleTransfers=transfers.filter((o:any)=>o.physicalReceiptConfirmed && o.routeDataComplete && o.routeCategory!=="needs_location" && o.currentWarehouseRole!=="assigned");
   const waitingTransfers=transfers.filter((o:any)=>!eligibleTransfers.some((ready:any)=>ready.id===o.id));
   const {data:consolidationData,refetch:refetchConsolidations}=useQuery({
     queryKey:["farmerFulfillmentConsolidations"],
