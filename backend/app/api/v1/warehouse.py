@@ -804,12 +804,24 @@ async def get_farmer_fulfillment_transfers(
             or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
             or ""
         ).strip().casefold()
+        direct_delivery_mode_values = {
+            str(order.get("logisticsMode") or "").strip().lower(),
+            str(order.get("deliveryMode") or "").strip().lower(),
+            str(order.get("fulfillmentMode") or "").strip().lower(),
+            str(order.get("deliveryRoute") or "").strip().lower(),
+        }
+        direct_delivery_configured = bool(
+            "farmer_to_delivery_partner" in direct_delivery_mode_values
+            or direct_delivery_mode_values.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"})
+        )
         is_multi_warehouse_order = logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" or len(order.get("warehouseAllocations") or []) > 1 or len(order.get("warehouseIds") or []) > 1
         if is_multi_warehouse_order:
             # Multi-source orders must consolidate all portions before final-mile routing;
             # proximity must never incorrectly send an individual portion directly to a customer.
             route_category = "multi_warehouse"
         elif calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
+            # Distance classifies proximity; only explicit direct-delivery configuration
+            # authorizes the Nearby final-mile workflow.
             route_category = "nearby"
         elif source_district and destination_district:
             route_category = "same_district" if source_district == destination_district else "inter_district"
@@ -897,6 +909,7 @@ async def get_farmer_fulfillment_transfers(
             "routeDistanceKm": calculated_distance_km,
             "nearbyThresholdKm": threshold_km,
             "routeCategory": route_category,
+            "directDeliveryConfigured": direct_delivery_configured,
             "distanceCalculationStatus": "calculated" if calculated_distance_km is not None else "missing_coordinates",
             "physicalReceiptConfirmed": physical_receipt_confirmed,
             "receivedLineCount": len(fully_received_lines),
