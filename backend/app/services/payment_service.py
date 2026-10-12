@@ -314,6 +314,8 @@ class PaymentService:
 
         # Update payment state without resurrecting an order that was already
         # cancelled while payment confirmation was in flight.
+        order = None
+        order_repo_for_payment = order_repository
         if payment.get("orderId"):
             order = await order_repository.get_by_id(str(payment["orderId"]))
             order_repo_for_payment = order_repository
