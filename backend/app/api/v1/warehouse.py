@@ -471,7 +471,6 @@ async def get_farmer_fulfillment_transfers(
         "$or": [
             {"sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"}},
             {"packingRequired": False},
-            {"pickupRouteId": {"$exists": True, "$nin": [None, ""]}},
         ],
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
     known_order_ids = {str(item.get("_id")) for item in orders if item.get("_id")}
@@ -496,7 +495,6 @@ async def get_farmer_fulfillment_transfers(
         packed_receipt = (
             str(incoming_row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
             or incoming_row.get("packingRequired") is False
-            or bool(incoming_row.get("pickupRouteId"))
         )
         is_farmer_transfer = (
             linked_method in ("farmer", "farm_direct")
