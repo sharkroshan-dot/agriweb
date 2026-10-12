@@ -739,7 +739,7 @@ async def get_farmer_fulfillment_transfers(
         calculated_distance_km = order.get("warehouseToCustomerDistanceKm")
         if calculated_distance_km is None and source_point and customer_point:
             import math
-            lat1, lon1 = farm_point
+            lat1, lon1 = source_point
             lat2, lon2 = customer_point
             p1, p2 = math.radians(lat1), math.radians(lat2)
             dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
