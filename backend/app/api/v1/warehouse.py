@@ -430,6 +430,7 @@ async def get_farmer_fulfillment_transfers(
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
+                {"logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"},
             ]},
             {"$or": [
                 {"deliveryDecision": {"$in": ["long_distance", "nearby"]}},
@@ -527,6 +528,7 @@ async def get_farmer_fulfillment_transfers(
                 "farmer_to_delivery_partner",
                 "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                 "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+                "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
             )
             or packed_receipt
         )
@@ -985,6 +987,7 @@ async def get_farmer_fulfillment_transfers(
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
+                {"logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"},
             ]},
             {"$or": [
                 {"deliveryDecision": {"$in": ["long_distance", "nearby"]}},
