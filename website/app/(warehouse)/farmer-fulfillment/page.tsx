@@ -127,6 +127,9 @@ export default function FarmerFulfillmentWarehousePage() {
       for(const order of chosen){
         try{
           if(category==="inter_district"){
+            if(!order.destinationWarehouseId){
+              await api.post(`/warehouse/me/farmer-fulfillment/${order.id}/assign-destination-warehouse`);
+            }
             await api.post(`/warehouse/me/farmer-fulfillment/${order.id}/dispatch-to-destination`);
           }else{
             await api.post(`/warehouse/me/farmer-fulfillment/${order.id}/handoff-local-hub`);
@@ -153,6 +156,13 @@ export default function FarmerFulfillmentWarehousePage() {
       await refreshAll();
     }catch(e:any){toast.error(e?.message||"Pickup-team assignment failed");}
     finally{setAssigningOrder(null);}
+  };
+  const assignDestinationWarehouse=async(id:string)=>{
+    try{
+      await api.post(`/warehouse/me/farmer-fulfillment/${id}/assign-destination-warehouse`);
+      toast.success("Destination warehouse assigned using customer location and available capacity");
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Destination warehouse assignment failed");}
   };
   const dispatchDestination=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/dispatch-to-destination`);toast.success("Order dispatched to destination warehouse");await refreshAll();}
@@ -344,6 +354,7 @@ export default function FarmerFulfillmentWarehousePage() {
                   {interDistrict && <>
                     {sourceRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
                     {sourceRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Shipment</Button>)}
+                    {sourceRole && !o.destinationWarehouseId && <Button size="sm" variant="outline" onClick={()=>assignDestinationWarehouse(o.id)} disabled={routeNeedsReview}><Warehouse className="mr-2 h-4 w-4"/>Assign Destination Warehouse</Button>}
                     {sourceRole && <Button size="sm" onClick={()=>dispatchDestination(o.id)} disabled={routeNeedsReview || !receiptComplete || !o.destinationWarehouseId || ["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(transferStatus)}><Truck className="mr-2 h-4 w-4"/>Plan Inter-District Route & Create Transfer</Button>}
                     {sourceRole && ["destination_warehouse_transfer_pending","destination_warehouse_in_transit"].includes(transferStatus) && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved pickup team</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Pickup team"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" variant="outline" disabled={!selectedTeams[o.id]||assigningOrder===o.id} onClick={()=>assignPickupTeam(o.id,"destination")}>{assigningOrder===o.id?"Assigning…":"Assign Transfer Team"}</Button></div>}
                     {destinationRole && <Button size="sm" onClick={()=>receiveDestination(o.id)} disabled={transferStatus !== "destination_warehouse_in_transit"}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
