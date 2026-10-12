@@ -1442,12 +1442,17 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
     if not warehouse:
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
+    warehouse_id = str(warehouse["_id"])
+    warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
     orders = await order_repository.find_many({
         "logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
         "$or": [
-            {"warehouseId": ObjectId(str(warehouse["_id"]))},
-            {"warehouseIds": ObjectId(str(warehouse["_id"]))},
-            {"consolidationWarehouseId": ObjectId(str(warehouse["_id"]))},
+            {"warehouseId": {"$in": warehouse_refs}},
+            {"warehouseIds": {"$in": warehouse_refs}},
+            {"warehouseAllocations.warehouseId": {"$in": warehouse_refs}},
+            {"consolidationWarehouseId": {"$in": warehouse_refs}},
+            {"destinationWarehouseId": {"$in": warehouse_refs}},
+            {"destinationWarehouseIds": {"$in": warehouse_refs}},
         ],
         "deletedAt": None,
         "orderStatus": {"$nin": ["cancelled", "refunded", "delivered", "completed"]},
