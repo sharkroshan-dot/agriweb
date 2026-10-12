@@ -438,6 +438,7 @@ async def get_farmer_fulfillment_transfers(
                     "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
                     "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+                    "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
                 ]}},
             ]},
             {"$or": [
@@ -529,9 +530,6 @@ async def get_farmer_fulfillment_transfers(
             )
             or packed_receipt
         )
-        if linked_logistics == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
-            # Multi-source bulk orders have their own consolidation workspace.
-            continue
         if not is_farmer_transfer or linked_status in ("delivered", "completed", "cancelled", "refunded"):
             continue
         orders.append(linked_order)
@@ -550,9 +548,6 @@ async def get_farmer_fulfillment_transfers(
             "deletedAt": None,
         }, skip=0, limit=1000)
         logistics_mode = str(order.get("logisticsMode") or "")
-        # Multi-farm bulk orders are processed exclusively in Multi-Warehouse Consolidation.
-        if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
-            continue
         is_consolidation_warehouse = (
             logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
             and str(order.get("consolidationWarehouseId") or "") == warehouse_id
@@ -794,7 +789,12 @@ async def get_farmer_fulfillment_transfers(
             or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
             or ""
         ).strip().casefold()
-        if calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
+        is_multi_warehouse_order = logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" or len(order.get("warehouseAllocations") or []) > 1 or len(order.get("warehouseIds") or []) > 1
+        if is_multi_warehouse_order:
+            # Multi-source orders must consolidate all portions before final-mile routing;
+            # proximity must never incorrectly send an individual portion directly to a customer.
+            route_category = "multi_warehouse"
+        elif calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
             route_category = "nearby"
         elif source_district and destination_district:
             route_category = "same_district" if source_district == destination_district else "inter_district"
@@ -856,6 +856,10 @@ async def get_farmer_fulfillment_transfers(
                 "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready",
                 "consolidated", "consolidation_portions_received", "consolidation_in_transit"
             )
+        ) or (
+            # At a consolidation warehouse, incoming transfer legs are the physical
+            # receipt record for portions arriving from other source warehouses.
+            is_consolidation_warehouse and bool(consolidation.get("canReceive") or consolidation.get("receivedLegs"))
         )
 
         result.append({
@@ -880,7 +884,7 @@ async def get_farmer_fulfillment_transfers(
             "physicalReceiptConfirmed": physical_receipt_confirmed,
             "receivedLineCount": len(fully_received_lines),
             "incomingLineCount": len(receipt_rows),
-            "routeDataComplete": route_category != "needs_location",
+            "routeDataComplete": route_category != "needs_location" or is_multi_warehouse_order,
             "farmerFulfillmentRouteType": route_type,
             "routeDecisionReason": order.get("routeDecisionReason"),
             "pickupSchedule": order.get("pickupSchedule") or {"timezone": "Asia/Kolkata", "start": "20:00", "end": "06:00"},
