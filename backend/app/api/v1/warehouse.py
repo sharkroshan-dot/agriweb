@@ -1202,16 +1202,67 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
         if not created_rows:
             raise HTTPException(status_code=409, detail="No valid packed item quantities were available to create pickup records.")
 
-    logistics_mode = (
-        "farmer_to_warehouse_to_local_hub_to_delivery_partner"
-        if decision == "nearby"
-        else "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
-    )
+    # Classify using source-warehouse -> customer distance and district.
+    # Do not trust a stale Farmer Order Map decision when the warehouse changes.
+    def _route_point(value: Any):
+        if not isinstance(value, dict):
+            return None
+        coords = value.get("coordinates")
+        if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+            try:
+                lon, lat = float(coords[0]), float(coords[1])
+                if -180 <= lon <= 180 and -90 <= lat <= 90:
+                    return lat, lon
+            except (TypeError, ValueError):
+                return None
+        lat = value.get("latitude", value.get("lat"))
+        lon = value.get("longitude", value.get("lng", value.get("lon")))
+        try:
+            lat, lon = float(lat), float(lon)
+            if -90 <= lat <= 90 and -180 <= lon <= 180:
+                return lat, lon
+        except (TypeError, ValueError):
+            return None
+        return None
+
+    source_point = _route_point(warehouse.get("location") or warehouse.get("coordinates"))
+    address = order.get("deliveryAddress") or {}
+    destination_point = _route_point(address.get("location") if isinstance(address, dict) else None) or _route_point(address) or _route_point(order.get("customerLocation"))
+    threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    distance_km = None
+    if source_point and destination_point:
+        import math
+        lat1, lon1 = map(math.radians, source_point)
+        lat2, lon2 = map(math.radians, destination_point)
+        dlat, dlon = lat2 - lat1, lon2 - lon1
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+    source_district = str(order.get("sourceDistrict") or order.get("farmerDistrict") or "").strip().casefold()
+    destination_district = str(order.get("destinationDistrict") or (address.get("district") if isinstance(address, dict) else "") or "").strip().casefold()
+    if distance_km is not None and distance_km <= threshold_km:
+        route_category = "nearby"
+        logistics_mode = "farmer_to_delivery_partner"
+    elif source_district and destination_district and source_district == destination_district:
+        route_category = "same_district"
+        logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+    elif source_district and destination_district:
+        route_category = "inter_district"
+        logistics_mode = "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+    else:
+        # Assignment can be resolved, but dispatch stays blocked until route
+        # data is completed; don't invent a route based on missing data.
+        route_category = "needs_location"
+        logistics_mode = "long_distance_pending"
     await order_repository.update({"_id": ObjectId(order_id)}, {
         "warehouseId": ObjectId(warehouse_id),
         "sourceWarehouseId": ObjectId(warehouse_id),
         "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
         "sourceWarehouseLocation": warehouse.get("location") or warehouse.get("coordinates"),
+        "warehouseToCustomerDistanceKm": distance_km,
+        "nearbyDeliveryThresholdKm": threshold_km,
+        "sourceDistrict": source_district or order.get("sourceDistrict") or order.get("farmerDistrict"),
+        "destinationDistrict": destination_district or order.get("destinationDistrict"),
+        "farmerFulfillmentRouteCategory": route_category,
         "logisticsMode": logistics_mode,
         "warehouseFulfillmentStage": "awaiting_warehouse_receipt",
         "updatedAt": now,
