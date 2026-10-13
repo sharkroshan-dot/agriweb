@@ -505,11 +505,28 @@ def _warehouse_serves_district(warehouse: Dict[str, Any], district: str) -> bool
     normalized = _normalized_district(district)
     if not normalized:
         return False
-    address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
-    direct = _normalized_district(warehouse.get("district") or address.get("district"))
-    if direct == normalized:
+    address_value = warehouse.get("address")
+    address = address_value if isinstance(address_value, dict) else {}
+    location_value = warehouse.get("location")
+    location = location_value if isinstance(location_value, dict) else {}
+    nested_address = address.get("address") if isinstance(address.get("address"), dict) else {}
+    # Warehouse settings can store district in the top-level profile, address,
+    # location, or a nested address object. Normalize all of these consistently.
+    candidates = (
+        warehouse.get("district"),
+        address.get("district"),
+        location.get("district"),
+        address.get("city"),
+        location.get("city"),
+        nested_address.get("district"),
+        nested_address.get("city"),
+    )
+    if any(_normalized_district(value) == normalized for value in candidates if value):
         return True
-    for area in warehouse.get("serviceAreas") or []:
+    service_areas = warehouse.get("serviceAreas") or warehouse.get("serviceDistricts") or warehouse.get("deliveryDistricts") or []
+    if isinstance(service_areas, str):
+        service_areas = [service_areas]
+    for area in service_areas:
         if _normalized_district(area) == normalized:
             return True
     return False
@@ -529,6 +546,8 @@ async def warehouse_for_district(
         "$or": [
             {"status": {"$regex": "^(active|approved|operational)$", "$options": "i"}, "isActive": {"$ne": False}},
             {"isActive": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
+            {"is_active": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
+            {"isOperational": True, "isActive": {"$ne": False}},
         ],
     }).to_list(length=200)
     matches = []
@@ -545,9 +564,17 @@ async def warehouse_for_district(
                 doc = refreshed
         except Exception:
             pass
-        total_capacity = float(doc.get("totalCapacity") or 0)
-        used_capacity = float(doc.get("usedCapacity") or 0)
-        if total_capacity <= 0 or total_capacity - used_capacity + 1e-9 < float(required_capacity or 0):
+        total_capacity = float(doc.get("totalCapacity") or doc.get("storageCapacity") or doc.get("capacity") or 0)
+        used_capacity = float(doc.get("usedCapacity") or doc.get("currentUsage") or 0)
+        available_capacity = doc.get("availableCapacity")
+        if available_capacity is not None:
+            try:
+                available = float(available_capacity)
+            except (TypeError, ValueError):
+                available = total_capacity - used_capacity
+        else:
+            available = total_capacity - used_capacity
+        if total_capacity <= 0 or available + 1e-9 < float(required_capacity or 0):
             continue
         matches.append(doc)
     matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
