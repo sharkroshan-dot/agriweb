@@ -2133,10 +2133,12 @@ async def assign_farmer_fulfillment_destination_warehouse(
     customer_district = str(
         delivery_address.get("district")
         or delivery_location.get("district")
+        or delivery_location.get("city")
         or nested_delivery_address.get("district")
         or nested_delivery_address.get("city")
         or shipping_address.get("district")
         or shipping_location.get("district")
+        or shipping_location.get("city")
         or nested_shipping_address.get("district")
         or nested_shipping_address.get("city")
         or order.get("destinationDistrict")
@@ -2148,14 +2150,18 @@ async def assign_farmer_fulfillment_destination_warehouse(
     source_location_value = source_warehouse.get("location")
     source_location = source_location_value if isinstance(source_location_value, dict) else {}
     nested_source_address = source_address.get("address") if isinstance(source_address.get("address"), dict) else {}
+    nested_source_location = source_location.get("address") if isinstance(source_location.get("address"), dict) else {}
     source_district = str(
         source_warehouse.get("district")
+        or source_warehouse.get("city")
         or source_address.get("district")
-        or source_location.get("district")
         or source_address.get("city")
+        or source_location.get("district")
         or source_location.get("city")
         or nested_source_address.get("district")
         or nested_source_address.get("city")
+        or nested_source_location.get("district")
+        or nested_source_location.get("city")
         or order.get("sourceDistrict")
         or order.get("warehouseDistrict")
         or order.get("farmerDistrict")
