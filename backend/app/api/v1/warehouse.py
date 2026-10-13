@@ -2117,26 +2117,47 @@ async def assign_farmer_fulfillment_destination_warehouse(
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can choose the destination warehouse")
     existing_destination_id = str(order.get("destinationWarehouseId") or "")
 
-    delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
-    if not isinstance(delivery_address, dict):
-        delivery_address = {}
-    customer_location = delivery_address.get("location") or order.get("customerLocation") or delivery_address
-    delivery_location = delivery_address.get("location")
+    delivery_address = order.get("deliveryAddress") if isinstance(order.get("deliveryAddress"), dict) else {}
+    shipping_address = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
+    customer_location = (
+        delivery_address.get("location")
+        or shipping_address.get("location")
+        or order.get("customerLocation")
+        or delivery_address
+        or shipping_address
+    )
+    delivery_location = delivery_address.get("location") if isinstance(delivery_address.get("location"), dict) else {}
+    shipping_location = shipping_address.get("location") if isinstance(shipping_address.get("location"), dict) else {}
+    nested_delivery_address = delivery_address.get("address") if isinstance(delivery_address.get("address"), dict) else {}
+    nested_shipping_address = shipping_address.get("address") if isinstance(shipping_address.get("address"), dict) else {}
     customer_district = str(
         delivery_address.get("district")
-        or (delivery_location.get("district") if isinstance(delivery_location, dict) else "")
+        or delivery_location.get("district")
+        or nested_delivery_address.get("district")
+        or nested_delivery_address.get("city")
+        or shipping_address.get("district")
+        or shipping_location.get("district")
+        or nested_shipping_address.get("district")
+        or nested_shipping_address.get("city")
+        or order.get("destinationDistrict")
+        or order.get("customerDistrict")
         or ""
     ).strip().casefold()
-    customer_district = customer_district or str(
-        (order.get("shippingAddress") or {}).get("district")
-        if isinstance(order.get("shippingAddress"), dict)
-        else ""
-    ).strip().casefold()
-    customer_district = customer_district or str(order.get("destinationDistrict") or "").strip().casefold()
+    source_address_value = source_warehouse.get("address")
+    source_address = source_address_value if isinstance(source_address_value, dict) else {}
+    source_location_value = source_warehouse.get("location")
+    source_location = source_location_value if isinstance(source_location_value, dict) else {}
+    nested_source_address = source_address.get("address") if isinstance(source_address.get("address"), dict) else {}
     source_district = str(
         source_warehouse.get("district")
-        or ((source_warehouse.get("address") or {}).get("district") if isinstance(source_warehouse.get("address"), dict) else "")
+        or source_address.get("district")
+        or source_location.get("district")
+        or source_address.get("city")
+        or source_location.get("city")
+        or nested_source_address.get("district")
+        or nested_source_address.get("city")
         or order.get("sourceDistrict")
+        or order.get("warehouseDistrict")
         or order.get("farmerDistrict")
         or ""
     ).strip().casefold()
@@ -2145,8 +2166,14 @@ async def assign_farmer_fulfillment_destination_warehouse(
         farmer_profile = await farmer_repository.get_by_id(farmer_id)
         if farmer_profile:
             source_district = str(farmer_profile.get("district") or farmer_profile.get("farmDistrict") or "").strip().casefold()
-    source_location = source_warehouse.get("location") or source_warehouse.get("coordinates")
-    route_distance = distance_km(source_location, customer_location) if isinstance(customer_location, dict) else None
+    source_location = (
+        source_warehouse.get("location")
+        or source_warehouse.get("coordinates")
+        or source_address.get("location")
+        or source_address.get("coordinates")
+        or source_address
+    )
+    route_distance = distance_km(source_location, customer_location) if isinstance(source_location, dict) and isinstance(customer_location, dict) else None
     nearby_threshold = float(order.get("nearbyDeliveryThresholdKm") or source_warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
     delivery_modes = {
         str(order.get("logisticsMode") or "").strip().lower(),
