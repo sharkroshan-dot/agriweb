@@ -24,7 +24,7 @@ from app.schemas.warehouse import (
 )
 from app.services.warehouse_service import WarehouseService
 from app.services.user_service import UserService
-from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses, distance_km, nearest_local_hub
+from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses, classify_farmer_fulfillment_route, distance_km, nearest_local_hub, warehouse_for_district
 from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
@@ -815,30 +815,15 @@ async def get_farmer_fulfillment_transfers(
             or direct_delivery_mode_values.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"})
         )
         is_multi_warehouse_order = logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" or len(order.get("warehouseAllocations") or []) > 1 or len(order.get("warehouseIds") or []) > 1
-        if is_multi_warehouse_order:
-            # Multi-source orders must consolidate all portions before final-mile routing;
-            # proximity must never incorrectly send an individual portion directly to a customer.
-            route_category = "multi_warehouse"
-        elif calculated_distance_km is not None and float(calculated_distance_km) <= threshold_km:
-            # Distance classifies proximity; only explicit direct-delivery configuration
-            # authorizes the Nearby final-mile workflow.
-            route_category = "nearby"
-        elif source_district and destination_district and source_district != destination_district:
-            # District mismatch is enough to identify the inter-district path;
-            # destination assignment still validates its warehouse and capacity.
-            route_category = "inter_district"
-        elif calculated_distance_km is not None and source_district and destination_district and source_district == destination_district:
-            route_category = "same_district"
-        else:
-            # Same-district routing requires a known distance to distinguish it
-            # from Nearby. Do not offer a route that backend must later reject.
-            route_category = "needs_location"
-        if route_category in ("nearby", "same_district", "inter_district", "multi_warehouse"):
-            route_type = route_category
-        else:
-            # Preserve a previously saved, explicit decision as a hint only; the
-            # UI still shows Needs Location until the distance/district is verified.
-            route_type = order.get("farmerFulfillmentRouteType")
+        route_category = classify_farmer_fulfillment_route(
+            calculated_distance_km,
+            threshold_km,
+            source_district,
+            destination_district,
+            direct_delivery_configured,
+            is_multi_warehouse_order,
+        )
+        route_type = route_category
 
         # A route queue begins only after the source warehouse has physically
         # received the shipment. Pre-receipt and unassigned records remain visible
@@ -1794,11 +1779,21 @@ async def assign_farmer_fulfillment_destination_warehouse(
     source_location = source_warehouse.get("location") or source_warehouse.get("coordinates")
     route_distance = distance_km(source_location, customer_location) if isinstance(customer_location, dict) else None
     nearby_threshold = float(order.get("nearbyDeliveryThresholdKm") or source_warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    delivery_modes = {
+        str(order.get("logisticsMode") or "").strip().lower(),
+        str(order.get("deliveryMode") or "").strip().lower(),
+        str(order.get("fulfillmentMode") or "").strip().lower(),
+        str(order.get("deliveryRoute") or "").strip().lower(),
+    }
+    direct_delivery_configured = (
+        "farmer_to_delivery_partner" in delivery_modes
+        or bool(delivery_modes.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"}))
+    )
     if not source_district or not customer_district:
         raise HTTPException(status_code=409, detail="Verified source and customer districts are required before assigning an inter-district destination")
     if source_district == customer_district:
         raise HTTPException(status_code=409, detail="This order belongs in Same-District routing, not Inter-District routing")
-    if route_distance is not None and route_distance <= nearby_threshold:
+    if route_distance is not None and route_distance <= nearby_threshold and direct_delivery_configured:
         raise HTTPException(status_code=409, detail=f"This order is within the {nearby_threshold:g} km Nearby threshold; use Nearby delivery instead")
     if existing_destination_id:
         if existing_destination_id == source_id:
@@ -1822,45 +1817,16 @@ async def assign_farmer_fulfillment_destination_warehouse(
     if required_capacity <= 0:
         raise HTTPException(status_code=409, detail="The order has no positive quantity for destination capacity validation")
 
-    candidates = await MongoDB.get_collection("warehouses").find({
-        "deletedAt": None,
-        "$or": [
-            {"status": {"$regex": "^(active|approved|operational)$", "$options": "i"}, "isActive": {"$ne": False}},
-            {"isActive": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
-        ],
-    }).to_list(length=200)
-    scored = []
-    for candidate in candidates:
-        candidate_id = str(candidate.get("_id") or "")
-        if not candidate_id or candidate_id == source_id:
-            continue
-        try:
-            await warehouse_repository.sync_capacity_usage(candidate_id)
-            refreshed = await warehouse_repository.get_by_id(candidate_id)
-            if refreshed:
-                candidate.update(refreshed)
-        except Exception:
-            continue
-        total_capacity = float(candidate.get("totalCapacity") or 0)
-        used_capacity = float(candidate.get("usedCapacity") or 0)
-        if total_capacity <= 0 or total_capacity - used_capacity + 1e-9 < required_capacity:
-            continue
-        candidate_address = candidate.get("address") if isinstance(candidate.get("address"), dict) else {}
-        candidate_district = str(candidate.get("district") or candidate_address.get("district") or "").strip().casefold()
-        point = candidate.get("location") or candidate.get("coordinates")
-        distance = distance_km(customer_location, point) if isinstance(customer_location, dict) else None
-        district_match = bool(customer_district and candidate_district == customer_district)
-        if not district_match and distance is None:
-            continue
-        scored.append((0 if district_match else 1, distance if distance is not None else float("inf"), candidate))
-
-    if not scored:
+    destination = await warehouse_for_district(
+        customer_district,
+        required_capacity=required_capacity,
+        exclude_warehouse_id=source_id,
+    )
+    if not destination:
         raise HTTPException(
             status_code=409,
-            detail="No different active warehouse with enough available capacity could be matched to the customer district/location. Configure warehouse capacity and customer delivery location first.",
+            detail="No active warehouse in the customer delivery district has enough available capacity. Configure the district warehouse before creating an inter-district transfer.",
         )
-    scored.sort(key=lambda row: (row[0], row[1]))
-    destination = scored[0][2]
     destination_id = str(destination["_id"])
     destination_address = destination.get("address") if isinstance(destination.get("address"), dict) else {}
     now = datetime.utcnow()
@@ -1878,7 +1844,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
         order_id,
         "destination_warehouse_assigned",
         "Destination warehouse assigned",
-        f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected using customer district/location and available capacity.",
+        f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected using the customer delivery district and available capacity.",
         actor_id=str(current_user["_id"]),
         actor_role="warehouse",
         metadata={"sourceWarehouseId": source_id, "destinationWarehouseId": destination_id},
@@ -1891,7 +1857,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
             "destinationDistrict": destination.get("district") or destination_address.get("district") or customer_district,
             "alreadyAssigned": False,
         },
-        "message": "Destination warehouse assigned using customer location and available capacity. Confirm the transfer manifest before dispatch.",
+        "message": "Destination warehouse assigned from the customer delivery district. Confirm the transfer manifest before dispatch.",
     }
 
 
@@ -5306,5 +5272,3 @@ async def assign_farmer_fulfillment_local_hub_pickup_team(
         "status": refreshed.get("status"), "deliveryPartnerId": profile_id,
         "deliveryPartnerName": membership.get("name") or membership.get("fullName") or "Pickup Team",
     }, "message": "Pickup team assigned to local-hub transfer"}
-
-

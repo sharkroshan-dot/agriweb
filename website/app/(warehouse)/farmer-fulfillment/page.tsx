@@ -295,7 +295,7 @@ export default function FarmerFulfillmentWarehousePage() {
     {isLoading?<div className="h-32 animate-pulse rounded-xl bg-muted"/>:transfers.length===0?
       <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No farmer-packed transfers</h3><p className="mt-2 text-sm text-muted-foreground">Long-distance farmer fulfillment orders routed through this warehouse will appear here.</p></Card>:
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
-        <div><h3 className="font-semibold">Plan transfer routes</h3><p className="text-sm text-muted-foreground">Select fully received orders in the same route category. Route manifests are created in order; each transfer still requires an approved pickup-team assignment.</p></div>
+        <div><h3 className="font-semibold">Plan transfer routes</h3><p className="text-sm text-muted-foreground">Select fully received orders in the same route category. Same-district manifests go to the local hub. Inter-district manifests create a destination-warehouse transfer first. After planning, assign an approved pickup team from each order card.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="same_district")} onClick={()=>planSelectedTransfers("same_district")}>{planningRoute?"Planning…":"Plan Same-District Routes"}</Button><Button disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="inter_district")} onClick={()=>planSelectedTransfers("inter_district")}>{planningRoute?"Planning…":"Plan Inter-District Routes"}</Button></div>
       </div>
       <div className="space-y-4">{sectionTransfers.length===0?<Card><CardContent className="flex flex-col items-center py-12 text-center"><PackageCheck className="h-10 w-10 text-slate-300"/><p className="mt-3 font-semibold">No orders in this section</p><p className="mt-1 text-sm text-muted-foreground">Orders will appear here when their route and warehouse prerequisites match this section.</p></CardContent></Card>:sectionTransfers.map((o:any,index:number)=><><Card key={o.id}><CardContent className="p-5">
@@ -347,7 +347,6 @@ export default function FarmerFulfillmentWarehousePage() {
               const sourceRole = o.currentWarehouseRole === "source" || (o.sourceWarehouseId && o.sourceWarehouseId === o.warehouseId);
               const destinationRole = o.currentWarehouseRole === "destination" || (o.destinationWarehouseId && o.destinationWarehouseId === o.warehouseId);
               const consolidationRole = o.currentWarehouseRole === "consolidation" || (o.consolidationWarehouseId && o.consolidationWarehouseId === o.warehouseId);
-              const canReceiveAtSource = incomingRows.some((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status));
               const nextAction = multi
                 ? (conStatus === "consolidated" ? "Transfer the complete order to the local hub" : "Receive every warehouse portion, then dispatch each portion to consolidation")
                 : interDistrict

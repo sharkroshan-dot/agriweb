@@ -56,6 +56,31 @@ def distance_km(a: Any, b: Any) -> Optional[float]:
     return round(6371.0088 * 2 * asin(sqrt(h)), 2)
 
 
+def classify_farmer_fulfillment_route(
+    route_distance_km: Optional[float],
+    threshold_km: float,
+    source_district: str,
+    destination_district: str,
+    direct_delivery_configured: bool,
+    is_multi_warehouse: bool = False,
+) -> str:
+    """Classify a packed farmer order using distance, district, and delivery mode."""
+    if is_multi_warehouse:
+        return "multi_warehouse"
+
+    source = str(source_district or "").strip().casefold()
+    destination = str(destination_district or "").strip().casefold()
+    is_nearby = route_distance_km is not None and route_distance_km <= threshold_km
+
+    if is_nearby and direct_delivery_configured:
+        return "nearby"
+    if source and destination and source != destination:
+        return "inter_district"
+    if source and destination and source == destination and route_distance_km is not None:
+        return "same_district" if route_distance_km > threshold_km else "route_review"
+    return "needs_location"
+
+
 async def nearest_warehouse(origin: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     docs = await MongoDB.get_collection("warehouses").find({
         "deletedAt": None,
@@ -476,6 +501,58 @@ def _order_districts(order: Dict[str, Any]) -> Tuple[str, str]:
     return farm_district, delivery_district
 
 
+def _warehouse_serves_district(warehouse: Dict[str, Any], district: str) -> bool:
+    normalized = _normalized_district(district)
+    if not normalized:
+        return False
+    address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    direct = _normalized_district(warehouse.get("district") or address.get("district"))
+    if direct == normalized:
+        return True
+    for area in warehouse.get("serviceAreas") or []:
+        if _normalized_district(area) == normalized:
+            return True
+    return False
+
+
+async def warehouse_for_district(
+    district: str,
+    required_capacity: float = 0,
+    exclude_warehouse_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return the active warehouse responsible for a delivery district."""
+    normalized = _normalized_district(district)
+    if not normalized:
+        return None
+    docs = await MongoDB.get_collection("warehouses").find({
+        "deletedAt": None,
+        "$or": [
+            {"status": {"$regex": "^(active|approved|operational)$", "$options": "i"}, "isActive": {"$ne": False}},
+            {"isActive": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
+        ],
+    }).to_list(length=200)
+    matches = []
+    for doc in docs:
+        doc_id = str(doc.get("_id") or "")
+        if exclude_warehouse_id and doc_id == str(exclude_warehouse_id):
+            continue
+        if not _warehouse_serves_district(doc, normalized):
+            continue
+        try:
+            await warehouse_repository.sync_capacity_usage(doc_id)
+            refreshed = await warehouse_repository.get_by_id(doc_id)
+            if refreshed:
+                doc = refreshed
+        except Exception:
+            pass
+        total_capacity = float(doc.get("totalCapacity") or 0)
+        used_capacity = float(doc.get("usedCapacity") or 0)
+        if total_capacity <= 0 or total_capacity - used_capacity + 1e-9 < float(required_capacity or 0):
+            continue
+        matches.append(doc)
+    matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
+    return matches[0] if matches else None
+
 async def _create_standard_farmer_pickup(order: Dict[str, Any], warehouse: Dict[str, Any], origin: Optional[Dict[str, Any]]) -> None:
     """Create farm collection work for a single-source packed transfer.
 
@@ -821,8 +898,12 @@ async def apply_partner_route(
                 update["farmerFulfillmentRouteType"] = "inter_district" if inter_district else "same_district"
                 update["sourceDistrict"] = farm_district or None
                 update["destinationDistrict"] = delivery_district or None
-                if inter_district and destination:
-                    destination_warehouse = await nearest_warehouse(destination)
+                if inter_district and delivery_district:
+                    destination_warehouse = await warehouse_for_district(
+                        delivery_district,
+                        required_capacity=quantity,
+                        exclude_warehouse_id=str(warehouse.get("_id") or ""),
+                    )
                     if destination_warehouse:
                         update["destinationWarehouseId"] = destination_warehouse["_id"]
                         update["destinationWarehouseName"] = destination_warehouse.get("name") or destination_warehouse.get("warehouseName") or "Destination Warehouse"
