@@ -866,20 +866,40 @@ async def get_farmer_fulfillment_transfers(
         # source-warehouse -> customer, never current-warehouse -> customer by accident.
         source_warehouse_doc = None
         source_ref = order.get("sourceWarehouseId") or order.get("warehouseId")
+        warehouses_collection = MongoDB.get_collection("warehouses")
         if source_ref and ObjectId.is_valid(str(source_ref)):
             try:
-                source_warehouse_doc = await MongoDB.get_collection("warehouses").find_one({
-                    "_id": ObjectId(str(source_ref)),
+                source_warehouse_doc = await warehouses_collection.find_one({"_id": ObjectId(str(source_ref))})
+            except Exception:
+                source_warehouse_doc = None
+        # Legacy orders sometimes save the source warehouse name instead of its
+        # Mongo ID. Resolve that reference against the warehouse settings rather
+        # than silently losing its configured coordinates and district.
+        if not source_warehouse_doc and source_ref:
+            try:
+                source_warehouse_doc = await warehouses_collection.find_one({
+                    "$or": [
+                        {"name": str(source_ref)}, {"warehouseName": str(source_ref)},
+                        {"code": str(source_ref)},
+                    ],
                     "deletedAt": None,
                 })
             except Exception:
                 source_warehouse_doc = None
+        # If this is the source warehouse's own queue, its settings are authoritative
+        # even when an old order has no usable warehouse ID.
+        if not source_warehouse_doc and is_source_warehouse:
+            source_warehouse_doc = warehouse
         source_warehouse_doc = source_warehouse_doc or {}
+        source_warehouse_address_value = source_warehouse_doc.get("address")
+        source_warehouse_address = source_warehouse_address_value if isinstance(source_warehouse_address_value, dict) else {}
         source_location = (
             order.get("sourceWarehouseLocation")
             or source_warehouse_doc.get("location")
             or source_warehouse_doc.get("coordinates")
-            or source_warehouse_doc.get("address")
+            or source_warehouse_address.get("location")
+            or source_warehouse_address.get("coordinates")
+            or (source_warehouse_address_value if isinstance(source_warehouse_address_value, dict) else None)
             or (warehouse.get("location") if is_source_warehouse else None)
             or (warehouse.get("coordinates") if is_source_warehouse else None)
             or order.get("warehouseLocation")
@@ -918,12 +938,14 @@ async def get_farmer_fulfillment_transfers(
         # Farmer Fulfillment transfer routing uses a 15 km default unless an explicit order/warehouse threshold is configured.
         threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
         warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
-        source_warehouse_address = source_warehouse_doc.get("address") if isinstance(source_warehouse_doc.get("address"), dict) else {}
         source_district = str(
             source_warehouse_doc.get("district")
             or source_warehouse_address.get("district")
+            or source_warehouse_address.get("city")
+            or source_warehouse_doc.get("city")
             or (warehouse.get("district") if is_source_warehouse or str(source_warehouse_doc.get("_id") or "") == warehouse_id else None)
             or warehouse_address.get("district")
+            or warehouse_address.get("city")
             or order.get("sourceDistrict")
             or (farmer_profile or {}).get("district")
             or (farmer_profile or {}).get("farmDistrict")
@@ -933,10 +955,16 @@ async def get_farmer_fulfillment_transfers(
         ).strip().casefold()
         shipping_address = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
         delivery_location = delivery_address.get("location") if isinstance(delivery_address, dict) else None
+        customer_address_nested = delivery_address.get("address") if isinstance(delivery_address.get("address"), dict) else {}
+        shipping_location = shipping_address.get("location") if isinstance(shipping_address.get("location"), dict) else {}
         destination_district = str(
             (delivery_location.get("district") if isinstance(delivery_location, dict) else "")
             or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
+            or customer_address_nested.get("district")
+            or customer_address_nested.get("city")
             or shipping_address.get("district")
+            or shipping_location.get("district")
+            or shipping_location.get("city")
             or order.get("destinationDistrict")
             or ""
         ).strip().casefold()
