@@ -973,10 +973,22 @@ async def get_farmer_fulfillment_transfers(
         # received the shipment. Pre-receipt and unassigned records remain visible
         # for operational follow-up but must not inflate route queue counts.
         def _received_qty(row):
-            return float(row.get("quantityReceived") or row.get("receivedQuantity") or row.get("actualQuantityReceived") or 0)
+            # Incoming Stock has legacy rows using several actual-quantity names.
+            # Normalize them consistently with the receive endpoint and stage derivation.
+            value = next(
+                (row.get(key) for key in (
+                    "quantityReceived", "receivedQuantity", "actualQuantityReceived",
+                    "actualReceivedQuantity", "receivedQty", "usableQuantity",
+                ) if row.get(key) is not None),
+                None,
+            )
+            if value is None and str(row.get("status") or "").strip().lower() in ("received", "stored"):
+                # Some legacy records only persisted status after a physical count.
+                value = row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0
+            return float(value or 0)
 
         def _expected_qty(row):
-            return float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
+            return float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or row.get("declaredQuantity") or 0)
 
         # The Incoming Stock UI has used both quantity/quantityReceived and
         # expectedQuantity/receivedQuantity across legacy records. Normalize
@@ -996,9 +1008,8 @@ async def get_farmer_fulfillment_transfers(
             if (
                 str(row.get("status") or "").strip().lower() in ("received", "stored")
                 and (
-                    # Legacy receipt rows sometimes record status but not both
-                    # quantity columns. In that schema, receipt status is the
-                    # confirmation; explicitly partial statuses never pass.
+                    # A received status with no expected quantity is a valid
+                    # legacy receipt; when quantities exist, require full count.
                     _expected_qty(row) <= 0
                     or _received_qty(row) + 1e-9 >= _expected_qty(row)
                 )
