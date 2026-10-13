@@ -485,11 +485,14 @@ async def allocate_farmer_fulfillment_warehouses(
 
 def _normalized_district(value: Any) -> str:
     if isinstance(value, dict):
-        value = value.get("district") or value.get("city") or value.get("town") or value.get("county") or value.get("name") or ""
+        value = (
+            value.get("district") or value.get("city") or value.get("town")
+            or value.get("county") or value.get("name") or ""
+        )
     import re
     normalized = " ".join(str(value or "").strip().lower().replace(",", " ").split())
-    normalized = re.sub(r"\\bdistrict\\b", " ", normalized)
-    normalized = re.sub(r"[^a-z0-9\\s]", " ", normalized)
+    normalized = re.sub(r"\bdistrict\b", " ", normalized)
+    normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
     return " ".join(normalized.split())
 
 
@@ -514,20 +517,18 @@ def _warehouse_serves_district(warehouse: Dict[str, Any], district: str) -> bool
     location_value = warehouse.get("location")
     location = location_value if isinstance(location_value, dict) else {}
     nested_address = address.get("address") if isinstance(address.get("address"), dict) else {}
-    # Warehouse settings can store district in the top-level profile, address,
-    # location, or a nested address object. Normalize all of these consistently.
+    nested_location_address = location.get("address") if isinstance(location.get("address"), dict) else {}
+    # Settings and legacy profiles store coverage in different shapes.
     candidates = (
-        warehouse.get("district"),
-        address.get("district"),
-        location.get("district"),
-        address.get("city"),
-        location.get("city"),
-        nested_address.get("district"),
-        nested_address.get("city"),
+        warehouse.get("district"), warehouse.get("city"), warehouse.get("town"),
+        address.get("district"), address.get("city"),
+        location.get("district"), location.get("city"),
+        nested_address.get("district"), nested_address.get("city"),
+        nested_location_address.get("district"), nested_location_address.get("city"),
     )
     if any(_normalized_district(value) == normalized for value in candidates if value):
         return True
-    service_areas = warehouse.get("serviceAreas") or warehouse.get("serviceDistricts") or warehouse.get("deliveryDistricts") or []
+    service_areas = warehouse.get("serviceAreas") or warehouse.get("serviceDistricts") or warehouse.get("serviceableDistricts") or warehouse.get("deliveryDistricts") or warehouse.get("operatingDistricts") or warehouse.get("coverageDistricts") or []
     if isinstance(service_areas, str):
         service_areas = [service_areas]
     for area in service_areas:
@@ -581,7 +582,7 @@ async def warehouse_for_district(
         total_capacity = _number(
             doc.get("totalCapacity"), doc.get("total_capacity"),
             doc.get("storageCapacity"), doc.get("storage_capacity"),
-            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),
+            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),\n            doc.get("maxCapacity"), doc.get("max_capacity"),\n            doc.get("warehouseCapacity"), doc.get("warehouse_capacity"),\n            doc.get("capacityLimit"), doc.get("capacity_limit"),
         )
         used_capacity = _number(
             doc.get("usedCapacity"), doc.get("used_capacity"),
