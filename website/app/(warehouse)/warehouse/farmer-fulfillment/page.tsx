@@ -231,7 +231,7 @@ export default function FarmerFulfillmentTransfersPage() {
       <div className="flex flex-wrap gap-2"><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();}}><RefreshCw className="h-4 w-4"/></Button></div>
     </div>
     <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">This page starts after Incoming Stock confirms physical receipt. Manage downstream transfer stages only: source-to-destination warehouse transfer when required, transfer to the local hub, and confirmation of hub receipt. Farm pickup belongs to Farm Collection and Pickup Routes; receipt belongs to Incoming Stock. Never repack sealed farmer-packed orders.</p></div></div></CardContent></Card>
-    <div className="grid gap-4 lg:grid-cols-3" aria-label="Automatic fulfillment route queues">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="Automatic fulfillment route queues">
       {routeSections.map((section:any)=>{
         const SectionIcon=section.icon;
         const orders=routeOrders[section.key]||[];
@@ -245,19 +245,32 @@ export default function FarmerFulfillmentTransfersPage() {
           </div>
           <div className="flex-1 border-t bg-background/80 p-3">
             {isLoading?<p className="py-3 text-sm text-muted-foreground">Loading live orders…</p>:orders.length===0?<div className="rounded-lg border border-dashed p-4 text-center"><PackageCheck className="mx-auto h-6 w-6 text-muted-foreground"/><p className="mt-2 text-sm font-medium">No orders in this section</p><p className="mt-1 text-xs text-muted-foreground">Orders are grouped here as soon as this warehouse can classify their route. Unreceived orders are shown but cannot be dispatched yet.</p></div>:
-              <div className="space-y-2">{orders.map((order:any)=><div key={order.id} className="rounded-lg border bg-card p-3">
-                <p className="break-words text-sm font-semibold">Order #{order.orderNumber||order.id}</p>
-                <p className="mt-1 text-xs text-muted-foreground">{order.farmerName||"Farmer"} · {(order.items||[]).length} item line(s)</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {order.routeDistanceKm!==null&&order.routeDistanceKm!==undefined&&<Badge variant="secondary">{Number(order.routeDistanceKm).toFixed(1)} km</Badge>}
-                  <Badge variant="outline">{labels[order.stage]||String(order.stage||"Received").replace(/_/g," ")}</Badge>
-                  {!isRouteQueueEligible(order)&&<Badge variant="outline">Waiting for physical receipt</Badge>}
-                </div>
-                <p className="mt-2 text-xs leading-5 text-muted-foreground">{!isRouteQueueEligible(order)?"Complete physical receipt in Incoming Stock before starting route actions.":section.key==="nearby"?(order.deliveryPartnerId?"Final delivery partner assigned.":"Assign the final delivery partner below."):section.key==="same_district"?"Select this received order to plan its sealed transfer to the local hub.":section.key==="inter_district"?"Select this received order to plan its destination warehouse transfer.":section.key==="needs_location"?"Add the missing warehouse/customer location or district details before planning this route.":"Direct delivery is not configured. Update the order delivery mode before assigning a partner."}</p>
-                {["same_district","inter_district"].includes(section.key)&&isRouteQueueEligible(order)&&<label className="mt-3 flex items-center gap-2 text-xs font-medium"><input type="checkbox" checked={Boolean(selectedRouteOrders[order.id])} onChange={e=>toggleRouteOrder(order.id,e.target.checked)}/>Select for {section.key==="inter_district"?"inter-district":"same-district"} route planning</label>}
-                {section.key==="nearby"&&!order.deliveryPartnerId&&order.directDeliveryConfigured&&isRouteQueueEligible(order)&&<div className="mt-3 space-y-2"><select aria-label={"Delivery partner for "+(order.orderNumber||order.id)} className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={selectedHubTeam[order.id]||""} onChange={e=>setSelectedHubTeam(prev=>({...prev,[order.id]:e.target.value}))}><option value="">Select approved delivery partner</option>{hubPickupTeams.map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name} · {team.vehicleType} · {team.capacity} kg</option>)}</select><Button size="sm" className="w-full" onClick={()=>assignNearbyDeliveryPartner(order)} disabled={!selectedHubTeam[order.id]||busy===order.id+":nearby-assign"}>{busy===order.id+":nearby-assign"?"Assigning…":"Assign Final Delivery Partner"}</Button></div>}
-                <Button asChild size="sm" variant="ghost" className="mt-2 h-8 px-2"><Link href={"#order-"+order.id}>Open full workflow</Link></Button>
-              </div>)}</div>}
+              <div className="grid gap-3">{orders.map((order:any,index:number)=><Card key={order.id} className="overflow-hidden border-slate-200 bg-background transition-shadow hover:shadow-md">
+                <CardHeader className="border-b bg-slate-50/80 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-emerald-500 bg-emerald-600 text-sm font-bold text-white">{index+1}</div>
+                      <div className="min-w-0"><CardTitle className="truncate text-base">Order #{order.orderNumber||String(order.id).slice(-7)}</CardTitle><p className="mt-1 truncate text-xs text-muted-foreground">{order.farmerName||"Farmer"} · {(order.items||[]).length} item line(s)</p></div>
+                    </div>
+                    <Badge variant="outline" className="shrink-0">{labels[order.stage]||String(order.stage||"Received").replace(/_/g," ")}</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex flex-wrap gap-1.5">
+                    {order.routeDistanceKm!==null&&order.routeDistanceKm!==undefined&&<Badge variant="secondary">{Number(order.routeDistanceKm).toFixed(1)} km</Badge>}
+                    <Badge variant="outline">{Number(order.nearbyThresholdKm??15)} km threshold</Badge>
+                    {!isRouteQueueEligible(order)&&<Badge variant="outline">Waiting for physical receipt</Badge>}
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3">
+                    <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground"><span>Fulfillment progress</span><span className="font-semibold text-slate-700">{order.transferStatus==="local_hub_ready"?"Completed":order.physicalReceiptConfirmed?"In progress":"Awaiting receipt"}</span></div>
+                    <div className="flex items-center gap-1">{["Warehouse","Route","Hub","Delivery"].map((step,i)=>{const status=String(order.transferStatus||"");const done=i===0?Boolean(order.physicalReceiptConfirmed):i===1?["destination_warehouse_in_transit","destination_warehouse_received","hub_handoff_pending","local_hub_ready"].includes(status):i===2?["destination_warehouse_received","local_hub_ready"].includes(status):status==="local_hub_ready";return <div key={step} className="min-w-0 flex-1"><div className={"h-1.5 rounded-full "+(done?"bg-emerald-500":(!order.physicalReceiptConfirmed&&i===0)?"bg-blue-500":"bg-slate-200")}/><p className={"mt-1 text-center text-[10px] font-medium "+(done?"text-emerald-700":"text-slate-400")}>{step}</p></div>;})}</div>
+                  </div>
+                  <p className="text-xs leading-5 text-muted-foreground">{!isRouteQueueEligible(order)?"Complete physical receipt in Incoming Stock before starting route actions.":section.key==="nearby"?(order.deliveryPartnerId?"Final delivery partner assigned.":"Assign the final delivery partner below."):section.key==="same_district"?"Select this received order to plan its sealed transfer to the local hub.":section.key==="inter_district"?"Select this received order to plan its destination warehouse transfer.":section.key==="needs_location"?"Add the missing warehouse/customer location or district details before planning this route.":"Direct delivery is not configured. Update the order delivery mode before assigning a partner."}</p>
+                  {["same_district","inter_district"].includes(section.key)&&isRouteQueueEligible(order)&&<label className="flex items-center gap-2 rounded-lg border bg-white p-3 text-sm font-medium"><input type="checkbox" checked={Boolean(selectedRouteOrders[order.id])} onChange={e=>toggleRouteOrder(order.id,e.target.checked)}/>Select for {section.key==="inter_district"?"inter-district":"same-district"} route planning</label>}
+                  {section.key==="nearby"&&!order.deliveryPartnerId&&order.directDeliveryConfigured&&isRouteQueueEligible(order)&&<div className="space-y-2 rounded-lg border bg-slate-50 p-3"><select aria-label={"Delivery partner for "+(order.orderNumber||order.id)} className="h-10 w-full rounded-md border bg-background px-3 text-sm" value={selectedHubTeam[order.id]||""} onChange={e=>setSelectedHubTeam(prev=>({...prev,[order.id]:e.target.value}))}><option value="">Select approved delivery partner</option>{hubPickupTeams.map((team:any)=><option key={team.id} value={team.deliveryPartnerId}>{team.name} · {team.vehicleType} · {team.capacity} kg</option>)}</select><Button size="sm" className="w-full" onClick={()=>assignNearbyDeliveryPartner(order)} disabled={!selectedHubTeam[order.id]||busy===order.id+":nearby-assign"}>{busy===order.id+":nearby-assign"?"Assigning…":"Assign Final Delivery Partner"}</Button></div>}
+                  <Button asChild size="sm" variant="outline" className="w-full"><Link href={"#order-"+order.id}>Open full workflow <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
+                </CardContent>
+              </Card>)}</div>}
           </div>
           <div className="border-t bg-background p-3"><p className="text-xs text-muted-foreground">{isLoading?"Loading":`${orders.length} classified order(s) · ${orders.filter((order:any)=>isRouteQueueEligible(order)).length} ready for route actions · threshold ${Number(orders[0]?.nearbyThresholdKm??15)} km`}</p>
             {section.key==="same_district"&&selectedSameDistrictOrders.length>0&&<Button className="mt-2 w-full" size="sm" onClick={()=>planSelectedRoutes("same_district")} disabled={busy==="bulk-route-plan"}>{busy==="bulk-route-plan"?"Planning…":`Plan Same-District Routes (${selectedSameDistrictOrders.length})`}</Button>}
