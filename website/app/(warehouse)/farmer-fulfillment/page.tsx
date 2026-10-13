@@ -40,6 +40,7 @@ export default function FarmerFulfillmentWarehousePage() {
   const [assigningOrder,setAssigningOrder]=useState<string|null>(null);
   const [selectedRouteOrders,setSelectedRouteOrders]=useState<Record<string,boolean>>({});
   const [planningRoute,setPlanningRoute]=useState(false);
+  const [activeRouteSection,setActiveRouteSection]=useState<"nearby"|"same_district"|"inter_district"|"route_review"|"needs_location">("nearby");
   const {data:teamsData}=useQuery({
     queryKey:["warehouseApprovedPickupTeams"],
     queryFn:()=>api.get("/warehouse/me/pickup-team/members"),
@@ -75,6 +76,25 @@ export default function FarmerFulfillmentWarehousePage() {
   const inboundConsolidationTransfers=transfers.filter((o:any)=>o.isConsolidationWarehouse && Number(o.consolidation?.inTransitLegs||0)>0 && o.routeDataComplete);
   const visibleTransfers=[...eligibleTransfers,...inboundConsolidationTransfers.filter((o:any)=>!eligibleTransfers.some((ready:any)=>ready.id===o.id))];
   const waitingTransfers=transfers.filter((o:any)=>!visibleTransfers.some((ready:any)=>ready.id===o.id));
+  const needsLocationData=(o:any)=>o.routeCategory==="needs_location" || !o.routeDataComplete;
+  const needsOperationalReview=(o:any)=>!needsLocationData(o) && (
+    Boolean(o.isUnassigned) || o.currentWarehouseRole==="assigned" || !o.physicalReceiptConfirmed
+  );
+  const routeSectionRows={
+    nearby:transfers.filter((o:any)=>o.routeCategory==="nearby" && !needsLocationData(o) && !needsOperationalReview(o)),
+    same_district:transfers.filter((o:any)=>o.routeCategory==="same_district" && !needsLocationData(o) && !needsOperationalReview(o)),
+    inter_district:transfers.filter((o:any)=>["inter_district","multi_warehouse"].includes(String(o.routeCategory)) && !needsLocationData(o) && !needsOperationalReview(o)),
+    route_review:transfers.filter((o:any)=>needsOperationalReview(o)),
+    needs_location:transfers.filter((o:any)=>needsLocationData(o)),
+  };
+  const routeSectionMeta=[
+    {key:"nearby" as const,label:"Nearby Delivery",description:"Within 15 km by default; direct delivery is available only when explicitly configured."},
+    {key:"same_district" as const,label:"Same-District Warehouse Fulfillment",description:"Beyond the nearby threshold, same district: create a sealed transfer to the local hub."},
+    {key:"inter_district" as const,label:"Inter-District Warehouse Fulfillment",description:"Different district: destination warehouse, transfer team, destination receipt, then local hub."},
+    {key:"route_review" as const,label:"Route Review Required",description:"Orders waiting for warehouse assignment or physical receipt before route planning."},
+    {key:"needs_location" as const,label:"Needs Location Data",description:"Missing or unverified coordinates/districts. Correct location data before dispatch."},
+  ];
+  const sectionTransfers=routeSectionRows[activeRouteSection];
   const {data:consolidationData,refetch:refetchConsolidations}=useQuery({
     queryKey:["farmerFulfillmentConsolidations"],
     queryFn:()=>api.get("/warehouse/me/farmer-fulfillment-consolidations"),
@@ -239,21 +259,25 @@ export default function FarmerFulfillmentWarehousePage() {
       </div>
     </section>
 
-    <section className="space-y-3">
+    <section className="space-y-4">
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div><h2 className="text-xl font-bold">Automatic distance routing</h2><p className="text-sm text-muted-foreground">Default threshold: 15 km. A configured order/warehouse threshold overrides the default.</p></div>
-        <Badge variant="outline">{eligibleTransfers.length} eligible received orders</Badge>
+        <div><h2 className="text-xl font-bold">Farmer Fulfillment Orders</h2><p className="text-sm text-muted-foreground">Select a section to view its order cards. Each section keeps the same card layout while the available actions follow that route's prerequisites.</p></div>
+        <Badge variant="outline">{transfers.length} total orders</Badge>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {(["nearby","same_district","inter_district","needs_location"] as const).map((category) => {
-          const rows=transfers.filter((o:any)=>o.routeCategory===category || (category==="inter_district" && o.routeCategory==="multi_warehouse"));
-          return <Card key={category} className={category==="needs_location"?"border-amber-300 bg-amber-50/40":"border-slate-200"}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">{routeLabels[category]}</h3><Badge variant={category==="needs_location"?"outline":"secondary"}>{rows.length}</Badge></div>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">{routeDescriptions[category]}</p>
-            </CardContent>
-          </Card>;
+      <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
+        {routeSectionMeta.map((section)=>{
+          const selected=activeRouteSection===section.key;
+          const count=routeSectionRows[section.key].length;
+          return <button key={section.key} onClick={()=>setActiveRouteSection(section.key)} className={`flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition ${selected?"bg-emerald-600 text-white shadow-sm":"bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"}`}>
+            <span>{section.label}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${selected?"bg-amber-100 text-amber-700":"bg-emerald-100 text-emerald-700"}`}>{count}</span>
+          </button>;
         })}
+      </div>
+      <div className="rounded-xl border bg-white p-4">
+        <h3 className="font-semibold">{routeSectionMeta.find((section)=>section.key===activeRouteSection)?.label}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{routeSectionMeta.find((section)=>section.key===activeRouteSection)?.description}</p>
+        <p className="mt-2 text-xs text-muted-foreground">Default nearby threshold: 15 km. A configured order/warehouse threshold overrides the default.</p>
       </div>
     </section>
 
@@ -274,7 +298,7 @@ export default function FarmerFulfillmentWarehousePage() {
         <div><h3 className="font-semibold">Plan transfer routes</h3><p className="text-sm text-muted-foreground">Select fully received orders in the same route category. Route manifests are created in order; each transfer still requires an approved pickup-team assignment.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="same_district")} onClick={()=>planSelectedTransfers("same_district")}>{planningRoute?"Planning…":"Plan Same-District Routes"}</Button><Button disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="inter_district")} onClick={()=>planSelectedTransfers("inter_district")}>{planningRoute?"Planning…":"Plan Inter-District Routes"}</Button></div>
       </div>
-      <div className="space-y-4">{visibleTransfers.map((o:any,index:number)=><><div key={o.id+"-route-heading"}>{(index===0 || visibleTransfers[index-1]?.routeCategory!==o.routeCategory) && <div className={"rounded-xl border px-4 py-3 "+(o.routeCategory==="needs_location"?"border-amber-300 bg-amber-50":"border-slate-200 bg-slate-50")}><h2 className="font-semibold">{routeLabels[o.routeCategory]||"Route review"}</h2><p className="mt-1 text-xs text-muted-foreground">{routeDescriptions[o.routeCategory]||"Review the route before dispatch."}</p></div>}</div><Card key={o.id}><CardContent className="p-5">
+      <div className="space-y-4">{sectionTransfers.length===0?<Card><CardContent className="flex flex-col items-center py-12 text-center"><PackageCheck className="h-10 w-10 text-slate-300"/><p className="mt-3 font-semibold">No orders in this section</p><p className="mt-1 text-sm text-muted-foreground">Orders will appear here when their route and warehouse prerequisites match this section.</p></CardContent></Card>:sectionTransfers.map((o:any,index:number)=><><Card key={o.id}><CardContent className="p-5">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber}</h3><Badge variant="outline">{STAGES[o.stage]||o.stage}</Badge><Badge variant="secondary">Farmer Packed</Badge></div>
@@ -391,28 +415,5 @@ export default function FarmerFulfillmentWarehousePage() {
           </div>
         </div>
       </CardContent></Card></>)}</div>}
-    {waitingTransfers.length>0 && <section className="space-y-3">
-      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4">
-        <h2 className="font-semibold text-amber-950">Waiting for the Next Required Step</h2>
-        <p className="mt-1 text-sm text-amber-900">Orders stay here until their specific blocker is resolved: warehouse assignment, physical receipt, incoming consolidation portions, or verified route location data.</p>
-        <Badge variant="outline" className="mt-2">{waitingTransfers.length} order(s)</Badge>
-      </div>
-      {waitingTransfers.map((o:any)=><Card key={o.id}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2"><h3 className="font-semibold">#{o.orderNumber||o.id}</h3><Badge variant="outline">{o.currentWarehouseRole==="assigned"?"Awaiting Warehouse Assignment":o.isConsolidationWarehouse && String(o.logisticsMode||"").includes("multiple_warehouses") && !o.physicalReceiptConfirmed?"Waiting for Warehouse Portions":o.physicalReceiptConfirmed?"Needs Location Data":"Awaiting Physical Receipt"}</Badge></div>
-          <p className="mt-1 text-sm text-muted-foreground">{o.farmerName||"Farmer"} · {o.items?.length||0} allocated line(s)</p>
-          <p className="mt-1 text-xs text-muted-foreground">{o.currentWarehouseRole==="assigned"?"This warehouse is not linked to a source, destination, or consolidation assignment.":o.isConsolidationWarehouse && String(o.logisticsMode||"").includes("multiple_warehouses") && !o.physicalReceiptConfirmed?"Waiting for the allocated source warehouses to dispatch their packed portions. Confirm receipt when inbound legs arrive.":!o.physicalReceiptConfirmed?"Complete the physical receipt for this warehouse's packed portion before dispatch.":"Add verified farm/customer coordinates or district details before dispatch."}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {o.isUnassigned && <Button size="sm" onClick={()=>recoverSourceWarehouse(o.id)}>Assign Source Warehouse & Prepare Pickup</Button>}
-          {(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center gap-2 rounded-lg border bg-slate-50 p-2 text-xs">
-            <span>{x.productName||"Packed order"} · expected {x.expectedQuantity} · received {x.receivedQuantity||0} · {x.status||"pending"}</span>
-            {["pending","scheduled","in_transit","ready_for_pickup"].includes(String(x.status||"").toLowerCase()) && <Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}
-            {String(x.status||"").toLowerCase()==="received" && <Button size="sm" variant="outline" onClick={()=>store(x.id)}>Store Sealed Shipment</Button>}
-            {(x.status==="rejected"||x.qualityCheck==="failed") && <Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}
-          </div>)}
-        </div>
-      </CardContent></Card>)}
-    </section>}
   </div>;
 }
