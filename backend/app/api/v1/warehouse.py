@@ -893,8 +893,11 @@ async def get_farmer_fulfillment_transfers(
         ]
         customer_point = next((point for value in customer_candidates if (point := _coords(value))), None)
 
-        calculated_distance_km = order.get("warehouseToCustomerDistanceKm")
-        if calculated_distance_km is None and source_point and customer_point:
+        # Recompute from the actual source warehouse and customer coordinates when
+        # available. Cached distances in legacy orders can represent the farm leg
+        # (the screenshot showed an implausible 8706.4 km for a local route).
+        calculated_distance_km = None
+        if source_point and customer_point:
             import math
             lat1, lon1 = source_point
             lat2, lon2 = customer_point
@@ -902,6 +905,15 @@ async def get_farmer_fulfillment_transfers(
             dlat, dlon = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
             a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
             calculated_distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1 - a)))
+        else:
+            # Without both points, use only a plausible cached warehouse-to-customer
+            # distance; invalid legacy values require location review instead.
+            try:
+                saved_distance = float(order.get("warehouseToCustomerDistanceKm"))
+                if math.isfinite(saved_distance) and 0 <= saved_distance <= 1000:
+                    calculated_distance_km = saved_distance
+            except (TypeError, ValueError):
+                calculated_distance_km = None
 
         # Farmer Fulfillment transfer routing uses a 15 km default unless an explicit order/warehouse threshold is configured.
         threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
@@ -910,7 +922,7 @@ async def get_farmer_fulfillment_transfers(
         source_district = str(
             source_warehouse_doc.get("district")
             or source_warehouse_address.get("district")
-            or (warehouse.get("district") if is_source_warehouse else None)
+            or (warehouse.get("district") if is_source_warehouse or str(source_warehouse_doc.get("_id") or "") == warehouse_id else None)
             or warehouse_address.get("district")
             or order.get("sourceDistrict")
             or (farmer_profile or {}).get("district")
