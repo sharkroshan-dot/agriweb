@@ -147,8 +147,20 @@ export default function FarmerFulfillmentTransfersPage() {
   };
 
   const dispatchDestination=async(order:any)=>{
-    try{setBusy(order.id+":destination-dispatch");await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-destination");toast.success("Destination transfer manifest created");await refetch();}
-    catch(e:any){toast.error(e?.message||"Unable to create destination transfer");}finally{setBusy(null);}
+    try{
+      setBusy(order.id+":destination-dispatch");
+      // The card action must complete destination selection before attempting
+      // to create a transfer manifest. Previously it dispatched immediately,
+      // which failed for every inter-district order without a saved destination.
+      if(!order.destinationWarehouseId){
+        await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-destination-warehouse");
+      }
+      await api.post("/warehouse/me/farmer-fulfillment/"+order.id+"/dispatch-to-destination");
+      toast.success("Destination warehouse assigned and transfer manifest created. Assign a transfer team to dispatch it.");
+      await refetch();
+    }
+    catch(e:any){toast.error(e?.message||"Unable to assign destination warehouse or create transfer");}
+    finally{setBusy(null);}
   };
   const assignDestinationPickupTeam=async(order:any)=>{
     const partnerId=selectedDestinationTeam[order.id];if(!partnerId){toast.error("Select an approved transfer team first");return;}
