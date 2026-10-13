@@ -316,6 +316,7 @@ export default function FarmerFulfillmentWarehousePage() {
                   {(x.status==="rejected"||x.qualityCheck==="failed")&&<Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}</div></div>)}</div>
           </div>
           <div className="flex shrink-0 flex-col gap-2 lg:w-64">
+            {o.isUnassigned && <Button size="sm" onClick={()=>recoverSourceWarehouse(o.id)}>Assign Source Warehouse & Prepare Pickup</Button>}
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
             {(() => {
               const mode = String(o.logisticsMode || "").toLowerCase();
