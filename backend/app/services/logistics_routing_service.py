@@ -582,7 +582,10 @@ async def warehouse_for_district(
         total_capacity = _number(
             doc.get("totalCapacity"), doc.get("total_capacity"),
             doc.get("storageCapacity"), doc.get("storage_capacity"),
-            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),\n            doc.get("maxCapacity"), doc.get("max_capacity"),\n            doc.get("warehouseCapacity"), doc.get("warehouse_capacity"),\n            doc.get("capacityLimit"), doc.get("capacity_limit"),
+            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),
+            doc.get("maxCapacity"), doc.get("max_capacity"),
+            doc.get("warehouseCapacity"), doc.get("warehouse_capacity"),
+            doc.get("capacityLimit"), doc.get("capacity_limit"),
         )
         used_capacity = _number(
             doc.get("usedCapacity"), doc.get("used_capacity"),
