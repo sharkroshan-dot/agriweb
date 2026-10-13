@@ -310,8 +310,6 @@ export default function FarmerFulfillmentWarehousePage() {
         </div>
         <CardContent className="space-y-3 p-4">
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><MapPin className="h-3.5 w-3.5"/><span className="break-words">{[o.deliveryAddress?.addressLine1,o.deliveryAddress?.city,o.deliveryAddress?.district,o.deliveryAddress?.state].filter(Boolean).join(", ")||"Customer address unavailable"}</span></div>
-            <p className="mt-2 text-sm text-muted-foreground">Farmer: {o.farmerName||"Assigned Farmer"} · Warehouse: {o.warehouseName}</p>
-            <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3"/>Customer: {[o.deliveryAddress?.addressLine1,o.deliveryAddress?.city,o.deliveryAddress?.state].filter(Boolean).join(", ")||"Address unavailable"}</p>
             {["same_district","inter_district"].includes(String(o.routeCategory)) && <label className="mt-3 flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(selectedRouteOrders[o.id])} onChange={e=>toggleRouteOrder(o.id,e.target.checked)} /> Include in {o.routeCategory==="inter_district"?"inter-district":"same-district"} route planning</label>}
             <div className="rounded-lg border bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between text-[11px] text-muted-foreground"><span>Fulfillment route</span><span className="font-semibold text-slate-700">{routeLabels[o.routeCategory]||"Route review required"}</span></div>
@@ -333,7 +331,6 @@ export default function FarmerFulfillmentWarehousePage() {
             <div className="mt-3 grid gap-2 sm:grid-cols-2">{(o.items||[]).map((i:any)=><div key={`${i.productId}-${i.variantId||""}`} className="rounded-lg bg-slate-50 p-3 text-sm"><b>{i.productName}</b><div className="text-muted-foreground">{i.quantity} {i.unit}</div></div>)}</div>
             <div className="mt-4 space-y-2">{(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><b>Incoming shipment</b><div className="text-xs text-muted-foreground">Expected {x.expectedQuantity} · Received {x.receivedQuantity||0} · {x.qualityCheck||"quality pending"}</div></div><div className="flex gap-2">{x.status==="pending"&&<Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}{x.status==="received"&&<Button size="sm" onClick={()=>store(x.id)}>Store Packed Shipment</Button>}{x.status==="stored"&&<Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Stored</Badge>}
                   {(x.status==="rejected"||x.qualityCheck==="failed")&&<Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}</div></div>)}</div>
-          </div>
           <div className="space-y-3">
             {o.isUnassigned && <Button size="sm" onClick={()=>recoverSourceWarehouse(o.id)}>Assign Source Warehouse & Prepare Pickup</Button>}
             <div className="rounded-xl border bg-slate-50 p-4 text-sm"><p className="font-semibold">No warehouse packing</p><p className="mt-1 text-xs text-muted-foreground">Farmer has already packed, checked and sealed this order.</p></div>
@@ -432,7 +429,6 @@ export default function FarmerFulfillmentWarehousePage() {
             })()}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
-        </div>
       </CardContent></Card></>)}</div>}
   </div>;
 }
