@@ -485,8 +485,12 @@ async def allocate_farmer_fulfillment_warehouses(
 
 def _normalized_district(value: Any) -> str:
     if isinstance(value, dict):
-        value = value.get("district") or value.get("city") or value.get("town") or value.get("county") or ""
-    return " ".join(str(value or "").strip().lower().replace(",", " ").split())
+        value = value.get("district") or value.get("city") or value.get("town") or value.get("county") or value.get("name") or ""
+    import re
+    normalized = " ".join(str(value or "").strip().lower().replace(",", " ").split())
+    normalized = re.sub(r"\\bdistrict\\b", " ", normalized)
+    normalized = re.sub(r"[^a-z0-9\\s]", " ", normalized)
+    return " ".join(normalized.split())
 
 
 def _order_districts(order: Dict[str, Any]) -> Tuple[str, str]:
@@ -564,17 +568,32 @@ async def warehouse_for_district(
                 doc = refreshed
         except Exception:
             pass
-        total_capacity = float(doc.get("totalCapacity") or doc.get("storageCapacity") or doc.get("capacity") or 0)
-        used_capacity = float(doc.get("usedCapacity") or doc.get("currentUsage") or 0)
-        available_capacity = doc.get("availableCapacity")
-        if available_capacity is not None:
-            try:
-                available = float(available_capacity)
-            except (TypeError, ValueError):
-                available = total_capacity - used_capacity
-        else:
+        def _number(*values):
+            for value in values:
+                if value is None or value == "":
+                    continue
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
+            return None
+
+        total_capacity = _number(
+            doc.get("totalCapacity"), doc.get("total_capacity"),
+            doc.get("storageCapacity"), doc.get("storage_capacity"),
+            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),
+        )
+        used_capacity = _number(
+            doc.get("usedCapacity"), doc.get("used_capacity"),
+            doc.get("currentUsage"), doc.get("current_usage"),
+        ) or 0.0
+        available = _number(
+            doc.get("availableCapacity"), doc.get("available_capacity"),
+            doc.get("availableCapacityKg"), doc.get("available_capacity_kg"),
+        )
+        if available is None and total_capacity is not None:
             available = total_capacity - used_capacity
-        if total_capacity <= 0 or available + 1e-9 < float(required_capacity or 0):
+        if available is None or available < float(required_capacity or 0):
             continue
         matches.append(doc)
     matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
