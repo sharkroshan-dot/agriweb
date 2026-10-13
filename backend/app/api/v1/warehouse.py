@@ -861,9 +861,27 @@ async def get_farmer_fulfillment_transfers(
         # Nearby routing is based on source-warehouse-to-customer distance, not
         # farm-to-customer distance. Legacy generic distance fields may represent
         # the farm leg and must not classify the warehouse delivery route.
+        # Resolve the actual assigned source warehouse even when this API is
+        # running under a destination warehouse account. Route distance must be
+        # source-warehouse -> customer, never current-warehouse -> customer by accident.
+        source_warehouse_doc = None
+        source_ref = order.get("sourceWarehouseId") or order.get("warehouseId")
+        if source_ref and ObjectId.is_valid(str(source_ref)):
+            try:
+                source_warehouse_doc = await MongoDB.get_collection("warehouses").find_one({
+                    "_id": ObjectId(str(source_ref)),
+                    "deletedAt": None,
+                })
+            except Exception:
+                source_warehouse_doc = None
+        source_warehouse_doc = source_warehouse_doc or {}
         source_location = (
             order.get("sourceWarehouseLocation")
+            or source_warehouse_doc.get("location")
+            or source_warehouse_doc.get("coordinates")
+            or source_warehouse_doc.get("address")
             or (warehouse.get("location") if is_source_warehouse else None)
+            or (warehouse.get("coordinates") if is_source_warehouse else None)
             or order.get("warehouseLocation")
         )
         source_point = _coords(source_location)
@@ -888,8 +906,11 @@ async def get_farmer_fulfillment_transfers(
         # Farmer Fulfillment transfer routing uses a 15 km default unless an explicit order/warehouse threshold is configured.
         threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
         warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+        source_warehouse_address = source_warehouse_doc.get("address") if isinstance(source_warehouse_doc.get("address"), dict) else {}
         source_district = str(
-            (warehouse.get("district") if is_source_warehouse else None)
+            source_warehouse_doc.get("district")
+            or source_warehouse_address.get("district")
+            or (warehouse.get("district") if is_source_warehouse else None)
             or warehouse_address.get("district")
             or order.get("sourceDistrict")
             or (farmer_profile or {}).get("district")
@@ -1031,7 +1052,7 @@ async def get_farmer_fulfillment_transfers(
             "routeDecisionReason": order.get("routeDecisionReason"),
             "pickupSchedule": order.get("pickupSchedule") or {"timezone": "Asia/Kolkata", "start": "20:00", "end": "06:00"},
             "downstreamTransferSchedule": order.get("downstreamTransferSchedule") or {"timezone": "Asia/Kolkata", "start": "06:00", "end": "20:00"},
-            "sourceWarehouseLocation": order.get("sourceWarehouseLocation") or (warehouse.get("location") if is_source_warehouse else None),
+            "sourceWarehouseLocation": order.get("sourceWarehouseLocation") or source_location,
             "destinationWarehouseLocation": order.get("destinationWarehouseLocation"),
             "localHubLocation": order.get("nearbyFulfillmentLocation") or order.get("localHubLocation"),
             "isConsolidationWarehouse": is_consolidation_warehouse,
