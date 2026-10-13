@@ -8,6 +8,8 @@ def test_nearby_route_requires_direct_delivery_configuration():
 
 def test_inter_district_route_uses_delivery_district_even_within_threshold():
     assert classify_farmer_fulfillment_route(10, 15, "north", "south", False) == "inter_district"
+    assert classify_farmer_fulfillment_route(10, 15, "north", "south", True) == "inter_district"
+    assert classify_farmer_fulfillment_route(None, 15, "north", "south", True) == "inter_district"
     assert classify_farmer_fulfillment_route(30, 15, "north", "south", False) == "inter_district"
 
 

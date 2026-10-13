@@ -72,10 +72,10 @@ def classify_farmer_fulfillment_route(
     destination = str(destination_district or "").strip().casefold()
     is_nearby = route_distance_km is not None and route_distance_km <= threshold_km
 
-    if is_nearby and direct_delivery_configured:
-        return "nearby"
     if source and destination and source != destination:
         return "inter_district"
+    if is_nearby and direct_delivery_configured:
+        return "nearby"
     if source and destination and source == destination and route_distance_km is not None:
         return "same_district" if route_distance_km > threshold_km else "route_review"
     return "needs_location"

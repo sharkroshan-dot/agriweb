@@ -76,6 +76,57 @@ def _enforce_warehouse_operating_window(window: str) -> None:
         raise HTTPException(status_code=409, detail="Warehouse-to-warehouse and local-hub transfers can only be dispatched between 06:00 and 20:00 IST.")
 
 
+async def _get_farmer_fulfillment_incoming_rows(order: dict, warehouse_id: str) -> List[Dict[str, Any]]:
+    """Load packed receipt rows linked to an order across supported legacy schemas."""
+    order_id = str(order.get("_id") or "")
+    if not ObjectId.is_valid(order_id):
+        return []
+
+    link_clauses = [{"orderId": {"$in": [ObjectId(order_id), order_id]}}]
+    order_number = order.get("orderNumber")
+    if order_number:
+        link_clauses.extend([
+            {"orderNumber": order_number},
+            {"orderNo": order_number},
+        ])
+
+    collections = await warehouse_collection_repository.get_by_order(order_id)
+    collection_ids = [collection["_id"] for collection in collections if collection.get("_id")]
+    if collection_ids:
+        link_clauses.append({
+            "collectionId": {"$in": collection_ids + [str(value) for value in collection_ids]}
+        })
+    packed_collection_ids = {
+        str(collection.get("_id"))
+        for collection in collections
+        if (
+            str(collection.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or collection.get("packingRequired") is False
+            or str(collection.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+        )
+    }
+
+    rows = await incoming_stock_repository.find_many({
+        "$and": [
+            {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+            {"deletedAt": None},
+            {"$or": link_clauses},
+        ],
+    }, skip=0, limit=1000)
+    return [
+        row for row in rows
+        if (
+            str(row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or row.get("packingRequired") is False
+            or str(row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+            or str(row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
+            or str(row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
+            or bool(row.get("orderId") and row.get("pickupRouteId"))
+            or str(row.get("collectionId") or "") in packed_collection_ids
+        )
+    ]
+
+
 @router.get("/me", response_model=WarehouseResponse)
 async def get_my_warehouse(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "warehouse":
@@ -430,11 +481,6 @@ async def get_farmer_fulfillment_transfers(
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
-                {"logisticsMode": "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"},
-            ]},
-            {"$or": [
-                {"deliveryDecision": {"$in": ["long_distance", "nearby"]}},
-                {"deliveryPartnerRoute": {"$in": ["long_distance", "nearby"]}},
                 {"logisticsMode": {"$in": [
                     "farmer_to_delivery_partner",
                     "farmer_to_warehouse_to_local_hub_to_delivery_partner",
@@ -444,8 +490,10 @@ async def get_farmer_fulfillment_transfers(
             ]},
             {"$or": [
                 {"warehouseId": {"$in": warehouse_refs}},
+                {"sourceWarehouseId": {"$in": warehouse_refs}},
                 {"warehouseIds": {"$in": warehouse_refs}},
                 {"warehouseAllocations.warehouseId": {"$in": warehouse_refs}},
+                {"warehouseAllocations.sourceWarehouseId": {"$in": warehouse_refs}},
                 {"consolidationWarehouseId": {"$in": warehouse_refs}},
                 {"destinationWarehouseId": {"$in": warehouse_refs}},
                 {"destinationWarehouseIds": {"$in": warehouse_refs}},
@@ -478,21 +526,64 @@ async def get_farmer_fulfillment_transfers(
                 {"sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"}},
                 {"packingRequired": False},
                 {"pickupRouteId": {"$exists": True, "$nin": [None, ""]}},
+                {"collectionType": {"$regex": "^packed_orders_transfer$", "$options": "i"}},
+                {"fulfillmentType": {"$regex": "^farmer_fulfillment$", "$options": "i"}},
+                {"shipmentType": {"$regex": "^farmer_fulfillment$", "$options": "i"}},
+                {"collectionId": {"$exists": True, "$nin": [None, ""]}},
             ]},
         ],
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
     known_order_ids = {str(item.get("_id")) for item in orders if item.get("_id")}
+    unlinked_packed_packets = []
+    packed_incoming_by_order: Dict[str, List[Dict[str, Any]]] = {}
     for incoming_row in transfer_incoming_rows:
+        collection_job = None
+        collection_id = str(incoming_row.get("collectionId") or "")
+        if collection_id and ObjectId.is_valid(collection_id):
+            collection_job = await warehouse_collection_repository.get_by_id(collection_id)
         linked_order_id = str(incoming_row.get("orderId") or "")
+        if not linked_order_id and collection_job:
+            linked_order_id = str(collection_job.get("orderId") or "")
         linked_order = await order_repository.get_by_id(linked_order_id) if ObjectId.is_valid(linked_order_id) else None
+        order_number = str(
+            incoming_row.get("orderNumber") or incoming_row.get("orderNo")
+            or (collection_job or {}).get("orderNumber") or ""
+        )
         if not linked_order:
-            linked_order_number = str(incoming_row.get("orderNumber") or incoming_row.get("orderNo") or "")
-            if linked_order_number:
-                linked_order = await order_repository.find_one({"orderNumber": linked_order_number, "deletedAt": None})
+            linked_order = await order_repository.find_one({"orderNumber": order_number, "deletedAt": None}) if order_number else None
+        # A dedicated incoming row with sourceMode=farmer_fulfillment_transfer
+        # is the authoritative proof that this order belongs in the warehouse
+        # transfer workflow. Older orders may not have fulfillmentMethod,
+        # fulfillment_route, or logisticsMode populated consistently.
+        packed_receipt = (
+            str(incoming_row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or incoming_row.get("packingRequired") is False
+            or str(incoming_row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+            or str(incoming_row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
+            or str(incoming_row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
+            # Match Incoming Stock's packed-order detection for legacy rows.
+            or bool(incoming_row.get("orderId") and incoming_row.get("pickupRouteId"))
+        )
+        if not packed_receipt and incoming_row.get("collectionId"):
+            packed_receipt = bool(collection_job) and (
+                str(collection_job.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+                or collection_job.get("packingRequired") is False
+                or str(collection_job.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+            )
         if not linked_order:
+            if packed_receipt:
+                unlinked_packed_packets.append({
+                    "id": str(incoming_row.get("_id") or ""),
+                    "orderNumber": order_number or None,
+                    "productName": incoming_row.get("productName") or "Packed order",
+                    "status": incoming_row.get("status"),
+                    "quantity": incoming_row.get("quantity") or incoming_row.get("expectedQuantity") or 0,
+                    "quantityReceived": incoming_row.get("quantityReceived") or incoming_row.get("receivedQuantity") or 0,
+                    "collectionId": collection_id or None,
+                })
             continue
         linked_order_id = str(linked_order.get("_id") or "")
-        if not linked_order_id or linked_order_id in known_order_ids:
+        if not linked_order_id:
             continue
         # Do not silently mutate order assignment during a GET. Expose a clear
         # recovery action instead, which persists the warehouse link only after
@@ -509,19 +600,6 @@ async def get_farmer_fulfillment_transfers(
         ).strip().lower()
         linked_status = str(linked_order.get("orderStatus") or linked_order.get("status") or "").lower()
         linked_logistics = str(linked_order.get("logisticsMode") or "").strip().lower()
-        # A dedicated incoming row with sourceMode=farmer_fulfillment_transfer
-        # is the authoritative proof that this order belongs in the warehouse
-        # transfer workflow. Older orders may not have fulfillmentMethod,
-        # fulfillment_route, or logisticsMode populated consistently.
-        packed_receipt = (
-            str(incoming_row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
-            or incoming_row.get("packingRequired") is False
-            or str(incoming_row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
-            or str(incoming_row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
-            or str(incoming_row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
-            # Match Incoming Stock's packed-order detection for legacy rows.
-            or bool(incoming_row.get("orderId") and incoming_row.get("pickupRouteId"))
-        )
         is_farmer_transfer = (
             linked_method in ("farmer", "farm_direct")
             or linked_logistics in (
@@ -534,8 +612,10 @@ async def get_farmer_fulfillment_transfers(
         )
         if not is_farmer_transfer or linked_status in ("delivered", "completed", "cancelled", "refunded"):
             continue
-        orders.append(linked_order)
-        known_order_ids.add(linked_order_id)
+        packed_incoming_by_order.setdefault(linked_order_id, []).append(incoming_row)
+        if linked_order_id not in known_order_ids:
+            orders.append(linked_order)
+            known_order_ids.add(linked_order_id)
 
     result = []
     for order in orders:
@@ -549,6 +629,13 @@ async def get_farmer_fulfillment_transfers(
             "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
             "deletedAt": None,
         }, skip=0, limit=1000)
+        incoming_by_id = {str(row.get("_id")): row for row in incoming if row.get("_id")}
+        incoming_by_id.update({
+            str(row.get("_id")): row
+            for row in packed_incoming_by_order.get(str(order["_id"]), [])
+            if row.get("_id")
+        })
+        incoming = list(incoming_by_id.values())
         logistics_mode = str(order.get("logisticsMode") or "")
         is_consolidation_warehouse = (
             logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
@@ -559,11 +646,6 @@ async def get_farmer_fulfillment_transfers(
         source_warehouse_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
         destination_warehouse_id = str(order.get("destinationWarehouseId") or "")
         is_destination_warehouse = bool(destination_warehouse_id and destination_warehouse_id == warehouse_id)
-        is_multi_warehouse_order = (
-            logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
-            or len(order.get("warehouseAllocations") or []) > 1
-            or len(order.get("warehouseIds") or []) > 1
-        )
         is_allocated_source_warehouse = (
             any(
                 str(allocation.get("warehouseId") or "") == warehouse_id
@@ -634,9 +716,11 @@ async def get_farmer_fulfillment_transfers(
                 "allSourcePortionsStored": all_source_stored,
             })
         if logistics_mode in (
+            "farmer_to_delivery_partner",
             "farmer_to_warehouse_to_local_hub_to_delivery_partner",
             "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
             "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+            "long_distance_pending",
         ):
             # Derive the displayed stage from this warehouse's own incoming
             # lines. The parent order is shared across warehouses, so one
@@ -648,11 +732,21 @@ async def get_farmer_fulfillment_transfers(
                 order_stage = "awaiting_warehouse_receipt" if any(not x.get("arrivedWarehouseAt") for x in incoming) else "warehouse_arrived"
             elif incoming and all(
                 str(x.get("status") or "") in ("received", "stored")
-                and str(x.get("qualityCheck") or "") == "passed"
+                and float(
+                    x.get("quantityReceived")
+                    or x.get("receivedQuantity")
+                    or x.get("actualQuantityReceived")
+                    or x.get("receivedQty")
+                    or (x.get("quantity") or x.get("expectedQuantity") or 0)
+                ) + 1e-9 >= float(x.get("quantity") or x.get("expectedQuantity") or 0)
                 for x in incoming
             ):
-                order_stage = "quality_approved"
-            elif incoming and any(str(x.get("status") or "") == "received" for x in incoming):
+                order_stage = (
+                    "quality_approved"
+                    if all(str(x.get("qualityCheck") or "").lower() == "passed" for x in incoming)
+                    else "received_transfer"
+                )
+            elif incoming and any(str(x.get("status") or "").lower() == "received" for x in incoming):
                 order_stage = "received_transfer"
 
         if (
@@ -793,15 +887,24 @@ async def get_farmer_fulfillment_transfers(
 
         # Farmer Fulfillment transfer routing uses a 15 km default unless an explicit order/warehouse threshold is configured.
         threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+        warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
         source_district = str(
-            order.get("sourceDistrict") or order.get("farmerDistrict")
-            or (farmer_profile or {}).get("district") or (farmer_profile or {}).get("farmDistrict")
+            (warehouse.get("district") if is_source_warehouse else None)
+            or warehouse_address.get("district")
+            or order.get("sourceDistrict")
+            or (farmer_profile or {}).get("district")
+            or (farmer_profile or {}).get("farmDistrict")
+            or order.get("farmerDistrict")
             or next((line.get("farmDistrict") for line in (order.get("items") or []) if line.get("farmDistrict")), "")
             or ""
         ).strip().casefold()
+        shipping_address = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
+        delivery_location = delivery_address.get("location") if isinstance(delivery_address, dict) else None
         destination_district = str(
-            order.get("destinationDistrict")
+            (delivery_location.get("district") if isinstance(delivery_location, dict) else "")
             or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
+            or shipping_address.get("district")
+            or order.get("destinationDistrict")
             or ""
         ).strip().casefold()
         direct_delivery_mode_values = {
@@ -809,12 +912,32 @@ async def get_farmer_fulfillment_transfers(
             str(order.get("deliveryMode") or "").strip().lower(),
             str(order.get("fulfillmentMode") or "").strip().lower(),
             str(order.get("deliveryRoute") or "").strip().lower(),
+            str(order.get("deliveryDecision") or "").strip().lower(),
+            str(order.get("deliveryPartnerRoute") or "").strip().lower(),
         }
         direct_delivery_configured = bool(
             "farmer_to_delivery_partner" in direct_delivery_mode_values
             or direct_delivery_mode_values.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"})
         )
-        is_multi_warehouse_order = logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" or len(order.get("warehouseAllocations") or []) > 1 or len(order.get("warehouseIds") or []) > 1
+        allocation_warehouse_ids = {
+            str(allocation.get("warehouseId") or allocation.get("sourceWarehouseId") or "")
+            for allocation in (order.get("warehouseAllocations") or [])
+            if isinstance(allocation, dict)
+        } - {""}
+        assigned_warehouse_ids = {
+            str(warehouse_ref) for warehouse_ref in (order.get("warehouseIds") or []) if warehouse_ref
+        }
+        explicit_multi_warehouse = (
+            order.get("isMultiWarehouseConsolidation") is True
+            or order.get("fulfillmentPurpose") in ("event_bulk", "multi_source_customer_order")
+            or bool(order.get("consolidationRequested"))
+            or bool(order.get("consolidationId"))
+            or is_consolidation_warehouse
+        )
+        is_multi_warehouse_order = (
+            len(allocation_warehouse_ids | assigned_warehouse_ids) > 1
+            or explicit_multi_warehouse
+        )
         route_category = classify_farmer_fulfillment_route(
             calculated_distance_km,
             threshold_km,
@@ -838,27 +961,25 @@ async def get_farmer_fulfillment_transfers(
         # expectedQuantity/receivedQuantity across legacy records. Normalize
         # those aliases here so a completed receipt is not silently excluded
         # from the route queues due to a schema-version mismatch.
+        linked_packed_rows = packed_incoming_by_order.get(str(order["_id"]), [])
         transfer_receipt_rows = [
             row for row in incoming
             if str(row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
         ]
-        # Prefer the dedicated farmer-transfer receipts so unrelated incoming
-        # inventory lines for the same order cannot block or inflate this workflow.
-        receipt_rows = transfer_receipt_rows or incoming
+        # Prefer all identified packed receipts so legacy rows without sourceMode
+        # still participate in the full-quantity gate. Ignore unrelated inventory
+        # rows when a dedicated packed receipt set is available.
+        receipt_rows = linked_packed_rows or transfer_receipt_rows or incoming
         fully_received_lines = [
             row for row in receipt_rows
             if (
-                str(row.get("status") or "").strip().lower() in ("stored", "approved", "quality_approved")
-                or (
-                    str(row.get("status") or "").strip().lower() in ("received", "quality_check", "quality_checked")
-                    and (
-                        # Legacy receipt rows sometimes record status but not both
-                        # quantity columns. In that schema, "received" is the
-                        # receipt confirmation; explicitly partial statuses never
-                        # pass this gate.
-                        _expected_qty(row) <= 0
-                        or _received_qty(row) + 1e-9 >= _expected_qty(row)
-                    )
+                str(row.get("status") or "").strip().lower() in ("received", "stored")
+                and (
+                    # Legacy receipt rows sometimes record status but not both
+                    # quantity columns. In that schema, receipt status is the
+                    # confirmation; explicitly partial statuses never pass.
+                    _expected_qty(row) <= 0
+                    or _received_qty(row) + 1e-9 >= _expected_qty(row)
                 )
             )
         ]
@@ -1063,7 +1184,7 @@ async def get_farmer_fulfillment_transfers(
         })
         result_order_ids.add(pending_id)
 
-    return {"success": True, "data": {"transfers": result}}
+    return {"success": True, "data": {"transfers": result, "unlinkedPackedPackets": unlinked_packed_packets}}
 
 
 
@@ -1092,11 +1213,52 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
     fulfillment_method = str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").strip().lower()
     decision = str(order.get("deliveryDecision") or order.get("deliveryPartnerRoute") or "").strip().lower()
     mode = str(order.get("logisticsMode") or "").strip().lower()
+    order_collections = await warehouse_collection_repository.get_by_order(order_id)
+    incoming_link_clauses = [
+        {"orderId": {"$in": [ObjectId(order_id), order_id]}},
+    ]
+    if order.get("orderNumber"):
+        incoming_link_clauses.extend([
+            {"orderNumber": order.get("orderNumber")},
+            {"orderNo": order.get("orderNumber")},
+        ])
+    collection_ids = [
+        value
+        for collection in order_collections
+        if (value := collection.get("_id")) is not None
+    ]
+    if collection_ids:
+        incoming_link_clauses.append({"collectionId": {"$in": collection_ids + [str(value) for value in collection_ids]}})
+    packed_collection_ids = {
+        str(collection.get("_id"))
+        for collection in order_collections
+        if (
+            str(collection.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or collection.get("packingRequired") is False
+            or str(collection.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+        )
+    }
+    incoming_rows = await incoming_stock_repository.find_many({
+        "$and": [
+            {"warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]}},
+            {"deletedAt": None},
+            {"$or": incoming_link_clauses},
+        ],
+    }, skip=0, limit=1000)
+    packed_rows = [row for row in incoming_rows if (
+        str(row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+        or row.get("packingRequired") is False
+        or str(row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+        or str(row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
+        or str(row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
+        or bool(row.get("orderId") and row.get("pickupRouteId"))
+        or str(row.get("collectionId") or "") in packed_collection_ids
+    )]
     if fulfillment_method not in {"farmer", "farm_direct"} and decision not in {"nearby", "long_distance"} and mode not in {
         "farmer_to_delivery_partner", "farmer_to_warehouse_to_local_hub_to_delivery_partner",
         "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
         "long_distance_pending",
-    }:
+    } and not packed_rows:
         raise HTTPException(status_code=409, detail="This order is not marked for Farmer Fulfillment transfer")
     if not order.get("items"):
         raise HTTPException(status_code=409, detail="The packed order has no item lines to assign")
@@ -1112,18 +1274,6 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
     assigned_source = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
     if assigned_source and assigned_source != warehouse_id:
         raise HTTPException(status_code=409, detail=f"This order is already assigned to another source warehouse ({assigned_source}).")
-
-    incoming_rows = await incoming_stock_repository.find_many({
-        "orderId": {"$in": [ObjectId(order_id), order_id]},
-        "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
-        "deletedAt": None,
-    }, skip=0, limit=1000)
-    packed_rows = [row for row in incoming_rows if (
-        str(row.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
-        or row.get("packingRequired") is False
-        or str(row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
-        or bool(row.get("orderId") and row.get("pickupRouteId"))
-    )]
 
     now = datetime.utcnow()
     if packed_rows:
@@ -1254,7 +1404,13 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
 
     source_point = _route_point(warehouse.get("location") or warehouse.get("coordinates"))
     address = order.get("deliveryAddress") or {}
-    destination_point = _route_point(address.get("location") if isinstance(address, dict) else None) or _route_point(address) or _route_point(order.get("customerLocation"))
+    shipping_address = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
+    destination_point = (
+        _route_point(address.get("location") if isinstance(address, dict) else None)
+        or _route_point(address)
+        or _route_point(order.get("customerLocation"))
+        or _route_point(shipping_address)
+    )
     threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
     distance_km = None
     if source_point and destination_point:
@@ -1264,7 +1420,14 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
         dlat, dlon = lat2 - lat1, lon2 - lon1
         a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
         distance_km = 6371.0088 * 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
-    source_district_value = order.get("sourceDistrict") or order.get("farmerDistrict") or ""
+    warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    source_district_value = (
+        warehouse.get("district")
+        or warehouse_address.get("district")
+        or order.get("sourceDistrict")
+        or order.get("farmerDistrict")
+        or ""
+    )
     if not source_district_value:
         farmer_id_for_route = str(order.get("farmerId") or "")
         if farmer_id_for_route and ObjectId.is_valid(farmer_id_for_route):
@@ -1273,20 +1436,43 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
                 farmer_for_route = await farmer_repository.get_by_user_id(farmer_id_for_route)
             source_district_value = (farmer_for_route or {}).get("district") or (farmer_for_route or {}).get("farmDistrict") or ""
     source_district = str(source_district_value).strip().casefold()
-    destination_district = str(order.get("destinationDistrict") or (address.get("district") if isinstance(address, dict) else "") or "").strip().casefold()
-    if distance_km is not None and distance_km <= threshold_km:
-        route_category = "nearby"
+    delivery_location = address.get("location") if isinstance(address, dict) else None
+    destination_district = str(
+        (delivery_location.get("district") if isinstance(delivery_location, dict) else "")
+        or (address.get("district") if isinstance(address, dict) else "")
+        or shipping_address.get("district")
+        or order.get("destinationDistrict")
+        or ""
+    ).strip().casefold()
+    direct_delivery_modes = {
+        str(order.get("logisticsMode") or "").strip().lower(),
+        str(order.get("deliveryMode") or "").strip().lower(),
+        str(order.get("fulfillmentMode") or "").strip().lower(),
+        str(order.get("deliveryRoute") or "").strip().lower(),
+        decision,
+    }
+    direct_delivery_configured = (
+        "farmer_to_delivery_partner" in direct_delivery_modes
+        or bool(direct_delivery_modes.intersection({
+            "direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct",
+        }))
+    )
+    route_category = classify_farmer_fulfillment_route(
+        distance_km,
+        threshold_km,
+        source_district,
+        destination_district,
+        direct_delivery_configured,
+    )
+    if route_category == "nearby":
         logistics_mode = "farmer_to_delivery_partner"
-    elif source_district and destination_district and source_district == destination_district:
-        route_category = "same_district"
+    elif route_category in ("same_district", "route_review"):
         logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
-    elif source_district and destination_district:
-        route_category = "inter_district"
+    elif route_category == "inter_district":
         logistics_mode = "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
     else:
         # Assignment can be resolved, but dispatch stays blocked until route
         # data is completed; don't invent a route based on missing data.
-        route_category = "needs_location"
         logistics_mode = "long_distance_pending"
     await order_repository.update({"_id": ObjectId(order_id)}, {
         "warehouseId": ObjectId(warehouse_id),
@@ -1297,6 +1483,7 @@ async def recover_packed_farmer_fulfillment_source_warehouse(
         "nearbyDeliveryThresholdKm": threshold_km,
         "sourceDistrict": source_district or order.get("sourceDistrict") or order.get("farmerDistrict"),
         "destinationDistrict": destination_district or order.get("destinationDistrict"),
+        "farmerFulfillmentRouteType": route_category,
         "farmerFulfillmentRouteCategory": route_category,
         "logisticsMode": logistics_mode,
         "warehouseFulfillmentStage": "awaiting_warehouse_receipt",
@@ -1336,16 +1523,47 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     order = await order_repository.get_by_id(order_id)
     if not warehouse or not order:
         raise HTTPException(status_code=404, detail="Order or warehouse not found")
-    if str(order.get("logisticsMode") or "") != "farmer_to_warehouse_to_local_hub_to_delivery_partner":
+    logistics_mode = str(order.get("logisticsMode") or "").strip().lower()
+    local_hub_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+    if logistics_mode not in (local_hub_mode, "farmer_to_delivery_partner"):
         raise HTTPException(status_code=400, detail="This order is not a single-warehouse Farmer Fulfillment order")
-    if str(order.get("warehouseId") or "") != str(warehouse["_id"]):
+    if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") != str(warehouse["_id"]):
         raise HTTPException(status_code=403, detail="This order is assigned to another warehouse")
-    incoming = await incoming_stock_repository.find_many({
-        "orderId": {"$in": [ObjectId(order_id), order_id]},
-        "warehouseId": {"$in": [ObjectId(str(warehouse["_id"])), str(warehouse["_id"])]},
-        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
-        "deletedAt": None,
-    }, skip=0, limit=1000)
+    if logistics_mode == "farmer_to_delivery_partner":
+        address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+        if not isinstance(address, dict):
+            address = {}
+        customer_location = address.get("location") or address.get("deliveryLocation") or order.get("customerLocation") or address
+        warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+        customer_district = str(
+            address.get("district")
+            or (customer_location.get("district") if isinstance(customer_location, dict) else "")
+            or ""
+        ).strip().casefold()
+        shipping_address = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
+        customer_district = customer_district or str(shipping_address.get("district") or order.get("destinationDistrict") or "").strip().casefold()
+        source_district = str(
+            warehouse.get("district")
+            or warehouse_address.get("district")
+            or order.get("sourceDistrict")
+            or order.get("farmerDistrict")
+            or ""
+        ).strip().casefold()
+        distance = distance_km(warehouse.get("location") or warehouse.get("coordinates"), customer_location)
+        threshold = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+        route_category = classify_farmer_fulfillment_route(
+            distance,
+            threshold,
+            source_district,
+            customer_district,
+            True,
+        )
+        if route_category != "same_district":
+            raise HTTPException(
+                status_code=409,
+                detail="This order does not qualify for same-district hub fulfillment. Verify delivery details and use the route shown on the transfers page.",
+            )
+    incoming = await _get_farmer_fulfillment_incoming_rows(order, str(warehouse["_id"]))
     # Farmer Fulfillment shipments arrive already packed and sealed. Physical
     # receipt is required, but bulk-inventory storage is intentionally optional
     # and the storage endpoint rejects these sealed transfers. Support legacy
@@ -1353,43 +1571,69 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
     def _complete_sealed_receipt(row: dict) -> bool:
         receipt_status = str(row.get("status") or "").strip().lower()
         received = next(
-            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "receivedQty") if row.get(key) is not None),
+            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty") if row.get(key) is not None),
             None,
         )
-        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
         if received is None:
             received = expected if receipt_status in ("received", "stored") else 0
         try:
-            has_receipt_time = bool(row.get("arrivedWarehouseAt") or row.get("receivedAt") or row.get("received_at"))
-            return receipt_status in ("received", "stored") and has_receipt_time and float(received or 0) + 1e-9 >= expected
+            return receipt_status in ("received", "stored") and float(received or 0) + 1e-9 >= expected
         except (TypeError, ValueError):
             return False
     if not incoming or any(not _complete_sealed_receipt(x) for x in incoming):
         raise HTTPException(status_code=400, detail="Confirm physical arrival and complete quantity receipt before dispatching the sealed farmer-packed order")
     hub_id = order.get("nearbyFulfillmentLocationId")
-    if not hub_id or not ObjectId.is_valid(str(hub_id)):
-        raise HTTPException(status_code=400, detail="No approved local hub is assigned to this order")
     hubs = MongoDB.get_collection("fulfillment_hubs")
     # Use the same transfer manifest collection consumed by partner assignment,
     # partner route status, and local-hub receipt. A separate legacy hub_transfers
     # record left the assigned partner unable to find the manifest.
     hub_transfers = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
     hub = await hubs.find_one({
-        "_id": ObjectId(str(hub_id)),
+        "_id": ObjectId(str(hub_id)) if hub_id and ObjectId.is_valid(str(hub_id)) else None,
         "isLocalFulfillmentHub": True,
         "isActive": True,
         "approvalStatus": "approved",
         "deletedAt": None,
-    })
+    }) if hub_id and ObjectId.is_valid(str(hub_id)) else None
     if not hub:
-        raise HTTPException(status_code=404, detail="Approved local hub not found")
+        address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+        if not isinstance(address, dict):
+            address = {}
+        customer_location = address.get("location") or address.get("deliveryLocation") or order.get("customerLocation") or address
+        if not isinstance(customer_location, dict) or distance_km(customer_location, customer_location) is None:
+            raise HTTPException(status_code=409, detail="Customer delivery coordinates are required to select an approved local hub")
+        quantity_required = sum(float(item.get("quantity") or 0) for item in (order.get("items") or []))
+        hub = await nearest_local_hub(customer_location, quantity_required)
+        if not hub:
+            raise HTTPException(status_code=409, detail="No active approved local hub with sufficient available capacity could be found near the customer")
+        hub_id = hub["_id"]
     existing = await hub_transfers.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
     if existing:
         return {"success": True, "data": {"status": "already_transferred", "transferId": str(existing["_id"])}, "message": "This order is already in the local-hub transfer flow."}
-    quantity = sum(float(x.get("usableQuantity") or x.get("quantityReceived") or 0) for x in incoming)
+    quantity = sum(float(
+        x.get("usableQuantity")
+        or x.get("quantityReceived")
+        or x.get("receivedQuantity")
+        or x.get("actualQuantityReceived")
+        or x.get("receivedQty")
+        or (
+            x.get("quantity")
+            or x.get("expectedQuantity")
+            or x.get("plannedQuantity")
+            if str(x.get("status") or "").strip().lower() in ("received", "stored")
+            else 0
+        )
+        or 0
+    ) for x in incoming)
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="No usable received quantity is available for hub transfer")
-    if quantity > float(hub.get("availableCapacity", 0) or 0):
+    available_hub_capacity = float(
+        hub.get("availableCapacity")
+        if hub.get("availableCapacity") is not None
+        else hub.get("storageCapacity") or 0
+    )
+    if quantity > available_hub_capacity:
         raise HTTPException(status_code=400, detail="Local hub does not have enough available capacity")
     source = warehouse.get("location") or order.get("currentFulfillmentLocation") or order.get("originLocation")
     now = datetime.utcnow()
@@ -1415,11 +1659,29 @@ async def dispatch_single_farmer_fulfillment_to_local_hub(
         "batchIds": [i.get("batchId") for i in order.get("items", []) if i.get("batchId")],
     }
     result = await hub_transfers.insert_one(transfer)
-    await hubs.update_one({"_id": ObjectId(str(hub_id))}, {"$inc": {"availableCapacity": -quantity}, "$set": {"updatedAt": now}})
+    if hub.get("availableCapacity") is None:
+        await hubs.update_one(
+            {"_id": ObjectId(str(hub_id))},
+            {"$set": {"availableCapacity": available_hub_capacity - quantity, "updatedAt": now}},
+        )
+    else:
+        await hubs.update_one(
+            {"_id": ObjectId(str(hub_id))},
+            {"$inc": {"availableCapacity": -quantity}, "$set": {"updatedAt": now}},
+        )
     await order_repository.update({"_id": ObjectId(order_id)}, {
+        "logisticsMode": local_hub_mode,
+        "farmerFulfillmentRouteType": "same_district",
+        "farmerFulfillmentRouteCategory": "same_district",
         "transferStatus": "hub_handoff_pending",
         "warehouseFulfillmentStage": "local_hub_transfer_pending",
         "nearbyFulfillmentLocationId": ObjectId(str(hub_id)),
+        "nearbyFulfillmentLocation": {
+            "id": str(hub_id),
+            "name": hub.get("name") or hub.get("hubName") or "Local Fulfillment Hub",
+            "address": hub.get("address") or "",
+            "location": hub.get("location") or hub.get("coordinates") or {},
+        },
         "updatedAt": now,
     })
     await order_repository.append_tracking_event(
@@ -1575,6 +1837,8 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         str(order.get("deliveryMode") or "").strip().lower(),
         str(order.get("fulfillmentMode") or "").strip().lower(),
         str(order.get("deliveryRoute") or "").strip().lower(),
+        str(order.get("deliveryDecision") or "").strip().lower(),
+        str(order.get("deliveryPartnerRoute") or "").strip().lower(),
     }
     direct_delivery_configured = (
         "farmer_to_delivery_partner" in direct_modes
@@ -1590,22 +1854,17 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         existing_assigned_partner = str(order.get("deliveryPartnerId") or "")
         if existing_assigned_partner and existing_assigned_partner != deliveryPartnerId:
             raise HTTPException(status_code=409, detail="A different final delivery partner is already assigned to this order")
-    incoming = await incoming_stock_repository.find_many({
-        "orderId": ObjectId(order_id),
-        "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
-        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
-        "deletedAt": None,
-    }, skip=0, limit=1000)
+    incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
     if not incoming:
         raise HTTPException(status_code=409, detail="Confirm physical receipt in Incoming Stock before assigning final delivery")
     def _received_quantity(row: dict) -> float:
-        for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "receivedQty"):
+        for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty"):
             if row.get(key) is not None:
                 try: return float(row.get(key) or 0)
                 except (TypeError, ValueError): return 0.0
-        return float(row.get("quantity") or row.get("expectedQuantity") or 0) if str(row.get("status") or "").lower() in ("received", "stored") else 0.0
+        return float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0) if str(row.get("status") or "").lower() in ("received", "stored") else 0.0
     for row in incoming:
-        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
         if str(row.get("status") or "").lower() not in ("received", "stored") or _received_quantity(row) + 1e-9 < expected:
             raise HTTPException(status_code=409, detail="The complete shipment must be physically received before final delivery assignment")
     members = await warehouse_pickup_team_repository.get_approved_members(warehouse_id)
@@ -1628,8 +1887,10 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         lng = source.get("lng", source.get("longitude")) if isinstance(source, dict) else None
         if lat is not None and lng is not None:
             source_coords = [float(lng), float(lat)]
-    address = order.get("deliveryAddress") or {}
-    destination = address.get("location") or address.get("deliveryLocation") or {}
+    address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+    if not isinstance(address, dict):
+        address = {}
+    destination = address.get("location") or address.get("deliveryLocation") or order.get("customerLocation") or {}
     destination_coords = destination.get("coordinates") if isinstance(destination, dict) else None
     if not destination_coords or len(destination_coords) < 2:
         lat = address.get("lat", address.get("latitude"))
@@ -1651,8 +1912,32 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
     patched_order.pop("nearbyFulfillmentLocationId", None)
     route_distance_km = _haversine_km(float(source_coords[1]), float(source_coords[0]), float(destination_coords[1]), float(destination_coords[0]))
     threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
-    if route_distance_km > threshold_km:
-        raise HTTPException(status_code=409, detail=f"This order is {route_distance_km:.1f} km away, beyond the {threshold_km:g} km Nearby threshold. Use warehouse fulfillment routing instead.")
+    warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    source_district = str(
+        warehouse.get("district")
+        or warehouse_address.get("district")
+        or order.get("sourceDistrict")
+        or order.get("farmerDistrict")
+        or ""
+    ).strip().casefold()
+    destination_district = str(
+        address.get("district")
+        or (destination.get("district") if isinstance(destination, dict) else "")
+        or order.get("destinationDistrict")
+        or ""
+    ).strip().casefold()
+    route_category = classify_farmer_fulfillment_route(
+        route_distance_km,
+        threshold_km,
+        source_district,
+        destination_district,
+        True,
+    )
+    if route_category != "nearby":
+        raise HTTPException(
+            status_code=409,
+            detail=f"This order is not eligible for Nearby delivery (distance {route_distance_km:.1f} km; threshold {threshold_km:g} km). Use the district and distance route shown on the transfers page.",
+        )
     existing_job = await delivery_job_repository.get_by_order_id(order_id)
     if existing_job:
         job_id = str(existing_job["_id"])
@@ -1764,11 +2049,23 @@ async def assign_farmer_fulfillment_destination_warehouse(
     if not isinstance(delivery_address, dict):
         delivery_address = {}
     customer_location = delivery_address.get("location") or order.get("customerLocation") or delivery_address
-    customer_district = str(delivery_address.get("district") or order.get("destinationDistrict") or "").strip().casefold()
+    delivery_location = delivery_address.get("location")
+    customer_district = str(
+        delivery_address.get("district")
+        or (delivery_location.get("district") if isinstance(delivery_location, dict) else "")
+        or ""
+    ).strip().casefold()
+    customer_district = customer_district or str(
+        (order.get("shippingAddress") or {}).get("district")
+        if isinstance(order.get("shippingAddress"), dict)
+        else ""
+    ).strip().casefold()
+    customer_district = customer_district or str(order.get("destinationDistrict") or "").strip().casefold()
     source_district = str(
-        order.get("sourceDistrict") or order.get("farmerDistrict")
-        or source_warehouse.get("district")
+        source_warehouse.get("district")
         or ((source_warehouse.get("address") or {}).get("district") if isinstance(source_warehouse.get("address"), dict) else "")
+        or order.get("sourceDistrict")
+        or order.get("farmerDistrict")
         or ""
     ).strip().casefold()
     farmer_id = str(order.get("farmerId") or "")
@@ -1885,19 +2182,14 @@ async def dispatch_farmer_fulfillment_to_destination(
         raise HTTPException(status_code=400, detail="A different destination warehouse must be assigned before dispatch")
     if warehouse_id != source_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this order")
-    incoming = await incoming_stock_repository.find_many({
-        "orderId": {"$in": [ObjectId(order_id), order_id]},
-        "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
-        "sourceMode": {"$regex": "^farmer_fulfillment_transfer$", "$options": "i"},
-        "deletedAt": None,
-    }, skip=0, limit=1000)
+    incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
     def _complete_transfer_receipt(row: dict) -> bool:
         receipt_status = str(row.get("status") or "").strip().lower()
         received = next(
-            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "receivedQty") if row.get(key) is not None),
+            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty") if row.get(key) is not None),
             None,
         )
-        expected = float(row.get("quantity") or row.get("expectedQuantity") or 0)
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
         if received is None:
             received = expected if receipt_status in ("received", "stored") else 0
         try:
@@ -1931,7 +2223,15 @@ async def dispatch_farmer_fulfillment_to_destination(
             "sourceWarehouseName": order.get("sourceWarehouseName") or order.get("warehouseName") or warehouse.get("name"),
             "destinationWarehouseId": ObjectId(destination_id),
             "destinationWarehouseName": order.get("destinationWarehouseName"),
-            "quantity": sum(float(row.get("quantityReceived") or row.get("quantity") or 0) for row in incoming),
+            "quantity": sum(float(
+                row.get("quantityReceived")
+                or row.get("receivedQuantity")
+                or row.get("actualQuantityReceived")
+                or row.get("receivedQty")
+                or row.get("quantity")
+                or row.get("expectedQuantity")
+                or 0
+            ) for row in incoming),
             "status": "awaiting_team_assignment",
             "dispatchedAt": now,
             "dispatchedBy": ObjectId(str(current_user["_id"])),
