@@ -294,11 +294,12 @@ export default function FarmerFulfillmentWarehousePage() {
 
     {isLoading?<div className="h-32 animate-pulse rounded-xl bg-muted"/>:transfers.length===0?
       <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No farmer-packed transfers</h3><p className="mt-2 text-sm text-muted-foreground">Long-distance farmer fulfillment orders routed through this warehouse will appear here.</p></Card>:
+      <>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4">
         <div><h3 className="font-semibold">Plan transfer routes</h3><p className="text-sm text-muted-foreground">Select fully received orders in the same route category. Same-district manifests go to the local hub. Inter-district manifests create a destination-warehouse transfer first. After planning, assign an approved pickup team from each order card.</p></div>
         <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="same_district")} onClick={()=>planSelectedTransfers("same_district")}>{planningRoute?"Planning…":"Plan Same-District Routes"}</Button><Button disabled={planningRoute || !eligibleTransfers.some((o:any)=>selectedRouteOrders[o.id]&&o.routeCategory==="inter_district")} onClick={()=>planSelectedTransfers("inter_district")}>{planningRoute?"Planning…":"Plan Inter-District Routes"}</Button></div>
       </div>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sectionTransfers.length===0?<Card><CardContent className="flex flex-col items-center py-12 text-center"><PackageCheck className="h-10 w-10 text-slate-300"/><p className="mt-3 font-semibold">No orders in this section</p><p className="mt-1 text-sm text-muted-foreground">Orders will appear here when their route and warehouse prerequisites match this section.</p></CardContent></Card>:sectionTransfers.map((o:any,index:number)=><><Card key={o.id} className="overflow-hidden border-slate-200 transition-shadow hover:shadow-md">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{sectionTransfers.length===0?<Card><CardContent className="flex flex-col items-center py-12 text-center"><PackageCheck className="h-10 w-10 text-slate-300"/><p className="mt-3 font-semibold">No orders in this section</p><p className="mt-1 text-sm text-muted-foreground">Orders will appear here when their route and warehouse prerequisites match this section.</p></CardContent></Card>:sectionTransfers.map((o:any,index:number)=><Card key={o.id} className="overflow-hidden border-slate-200 transition-shadow hover:shadow-md">
         <div className="border-b bg-slate-50/80 px-5 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -429,6 +430,6 @@ export default function FarmerFulfillmentWarehousePage() {
             })()}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
-      </CardContent></Card></>)}</div>}
+      </CardContent></Card></>)}</div></>}
   </div>;
 }
