@@ -74,6 +74,7 @@ export default function CreateBulkOrderPage() {
     validItems.length > 0 &&
     (selectedAddress || deliveryCity.trim()) &&
     (purchaseMode !== "family_weekly" || (familySize && deliveryDay)) &&
+    (purchaseMode === "family_weekly" || !["business", "institution"].includes(buyerCategory) || Boolean(organizationName.trim())) &&
     !createMutation.isPending;
 
   const submit = () => {
@@ -163,7 +164,7 @@ export default function CreateBulkOrderPage() {
               <p className="font-semibold">Event / Bulk Order</p>
               <p className="mt-1 text-xs text-slate-500">For weddings, functions, festivals and large one-time requirements. Eligible farmers receive the request and can submit quotes.</p>
             </button>
-            <button type="button" onClick={() => setPurchaseMode("family_weekly")} className={`rounded-xl border p-4 text-left ${purchaseMode === "family_weekly" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
+            <button type="button" onClick={() => { setPurchaseMode("family_weekly"); setBuyerCategory("individual"); setPurpose("Other"); }} className={`rounded-xl border p-4 text-left ${purchaseMode === "family_weekly" ? "border-emerald-500 bg-white shadow-sm" : "border-slate-200 bg-white/60"}`}>
               <ShoppingBasket className="mb-2 h-5 w-5 text-emerald-600" />
               <p className="font-semibold">Manual Weekly Family Basket</p>
               <p className="mt-1 text-xs text-slate-500">Choose your own products and quantities for one week. Smart sourcing finds available nearby farmers. One-time purchase, not a subscription.</p>
