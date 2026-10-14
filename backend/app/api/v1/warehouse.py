@@ -458,6 +458,7 @@ async def get_warehouse_workflow(current_user: dict = Depends(get_current_user))
 @router.get("/me/farmer-fulfillment-transfers")
 async def get_farmer_fulfillment_transfers(
     status_filter: Optional[str] = Query(None, alias="status"),
+    include_completed: bool = Query(False, alias="include_completed"),
     current_user: dict = Depends(get_current_user),
 ):
     """Packed farmer-fulfillment transfers routed through this warehouse.
@@ -479,7 +480,11 @@ async def get_farmer_fulfillment_transfers(
     query: Dict[str, Any] = {
         "$and": [
             {"deletedAt": None},
-            {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
+            {"orderStatus": (
+                {"$in": ["delivered", "completed"]}
+                if include_completed
+                else {"$nin": ["delivered", "completed", "cancelled", "refunded"]}
+            )},
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
