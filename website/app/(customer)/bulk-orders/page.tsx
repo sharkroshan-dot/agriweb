@@ -105,13 +105,13 @@ export default function CustomerBulkOrdersPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700">
-                          {r.requestType === "b2b" ? "Business RFQ" : r.purchaseMode === "family_weekly" ? "🧺 Weekly Family Basket" : "🎉 Event Request"}
+                          {r.buyerCategory === "institution" ? "Institutional Bulk" : r.buyerCategory === "business" || r.requestType === "b2b" ? "Business / B2B RFQ" : r.buyerCategory === "individual" ? "Individual Bulk" : r.purchaseMode === "family_weekly" ? "🧺 Weekly Family Basket" : "🎉 Event Request"}
                         </Badge>
                         <p className="font-medium">{r.requestNumber}</p>
                       </div>
                       <Badge variant={requestStatusVariant[r.status] || "secondary"}>{r.status.replace(/_/g, " ")}</Badge>
                     </div>
-                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}{r.familySize ? ` · Family of ${r.familySize}` : ""}</p>
+                    <p className="text-sm font-medium capitalize text-gray-800">{r.organizationName ? r.organizationName + " · " : ""}{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}{r.familySize ? ` · Family of ${r.familySize}` : ""}</p>
                     <ItemsSummary items={r.items} />
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
