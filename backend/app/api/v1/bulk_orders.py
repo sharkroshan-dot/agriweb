@@ -219,7 +219,7 @@ async def create_request(
         raise HTTPException(status_code=400, detail="buyerCategory must be individual, event_organizer, business, or institution")
     if role == "business":
         buyer_category = "business"
-    request_type = "bulk_event" if (data.purchaseMode or "event") == "family_weekly" else (data.requestType or ("b2b" if buyer_category in ("business", "institution") or role == "business" else "bulk_event"))
+    request_type = "bulk_event" if (data.purchaseMode or "event") == "family_weekly" else ("b2b" if buyer_category in ("business", "institution") or role == "business" else (data.requestType or "bulk_event"))
     if request_type not in ("bulk_event", "b2b"):
         raise HTTPException(status_code=400, detail="requestType must be bulk_event or b2b")
     if buyer_category in ("business", "institution") and not data.organizationName and role == "business":
