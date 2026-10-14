@@ -45,10 +45,46 @@ const statusFor = (order: any) => {
 
 const progressSteps = ["Source receipt", "Transfer dispatched", "Destination receipt", "Local hub transfer", "Hub receipt", "Customer delivery"];
 
-const isCompletedOrder = (order: any) => {
+const isSectionMilestoneComplete = (order: any, sectionKey: string) => {
   const orderStatus = String(order.orderStatus || order.status || "").toLowerCase();
   const transferStatus = String(order.transferStatus || "").toLowerCase();
-  return ["delivered", "completed"].includes(orderStatus) || ["delivered", "completed"].includes(transferStatus);
+  const destinationStatus = String(order.destinationTransferStatus || "").toLowerCase();
+  const hubStatus = String(order.localHubTransferStatus || order.consolidation?.hubTransferStatus || "").toLowerCase();
+
+  // Nearby section is complete when the order is published/opened to the
+  // delivery marketplace or a final-mile partner has been assigned.
+  if (sectionKey === "nearby") {
+    return Boolean(
+      order.deliveryPartnerId ||
+      order.deliveryJobId ||
+      ["partner_pending", "published", "assigned", "open"].includes(String(order.deliveryDecisionStatus || "").toLowerCase()) ||
+      ["published", "assigned", "open"].includes(transferStatus)
+    );
+  }
+
+  // Same-district is complete only after the receiving local hub confirms it.
+  if (sectionKey === "same_district") {
+    return ["local_hub_ready", "hub_received", "received"].includes(transferStatus) ||
+      ["received", "hub_received"].includes(hubStatus) ||
+      Boolean(order.localHubReceivedAt);
+  }
+
+  // Inter-district is complete at the destination warehouse receipt milestone.
+  if (sectionKey === "inter_district") {
+    return ["destination_warehouse_received", "received_at_destination"].includes(transferStatus) ||
+      ["received_at_destination", "destination_warehouse_received"].includes(destinationStatus) ||
+      Boolean(order.destinationWarehouseReceivedAt);
+  }
+
+  // Exception queues are counted as resolved only when the corresponding
+  // operational milestone is actually reached; do not count merely routed rows.
+  if (sectionKey === "route_review" || sectionKey === "needs_location" || sectionKey === "other") {
+    return ["delivered", "completed"].includes(orderStatus) ||
+      ["delivered", "completed"].includes(transferStatus);
+  }
+
+  return ["delivered", "completed"].includes(orderStatus) ||
+    ["delivered", "completed"].includes(transferStatus);
 };
 
 const routeFor = (order: any) => {
@@ -72,7 +108,7 @@ export default function CompletedFarmerFulfillmentPage() {
   const orders: any[] = Array.isArray(payload) ? payload : [];
   const groups = routeGroups.map(group => {
     const sectionOrders = orders.filter(order => routeFor(order) === group.key);
-    const completedOrders = sectionOrders.filter(isCompletedOrder);
+    const completedOrders = sectionOrders.filter(order => isSectionMilestoneComplete(order, group.key));
     return {
       ...group,
       orders: sectionOrders,
@@ -89,7 +125,7 @@ export default function CompletedFarmerFulfillmentPage() {
       <div>
         <p className="text-sm font-medium text-emerald-700">Farmer Fulfillment</p>
         <h1 className="text-3xl font-bold">Completed Fulfillment Orders</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Read-only history grouped by the route section used for each order.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Completed counts follow each route's milestone: Nearby = published/assigned to delivery partner; Same-District = local hub receipt; Inter-District = destination warehouse receipt.</p>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" asChild><Link href="/warehouse/farmer-fulfillment"><ArrowLeft className="mr-2 h-4 w-4"/>Active Transfers</Link></Button>
@@ -98,16 +134,16 @@ export default function CompletedFarmerFulfillmentPage() {
     </div>
 
     <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-      {groups.map(group => <Card key={group.key}><CardContent className="p-4"><p className="text-xs leading-5 text-muted-foreground">{group.title}</p><p className="mt-1 text-2xl font-bold tabular-nums">{isLoading ? "—" : group.completedCount}</p><p className="mt-1 text-xs text-muted-foreground">{isLoading ? "Loading…" : `completed · ${group.trackedCount} tracked`}</p></CardContent></Card>)}
+      {groups.map(group => <Card key={group.key}><CardContent className="p-4"><p className="text-xs leading-5 text-muted-foreground">{group.title}</p><p className="mt-1 text-2xl font-bold tabular-nums">{isLoading ? "—" : group.completedCount}</p><p className="mt-1 text-xs text-muted-foreground">{isLoading ? "Loading…" : `milestone complete · ${group.trackedCount} tracked`}</p></CardContent></Card>)}
     </div>
-    <p className="text-sm text-muted-foreground">{completedTotal} completed orders across all sections. In-transit and awaiting-receipt orders remain listed below with their current recorded status, but are not included in completed counts.</p>
+    <p className="text-sm text-muted-foreground">{completedTotal} route milestones completed across all sections. Counts reflect each route\u2019s operational completion point; in-transit and awaiting-receipt orders remain tracked but are not counted until the required milestone is recorded.</p>
 
     {isLoading ? <div className="h-40 animate-pulse rounded-xl bg-muted"/> :
       isError || data?.success === false ? <Card className="border-red-200"><CardContent className="p-6"><p className="font-semibold">Unable to load completed orders</p><p className="mt-1 text-sm text-muted-foreground">{error instanceof Error ? error.message : "Check the backend connection and try again."}</p><Button className="mt-3" variant="outline" onClick={() => refetch()}>Retry</Button></CardContent></Card> :
       total === 0 ? <Card className="border-dashed"><CardContent className="p-10 text-center"><CheckCircle2 className="mx-auto h-9 w-9 text-muted-foreground"/><p className="mt-3 font-semibold">No completed farmer fulfillment orders</p><p className="mt-1 text-sm text-muted-foreground">Orders will appear here after the backend records them as delivered or completed.</p></CardContent></Card> :
       <div className="space-y-6">
         {groups.filter(group => group.orders.length > 0).map(group => <section key={group.key} className="space-y-3">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{group.title}</h2><Badge variant="secondary">{group.completedCount} completed · {group.trackedCount} tracked</Badge></div>
+          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{group.title}</h2><Badge variant="secondary">{group.completedCount} milestone complete · {group.trackedCount} tracked</Badge></div>
           <div className="grid gap-3 xl:grid-cols-2">
             {group.orders.map((order: any) => {
               const lines = Array.isArray(order.incoming) && order.incoming.length ? order.incoming : (Array.isArray(order.items) ? order.items : []);
