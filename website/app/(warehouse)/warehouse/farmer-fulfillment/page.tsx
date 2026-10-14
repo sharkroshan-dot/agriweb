@@ -245,6 +245,29 @@ export default function FarmerFulfillmentTransfersPage() {
     finally{setBusy(null);}
   };
 
+  const selectedNearbyOrders=routeOrders.nearby.filter((order:any)=>selectedRouteOrders[order.id]&&isRouteQueueEligible(order)&&!isRouteMilestoneComplete(order,"nearby")&&!order.deliveryPartnerId);
+
+  const publishSelectedNearbyOrders=async()=>{
+    if(!selectedNearbyOrders.length){toast.error("Select at least one eligible Nearby order first");return;}
+    const missingPartner=selectedNearbyOrders.find((order:any)=>!selectedHubTeam[order.id]);
+    if(missingPartner){toast.error("Select an approved delivery partner on every selected Nearby order card first");document.getElementById("order-"+missingPartner.id)?.scrollIntoView({behavior:"smooth",block:"center"});return;}
+    setBusy("bulk-nearby-publish");
+    let completed=0;
+    const failures:string[]=[];
+    try{
+      for(const order of selectedNearbyOrders){
+        try{
+          await api.put("/warehouse/me/farmer-fulfillment/"+order.id+"/assign-nearby-delivery-partner",undefined,{params:{deliveryPartnerId:selectedHubTeam[order.id]}});
+          completed++;
+        }catch(e:any){failures.push((order.orderNumber||order.id)+": "+(e?.message||"publish failed"));}
+      }
+      if(completed)toast.success(`Published/assigned ${completed} Nearby order(s) to delivery partners`);
+      if(failures.length)toast.error(failures.slice(0,2).join("; "));
+      setSelectedRouteOrders(current=>{const next={...current};selectedNearbyOrders.forEach((order:any)=>delete next[order.id]);return next;});
+      await refetch();
+    }finally{setBusy(null);}
+  };
+
   const planSelectedRoutes=async(category:"same_district"|"inter_district")=>{
     const selected=category==="same_district"?selectedSameDistrictOrders:selectedInterDistrictOrders;
     if(!selected.length){toast.error("Select at least one eligible order first");return;}
@@ -316,6 +339,14 @@ export default function FarmerFulfillmentTransfersPage() {
         <p className="text-sm text-muted-foreground">Use the same select → plan → assign vehicle/team → track route workflow as Farm Collection. These are already-packed customer orders, so each route stop carries a sealed order packet and no order is repacked.</p>
       </CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-emerald-200 bg-white p-4 md:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold text-emerald-950">Nearby · Publish to Delivery Partners</h3><p className="mt-1 text-xs text-muted-foreground">Select eligible Nearby orders and choose an approved delivery partner on each order card before publishing.</p></div><Badge variant="outline">{selectedNearbyOrders.length} selected</Badge></div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={publishSelectedNearbyOrders} disabled={!selectedNearbyOrders.length||busy==="bulk-nearby-publish"}>{busy==="bulk-nearby-publish"?"Publishing…":`Publish to Delivery Partners (${selectedNearbyOrders.length})`}</Button>
+            <Button size="sm" variant="outline" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.nearby.forEach((o:any)=>{if(isRouteQueueEligible(o)&&!o.deliveryPartnerId)next[o.id]=true;});return next;})} disabled={!routeOrders.nearby.some((o:any)=>isRouteQueueEligible(o)&&!o.deliveryPartnerId)}>Select All Eligible</Button>
+            <Button size="sm" variant="ghost" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.nearby.forEach((o:any)=>delete next[o.id]);return next;})}>Clear Selection</Button>
+          </div>
+        </div>
         <div className="rounded-xl border border-blue-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-blue-950">Same-District · Local Hub Route</h3><Badge variant="outline">{selectedHubRouteOrders.length} selected</Badge></div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -410,7 +441,7 @@ export default function FarmerFulfillmentTransfersPage() {
       return <div key={o.id} className="space-y-3">
       {category==="waiting_receipt"&&(index===0||displayCategory(visibleRows[index-1])!==category)&&<section className="rounded-xl border bg-muted/20 px-4 py-3"><h2 className="font-semibold">{sectionTitle}</h2><p className="text-xs text-muted-foreground">{waitingReceiptRows.length} orders</p></section>}
       <Card id={"order-"+o.id} className="overflow-hidden scroll-mt-24">
-        <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} - {lines.length} allocated line(s)</p>{["same_district","inter_district"].includes(category)&&receivedAtSource&&!o.isUnassigned&&<label className="mt-3 flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(selectedRouteOrders[o.id])} onChange={e=>toggleRouteOrder(o.id,e.target.checked)} /> Select for {category==="inter_district"?"Inter-District":"Same-District"} route planning</label>}</div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader>
+        <CardHeader className="pb-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><CardTitle>#{o.orderNumber}</CardTitle><p className="text-sm text-muted-foreground">{o.farmerName||"Farmer"} - {lines.length} allocated line(s)</p>{["nearby","same_district","inter_district"].includes(category)&&receivedAtSource&&!o.isUnassigned&&!(category==="nearby"&&o.deliveryPartnerId)&&!isRouteMilestoneComplete(o,category)&&<label className="mt-3 flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={Boolean(selectedRouteOrders[o.id])} onChange={e=>toggleRouteOrder(o.id,e.target.checked)} /> {category==="nearby"?"Select for Nearby delivery publication":category==="inter_district"?"Select for Inter-District route planning":"Select for Same-District route planning"}</label>}</div><Badge variant="outline">{labels[o.stage]||o.stage}</Badge></div></CardHeader>
         <CardContent className="space-y-4">
           <div className="mb-3 flex flex-wrap gap-2">
             <Badge variant="outline">{routeCategoryFor(o)==="inter_district"?"Inter-district transfer":routeCategoryFor(o)==="same_district"?"Same-district transfer":o.logisticsMode==="farmer_to_delivery_partner"||routeCategoryFor(o)==="nearby"?"Direct farm pickup":"Warehouse transfer"}</Badge>
