@@ -212,18 +212,20 @@ async def create_request(
     if role not in ("customer", "business"):
         raise HTTPException(status_code=403, detail="Only customers and business accounts can create requests")
 
-    buyer_type = "business" if role == "business" else "customer"
     buyer_category = (data.buyerCategory or ("business" if role == "business" else "event_organizer")).strip().lower()
     allowed_buyer_categories = {"individual", "event_organizer", "business", "institution"}
     if buyer_category not in allowed_buyer_categories:
         raise HTTPException(status_code=400, detail="buyerCategory must be individual, event_organizer, business, or institution")
     if role == "business":
         buyer_category = "business"
+    buyer_type = "business" if buyer_category == "business" else "institution" if buyer_category == "institution" else "customer"
     request_type = "bulk_event" if (data.purchaseMode or "event") == "family_weekly" else ("b2b" if buyer_category in ("business", "institution") or role == "business" else (data.requestType or "bulk_event"))
     if request_type not in ("bulk_event", "b2b"):
         raise HTTPException(status_code=400, detail="requestType must be bulk_event or b2b")
     if buyer_category in ("business", "institution") and not data.organizationName and role == "business":
         data.organizationName = current_user.get("businessName") or current_user.get("companyName") or current_user.get("firstName")
+    if buyer_category in ("business", "institution") and not (data.organizationName or "").strip():
+        raise HTTPException(status_code=400, detail="Organization name is required for business and institutional bulk orders")
 
     delivery_address = await _resolve_delivery_address(str(current_user["_id"]), data)
     if not delivery_address.get("addressLine1") and not data.deliveryCity:
