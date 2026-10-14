@@ -575,7 +575,7 @@ async def warehouse_for_district(
         return None
 
     collection = MongoDB.get_collection("warehouses")
-    docs = await collection.find({"deletedAt": None}).to_list(length=500)
+    docs = await collection.find({}).to_list(length=2000)
     matches = []
 
     def _number(*values):
