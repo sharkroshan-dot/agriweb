@@ -131,7 +131,7 @@ export default function LoginPage() {
     if (code === "Network error") {
       setError("Could not reach the server. Check your internet connection and try again.");
     } else if (code === "Account not verified") {
-      setError("Your account is not verified yet. Check your email for the verification link.");
+      setError("Your account is not verified yet. Enter the verification code sent to your email or phone on the verification page.");
     } else {
       setError("Incorrect email or password. Please try again.");
     }
