@@ -57,10 +57,13 @@ async def test_farmer_creates_harvest_plan(monkeypatch):
 
     monkeypatch.setattr(harvests_mod.harvest_plan_repo, "create", fake_create)
     monkeypatch.setattr(harvests_mod.harvest_plan_repo, "find_one", fake_find_one)
+    from app.api.v1.master_crops import master_repo
+    monkeypatch.setattr(master_repo, "find_one", AsyncMock(return_value={"_id": OID, "name": "Tomato", "isActive": True}))
 
     from app.api.v1.harvests import HarvestPlanCreate
     data = HarvestPlanCreate(
         cropName="Tomato",
+        masterCropId=OID,
         expectedHarvestDate=datetime.utcnow() + timedelta(days=10),
         expectedQuantityKg=500,
         preOrderPricePerKg=42,
@@ -600,12 +603,18 @@ async def test_farmer_creates_batch_with_lot_number(monkeypatch):
             "_id": OID,
             "farmerId": OID,
             "cropName": "Tomato",
+            "masterCropId": __import__("bson").ObjectId(OID),
+            "masterCropName": "Tomato",
             "status": "harvested",
             "actualQuantityKg": 500,
             "harvestedAt": datetime.utcnow(),
         }),
     )
     monkeypatch.setattr(batches_mod.batch_repo, "find_one", AsyncMock(return_value=None))
+    class _MasterCropRepo:
+        async def find_one(self, query):
+            return {"_id": __import__("bson").ObjectId(OID), "name": "Tomato", "defaultShelfLifeDays": 3, "storageShelfLifeDays": {"refrigerated": 5}, "isActive": True}
+    monkeypatch.setattr(batches_mod, "BaseRepository", lambda name: _MasterCropRepo())
     monkeypatch.setattr(batches_mod.quality_inspection_repo, "create", AsyncMock(return_value=OID2))
     monkeypatch.setattr(batches_mod.harvest_plan_repo, "update", AsyncMock(return_value=True))
 
