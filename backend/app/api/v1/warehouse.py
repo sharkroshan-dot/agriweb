@@ -2800,9 +2800,6 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     allocations = [a for a in (order.get("warehouseAllocations") or []) if str(a.get("warehouseId")) == wid]
     if not allocations:
         raise HTTPException(status_code=403, detail="This order has no allocation at your warehouse")
-    if not ObjectId.is_valid(str(order.get("consolidationWarehouseId") or "")):
-        raise HTTPException(status_code=400, detail="Assign a valid consolidation destination warehouse before dispatch")
-
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
     # A source warehouse may dispatch only after its own incoming records have
     # been physically received, quality-approved and stored.
@@ -2825,7 +2822,18 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     # an order was routed to multi-warehouse fulfillment but no transfer legs
     # were created by the earlier routing step. This is idempotent: once a leg
     # exists for this source allocation, retries reuse it rather than duplicate it.
+    # Validate the destination before creating any consolidation documents.
+    # Without this guard ObjectId("None") could raise and leave the order half-initialized.
+    consolidation_warehouse_id = str(order.get("consolidationWarehouseId") or "")
+    if not ObjectId.is_valid(consolidation_warehouse_id):
+        raise HTTPException(status_code=400, detail="Assign a valid consolidation destination warehouse before dispatch")
+    destination_warehouse = await warehouse_repository.get_by_id(consolidation_warehouse_id)
+    if not destination_warehouse:
+        raise HTTPException(status_code=404, detail="The assigned consolidation destination warehouse was not found")
+
     consolidation_id = order.get("consolidationId")
+    if isinstance(consolidation_id, str) and ObjectId.is_valid(consolidation_id):
+        consolidation_id = ObjectId(consolidation_id)
     consolidation_collection = MongoDB.get_collection("farmer_fulfillment_consolidations")
     consolidation = (
         await consolidation_collection.find_one({"_id": consolidation_id, "deletedAt": None})
@@ -2842,7 +2850,7 @@ async def dispatch_farmer_fulfillment_to_consolidation(
             "orderId": ObjectId(order_id),
             "orderNumber": order.get("orderNumber"),
             "status": str(order.get("consolidationStatus") or "collecting"),
-            "consolidationWarehouseId": ObjectId(str(order.get("consolidationWarehouseId"))),
+            "consolidationWarehouseId": ObjectId(consolidation_warehouse_id),
             "warehouseIds": [ObjectId(str(x)) for x in (order.get("warehouseIds") or []) if ObjectId.is_valid(str(x))],
             "warehouseCount": int(order.get("warehouseCount") or len(order.get("warehouseIds") or [])),
             "createdAt": now,
@@ -2854,6 +2862,7 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     else:
         consolidation_id = consolidation.get("_id")
 
+    # Destination validity was checked before writing the consolidation record above.
     # Build the complete expected manifest for every source allocation at
     # once. If we only created the first warehouse's legs, the destination
     # could incorrectly think consolidation is complete before other farms
