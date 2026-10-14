@@ -476,7 +476,12 @@ class OrderService:
             delivery_address = {
                 "addressLine1": address.get("address_line1") or address.get("addressLine1", ""),
                 "addressLine2": address.get("address_line2") or address.get("addressLine2"),
-                "city": address.get("city", ""),
+                "city": address.get("city") or address.get("town") or address.get("municipality") or "",
+                # Older address records use city as their only locality field.
+                # Preserve an explicit district when available, otherwise keep
+                # city as the routing district fallback consumed by warehouse
+                # route classification.
+                "district": address.get("district") or address.get("districtName") or address.get("city") or address.get("town") or "",
                 "state": address.get("state", ""),
                 "zipCode": address.get("zip_code") or address.get("zipCode", ""),
                 "country": address.get("country", ""),
@@ -619,6 +624,7 @@ class OrderService:
             "paymentStatus": PaymentStatus.PENDING.value,
             "orderStatus": OrderStatus.PENDING.value,
             "deliveryAddress": delivery_address,
+            "deliveryAddressId": ObjectId(data.deliveryAddressId) if data.deliveryAddressId and ObjectId.is_valid(str(data.deliveryAddressId)) else None,
             "specialInstructions": data.specialInstructions,
             "couponCode": data.couponCode,
             "deliveryType": data.deliveryType.value,
