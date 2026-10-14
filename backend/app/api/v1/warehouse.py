@@ -1173,6 +1173,8 @@ async def get_farmer_fulfillment_transfers(
             "destinationWarehouseRequiredCapacity": order.get("destinationWarehouseRequiredCapacity"),
             "currentWarehouseRole": "destination" if is_destination_warehouse else ("source" if is_source_warehouse else ("consolidation" if is_consolidation_warehouse else "assigned")) ,
             "deliveryPartnerId": str(order.get("deliveryPartnerId")) if order.get("deliveryPartnerId") else None,
+            "deliveryDecisionStatus": order.get("deliveryDecisionStatus"),
+            "deliveryJobId": str(order.get("deliveryJobId")) if order.get("deliveryJobId") else None,
             "routeDistanceKm": calculated_distance_km,
             "nearbyThresholdKm": threshold_km,
             "routeCategory": route_category,
