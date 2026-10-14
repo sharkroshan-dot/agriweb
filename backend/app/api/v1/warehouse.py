@@ -2174,7 +2174,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "requestId": str(request["_id"]),
             "orderNumber": request.get("requestNumber") or str(request["_id"]),
             "buyerName": request.get("buyerName") or "Customer / Business",
-            "buyerType": request.get("buyerType") or request.get("requestType") or "event",
+            "buyerType": request.get("buyerCategory") or request.get("buyerType") or request.get("requestType") or "event",
             "isEventOrder": True,
             "isConsolidationWarehouse": is_event_consolidation_warehouse,
             "isLocalHub": is_event_local_hub,
