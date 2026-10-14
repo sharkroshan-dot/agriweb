@@ -87,6 +87,11 @@ export default function FarmerFulfillmentTransfersPage() {
     warehouseAllocations: Array.isArray(row.warehouseAllocations)?row.warehouseAllocations:[],
     // A legacy single-source record should use the standard transfer action path.
     logisticsMode: row.logisticsMode===MULTI_WAREHOUSE_MODE ? "farmer_to_warehouse_to_local_hub_to_delivery_partner" : row.logisticsMode,
+    // The API's legacy flag may still mark a one-source order as the
+    // consolidation destination. Override that derived UI role after the
+    // actual source-count check above so normal route actions are available.
+    isConsolidationWarehouse: isTrueConsolidation(row) ? Boolean(row.isConsolidationWarehouse) : false,
+    currentWarehouseRole: isTrueConsolidation(row) ? row.currentWarehouseRole : (row.currentWarehouseRole==="consolidation" ? "source" : row.currentWarehouseRole),
   }));
   const consolidationRows=allRows.filter((row:any)=>isTrueConsolidation(row));
   const isRouteQueueEligible=(row:any)=>!row.isUnassigned && row.physicalReceiptConfirmed===true;
