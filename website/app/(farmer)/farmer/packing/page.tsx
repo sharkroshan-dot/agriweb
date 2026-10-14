@@ -57,6 +57,7 @@ export default function FarmerPackingPage() {
   const [saving, setSaving] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<any | null>(null);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [pickupSubmittingOrderId, setPickupSubmittingOrderId] = useState<string | null>(null);
 
   const ordersQuery = useQuery({
     queryKey: ["farmer-packing-orders"],
@@ -184,6 +185,25 @@ export default function FarmerPackingPage() {
     }
   };
 
+  const markReadyForPickup = async (order: any) => {
+    const orderId = order?.id || order?._id;
+    if (!orderId) { toast.error("Order ID is missing"); return; }
+    if (!order?.packingComplete || !["packed", "dispatched"].includes(String(order?.fulfillmentStage || "").toLowerCase())) {
+      toast.error("Confirm Packed before requesting pickup.");
+      return;
+    }
+    try {
+      setPickupSubmittingOrderId(orderId);
+      const response = await api.post("/orders/" + orderId + "/farmer-fulfillment-ready-for-pickup");
+      const result = response?.data || response;
+      toast.success(result?.message || "Order marked Ready for Pickup. Warehouse collection is now available.");
+      await ordersQuery.refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to mark this order Ready for Pickup");
+    } finally {
+      setPickupSubmittingOrderId(null);
+    }
+  };
   const cancelForShortage = async (order: any) => {
     const orderId = order?.id || order?._id;
     if (!orderId) return;
@@ -226,7 +246,7 @@ export default function FarmerPackingPage() {
               <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back to Orders
             </Link>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Packing & Checking</h1>
-            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order → enter actual packed quantity → resolve shortages → Confirm Packed → print the delivery label.</p>
+            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order → enter actual packed quantity → resolve shortages → Confirm Packed → print the label → Mark Ready for Pickup when warehouse collection is required.</p>
           </div>
           {allPacked && (
             <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
@@ -347,7 +367,16 @@ export default function FarmerPackingPage() {
                       {isPackingCancelled(order) ? (
                         <span className="text-xs font-medium text-red-700">Order cancelled during packing</span>
                       ) : isPacked ? (
-                        <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
+                          {String(order?.warehouseCollectionStatus || "").toLowerCase() === "ready_for_pickup" || String(order?.orderStatus || "").toLowerCase() === "ready_for_pickup" ? (
+                            <Button size="sm" variant="outline" disabled><CheckCircle2 className="mr-1.5 h-4 w-4" /> Ready for Pickup</Button>
+                          ) : (
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={pickupSubmittingOrderId === orderId} onClick={() => void markReadyForPickup(order)}>
+                              <Truck className="mr-1.5 h-4 w-4" /> {pickupSubmittingOrderId === orderId ? "Preparing Pickup..." : "Mark Ready for Pickup"}
+                            </Button>
+                          )}
+                        </div>
                       ) : (
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" disabled={cancellingOrderId === orderId} onClick={() => void cancelForShortage(order)} className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800">
