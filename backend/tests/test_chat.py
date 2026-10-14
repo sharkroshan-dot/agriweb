@@ -318,6 +318,8 @@ async def test_blocked_user_cannot_send(monkeypatch):
         return True
     monkeypatch.setattr(chat_repository, "get_conversation", fake_get_conversation)
     monkeypatch.setattr(chat_mod, "is_blocked", fake_blocked)
+    monkeypatch.setattr(chat_mod, "is_restricted", AsyncMock(return_value=False))
+    monkeypatch.setattr(chat_mod, "_conversation_other_ids", lambda *args: _async_set(OID2))
     with pytest.raises(Exception) as excinfo:
         await chat_mod.send_message(
             chat_mod.MessageSend(conversation_id=f"order-chat-{ORDER_OID}", content="hello"),
@@ -353,7 +355,10 @@ async def test_critical_message_is_blocked(monkeypatch):
     async def fake_access(*args, **kwargs):
         return True
     monkeypatch.setattr(chat_mod, "_can_access_conversation", fake_access)
+    monkeypatch.setattr(chat_mod, "_assert_chat_open_for_sending", AsyncMock(return_value=None))
     monkeypatch.setattr(chat_mod, "_conversation_other_ids", lambda *args: _async_set(OID2))
+    monkeypatch.setattr(chat_mod, "detect_repeated_unwanted", AsyncMock(return_value={"flags": []}))
+    monkeypatch.setattr(chat_mod, "is_restricted", AsyncMock(return_value=False))
     async def fake_blocked(*args, **kwargs):
         return False
     monkeypatch.setattr(chat_mod, "is_blocked", fake_blocked)
