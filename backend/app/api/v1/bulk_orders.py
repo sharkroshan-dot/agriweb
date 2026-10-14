@@ -296,7 +296,7 @@ async def list_requests(
             farmer_id = ObjectId(current_user["_id"])
             match["$or"] = [
                 {"requestType": {"$nin": ["bulk_event", "b2b"]}},
-                {"requestType": {"$in": ["bulk_event", "b2b"]}, "eventFulfillmentMode": {"$ne": "planned"}},
+                {"requestType": "b2b", "eventFulfillmentMode": {"$exists": False}},
                 {"requestType": {"$in": ["bulk_event", "b2b"]}, "eventFulfillmentMode": "planned", "rfqFarmerIds": farmer_id},
                 {"requestType": {"$in": ["bulk_event", "b2b"]}, "eventFulfillmentMode": "planned", "rfqFarmerIds": str(current_user["_id"])},
             ]
@@ -411,6 +411,9 @@ async def submit_offer(
         raise HTTPException(status_code=404, detail="Request not found")
     if request.get("status") not in (REQUEST_OPEN, REQUEST_OFFERS):
         raise HTTPException(status_code=400, detail="This request is no longer accepting offers")
+
+    if request.get("requestType") in ("bulk_event", "b2b") and str(request.get("eventFulfillmentMode") or "").startswith("urgent"):
+        raise HTTPException(status_code=400, detail="This request uses urgent smart sourcing; farmer quotes are not required")
 
     if request.get("requestType") == "bulk_event":
         if request.get("purchaseMode") == "family_weekly":
