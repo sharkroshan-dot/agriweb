@@ -1893,9 +1893,35 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
         "orderStatus": {"$nin": ["cancelled", "refunded", "delivered", "completed"]},
     }, skip=0, limit=200, sort=[("updatedAt", -1)])
 
+    # The logisticsMode flag alone is not enough to qualify an order for
+    # multi-warehouse consolidation: older routing code can leave that flag on
+    # an order whose stock actually comes from one warehouse. Keep this queue
+    # limited to orders with at least two distinct physical source warehouses.
+    true_multi_source_orders = []
+    for order in orders:
+        allocations = order.get("warehouseAllocations") or []
+        allocation_sources = {
+            str(a.get("warehouseId") or "").strip()
+            for a in allocations
+            if str(a.get("warehouseId") or "").strip()
+        }
+        declared_sources = {
+            str(x).strip()
+            for x in (order.get("warehouseIds") or [])
+            if str(x).strip()
+        }
+        item_sources = {
+            str(item.get("sourceWarehouseId") or item.get("warehouseId") or "").strip()
+            for item in (order.get("items") or [])
+            if str(item.get("sourceWarehouseId") or item.get("warehouseId") or "").strip()
+        }
+        source_ids = allocation_sources or declared_sources or item_sources
+        if len(source_ids) >= 2:
+            true_multi_source_orders.append(order)
+
     consolidation_collection = MongoDB.get_collection("farmer_fulfillment_consolidations")
     result = []
-    for order in orders:
+    for order in true_multi_source_orders:
         cid = order.get("consolidationId")
         consolidation = await consolidation_collection.find_one({"_id": cid, "deletedAt": None}) if cid else None
         incoming = await incoming_stock_repository.find_many({
