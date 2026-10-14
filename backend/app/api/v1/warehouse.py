@@ -1961,6 +1961,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "storedCount": len(received_or_stored),
             "allWarehousesReceived": all_warehouses_received,
             "allConsolidationLegsReceived": bool(consolidation_legs) and len(received_consolidation_legs) == len(consolidation_legs),
+            "hasInTransitConsolidationLegs": any(str(leg.get("status") or "") == "in_transit" for leg in consolidation_legs),
             "totalConsolidationLegCount": len(consolidation_legs),
             "inTransitLegCount": sum(1 for leg in consolidation_legs if str(leg.get("status") or "") == "in_transit"),
             "receivedConsolidationLegCount": len(received_consolidation_legs),
