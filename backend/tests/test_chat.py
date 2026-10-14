@@ -176,6 +176,9 @@ async def test_send_message_notifies_recipients(monkeypatch):
     monkeypatch.setattr(chat_repository, "mark_read", fake_mark_read)
     monkeypatch.setattr(chat_mod, "_broadcast", fake_broadcast)
     monkeypatch.setattr(chat_mod, "_notify_recipients", fake_notify)
+    monkeypatch.setattr(chat_mod, "_conversation_other_ids", lambda *args: _async_set(OID2))
+    monkeypatch.setattr(chat_mod, "detect_repeated_unwanted", AsyncMock(return_value={"flags": []}))
+    monkeypatch.setattr(chat_mod, "is_restricted", AsyncMock(return_value=False))
 
     body = chat_mod.MessageSend(
         conversation_id=f"order-chat-{ORDER_OID}",
@@ -256,6 +259,9 @@ async def test_share_location_creates_location_message(monkeypatch):
     monkeypatch.setattr(chat_repository, "update_last_message", fake_update_last_message)
     monkeypatch.setattr(chat_mod, "_broadcast", fake_broadcast)
     monkeypatch.setattr(chat_mod, "_notify_recipients", fake_notify)
+    monkeypatch.setattr(chat_mod, "_conversation_other_ids", lambda *args: _async_set(OID2))
+    monkeypatch.setattr(chat_mod, "detect_repeated_unwanted", AsyncMock(return_value={"flags": []}))
+    monkeypatch.setattr(chat_mod, "is_restricted", AsyncMock(return_value=False))
 
     body = chat_mod.LocationShare(
         conversation_id=f"order-chat-{ORDER_OID}",
@@ -289,6 +295,7 @@ async def test_mark_read_sets_unread_zero(monkeypatch):
 
     monkeypatch.setattr(chat_repository, "get_conversation", fake_get_conversation)
     monkeypatch.setattr(chat_repository, "mark_read", fake_mark_read)
+    monkeypatch.setattr(chat_message_repository, "_collection", type("DummyCollection", (), {"update_many": AsyncMock(return_value=None)})(), raising=False)
 
     result = await chat_mod.mark_conversation_read(f"order-chat-{ORDER_OID}", _farmer_user())
     assert result["status"] == "success"
