@@ -60,7 +60,7 @@ export default function CreateBulkOrderPage() {
       if (purchaseMode === "family_weekly") {
         toast.success("Weekly family basket created. Finding live stock.");
       } else {
-        toast.success("Event created. AgriConnect will choose urgent smart sourcing or planned RFQ from the delivery deadline.");
+        toast.success("Bulk request created. AgriConnect will source each product and track every fulfillment portion.");
       }
       router.push(`/bulk-orders/${requestId}/sourcing`);
     },
