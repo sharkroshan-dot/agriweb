@@ -5053,6 +5053,22 @@ async def store_incoming_stock(
     existing_incoming = await incoming_stock_repository.get_by_id(incoming_id)
     if existing_incoming and str(existing_incoming.get("warehouseId")) == str(warehouse["_id"]) and str(existing_incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer":
         raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Storage is optional; continue to Farmer Fulfillment Transfers / Consolidation instead of adding this order to bulk inventory.")
+    if existing_incoming and existing_incoming.get("eventFulfillmentId"):
+        if str(existing_incoming.get("qualityCheck") or "").lower() != "passed":
+            raise HTTPException(status_code=409, detail="Event portion storage requires a passed quality check")
+        event_fulfillments = MongoDB.get_collection("event_fulfillments")
+        event_oid = existing_incoming.get("eventFulfillmentId")
+        event_oid = event_oid if isinstance(event_oid, ObjectId) else ObjectId(str(event_oid))
+        event_portion = await event_fulfillments.find_one({"_id": event_oid, "deletedAt": None})
+        if not event_portion:
+            raise HTTPException(status_code=409, detail="The Incoming Stock record references a missing event fulfillment portion")
+        actual_received_before_store = existing_incoming.get("quantityReceived")
+        if actual_received_before_store is None:
+            actual_received_before_store = existing_incoming.get("receivedQuantity")
+        if actual_received_before_store is None:
+            actual_received_before_store = existing_incoming.get("actualQuantityReceived")
+        if float(actual_received_before_store or 0) + 1e-9 < float(event_portion.get("allocatedQuantityKg") or 0):
+            raise HTTPException(status_code=409, detail="Received quantity is below the allocated event portion; resolve the shortage before storing")
     incoming = await WarehouseService.store_incoming(
         incoming_id, str(warehouse["_id"])
     )
