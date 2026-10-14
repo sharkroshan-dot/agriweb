@@ -1265,7 +1265,7 @@ async def get_farmer_fulfillment_transfers(
     pending_unassigned = await order_repository.find_many({
         "$and": [
             {"deletedAt": None},
-            {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}},
+            {"orderStatus": ({"$in": ["delivered", "completed"]} if include_completed else {"$nin": ["delivered", "completed", "cancelled", "refunded"]})},
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
