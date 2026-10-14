@@ -957,15 +957,30 @@ async def get_farmer_fulfillment_transfers(
         delivery_location = delivery_address.get("location") if isinstance(delivery_address, dict) else None
         customer_address_nested = delivery_address.get("address") if isinstance(delivery_address.get("address"), dict) else {}
         shipping_location = shipping_address.get("location") if isinstance(shipping_address.get("location"), dict) else {}
+        # Orders created from the customer's saved address persist the
+        # canonical address snapshot as deliveryAddress.city/state/zipCode.
+        # Older routing code checked only district and nested address fields,
+        # so valid saved customer cities were ignored and these orders were
+        # incorrectly classified as needs_location despite having a route
+        # distance. Accept common camelCase/snake_case address aliases.
         destination_district = str(
             (delivery_location.get("district") if isinstance(delivery_location, dict) else "")
             or (delivery_address.get("district") if isinstance(delivery_address, dict) else "")
+            or (delivery_address.get("districtName") if isinstance(delivery_address, dict) else "")
+            or (delivery_address.get("city") if isinstance(delivery_address, dict) else "")
+            or (delivery_address.get("town") if isinstance(delivery_address, dict) else "")
+            or (delivery_address.get("municipality") if isinstance(delivery_address, dict) else "")
             or customer_address_nested.get("district")
+            or customer_address_nested.get("districtName")
             or customer_address_nested.get("city")
+            or customer_address_nested.get("town")
             or shipping_address.get("district")
+            or shipping_address.get("districtName")
+            or shipping_address.get("city")
             or shipping_location.get("district")
             or shipping_location.get("city")
             or order.get("destinationDistrict")
+            or order.get("customerDistrict")
             or ""
         ).strip().casefold()
         direct_delivery_mode_values = {
