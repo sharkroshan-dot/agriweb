@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ArrowLeft, RefreshCw, PackageCheck, Truck, Warehouse, Clock3, MapPin } from "lucide-react";
+import { CheckCircle2, ArrowLeft, RefreshCw, PackageCheck, Clock3 } from "lucide-react";
 import { PrefetchLink as Link } from "../../../../components/shared/prefetch-link";
 import { Button } from "../../../../components/ui/button";
 import { Badge } from "../../../../components/ui/badge";
@@ -19,15 +19,25 @@ const routeGroups = [
 
 const statusFor = (order: any) => {
   const status = String(order.transferStatus || "").toLowerCase();
+  const destinationStatus = String(order.destinationTransferStatus || "").toLowerCase();
+  const hubStatus = String(order.localHubTransferStatus || order.consolidation?.hubTransferStatus || "").toLowerCase();
   const stage = String(order.stage || "").toLowerCase();
   const orderStatus = String(order.orderStatus || "").toLowerCase();
   if (["delivered", "completed"].includes(orderStatus) || ["delivered", "completed"].includes(status)) return { label: "Delivered / Completed", tone: "success", step: 6 };
-  if (["local_hub_ready", "hub_received", "hub_arrived"].includes(status) || stage === "local_hub_ready") return { label: "Reached Local Hub · Delivery Job Ready", tone: "success", step: 5 };
-  if (status === "hub_arrived_pending_receipt") return { label: "Arrived at Local Hub · Receipt Pending", tone: "warning", step: 4 };
-  if (["hub_handoff_pending", "in_transit_to_hub"].includes(status) || stage === "hub_handoff_pending") return { label: "In Transit to Local Hub", tone: "info", step: 3 };
-  if (["destination_warehouse_received", "received_at_destination"].includes(status)) return { label: "Destination Warehouse Received", tone: "success", step: 4 };
-  if (status === "destination_warehouse_arrived_pending_receipt") return { label: "Arrived at Destination Warehouse · Receipt Pending", tone: "warning", step: 3 };
-  if (["destination_warehouse_in_transit", "destination_warehouse_transfer_pending"].includes(status)) return { label: status === "destination_warehouse_in_transit" ? "In Transit to Destination Warehouse" : "Destination Transfer Planned / Awaiting Dispatch", tone: "info", step: 2 };
+  if (["received_at_destination", "destination_warehouse_received"].includes(destinationStatus) || ["destination_warehouse_received", "received_at_destination"].includes(status)) {
+    if (["hub_handoff_pending", "in_transit", "hub_arrived_pending_receipt", "local_hub_ready"].includes(hubStatus) || ["hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready"].includes(status) || stage === "local_hub_ready") {
+      if (["hub_arrived_pending_receipt"].includes(hubStatus) || status === "hub_arrived_pending_receipt") return { label: "Arrived at Local Hub · Receipt Pending", tone: "warning", step: 4 };
+      if (["in_transit", "hub_handoff_pending"].includes(hubStatus) || status === "hub_handoff_pending") return { label: "In Transit to Local Hub", tone: "info", step: 3 };
+      return { label: "Reached Local Hub · Delivery Job Ready", tone: "success", step: 5 };
+    }
+    return { label: "Destination Warehouse Received", tone: "success", step: 3 };
+  }
+  if (["arrived_pending_receipt", "destination_warehouse_arrived_pending_receipt"].includes(destinationStatus) || status === "destination_warehouse_arrived_pending_receipt") return { label: "Arrived at Destination Warehouse · Receipt Pending", tone: "warning", step: 3 };
+  if (["in_transit", "destination_warehouse_in_transit"].includes(destinationStatus) || ["destination_warehouse_in_transit", "destination_warehouse_transfer_pending"].includes(status)) return { label: "In Transit to Destination Warehouse", tone: "info", step: 2 };
+  if (["planned", "assigned", "pending"].includes(destinationStatus) || status === "destination_warehouse_transfer_pending") return { label: "Destination Transfer Planned · Awaiting Dispatch", tone: "info", step: 1 };
+  if (status === "hub_arrived_pending_receipt" || hubStatus === "arrived_pending_receipt") return { label: "Arrived at Local Hub · Receipt Pending", tone: "warning", step: 4 };
+  if (["in_transit", "hub_handoff_pending"].includes(hubStatus) || ["hub_handoff_pending", "in_transit_to_hub"].includes(status) || stage === "hub_handoff_pending") return { label: "In Transit to Local Hub", tone: "info", step: 3 };
+  if (["local_hub_ready", "hub_received", "hub_arrived"].includes(status) || ["received", "arrived"].includes(hubStatus) || stage === "local_hub_ready") return { label: "Reached Local Hub · Delivery Job Ready", tone: "success", step: 5 };
   if (order.deliveryPartnerId) return { label: "Final Delivery Partner Assigned", tone: "info", step: 5 };
   if (order.physicalReceiptConfirmed) return { label: "Received at Source Warehouse · Ready for Route", tone: "info", step: 1 };
   return { label: String(order.stage || order.orderStatus || "Transfer in progress").replace(/_/g, " "), tone: "secondary", step: 0 };
