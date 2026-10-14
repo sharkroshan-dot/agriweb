@@ -2818,8 +2818,74 @@ async def dispatch_farmer_fulfillment_to_consolidation(
         "legType": "warehouse_to_consolidation",
         "deletedAt": None,
     }).to_list(length=1000)
+
+    # Bootstrap the consolidation manifest from the persisted allocations when
+    # an order was routed to multi-warehouse fulfillment but no transfer legs
+    # were created by the earlier routing step. This is idempotent: once a leg
+    # exists for this source allocation, retries reuse it rather than duplicate it.
+    consolidation_id = order.get("consolidationId")
+    consolidation_collection = MongoDB.get_collection("farmer_fulfillment_consolidations")
+    consolidation = (
+        await consolidation_collection.find_one({"_id": consolidation_id, "deletedAt": None})
+        if consolidation_id else None
+    )
+    if not consolidation:
+        consolidation = await consolidation_collection.find_one({
+            "orderId": ObjectId(order_id),
+            "deletedAt": None,
+        })
+    if not consolidation:
+        now = datetime.utcnow()
+        inserted = await consolidation_collection.insert_one({
+            "orderId": ObjectId(order_id),
+            "orderNumber": order.get("orderNumber"),
+            "status": str(order.get("consolidationStatus") or "collecting"),
+            "consolidationWarehouseId": ObjectId(str(order.get("consolidationWarehouseId"))),
+            "warehouseIds": [ObjectId(str(x)) for x in (order.get("warehouseIds") or []) if ObjectId.is_valid(str(x))],
+            "warehouseCount": int(order.get("warehouseCount") or len(order.get("warehouseIds") or [])),
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        })
+        consolidation_id = inserted.inserted_id
+        consolidation = await consolidation_collection.find_one({"_id": consolidation_id})
+    else:
+        consolidation_id = consolidation.get("_id")
+
+    if not ObjectId.is_valid(str(order.get("consolidationWarehouseId") or "")):
+        raise HTTPException(status_code=400, detail="Assign a valid consolidation destination warehouse before dispatch")
+
     if not source_legs:
-        raise HTTPException(status_code=404, detail="No consolidation transfer legs found for this warehouse")
+        now = datetime.utcnow()
+        for allocation in allocations:
+            quantity = float(allocation.get("quantity") or 0)
+            if quantity <= 0:
+                raise HTTPException(status_code=400, detail="Every source allocation must have a positive quantity")
+            leg_doc = {
+                "orderId": ObjectId(order_id),
+                "orderNumber": order.get("orderNumber"),
+                "legType": "warehouse_to_consolidation",
+                "sourceWarehouseId": ObjectId(wid),
+                "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or order.get("warehouseName"),
+                "destinationWarehouseId": ObjectId(str(order["consolidationWarehouseId"])),
+                "destinationWarehouseName": order.get("consolidationWarehouseName"),
+                "productId": ObjectId(str(allocation.get("productId"))) if ObjectId.is_valid(str(allocation.get("productId") or "")) else allocation.get("productId"),
+                "variantId": allocation.get("variantId"),
+                "quantity": quantity,
+                "status": "pending",
+                "createdAt": now,
+                "updatedAt": now,
+                "deletedAt": None,
+            }
+            inserted_leg = await legs.insert_one(leg_doc)
+            leg_doc["_id"] = inserted_leg.inserted_id
+            source_legs.append(leg_doc)
+
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "consolidationId": consolidation_id,
+        "consolidationStatus": order.get("consolidationStatus") or "collecting",
+        "updatedAt": datetime.utcnow(),
+    })
 
     invalid = [x for x in source_legs if str(x.get("status")) not in ("pending", "stored", "received_at_source")]
     if invalid:
