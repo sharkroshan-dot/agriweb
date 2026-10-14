@@ -284,82 +284,6 @@ export default function FarmerFulfillmentTransfersPage() {
       <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Farmer Fulfillment Transfers</h1></div>
       <div className="flex flex-wrap gap-2"><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();}}><RefreshCw className="h-4 w-4"/></Button></div>
     </div>
-    <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">End-to-end farmer-to-customer workflow</p><p className="mt-1 text-indigo-900/75">Start with orders marked Ready for Pickup, collect the sealed farmer-packed order, confirm warehouse receipt, route it to the destination warehouse when inter-district, transfer it to the local hub, confirm hub receipt, and assign the final-mile delivery partner. Each button opens the correct operational page or performs the next eligible action. Physical receipt must be confirmed by the receiving staff; the system never fakes an arrival.</p></div></div>
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-lg border border-amber-200 bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Step 1 · Farm pickup</p><p className="mt-1 text-sm text-slate-700">Select ready collection jobs and create/assign pickup routes.</p><div className="mt-3 flex flex-wrap gap-2"><Button asChild size="sm"><Link href="/collections"><Truck className="mr-2 h-4 w-4"/>Farm Collection</Link></Button><Button asChild size="sm" variant="outline"><Link href="/pickup-routes"><Route className="mr-2 h-4 w-4"/>Pickup Routes</Link></Button></div></div>
-        <div className="rounded-lg border border-sky-200 bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-sky-800">Step 2 · Receive stock</p><p className="mt-1 text-sm text-slate-700">Record actual quantity and confirm physical receipt and required checks.</p><Button asChild size="sm" className="mt-3"><Link href="/incoming"><PackageCheck className="mr-2 h-4 w-4"/>Incoming Stock</Link></Button></div>
-        <div className="rounded-lg border border-violet-200 bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-violet-800">Step 3 · Warehouse delivery route</p><p className="mt-1 text-sm text-slate-700">Select orders, create destination/local-hub manifests, assign eligible teams and confirm arrivals.</p><Button size="sm" className="mt-3" onClick={()=>refetch()}><RefreshCw className="mr-2 h-4 w-4"/>Refresh Route Queue</Button></div>
-        <div className="rounded-lg border border-emerald-200 bg-white p-3"><p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Step 4 · Final delivery</p><p className="mt-1 text-sm text-slate-700">After hub receipt, verify the delivery job and assign a final-mile partner.</p><Button asChild size="sm" className="mt-3" variant="outline"><Link href="/delivery"><Truck className="mr-2 h-4 w-4"/>Delivery Operations</Link></Button></div>
-      </div>
-    </CardContent></Card>
-    <Card className="border-emerald-200 bg-emerald-50/30" id="full-workflow">
-      <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><Route className="h-5 w-5 text-emerald-700"/>Farm-to-Customer Fulfillment Flowchart</CardTitle><p className="text-sm text-muted-foreground">Use these buttons to follow the complete process from farmer pickup to customer delivery. Each handoff must be recorded by the team responsible for it.</p></CardHeader>
-      <CardContent><div className="mx-auto max-w-4xl space-y-2">
-        <div className="rounded-xl border-2 border-emerald-300 bg-white p-4 text-center"><p className="font-semibold">1 · Farmer packs order → marks Ready for Pickup</p><p className="mt-1 text-sm text-muted-foreground">Keep the customer packet sealed. Never repack it as bulk stock.</p></div>
-        <div className="text-center text-emerald-700"><ArrowRight className="mx-auto h-5 w-5 rotate-90"/></div>
-        <div className="rounded-xl border bg-white p-4 text-center"><p className="font-semibold">2 · Farm Collection → Pickup Routes</p><p className="mt-1 text-sm text-muted-foreground">Select ready pickups, choose a vehicle with enough capacity, create/offer the route, assign/accept a partner, record collection and departure.</p><div className="mt-3 flex flex-wrap justify-center gap-2"><Button asChild size="sm"><Link href="/collections">Open Farm Collection <ArrowRight className="ml-2 h-4 w-4"/></Link></Button><Button asChild size="sm" variant="outline"><Link href="/pickup-routes">Open Pickup Routes <Truck className="ml-2 h-4 w-4"/></Link></Button></div></div>
-        <div className="text-center text-emerald-700"><ArrowRight className="mx-auto h-5 w-5 rotate-90"/></div>
-        <div className="rounded-xl border bg-white p-4 text-center"><p className="font-semibold">3 · Incoming Stock — confirm actual receipt</p><p className="mt-1 text-sm text-muted-foreground">Match the packet/order, record received quantity, finish required checks, and confirm receipt. Routing stays blocked until physical receipt is recorded.</p><div className="mt-3"><Button asChild size="sm"><Link href="/incoming">Open Incoming Stock <ClipboardCheck className="ml-2 h-4 w-4"/></Link></Button></div></div>
-        <div className="text-center text-emerald-700"><ArrowRight className="mx-auto h-5 w-5 rotate-90"/></div>
-        <div className="rounded-xl border-2 border-indigo-300 bg-white p-4 text-center"><p className="font-semibold">4 · This page classifies the route (15 km threshold)</p><p className="mt-1 text-sm text-muted-foreground">Source warehouse and customer address/district determine the route. Select a queue below to continue.</p><div className="mt-3 flex flex-wrap justify-center gap-2"><Button asChild size="sm" variant="outline"><Link href="#route-nearby">Nearby</Link></Button><Button asChild size="sm" variant="outline"><Link href="#route-same_district">Same District</Link></Button><Button asChild size="sm" variant="outline"><Link href="#route-inter_district">Inter-District</Link></Button></div></div>
-        <div className="text-center text-emerald-700"><ArrowRight className="mx-auto h-5 w-5 rotate-90"/></div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4"><p className="font-semibold text-emerald-950">A · Nearby (within 15 km)</p><p className="mt-1 text-sm">When direct delivery is configured, choose an approved delivery partner and publish/assign the sealed order.</p><Button asChild size="sm" variant="outline" className="mt-3 w-full"><Link href="#route-nearby">Open Nearby queue</Link></Button></div>
-          <div className="rounded-xl border border-blue-300 bg-blue-50 p-4"><p className="font-semibold text-blue-950">B · Same District (over 15 km)</p><p className="mt-1 text-sm">Select orders → plan local-hub route → assign pickup team → dispatch → confirm hub receipt.</p><Button asChild size="sm" variant="outline" className="mt-3 w-full"><Link href="#route-same_district">Open Same-District queue</Link></Button></div>
-          <div className="rounded-xl border border-violet-300 bg-violet-50 p-4"><p className="font-semibold text-violet-950">C · Inter-District</p><p className="mt-1 text-sm">Assign destination warehouse → plan transfer → assign team → dispatch → confirm destination receipt → send to local hub → confirm hub receipt.</p><Button asChild size="sm" variant="outline" className="mt-3 w-full"><Link href="#route-inter_district">Open Inter-District queue</Link></Button></div>
-        </div>
-        <div className="text-center text-emerald-700"><ArrowRight className="mx-auto h-5 w-5 rotate-90"/></div>
-        <div className="rounded-xl border-2 border-emerald-300 bg-white p-4 text-center"><p className="font-semibold">5 · Local hub confirms receipt → final-mile delivery</p><p className="mt-1 text-sm text-muted-foreground">Verify the delivery job and assign an approved final-mile partner. The delivery workflow must record the customer's delivery confirmation.</p></div>
-        <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><strong>Exception path:</strong> If source/customer address, coordinates, district, vehicle capacity, or warehouse assignment is missing, resolve it before dispatch. Never confirm a physical handoff that has not happened.</p>
-      </div></CardContent>
-    </Card>
-    <Card className="border-sky-200 bg-sky-50/30">
-      <CardHeader className="border-b bg-white/70">
-        <CardTitle className="flex items-center gap-2 text-lg"><ClipboardCheck className="h-5 w-5 text-sky-700"/>Customer Delivery Service & Event Order Flowcharts</CardTitle>
-        <p className="text-sm text-muted-foreground">Operational decision flows for regular customer orders and planned/urgent event orders. Time windows are interpreted in local service time; actual partner availability and ETA must come from live backend data.</p>
-      </CardHeader>
-      <CardContent className="grid gap-4 p-4 xl:grid-cols-2">
-        <section className="rounded-xl border bg-white p-4">
-          <h3 className="font-semibold text-slate-950">A · Regular Customer Order</h3>
-          <div className="mt-3 space-y-2 text-center text-sm">
-            <div className="rounded-lg border-2 border-slate-300 p-3"><strong>Customer checkout → Check stock</strong><p className="mt-1 text-muted-foreground">Out of stock → block order. In stock → continue.</p></div>
-            <div className="text-slate-400">↓</div>
-            <div className="rounded-lg border p-3"><strong>Check delivery service time</strong><p className="mt-1 text-muted-foreground">21:30–06:00 → accept if policy permits and schedule 06:00 delivery. 06:00–21:30 → search available partners.</p></div>
-            <div className="text-slate-400">↓</div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>No eligible partner</strong><p className="mt-1 text-muted-foreground">Show the next available time; do not invent a partner.</p></div>
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3"><strong>Partner available</strong><p className="mt-1 text-muted-foreground">Calculate live ETA. ≤30 min: fastest option. &gt;30 min: standard option.</p></div>
-            </div>
-            <div className="text-slate-400">↓</div>
-            <div className="rounded-lg border p-3"><strong>Confirm order → Farmer fulfillment → Packing complete</strong><p className="mt-1 text-muted-foreground">Then follow the Farm-to-Customer Fulfillment Flowchart above for pickup, warehouse/hub transfers, and final delivery.</p></div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button asChild size="sm"><Link href="/checkout">Open Customer Checkout <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
-            <Button size="sm" variant="outline" onClick={()=>{document.getElementById("full-workflow")?.scrollIntoView({behavior:"smooth",block:"start"});}}>Open Fulfillment Flow</Button>
-          </div>
-        </section>
-        <section className="rounded-xl border bg-white p-4">
-          <h3 className="font-semibold text-slate-950">B · Event / Bulk Order</h3>
-          <div className="mt-3 space-y-2 text-center text-sm">
-            <div className="rounded-lg border-2 border-slate-300 p-3"><strong>Create event order</strong><p className="mt-1 text-muted-foreground">Event date · delivery date/time · guest count · products and quantities.</p></div>
-            <div className="text-slate-400">↓</div>
-            <div className="rounded-lg border p-3"><strong>Check time until delivery</strong><p className="mt-1 text-muted-foreground">≤24 hours → urgent event. &gt;24 hours → planned event.</p></div>
-            <div className="text-slate-400">↓</div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>Urgent event</strong><p className="mt-1 text-muted-foreground">Smart sourcing with availability and delivery deadline checks.</p></div>
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><strong>Planned event</strong><p className="mt-1 text-muted-foreground">Smart sourcing and planned fulfillment before the event deadline.</p></div>
-            </div>
-            <div className="text-slate-400">↓</div>
-            <div className="rounded-lg border p-3"><strong>Source stock → receive/verify portions → consolidate if multiple sources → local hub → final delivery</strong><p className="mt-1 text-muted-foreground">Use consolidation for a single event order that combines products from multiple farmers/warehouses. Confirm each real receipt before the next leg.</p></div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button asChild size="sm"><Link href="/marketplace">Open Marketplace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
-            <Button asChild size="sm" variant="outline"><Link href="/warehouse/consolidation">Open Multi-Warehouse Consolidation <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
-          </div>
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">The 24-hour event split is shown here as the requested workflow. The event-order creation form, deadline validation, smart-sourcing engine, and live ETA must be connected to their actual business/order APIs before this flow can be considered fully automated.</p>
-        </section>
-      </CardContent>
-    </Card>
     <Card className="border-emerald-200 bg-emerald-50/40">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg"><Route className="h-5 w-5 text-emerald-700"/>Delivery Route Planning</CardTitle>
@@ -368,7 +292,6 @@ export default function FarmerFulfillmentTransfersPage() {
       <CardContent className="grid gap-3 md:grid-cols-2">
         <div className="rounded-xl border border-blue-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-blue-950">Same-District · Local Hub Route</h3><Badge variant="outline">{selectedHubRouteOrders.length} selected</Badge></div>
-          <p className="mt-2 text-sm text-muted-foreground">Select orders in the Same-District section, then create their warehouse-to-hub manifests. Assign an approved pickup vehicle to each order and track departure and hub arrival.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" onClick={()=>planSelectedRoutes("same_district")} disabled={!selectedHubRouteOrders.length||busy==="bulk-route-plan"}>{busy==="bulk-route-plan"?"Planning route…":`Plan Local Hub Route (${selectedHubRouteOrders.length})`}</Button>
             <Button size="sm" variant="outline" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.same_district.forEach((o:any)=>{if(isRouteQueueEligible(o))next[o.id]=true;});return next;})} disabled={!routeOrders.same_district.length}>Select All Eligible</Button>
@@ -377,36 +300,11 @@ export default function FarmerFulfillmentTransfersPage() {
         </div>
         <div className="rounded-xl border border-violet-200 bg-white p-4">
           <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-violet-950">Inter-District · Destination Warehouse Route</h3><Badge variant="outline">{selectedDestinationRouteOrders.length} selected</Badge></div>
-          <p className="mt-2 text-sm text-muted-foreground">Create the destination manifest first. Assign an approved transfer vehicle/team, confirm destination receipt, and only then create the local-hub route.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" onClick={()=>planSelectedRoutes("inter_district")} disabled={!selectedDestinationRouteOrders.length||busy==="bulk-route-plan"}>{busy==="bulk-route-plan"?"Planning route…":`Plan Destination Route (${selectedDestinationRouteOrders.length})`}</Button>
             <Button size="sm" variant="outline" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.inter_district.forEach((o:any)=>{if(isRouteQueueEligible(o))next[o.id]=true;});return next;})} disabled={!routeOrders.inter_district.length}>Select All Eligible</Button>
             <Button size="sm" variant="ghost" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.inter_district.forEach((o:any)=>delete next[o.id]);return next;})}>Clear Selection</Button>
           </div>
-        </div>
-        <div className="md:col-span-2 rounded-lg border bg-white p-3 text-sm text-slate-700">
-          <strong>Route lifecycle:</strong> Select eligible orders → Plan route/manifests → Assign approved vehicle/team with sufficient capacity → Partner starts route and records arrival → receiving warehouse confirms physical receipt → plan the next leg. Route creation never confirms physical receipt automatically.
-        </div>
-      </CardContent>
-    </Card>
-    <Card className="border-sky-200 bg-sky-50/40">
-      <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><ClipboardCheck className="h-5 w-5 text-sky-700"/>How to process an order — step by step</CardTitle><p className="text-sm text-muted-foreground">Follow these steps the first time you use this page. Counts on the route cards are live orders from the backend, not sample data.</p></CardHeader>
-      <CardContent className="space-y-4">
-        <ol className="space-y-3 text-sm">
-          <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-700 text-xs font-bold text-white">1</span><div><p className="font-semibold">Prepare a real packed order</p><p className="mt-1 text-muted-foreground">Use a farmer order that is packed and active. Check that the customer address, source warehouse, coordinates and district are saved on the order/profile. A card in Needs Location Data cannot be routed until those details are corrected.</p></div></li>
-          <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-700 text-xs font-bold text-white">2</span><div><p className="font-semibold">Record receipt before routing</p><p className="mt-1 text-muted-foreground">Open Incoming Stock, locate the same order, confirm the physical received quantity and quality/receipt checks, then return here and press Refresh. This page must not dispatch stock that has not physically arrived.</p><Button asChild variant="outline" size="sm" className="mt-2"><Link href="/incoming">Open Incoming Stock <ArrowRight className="ml-2 h-4 w-4"/></Link></Button></div></li>
-          <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-700 text-xs font-bold text-white">3</span><div><p className="font-semibold">Use the route card that matches the order</p><p className="mt-1 text-muted-foreground">The default nearby threshold is 15 km. Nearby orders can be assigned directly only when direct warehouse-to-customer delivery is configured. Same-District orders beyond the threshold go to a local hub. Different-district orders go to a destination warehouse first. If the card says Route Review Required, correct the delivery configuration; if it says Needs Location Data, correct the source/customer location or district.</p></div></li>
-          <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-700 text-xs font-bold text-white">4</span><div><p className="font-semibold">Select orders and plan transfers</p><p className="mt-1 text-muted-foreground">For Same-District or Inter-District, tick the checkbox on each eligible order and use the matching Plan button. Select an approved team with enough vehicle capacity when prompted. Do not assign the same order to two routes.</p></div></li>
-          <li className="flex gap-3"><span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-700 text-xs font-bold text-white">5</span><div><p className="font-semibold">Dispatch, confirm each handoff, then verify delivery</p><p className="mt-1 text-muted-foreground">For Inter-District, dispatch the destination manifest and confirm receipt at the destination warehouse first. Then create the local-hub transfer. For Same-District, transfer to the local hub. Confirm physical hub receipt; only then check the final delivery job/partner list. Keep the farmer-packed order sealed—do not repack it as bulk inventory.</p></div></li>
-        </ol>
-        <div className="rounded-lg border bg-white p-4">
-          <p className="font-semibold">Example test cases (illustrations, not inserted orders)</p>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3"><Badge variant="outline">Nearby</Badge><p className="mt-2 text-sm font-semibold">8 km · direct delivery enabled</p><p className="mt-1 text-xs text-muted-foreground">Expected: Nearby Delivery → choose approved delivery partner → Assign Final Delivery Partner → verify partner job.</p></div>
-            <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3"><Badge variant="outline">Same District</Badge><p className="mt-2 text-sm font-semibold">24 km · same district</p><p className="mt-1 text-xs text-muted-foreground">Expected: select order → Plan Same-District Routes → assign pickup team → dispatch to hub → confirm hub receipt → verify final job.</p></div>
-            <div className="rounded-lg border border-violet-200 bg-violet-50/50 p-3"><Badge variant="outline">Inter-District</Badge><p className="mt-2 text-sm font-semibold">Different source/customer districts</p><p className="mt-1 text-xs text-muted-foreground">Expected: assign destination warehouse → plan/dispatch transfer → confirm destination receipt → transfer to hub → confirm hub receipt → verify final job.</p></div>
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">These examples explain the expected route only. They do not change the database or increase the live route-card counts.</p>
         </div>
       </CardContent>
     </Card>
