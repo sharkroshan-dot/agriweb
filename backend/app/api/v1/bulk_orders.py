@@ -1138,6 +1138,8 @@ async def planned_event_confirm(
                 "requestId": request["_id"],
                 "requestNumber": request.get("requestNumber"),
                 "buyerUserId": request.get("buyerUserId"),
+                "warehouseId": event_warehouse["_id"],
+                "eventWarehouseId": event_warehouse["_id"],
                 "farmerId": ObjectId(allocation["farmerId"]),
                 "productId": ObjectId(allocation["productId"]),
                 "productName": allocation["productName"],
