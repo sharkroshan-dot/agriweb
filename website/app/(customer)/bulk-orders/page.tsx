@@ -63,7 +63,7 @@ export default function CustomerBulkOrdersPage() {
         </Button>
       </div>
       <p className="text-sm text-gray-500">
-        Plan an event or a weekly family basket. AgriConnect uses smart sourcing for both; planned events may also collect farmer quotes, while weekly family baskets never use RFQs.
+        Create a bulk, event, business, institutional, or weekly family order. AgriConnect tracks product quantities and every farmer/source portion through collection, warehouse receipt, consolidation, local-hub receipt, and final delivery.
       </p>
 
       <div className="flex gap-2">
