@@ -647,7 +647,52 @@ async def warehouse_for_district(
         matches.append(doc)
 
     matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
-    return matches[0] if matches else None
+    if matches:
+        return matches[0]
+
+    # Do not dead-end an already received, sealed customer order merely because
+    # no warehouse explicitly lists the customer's district in its service-area
+    # settings. Fall back to another active warehouse with sufficient capacity;
+    # annotate the selected record so the caller/UI can disclose that it is a
+    # regional fallback and staff can confirm the destination before dispatch.
+    fallback_matches = []
+    for doc in docs:
+        doc_id = str(doc.get("_id") or "")
+        if exclude_warehouse_id and doc_id == str(exclude_warehouse_id):
+            continue
+        if not _is_active(doc):
+            continue
+        try:
+            await warehouse_repository.sync_capacity_usage(doc_id)
+            refreshed = await warehouse_repository.get_by_id(doc_id)
+            if refreshed:
+                doc = refreshed
+        except Exception:
+            pass
+        total_capacity = _number(
+            doc.get("totalCapacity"), doc.get("total_capacity"),
+            doc.get("storageCapacity"), doc.get("storage_capacity"),
+            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),
+            doc.get("maxCapacity"), doc.get("max_capacity"),
+            doc.get("warehouseCapacity"), doc.get("warehouse_capacity"),
+            doc.get("capacityLimit"), doc.get("capacity_limit"),
+        )
+        used_capacity = _number(
+            doc.get("usedCapacity"), doc.get("used_capacity"),
+            doc.get("currentUsage"), doc.get("current_usage"),
+        ) or 0.0
+        available = _number(
+            doc.get("availableCapacity"), doc.get("available_capacity"),
+            doc.get("availableCapacityKg"), doc.get("available_capacity_kg"),
+        )
+        if available is None and total_capacity is not None:
+            available = total_capacity - used_capacity
+        if available is not None and available + 1e-9 < float(required_capacity or 0):
+            continue
+        doc["_districtFallback"] = True
+        fallback_matches.append(doc)
+    fallback_matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
+    return fallback_matches[0] if fallback_matches else None
 
 async def _create_standard_farmer_pickup(order: Dict[str, Any], warehouse: Dict[str, Any], origin: Optional[Dict[str, Any]]) -> None:
     """Create farm collection work for a single-source packed transfer.
