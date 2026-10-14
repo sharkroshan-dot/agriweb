@@ -131,6 +131,8 @@ export default function FarmerFulfillmentTransfersPage() {
   };
   const selectedSameDistrictOrders=routeOrders.same_district.filter((order:any)=>selectedRouteOrders[order.id]&&isRouteQueueEligible(order));
   const selectedInterDistrictOrders=routeOrders.inter_district.filter((order:any)=>selectedRouteOrders[order.id]&&isRouteQueueEligible(order));
+  const selectedHubRouteOrders=selectedSameDistrictOrders.filter((order:any)=>!["hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(String(order.transferStatus||"")));
+  const selectedDestinationRouteOrders=selectedInterDistrictOrders.filter((order:any)=>!["destination_warehouse_transfer_pending","destination_warehouse_in_transit","destination_warehouse_arrived_pending_receipt","destination_warehouse_received","hub_handoff_pending","hub_arrived_pending_receipt","local_hub_ready"].includes(String(order.transferStatus||"")));
   const toggleRouteOrder=(id:string,checked:boolean)=>setSelectedRouteOrders(current=>({...current,[id]:checked}));
 
   const assignHubPickupTeam=async(order:any)=>{
@@ -243,6 +245,35 @@ export default function FarmerFulfillmentTransfersPage() {
       <div className="flex flex-wrap gap-2"><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();}}><RefreshCw className="h-4 w-4"/></Button></div>
     </div>
     <Card className="border-indigo-100 bg-indigo-50/50"><CardContent className="p-5"><div className="flex gap-3"><PackageCheck className="mt-0.5 h-5 w-5 text-indigo-600"/><div className="text-sm"><p className="font-semibold text-indigo-950">Warehouse responsibility</p><p className="mt-1 text-indigo-900/75">This page starts after Incoming Stock confirms physical receipt. Manage downstream transfer stages only: source-to-destination warehouse transfer when required, transfer to the local hub, and confirmation of hub receipt. Farm pickup belongs to Farm Collection and Pickup Routes; receipt belongs to Incoming Stock. Never repack sealed farmer-packed orders.</p></div></div></CardContent></Card>
+    <Card className="border-emerald-200 bg-emerald-50/40">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-lg"><Route className="h-5 w-5 text-emerald-700"/>Delivery Route Planning</CardTitle>
+        <p className="text-sm text-muted-foreground">Use the same select → plan → assign vehicle/team → track route workflow as Farm Collection. These are already-packed customer orders, so each route stop carries a sealed order packet and no order is repacked.</p>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-blue-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-blue-950">Same-District · Local Hub Route</h3><Badge variant="outline">{selectedHubRouteOrders.length} selected</Badge></div>
+          <p className="mt-2 text-sm text-muted-foreground">Select orders in the Same-District section, then create their warehouse-to-hub manifests. Assign an approved pickup vehicle to each order and track departure and hub arrival.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={()=>planSelectedRoutes("same_district")} disabled={!selectedHubRouteOrders.length||busy==="bulk-route-plan"}>{busy==="bulk-route-plan"?"Planning route…":`Plan Local Hub Route (${selectedHubRouteOrders.length})`}</Button>
+            <Button size="sm" variant="outline" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.same_district.forEach((o:any)=>{if(isRouteQueueEligible(o))next[o.id]=true;});return next;})} disabled={!routeOrders.same_district.length}>Select All Eligible</Button>
+            <Button size="sm" variant="ghost" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.same_district.forEach((o:any)=>delete next[o.id]);return next;})}>Clear Selection</Button>
+          </div>
+        </div>
+        <div className="rounded-xl border border-violet-200 bg-white p-4">
+          <div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-violet-950">Inter-District · Destination Warehouse Route</h3><Badge variant="outline">{selectedDestinationRouteOrders.length} selected</Badge></div>
+          <p className="mt-2 text-sm text-muted-foreground">Create the destination manifest first. Assign an approved transfer vehicle/team, confirm destination receipt, and only then create the local-hub route.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={()=>planSelectedRoutes("inter_district")} disabled={!selectedDestinationRouteOrders.length||busy==="bulk-route-plan"}>{busy==="bulk-route-plan"?"Planning route…":`Plan Destination Route (${selectedDestinationRouteOrders.length})`}</Button>
+            <Button size="sm" variant="outline" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.inter_district.forEach((o:any)=>{if(isRouteQueueEligible(o))next[o.id]=true;});return next;})} disabled={!routeOrders.inter_district.length}>Select All Eligible</Button>
+            <Button size="sm" variant="ghost" onClick={()=>setSelectedRouteOrders(current=>{const next={...current};routeOrders.inter_district.forEach((o:any)=>delete next[o.id]);return next;})}>Clear Selection</Button>
+          </div>
+        </div>
+        <div className="md:col-span-2 rounded-lg border bg-white p-3 text-sm text-slate-700">
+          <strong>Route lifecycle:</strong> Select eligible orders → Plan route/manifests → Assign approved vehicle/team with sufficient capacity → Partner starts route and records arrival → receiving warehouse confirms physical receipt → plan the next leg. Route creation never confirms physical receipt automatically.
+        </div>
+      </CardContent>
+    </Card>
     <Card className="border-sky-200 bg-sky-50/40">
       <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-lg"><ClipboardCheck className="h-5 w-5 text-sky-700"/>How to process an order — step by step</CardTitle><p className="text-sm text-muted-foreground">Follow these steps the first time you use this page. Counts on the route cards are live orders from the backend, not sample data.</p></CardHeader>
       <CardContent className="space-y-4">
