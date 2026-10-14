@@ -1592,7 +1592,7 @@ async def receive_event_order_at_local_hub(
         raise HTTPException(status_code=403, detail="Only the assigned local hub can confirm physical receipt")
     if str(request.get("eventLocalHubStatus") or "") == "received" and request.get("eventDeliveryJobId"):
         return {"success": True, "data": {"status": "received", "deliveryJobId": str(request.get("eventDeliveryJobId"))}, "message": "Local-hub receipt and final delivery job are already recorded"}
-    if str(request.get("eventLocalHubStatus") or "") != "in_transit":
+    if str(request.get("eventLocalHubStatus") or "") not in ("in_transit", "received"):
         raise HTTPException(status_code=409, detail="The order must be dispatched to this local hub before receipt can be confirmed")
     fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
     if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
