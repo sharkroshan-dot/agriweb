@@ -87,6 +87,32 @@ export default function FarmerFulfillmentTransfersPage() {
   }));
   const consolidationRows=allRows.filter((row:any)=>isTrueConsolidation(row));
   const isRouteQueueEligible=(row:any)=>!row.isUnassigned && row.physicalReceiptConfirmed===true;
+
+  // Once the route's required handoff milestone is recorded, remove the order
+  // from the active operational queue. The Completed Fulfillment Orders page
+  // uses the same route-specific milestones to show it in history.
+  const isRouteMilestoneComplete=(row:any, category:string)=>{
+    const transferStatus=String(row.transferStatus||"").toLowerCase();
+    const destinationStatus=String(row.destinationTransferStatus||"").toLowerCase();
+    const hubStatus=String(row.localHubTransferStatus||row.consolidation?.hubTransferStatus||"").toLowerCase();
+    if(category==="nearby"){
+      return Boolean(row.deliveryPartnerId||row.deliveryPartnerJobId||row.deliveryJobId) ||
+        ["partner_pending","published","assigned","open"].includes(String(row.deliveryDecisionStatus||"").toLowerCase()) ||
+        ["published","assigned","open"].includes(transferStatus);
+    }
+    if(category==="same_district"){
+      return ["local_hub_ready","hub_received","received"].includes(transferStatus) ||
+        ["received","hub_received"].includes(hubStatus) ||
+        Boolean(row.localHubReceivedAt);
+    }
+    if(category==="inter_district"){
+      return ["destination_warehouse_received","received_at_destination"].includes(transferStatus) ||
+        ["received_at_destination","destination_warehouse_received"].includes(destinationStatus) ||
+        Boolean(row.destinationWarehouseReceivedAt);
+    }
+    return false;
+  };
+
   const routeCategoryFor=(row:any)=>{
     const category=String(row.routeCategory||row.farmerFulfillmentRouteType||"needs_location");
     if(category!=="multi_warehouse")return category;
@@ -119,9 +145,9 @@ export default function FarmerFulfillmentTransfersPage() {
     {key:"needs_location",title:"Needs Location Data",subtitle:"Add source/customer coordinates or district details to classify the route",accent:"border-amber-200 bg-amber-50/50",icon:ClipboardCheck},
   ];
   const routeOrders:Record<string,any[]> = {
-    nearby:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="nearby"),
-    same_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="same_district"),
-    inter_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="inter_district"),
+    nearby:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="nearby"&&!isRouteMilestoneComplete(o,"nearby")),
+    same_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="same_district"&&!isRouteMilestoneComplete(o,"same_district")),
+    inter_district:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="inter_district"&&!isRouteMilestoneComplete(o,"inter_district")),
     route_review:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="route_review"),
     needs_location:displayRows.filter((o:any)=>isRouteQueueEligible(o)&&routeCategoryFor(o)==="needs_location"),
   };
