@@ -122,7 +122,7 @@ export default function CustomerBulkOrdersPage() {
                         <MapPin className="h-3.5 w-3.5" /> {r.deliveryCity || r.deliveryAddress?.city || "Location"}
                       </span>
                       <span>{r.offerCount ?? 0} offer(s)</span>
-                      {r.requestType === "bulk_event" ? (
+                      {["bulk_event", "b2b"].includes(r.requestType) ? (
                         <>
                           <Link
                             href={`/bulk-orders/${r.id}/sourcing`}
