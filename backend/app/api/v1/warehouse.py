@@ -1962,6 +1962,20 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "allWarehousesReceived": all_warehouses_received,
             "allConsolidationLegsReceived": bool(consolidation_legs) and len(received_consolidation_legs) == len(consolidation_legs),
             "hasInTransitConsolidationLegs": any(str(leg.get("status") or "") == "in_transit" for leg in consolidation_legs),
+            "consolidationLegs": [
+                {
+                    "id": str(leg.get("_id")),
+                    "sourceWarehouseId": str(leg.get("sourceWarehouseId") or ""),
+                    "sourceWarehouseName": leg.get("sourceWarehouseName") or "Source warehouse",
+                    "destinationWarehouseId": str(leg.get("destinationWarehouseId") or ""),
+                    "productId": str(leg.get("productId") or ""),
+                    "quantity": float(leg.get("quantity") or 0),
+                    "status": str(leg.get("status") or "pending"),
+                    "dispatchedAt": leg.get("dispatchedAt").isoformat() if isinstance(leg.get("dispatchedAt"), datetime) else None,
+                    "receivedAtConsolidation": leg.get("receivedAtConsolidation").isoformat() if isinstance(leg.get("receivedAtConsolidation"), datetime) else None,
+                }
+                for leg in consolidation_legs
+            ],
             "totalConsolidationLegCount": len(consolidation_legs),
             "inTransitLegCount": sum(1 for leg in consolidation_legs if str(leg.get("status") or "") == "in_transit"),
             "receivedConsolidationLegCount": len(received_consolidation_legs),
