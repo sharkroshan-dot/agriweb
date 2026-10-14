@@ -10,6 +10,7 @@ from app.repositories.warehouse_repository import warehouse_repository
 from app.repositories.farmer_repository import farmer_repository
 from app.repositories.delivery_repository import delivery_repository
 from app.repositories.order_repository import order_repository
+from app.repositories.address_repository import address_repository
 from app.repositories.product_repository import product_repository
 from app.repositories.outgoing_stock_repository import outgoing_stock_repository
 from app.repositories.incoming_stock_repository import incoming_stock_repository
@@ -906,8 +907,51 @@ async def get_farmer_fulfillment_transfers(
         )
         source_point = _coords(source_location)
         delivery_address = order.get("deliveryAddress") or {}
+        if not isinstance(delivery_address, dict):
+            delivery_address = {}
+
+        # Older order snapshots can omit location/district even though the
+        # customer's saved address is present in MongoDB's addresses collection.
+        # Hydrate from the referenced, customer-owned address before classifying
+        # the route; never treat a missing snapshot field as missing DB data.
+        saved_address = None
+        delivery_address_id = order.get("deliveryAddressId")
+        customer_id = order.get("customerId")
+        if delivery_address_id and customer_id and ObjectId.is_valid(str(delivery_address_id)) and ObjectId.is_valid(str(customer_id)):
+            try:
+                saved_address = await address_repository.get_address_by_id(
+                    str(delivery_address_id), str(customer_id)
+                )
+            except Exception:
+                saved_address = None
+        if saved_address:
+            saved_location = saved_address.get("location")
+            # Prefer an existing order snapshot value, but fill missing legacy
+            # fields from the saved address record.
+            delivery_address = {
+                **saved_address,
+                **delivery_address,
+                "city": (
+                    delivery_address.get("city") or saved_address.get("city")
+                    or saved_address.get("town") or saved_address.get("municipality") or ""
+                ),
+                "district": (
+                    delivery_address.get("district") or delivery_address.get("districtName")
+                    or saved_address.get("district") or saved_address.get("districtName")
+                    or saved_address.get("city") or saved_address.get("town")
+                    or saved_address.get("municipality") or ""
+                ),
+                "state": delivery_address.get("state") or saved_address.get("state") or "",
+                "zipCode": (
+                    delivery_address.get("zipCode") or delivery_address.get("zip_code")
+                    or saved_address.get("zipCode") or saved_address.get("zip_code") or ""
+                ),
+                "location": (
+                    delivery_address.get("location") or saved_location
+                ),
+            }
         customer_candidates = [
-            delivery_address.get("location") if isinstance(delivery_address, dict) else None,
+            delivery_address.get("location"),
             delivery_address,
             order.get("customerLocation"), order.get("shippingAddress"),
         ]
