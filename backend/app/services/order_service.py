@@ -1957,6 +1957,34 @@ class OrderService:
             or (farmer_profile or {}).get("address") or {}
         )
         farm_point = point(farm_location)
+        if not farm_point:
+            farm_address_value = (farmer_profile or {}).get("farmAddress") or (farm_profile or {}).get("address")
+            if isinstance(farm_address_value, dict):
+                farm_address_payload = {
+                    "address_line1": farm_address_value.get("addressLine1") or farm_address_value.get("address_line1") or farm_address_value.get("street") or "",
+                    "address_line2": farm_address_value.get("addressLine2") or farm_address_value.get("address_line2") or "",
+                    "city": farm_address_value.get("city") or (farmer_profile or {}).get("farmCity") or "",
+                    "state": farm_address_value.get("state") or (farmer_profile or {}).get("farmState") or "",
+                    "zip_code": str(farm_address_value.get("pincode") or farm_address_value.get("zipCode") or (farmer_profile or {}).get("farmPincode") or ""),
+                    "country": farm_address_value.get("country") or "India",
+                }
+            else:
+                farm_address_payload = {
+                    "address_line1": str(farm_address_value or ""),
+                    "address_line2": "",
+                    "city": (farmer_profile or {}).get("farmCity") or (farmer_profile or {}).get("city") or "",
+                    "state": (farmer_profile or {}).get("farmState") or (farmer_profile or {}).get("state") or "",
+                    "zip_code": str((farmer_profile or {}).get("farmPincode") or ""),
+                    "country": "India",
+                }
+            if any(str(value or "").strip() for key, value in farm_address_payload.items() if key != "country"):
+                try:
+                    farm_geocoded = await geocode_address(farm_address_payload)
+                    farm_point = point(farm_geocoded)
+                    if farm_geocoded and farm_point:
+                        farm_location = farm_geocoded
+                except Exception:
+                    logger.warning("Could not geocode farm address for packed order %s", order_id, exc_info=True)
 
         source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
         warehouse = await warehouse_repository.get_by_id(source_id) if ObjectId.is_valid(source_id) else None
@@ -1976,6 +2004,22 @@ class OrderService:
 
         delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
         customer_point = point(delivery_address) or point(order.get("customerLocation"))
+        if not customer_point and isinstance(delivery_address, dict):
+            try:
+                customer_geocoded = await geocode_address({
+                    "address_line1": delivery_address.get("addressLine1") or delivery_address.get("address_line1") or delivery_address.get("street") or "",
+                    "address_line2": delivery_address.get("addressLine2") or delivery_address.get("address_line2") or "",
+                    "city": delivery_address.get("city") or "",
+                    "state": delivery_address.get("state") or "",
+                    "zip_code": str(delivery_address.get("zipCode") or delivery_address.get("zip_code") or delivery_address.get("pincode") or ""),
+                    "country": delivery_address.get("country") or "India",
+                })
+                customer_point = point(customer_geocoded)
+                if customer_geocoded and customer_point:
+                    delivery_address = {**delivery_address, "location": customer_geocoded}
+                    await order_repository.update({"_id": order["_id"]}, {"deliveryAddress": delivery_address, "customerLocation": customer_geocoded, "updatedAt": datetime.utcnow()})
+            except Exception:
+                logger.warning("Could not geocode customer address for packed order %s", order_id, exc_info=True)
         warehouse_point = point(warehouse.get("location")) or point(warehouse.get("coordinates")) or point(warehouse.get("address"))
         distance_km = None
         if warehouse_point and customer_point:
