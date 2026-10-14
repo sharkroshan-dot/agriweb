@@ -2800,6 +2800,8 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     allocations = [a for a in (order.get("warehouseAllocations") or []) if str(a.get("warehouseId")) == wid]
     if not allocations:
         raise HTTPException(status_code=403, detail="This order has no allocation at your warehouse")
+    if not ObjectId.is_valid(str(order.get("consolidationWarehouseId") or "")):
+        raise HTTPException(status_code=400, detail="Assign a valid consolidation destination warehouse before dispatch")
 
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
     # A source warehouse may dispatch only after its own incoming records have
@@ -2851,9 +2853,6 @@ async def dispatch_farmer_fulfillment_to_consolidation(
         consolidation = await consolidation_collection.find_one({"_id": consolidation_id})
     else:
         consolidation_id = consolidation.get("_id")
-
-    if not ObjectId.is_valid(str(order.get("consolidationWarehouseId") or "")):
-        raise HTTPException(status_code=400, detail="Assign a valid consolidation destination warehouse before dispatch")
 
     # Build the complete expected manifest for every source allocation at
     # once. If we only created the first warehouse's legs, the destination
