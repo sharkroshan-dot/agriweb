@@ -2232,16 +2232,72 @@ async def assign_farmer_fulfillment_destination_warehouse(
     destination_id = str(destination["_id"])
     destination_address = destination.get("address") if isinstance(destination.get("address"), dict) else {}
     now = datetime.utcnow()
+    destination_name = destination.get("name") or destination.get("warehouseName") or "Destination Warehouse"
+    destination_location = destination.get("location") or destination.get("coordinates")
+    resolved_destination_district = (
+        destination.get("district") or destination_address.get("district")
+        or customer_district
+    )
+    source_name = source_warehouse.get("name") or source_warehouse.get("warehouseName") or "Source Warehouse"
+    source_location_value = source_warehouse.get("location") or source_warehouse.get("coordinates")
     await order_repository.update({"_id": ObjectId(order_id)}, {
+        "sourceWarehouseId": ObjectId(source_id),
+        "warehouseId": ObjectId(source_id),
+        "sourceWarehouseName": source_name,
+        "sourceWarehouseLocation": source_location_value,
+        "sourceDistrict": source_district,
         "destinationWarehouseId": ObjectId(destination_id),
-        "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
-        "destinationWarehouseLocation": destination.get("location") or destination.get("coordinates"),
-        "destinationDistrict": destination.get("district") or destination_address.get("district") or customer_district,
+        "destinationWarehouseName": destination_name,
+        "destinationWarehouseLocation": destination_location,
+        "destinationDistrict": resolved_destination_district,
         "destinationWarehouseAssignedAt": now,
         "destinationWarehouseAssignedBy": ObjectId(str(current_user["_id"])),
         "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+        "transferStatus": "destination_warehouse_assignment_confirmed",
+        "warehouseFulfillmentStage": "destination_warehouse_assignment_confirmed",
         "updatedAt": now,
     })
+
+    # Keep every operational record aligned with the authoritative order route.
+    # Incoming stock represents the physical receipt at the source; its warehouse
+    # must remain the source while its next destination is recorded separately.
+    incoming_collection = MongoDB.get_collection("incoming_stock")
+    await incoming_collection.update_many(
+        {"orderId": {"$in": [ObjectId(order_id), order_id]}, "deletedAt": None},
+        {"$set": {
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": source_name,
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": destination_name,
+            "destinationDistrict": resolved_destination_district,
+            "updatedAt": now,
+        }},
+    )
+    collection_jobs = MongoDB.get_collection("warehouse_collections")
+    await collection_jobs.update_many(
+        {"orderId": {"$in": [ObjectId(order_id), order_id]}, "deletedAt": None},
+        {"$set": {
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": source_name,
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": destination_name,
+            "destinationDistrict": resolved_destination_district,
+            "updatedAt": now,
+        }},
+    )
+    # If a manifest already exists (e.g. after a retry), repair its route fields
+    # rather than leaving a stale destination on the transfer record.
+    legs_collection = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    await legs_collection.update_many(
+        {"orderId": ObjectId(order_id), "legType": "warehouse_to_destination_warehouse", "deletedAt": None},
+        {"$set": {
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": source_name,
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": destination_name,
+            "updatedAt": now,
+        }},
+    )
     await order_repository.append_tracking_event(
         order_id,
         "destination_warehouse_assigned",
