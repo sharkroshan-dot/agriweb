@@ -25,7 +25,7 @@ export default function CreateBulkOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [purchaseMode, setPurchaseMode] = useState<"event" | "family_weekly">("event");
-  const [buyerCategory, setBuyerCategory] = useState<"individual" | "event_organizer" | "business" | "institution">("event_organizer");
+  const [buyerCategory, setBuyerCategory] = useState<"individual" | "event_organizer" | "business" | "institution">("business");
   const [organizationName, setOrganizationName] = useState("");
   const [organizationType, setOrganizationType] = useState("");
   const [purpose, setPurpose] = useState("");
