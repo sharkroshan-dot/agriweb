@@ -45,6 +45,12 @@ const statusFor = (order: any) => {
 
 const progressSteps = ["Source receipt", "Transfer dispatched", "Destination receipt", "Local hub transfer", "Hub receipt", "Customer delivery"];
 
+const isCompletedOrder = (order: any) => {
+  const orderStatus = String(order.orderStatus || order.status || "").toLowerCase();
+  const transferStatus = String(order.transferStatus || "").toLowerCase();
+  return ["delivered", "completed"].includes(orderStatus) || ["delivered", "completed"].includes(transferStatus);
+};
+
 const routeFor = (order: any) => {
   const raw = String(order.routeCategory || order.farmerFulfillmentRouteType || "").toLowerCase();
   if (["nearby", "same_district", "inter_district", "route_review", "needs_location"].includes(raw)) return raw;
@@ -64,11 +70,19 @@ export default function CompletedFarmerFulfillmentPage() {
   });
   const payload = data?.data?.transfers ?? data?.transfers;
   const orders: any[] = Array.isArray(payload) ? payload : [];
-  const groups = routeGroups.map(group => ({
-    ...group,
-    orders: orders.filter(order => routeFor(order) === group.key),
-  }));
+  const groups = routeGroups.map(group => {
+    const sectionOrders = orders.filter(order => routeFor(order) === group.key);
+    const completedOrders = sectionOrders.filter(isCompletedOrder);
+    return {
+      ...group,
+      orders: sectionOrders,
+      completedOrders,
+      completedCount: completedOrders.length,
+      trackedCount: sectionOrders.length,
+    };
+  });
   const total = groups.reduce((sum, group) => sum + group.orders.length, 0);
+  const completedTotal = groups.reduce((sum, group) => sum + group.completedCount, 0);
 
   return <div className="space-y-6">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -84,15 +98,16 @@ export default function CompletedFarmerFulfillmentPage() {
     </div>
 
     <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-      {groups.map(group => <Card key={group.key}><CardContent className="p-4"><p className="text-xs leading-5 text-muted-foreground">{group.title}</p><p className="mt-1 text-2xl font-bold tabular-nums">{isLoading ? "—" : group.orders.length}</p></CardContent></Card>)}
+      {groups.map(group => <Card key={group.key}><CardContent className="p-4"><p className="text-xs leading-5 text-muted-foreground">{group.title}</p><p className="mt-1 text-2xl font-bold tabular-nums">{isLoading ? "—" : group.completedCount}</p><p className="mt-1 text-xs text-muted-foreground">{isLoading ? "Loading…" : `completed · ${group.trackedCount} tracked`}</p></CardContent></Card>)}
     </div>
+    <p className="text-sm text-muted-foreground">{completedTotal} completed orders across all sections. In-transit and awaiting-receipt orders remain listed below with their current recorded status, but are not included in completed counts.</p>
 
     {isLoading ? <div className="h-40 animate-pulse rounded-xl bg-muted"/> :
       isError || data?.success === false ? <Card className="border-red-200"><CardContent className="p-6"><p className="font-semibold">Unable to load completed orders</p><p className="mt-1 text-sm text-muted-foreground">{error instanceof Error ? error.message : "Check the backend connection and try again."}</p><Button className="mt-3" variant="outline" onClick={() => refetch()}>Retry</Button></CardContent></Card> :
       total === 0 ? <Card className="border-dashed"><CardContent className="p-10 text-center"><CheckCircle2 className="mx-auto h-9 w-9 text-muted-foreground"/><p className="mt-3 font-semibold">No completed farmer fulfillment orders</p><p className="mt-1 text-sm text-muted-foreground">Orders will appear here after the backend records them as delivered or completed.</p></CardContent></Card> :
       <div className="space-y-6">
         {groups.filter(group => group.orders.length > 0).map(group => <section key={group.key} className="space-y-3">
-          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{group.title}</h2><Badge variant="secondary">{group.orders.length} orders</Badge></div>
+          <div className="flex items-center justify-between gap-3"><h2 className="text-lg font-semibold">{group.title}</h2><Badge variant="secondary">{group.completedCount} completed · {group.trackedCount} tracked</Badge></div>
           <div className="grid gap-3 xl:grid-cols-2">
             {group.orders.map((order: any) => {
               const lines = Array.isArray(order.incoming) && order.incoming.length ? order.incoming : (Array.isArray(order.items) ? order.items : []);
