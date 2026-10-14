@@ -1943,7 +1943,7 @@ class OrderService:
 
         farmer_id_value = str(order.get("farmerId") or farmer_id)
         farmer_profile = None
-        farmers = MongoDB.get_collection("farmers")
+        farmers = MongoDB.get_collection("farmer_profiles")
         if ObjectId.is_valid(farmer_id_value):
             farmer_oid = ObjectId(farmer_id_value)
             farmer_profile = await farmers.find_one({"$or": [
