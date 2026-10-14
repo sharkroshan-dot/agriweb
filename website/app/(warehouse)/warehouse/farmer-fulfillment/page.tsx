@@ -72,10 +72,13 @@ export default function FarmerFulfillmentTransfersPage() {
   // not merely an order carrying a legacy logisticsMode value.
   const isTrueConsolidation=(row:any)=>{
     const allocations=Array.isArray(row.warehouseAllocations)?row.warehouseAllocations:(Array.isArray(row.allocations)?row.allocations:[]);
-    const sourceWarehouseIds=new Set(allocations.map((a:any)=>String(a.warehouseId||a.sourceWarehouseId||"")).filter(Boolean));
-    const sourceCount=Number(row.warehouseCount||sourceWarehouseIds.size||0);
-    const explicitlyBulk= row.fulfillmentPurpose==="event_bulk" || row.isMultiWarehouseConsolidation===true || Boolean(row.consolidationId);
-    return row.logisticsMode===MULTI_WAREHOUSE_MODE && (sourceCount>1 || sourceWarehouseIds.size>1 || explicitlyBulk);
+    const allocationSources=allocations.map((a:any)=>String(a.warehouseId||a.sourceWarehouseId||"")).filter(Boolean);
+    const declaredSources=Array.isArray(row.warehouseIds)?row.warehouseIds.map((id:any)=>String(id||"")).filter(Boolean):[];
+    const itemSources=Array.isArray(row.items)?row.items.map((item:any)=>String(item.sourceWarehouseId||item.warehouseId||"")).filter(Boolean):[];
+    // Purpose flags, a stale consolidationId, and warehouseCount are not
+    // proof of multiple supply sources. Use the actual distinct source IDs.
+    const sourceWarehouseIds=new Set(allocationSources.length?allocationSources:(declaredSources.length?declaredSources:itemSources));
+    return row.logisticsMode===MULTI_WAREHOUSE_MODE && sourceWarehouseIds.size>1;
   };
   const rows=allRows.filter((row:any)=>!isTrueConsolidation(row)).map((row:any)=>({
     ...row,
