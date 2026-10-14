@@ -518,17 +518,39 @@ def _warehouse_serves_district(warehouse: Dict[str, Any], district: str) -> bool
     location = location_value if isinstance(location_value, dict) else {}
     nested_address = address.get("address") if isinstance(address.get("address"), dict) else {}
     nested_location_address = location.get("address") if isinstance(location.get("address"), dict) else {}
-    # Settings and legacy profiles store coverage in different shapes.
-    candidates = (
+
+    # Current warehouse settings use address: Dict[str, str] and serviceAreas.
+    # Older records may only contain a free-text address line, so inspect all
+    # address/location text values as well as structured district/city fields.
+    structured_candidates = (
         warehouse.get("district"), warehouse.get("city"), warehouse.get("town"),
-        address.get("district"), address.get("city"),
-        location.get("district"), location.get("city"),
+        address.get("district"), address.get("city"), address.get("town"),
+        location.get("district"), location.get("city"), location.get("town"),
         nested_address.get("district"), nested_address.get("city"),
         nested_location_address.get("district"), nested_location_address.get("city"),
     )
-    if any(_normalized_district(value) == normalized for value in candidates if value):
+    if any(_normalized_district(value) == normalized for value in structured_candidates if value):
         return True
-    service_areas = warehouse.get("serviceAreas") or warehouse.get("serviceDistricts") or warehouse.get("serviceableDistricts") or warehouse.get("deliveryDistricts") or warehouse.get("operatingDistricts") or warehouse.get("coverageDistricts") or []
+
+    text_values = [
+        value for container in (address, location, nested_address, nested_location_address)
+        for value in container.values()
+        if isinstance(value, str) and value.strip()
+    ]
+    # A free-text address such as "Perambalur, Tamil Nadu" can establish a
+    # district match, but only when the normalized district is a whole phrase.
+    import re
+    for value in text_values:
+        normalized_text = _normalized_district(value)
+        if normalized_text == normalized or re.search(rf"\\b{re.escape(normalized)}\\b", normalized_text):
+            return True
+
+    service_areas = (
+        warehouse.get("serviceAreas") or warehouse.get("service_areas")
+        or warehouse.get("serviceDistricts") or warehouse.get("service_districts")
+        or warehouse.get("serviceableDistricts") or warehouse.get("deliveryDistricts")
+        or warehouse.get("operatingDistricts") or warehouse.get("coverageDistricts") or []
+    )
     if isinstance(service_areas, str):
         service_areas = [service_areas]
     for area in service_areas:
