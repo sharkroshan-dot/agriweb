@@ -3031,6 +3031,7 @@ async def dispatch_farmer_fulfillment_to_consolidation(
 @router.post("/me/farmer-fulfillment/{order_id}/receive-at-consolidation")
 async def receive_farmer_fulfillment_at_consolidation(
     order_id: str,
+    legIds: List[str] = Query(..., min_length=1),
     current_user: dict = Depends(get_current_user),
 ):
     """Receive all in-transit portions belonging to the consolidation warehouse."""
@@ -3057,15 +3058,25 @@ async def receive_farmer_fulfillment_at_consolidation(
     }).to_list(length=1000)
     if not rows:
         raise HTTPException(status_code=404, detail="No consolidation transfer legs found")
-    pending = [x for x in rows if str(x.get("status")) == "in_transit"]
+    requested_ids = []
+    for leg_id in legIds:
+        if not ObjectId.is_valid(str(leg_id)):
+            raise HTTPException(status_code=400, detail=f"Invalid transfer leg ID: {leg_id}")
+        requested_ids.append(ObjectId(str(leg_id)))
+    selected = [row for row in rows if row["_id"] in requested_ids]
+    if len(selected) != len(set(str(x) for x in requested_ids)):
+        raise HTTPException(status_code=404, detail="One or more selected portions do not belong to this order and destination warehouse")
+    pending = [x for x in selected if str(x.get("status")) == "in_transit"]
+    already_received = [x for x in selected if str(x.get("status")) == "received_at_consolidation"]
+    invalid = [x for x in selected if str(x.get("status")) not in ("in_transit", "received_at_consolidation")]
+    if invalid:
+        raise HTTPException(status_code=409, detail="Only portions dispatched and currently in transit can be received")
     if not pending:
-        if all(str(x.get("status")) == "received_at_consolidation" for x in rows):
-            return {"success": True, "data": {"status": "received", "legCount": len(rows)}, "message": "All consolidation portions are already received."}
-        raise HTTPException(status_code=400, detail="No warehouse portions are currently in transit to this consolidation warehouse")
+        return {"success": True, "data": {"status": "received", "legCount": len(already_received)}, "message": "Selected portions were already received."}
 
     now = datetime.utcnow()
     await legs.update_many(
-        {"_id": {"$in": [x["_id"] for x in pending]}},
+        {"_id": {"$in": [x["_id"] for x in pending]}, "status": "in_transit"},
         {"$set": {
             "status": "received_at_consolidation",
             "receivedAtConsolidation": now,
@@ -3099,7 +3110,7 @@ async def receive_farmer_fulfillment_at_consolidation(
         "data": {
             "orderId": order_id,
             "status": "received",
-            "receivedLegCount": len(pending),
+            "receivedLegCount": len(pending) + len(already_received),
             "totalLegCount": len(rows),
         },
         "message": "Farmer-packed portions received at the consolidation warehouse.",
