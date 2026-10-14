@@ -65,7 +65,7 @@ export default function EventSourcingPage() {
   });
 
   useEffect(() => {
-    if (request && request.requestType === "bulk_event" && !request.eventSourcingPlan && !sourceMutation.isPending) {
+    if (request && ["bulk_event", "b2b"].includes(request.requestType) && !request.eventSourcingPlan && !sourceMutation.isPending) {
       sourceMutation.mutate();
     }
   }, [request?.id, request?.eventSourcingPlan]);
@@ -156,9 +156,9 @@ export default function EventSourcingPage() {
               </div>
               <div>
                 <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                  {isFamilyWeekly ? "Weekly Family Basket" : planned ? "Planned Event Sourcing" : "Urgent Event Sourcing"}
+                  {isFamilyWeekly ? "Weekly Family Basket" : request.buyerCategory === "business" ? "Business Bulk Sourcing" : request.buyerCategory === "institution" ? "Institutional Bulk Sourcing" : planned ? "Planned Bulk Sourcing" : "Urgent Bulk Sourcing"}
                 </h1>
-                <p className="mt-1 text-sm text-slate-500">{request.requestNumber} · {request.purpose}{request.guestCount ? ` · ${request.guestCount} guests` : ""}</p>
+                <p className="mt-1 text-sm text-slate-500">{request.requestNumber} · {request.organizationName ? request.organizationName + " · " : ""}{request.purpose}{request.guestCount ? ` · ${request.guestCount} guests` : ""}</p>
               </div>
             </div>
           </div>
