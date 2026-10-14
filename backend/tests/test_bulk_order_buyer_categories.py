@@ -314,3 +314,58 @@ async def test_source_confirmation_rejects_missing_product_quantity(monkeypatch)
     assert "Every event requirement must be fully sourced" in exc.value.detail["message"]
     shortages = {row["productName"]: row["shortageKg"] for row in exc.value.detail["shortages"]}
     assert shortages == {"Tomato": 40.0, "Onion": 40.0}
+
+
+
+@pytest.mark.asyncio
+async def test_local_hub_receipt_creates_only_one_final_delivery_job(monkeypatch):
+    request_id = ObjectId()
+    warehouse_id = ObjectId()
+    manager_id = ObjectId()
+    job_id = ObjectId()
+    request = {
+        "_id": request_id,
+        "eventLocalHubId": str(warehouse_id),
+        "eventLocalHubStatus": "in_transit",
+        "eventWarehouseId": str(ObjectId()),
+        "deliveryAddress": {"addressLine1": "Customer delivery address"},
+    }
+    fulfillments = [
+        {"_id": ObjectId(), "requestId": request_id, "status": "stored", "productName": "Tomato"},
+        {"_id": ObjectId(), "requestId": request_id, "status": "stored", "productName": "Onion"},
+    ]
+    finalize_calls = []
+
+    async def fake_find_request(query):
+        return request
+
+    async def fake_update_request(query, values):
+        request.update(values)
+        return True
+
+    async def fake_find_fulfillments(query, **kwargs):
+        return fulfillments
+
+    async def fake_get_warehouse(user_id):
+        return {"_id": warehouse_id, "name": "Assigned Local Hub"}
+
+    async def fake_finalize(request_id_arg):
+        finalize_calls.append(request_id_arg)
+        return str(job_id)
+
+    monkeypatch.setattr(bulk_module.request_repo, "find_one", fake_find_request)
+    monkeypatch.setattr(bulk_module.request_repo, "update", fake_update_request)
+    monkeypatch.setattr(bulk_module.event_fulfillment_repo, "find_many", fake_find_fulfillments)
+    monkeypatch.setattr(bulk_module.WarehouseService, "get_warehouse_by_manager", fake_get_warehouse)
+    monkeypatch.setattr(bulk_module, "_finalize_event_after_warehouse_storage", fake_finalize)
+
+    user = {"_id": str(manager_id), "role": "warehouse"}
+    first = await bulk_module.receive_event_order_at_local_hub(str(request_id), current_user=user)
+    second = await bulk_module.receive_event_order_at_local_hub(str(request_id), current_user=user)
+
+    assert first["data"]["status"] == "received"
+    assert first["data"]["deliveryJobId"] == str(job_id)
+    assert second["data"]["deliveryJobId"] == str(job_id)
+    assert len(finalize_calls) == 1
+    assert request["eventLocalHubStatus"] == "received"
+    assert str(request["eventDeliveryJobId"]) == str(job_id)
