@@ -430,6 +430,6 @@ export default function FarmerFulfillmentWarehousePage() {
             })()}
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
-      </CardContent></Card></>)}</div></>}
+      </CardContent></Card>)}</div></>}
   </div>;
 }
