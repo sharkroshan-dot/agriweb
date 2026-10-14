@@ -617,7 +617,10 @@ async def get_farmer_fulfillment_transfers(
             )
             or packed_receipt
         )
-        if not is_farmer_transfer or linked_status in ("delivered", "completed", "cancelled", "refunded"):
+        terminal_statuses = ("delivered", "completed") if include_completed else ("delivered", "completed", "cancelled", "refunded")
+        if not is_farmer_transfer or linked_status in terminal_statuses and not include_completed:
+            continue
+        if include_completed and linked_status not in ("delivered", "completed"):
             continue
         packed_incoming_by_order.setdefault(linked_order_id, []).append(incoming_row)
         if linked_order_id not in known_order_ids:
