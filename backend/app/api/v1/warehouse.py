@@ -5058,6 +5058,49 @@ async def store_incoming_stock(
     )
     if not incoming:
         raise HTTPException(status_code=400, detail="Incoming stock must be received and quality approved before storage")
+
+    # Keep the separate Bulk/Event fulfillment record in sync with the physical
+    # Incoming Stock commit. Without this link the event order never advances
+    # to consolidated even after every product portion is stored.
+    event_fulfillment_id = incoming.get("eventFulfillmentId")
+    if event_fulfillment_id:
+        if str(incoming.get("qualityCheck") or "").lower() != "passed":
+            raise HTTPException(status_code=409, detail="Event portion storage requires a passed quality check")
+        actual_received = incoming.get("quantityReceived")
+        if actual_received is None:
+            actual_received = incoming.get("receivedQuantity")
+        if actual_received is None:
+            actual_received = incoming.get("actualQuantityReceived")
+        event_fulfillments = MongoDB.get_collection("event_fulfillments")
+        event_oid = event_fulfillment_id if isinstance(event_fulfillment_id, ObjectId) else ObjectId(str(event_fulfillment_id))
+        event_portion = await event_fulfillments.find_one({"_id": event_oid, "deletedAt": None})
+        if not event_portion:
+            raise HTTPException(status_code=409, detail="The Incoming Stock record references a missing event fulfillment portion")
+        required = float(event_portion.get("allocatedQuantityKg") or 0)
+        if float(actual_received or 0) + 1e-9 < required:
+            raise HTTPException(status_code=409, detail="Received quantity is below the allocated event portion; resolve the shortage before storing")
+        if str(event_portion.get("status") or "") != "stored":
+            if not event_portion.get("inventoryFinalizedAt"):
+                from app.repositories.inventory_repository import inventory_repository
+                confirmed = await inventory_repository.atomic_confirm(str(event_portion.get("productId")), required)
+                if not confirmed:
+                    raise HTTPException(status_code=409, detail="Reserved event stock could not be finalized; verify inventory before completing storage")
+            now = datetime.utcnow()
+            await event_fulfillments.update_one({"_id": event_oid, "deletedAt": None}, {"$set": {
+                "status": "stored", "warehouseStatus": "stored", "storedAt": now,
+                "inventoryFinalizedAt": now, "inventoryFinalizationStatus": "confirmed",
+                "updatedAt": now,
+            }})
+            request_id = event_portion.get("requestId")
+            if request_id:
+                bulk_requests = MongoDB.get_collection("bulk_requests")
+                siblings = await event_fulfillments.find({"requestId": request_id, "deletedAt": None}).to_list(length=500)
+                all_stored = bool(siblings) and all(str(s.get("status") or "") == "stored" for s in siblings)
+                await bulk_requests.update_one({"_id": request_id, "deletedAt": None}, {"$set": {
+                    "eventDeliveryStatus": "awaiting_local_hub_dispatch" if all_stored else "warehouse_receiving",
+                    "eventConsolidationStatus": "consolidated" if all_stored else "warehouse_receiving",
+                    "updatedAt": now,
+                }})
     try:
         order_id = incoming.get("orderId")
         if order_id:
