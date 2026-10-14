@@ -206,3 +206,62 @@ async def test_tracking_summarizes_multi_farmer_product_portions(monkeypatch):
     assert by_name["Onion"]["allocatedQuantityKg"] == 40
     assert by_name["Onion"]["remainingQuantityKg"] == 0
     assert by_name["Onion"]["status"] == "complete"
+
+
+
+@pytest.mark.parametrize(
+    ("incoming_record", "expected_message"),
+    [
+        (
+            {"status": "received", "qualityCheck": "rejected", "quantityReceived": 100, "arrivedWarehouseAt": "now"},
+            "Approve the quality check",
+        ),
+        (
+            {"status": "stored", "qualityCheck": "passed", "quantityReceived": 79, "arrivedWarehouseAt": "now"},
+            "physically received quantity is below",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_warehouse_cannot_store_quality_rejected_or_short_portion(
+    monkeypatch, incoming_record, expected_message
+):
+    fulfillment_id = ObjectId()
+    request_id = ObjectId()
+    warehouse_id = ObjectId()
+    fulfillment = {
+        "_id": fulfillment_id,
+        "requestId": request_id,
+        "warehouseId": warehouse_id,
+        "productId": ObjectId(),
+        "allocatedQuantityKg": 80,
+        "status": "warehouse_received",
+    }
+    request = {"_id": request_id, "eventWarehouseId": str(warehouse_id)}
+
+    async def fake_find_fulfillment(query):
+        return fulfillment
+
+    async def fake_find_request(query):
+        return request
+
+    async def fake_find_incoming(query):
+        return incoming_record
+
+    async def fake_get_warehouse(manager_id):
+        return {"_id": warehouse_id}
+
+    monkeypatch.setattr(bulk_module.event_fulfillment_repo, "find_one", fake_find_fulfillment)
+    monkeypatch.setattr(bulk_module.request_repo, "find_one", fake_find_request)
+    monkeypatch.setattr(bulk_module.incoming_stock_repository, "find_one", fake_find_incoming)
+    monkeypatch.setattr(bulk_module.WarehouseService, "get_warehouse_by_manager", fake_get_warehouse)
+
+    with pytest.raises(HTTPException) as exc:
+        await bulk_module.update_event_fulfillment_status(
+            str(fulfillment_id),
+            bulk_module.EventFulfillmentStatusUpdate(status="stored"),
+            current_user={"_id": str(ObjectId()), "role": "warehouse"},
+        )
+
+    assert exc.value.status_code == 409
+    assert expected_message.lower() in exc.value.detail.lower()
