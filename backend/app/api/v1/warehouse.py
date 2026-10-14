@@ -2855,31 +2855,60 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     if not ObjectId.is_valid(str(order.get("consolidationWarehouseId") or "")):
         raise HTTPException(status_code=400, detail="Assign a valid consolidation destination warehouse before dispatch")
 
-    if not source_legs:
-        now = datetime.utcnow()
-        for allocation in allocations:
-            quantity = float(allocation.get("quantity") or 0)
-            if quantity <= 0:
-                raise HTTPException(status_code=400, detail="Every source allocation must have a positive quantity")
-            leg_doc = {
-                "orderId": ObjectId(order_id),
-                "orderNumber": order.get("orderNumber"),
-                "legType": "warehouse_to_consolidation",
-                "sourceWarehouseId": ObjectId(wid),
-                "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or order.get("warehouseName"),
-                "destinationWarehouseId": ObjectId(str(order["consolidationWarehouseId"])),
-                "destinationWarehouseName": order.get("consolidationWarehouseName"),
-                "productId": ObjectId(str(allocation.get("productId"))) if ObjectId.is_valid(str(allocation.get("productId") or "")) else allocation.get("productId"),
-                "variantId": allocation.get("variantId"),
-                "quantity": quantity,
-                "status": "pending",
-                "createdAt": now,
-                "updatedAt": now,
-                "deletedAt": None,
-            }
-            inserted_leg = await legs.insert_one(leg_doc)
-            leg_doc["_id"] = inserted_leg.inserted_id
-            source_legs.append(leg_doc)
+    # Build the complete expected manifest for every source allocation at
+    # once. If we only created the first warehouse's legs, the destination
+    # could incorrectly think consolidation is complete before other farms
+    # have dispatched. Existing legs are retained so retries are safe.
+    all_allocations = order.get("warehouseAllocations") or []
+    existing_all_legs = await legs.find({
+        "orderId": ObjectId(order_id),
+        "legType": "warehouse_to_consolidation",
+        "deletedAt": None,
+    }).to_list(length=2000)
+    existing_keys = {
+        (
+            str(x.get("sourceWarehouseId") or ""),
+            str(x.get("productId") or ""),
+            str(x.get("variantId") or ""),
+        )
+        for x in existing_all_legs
+    }
+    now = datetime.utcnow()
+    for allocation in all_allocations:
+        allocation_source_id = str(allocation.get("warehouseId") or "")
+        quantity = float(allocation.get("quantity") or 0)
+        if not ObjectId.is_valid(allocation_source_id) or quantity <= 0:
+            raise HTTPException(status_code=400, detail="Every source allocation needs a valid warehouse and positive quantity")
+        product_id = str(allocation.get("productId") or "")
+        variant_id = str(allocation.get("variantId") or "")
+        key = (allocation_source_id, product_id, variant_id)
+        if key in existing_keys:
+            continue
+        source_warehouse = await warehouse_repository.get_by_id(allocation_source_id)
+        leg_doc = {
+            "orderId": ObjectId(order_id),
+            "orderNumber": order.get("orderNumber"),
+            "legType": "warehouse_to_consolidation",
+            "sourceWarehouseId": ObjectId(allocation_source_id),
+            "sourceWarehouseName": (source_warehouse or {}).get("name") or (source_warehouse or {}).get("warehouseName") or allocation.get("warehouseName"),
+            "destinationWarehouseId": ObjectId(str(order["consolidationWarehouseId"])),
+            "destinationWarehouseName": order.get("consolidationWarehouseName"),
+            "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else allocation.get("productId"),
+            "variantId": allocation.get("variantId"),
+            "quantity": quantity,
+            "status": "pending",
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        }
+        inserted_leg = await legs.insert_one(leg_doc)
+        leg_doc["_id"] = inserted_leg.inserted_id
+        existing_all_legs.append(leg_doc)
+        existing_keys.add(key)
+    source_legs = [
+        x for x in existing_all_legs
+        if str(x.get("sourceWarehouseId") or "") == wid
+    ]
 
     await order_repository.update({"_id": ObjectId(order_id)}, {
         "consolidationId": consolidation_id,
