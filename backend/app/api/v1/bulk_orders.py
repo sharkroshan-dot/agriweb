@@ -30,6 +30,7 @@ from app.repositories.delivery_job_repository import delivery_job_repository
 from app.repositories.warehouse_repository import warehouse_repository
 from app.repositories.incoming_stock_repository import incoming_stock_repository
 from app.services.warehouse_service import WarehouseService
+from app.services.logistics_routing_service import nearest_local_hub
 from app.services.warehouse_collection_service import ensure_collection_job
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import (
@@ -1364,21 +1365,16 @@ async def confirm_event_source(
 
 
 async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optional[str]:
-    """Create one final customer-delivery job only after every farmer fulfillment is stored at the event warehouse."""
+    """Create one final customer-delivery job only after all portions are stored and the local hub has confirmed receipt."""
     if not fulfillments or any(str(f.get("status")) != "stored" for f in fulfillments):
         return None
+    if str(request.get("eventLocalHubStatus") or "") != "received":
+        return None
 
-    warehouse_id = request.get("eventWarehouseId")
+    warehouse_id = request.get("eventLocalHubId") or request.get("eventWarehouseId")
     warehouse = await warehouse_repository.get_by_id(str(warehouse_id)) if warehouse_id else None
     if not warehouse:
-        destination = ((request.get("deliveryAddress") or {}).get("location") or {})
-        if not destination.get("coordinates"):
-            return None
-        total_weight = round(sum(float(f.get("allocatedQuantityKg") or 0) for f in fulfillments), 2)
-        warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_weight)
-        if not warehouse:
-            return None
-        warehouse_id = warehouse["_id"]
+        return None
 
     warehouse_coords = (warehouse.get("location") or {}).get("coordinates") or []
     destination = ((request.get("deliveryAddress") or {}).get("location") or {})
@@ -1441,7 +1437,9 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
         "eventDeliveryJobId": ObjectId(job_id),
         "eventDeliveryStatus": "delivery_partner_assignment",
         "eventConsolidationStatus": "consolidated",
-        "eventWarehouseId": ObjectId(str(warehouse_id)),
+        "eventWarehouseId": ObjectId(str(request.get("eventWarehouseId"))) if request.get("eventWarehouseId") else None,
+        "eventLocalHubId": ObjectId(str(warehouse_id)),
+        "eventLocalHubName": warehouse.get("name") or warehouse.get("warehouseName"),
         "consolidationHubId": ObjectId(str(warehouse_id)),
         "consolidationHubName": warehouse.get("name") or warehouse.get("warehouseName"),
         "updatedAt": datetime.utcnow(),
@@ -1518,6 +1516,103 @@ async def _stringify_event_fulfillment(f: dict) -> dict:
     f["farmerId"] = str(f.get("farmerId"))
     f["productId"] = str(f.get("productId"))
     return f
+
+
+@router.post("/event-orders/{request_id}/dispatch-local-hub")
+async def dispatch_event_order_to_local_hub(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Dispatch a fully consolidated event order to a distinct local hub."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch an event order to a local hub")
+    if not ObjectId.is_valid(request_id):
+        raise HTTPException(status_code=400, detail="Invalid event request ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event order not found")
+    manager_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not manager_warehouse or str(request.get("eventWarehouseId") or "") != str(manager_warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the consolidation warehouse can dispatch this event order")
+    fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
+        raise HTTPException(status_code=409, detail="Every required farmer portion must be physically received, quality-approved and stored before consolidation dispatch")
+    incoming_rows = await incoming_stock_repository.find_many({"eventRequestId": request["_id"], "deletedAt": None}, skip=0, limit=1000)
+    if len(incoming_rows) < len(fulfillments):
+        raise HTTPException(status_code=409, detail="One or more farmer portions have no Incoming Stock record")
+    for portion in fulfillments:
+        incoming = next((row for row in incoming_rows if str(row.get("eventFulfillmentId") or "") == str(portion["_id"])), None)
+        if not incoming or str(incoming.get("status") or "").lower() != "stored" or str(incoming.get("qualityCheck") or "").lower() != "passed":
+            raise HTTPException(status_code=409, detail=f"Portion {portion.get('productName') or portion.get('productId')} is not stored and quality-approved")
+        actual = incoming.get("quantityReceived", incoming.get("receivedQuantity", incoming.get("actualQuantityReceived", 0)))
+        if float(actual or 0) + 1e-9 < float(portion.get("allocatedQuantityKg") or 0):
+            raise HTTPException(status_code=409, detail=f"Received quantity is short for {portion.get('productName') or portion.get('productId')}")
+    if str(request.get("eventLocalHubStatus") or "") in ("in_transit", "received"):
+        return {"success": True, "data": {"status": request.get("eventLocalHubStatus"), "localHubName": request.get("eventLocalHubName")}, "message": "The local-hub transfer is already recorded"}
+    destination = (request.get("deliveryAddress") or {}).get("location") or {}
+    if not destination.get("coordinates"):
+        raise HTTPException(status_code=409, detail="Customer delivery coordinates are required to select the local hub")
+    total_weight = round(sum(float(row.get("allocatedQuantityKg") or 0) for row in fulfillments), 2)
+    hub = await nearest_local_hub(destination, total_weight)
+    if not hub:
+        raise HTTPException(status_code=409, detail="No eligible local hub is available for this customer address and order weight")
+    if str(hub.get("_id") or "") == str(manager_warehouse.get("_id") or ""):
+        raise HTTPException(status_code=409, detail="The selected consolidation warehouse is also the nearest hub. Configure a distinct local hub before dispatching")
+    now = datetime.utcnow()
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventLocalHubId": hub["_id"],
+        "eventLocalHubName": hub.get("name") or hub.get("warehouseName") or "Local Hub",
+        "eventLocalHubStatus": "in_transit",
+        "eventLocalHubDispatchedAt": now,
+        "eventLocalHubDispatchedBy": ObjectId(str(current_user["_id"])),
+        "eventDeliveryStatus": "local_hub_in_transit",
+        "eventConsolidationStatus": "consolidated",
+        "updatedAt": now,
+    })
+    return {"success": True, "data": {"status": "in_transit", "localHubId": str(hub["_id"]), "localHubName": hub.get("name") or hub.get("warehouseName")}, "message": "Consolidated order dispatched to local hub; the receiving hub must confirm physical arrival."}
+
+
+@router.post("/event-orders/{request_id}/receive-local-hub")
+async def receive_event_order_at_local_hub(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record physical local-hub receipt before opening the one final delivery job."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only local-hub warehouse staff can confirm receipt")
+    if not ObjectId.is_valid(request_id):
+        raise HTTPException(status_code=400, detail="Invalid event request ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Event order not found")
+    manager_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not manager_warehouse or str(request.get("eventLocalHubId") or "") != str(manager_warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the assigned local hub can confirm physical receipt")
+    if str(request.get("eventLocalHubStatus") or "") == "received" and request.get("eventDeliveryJobId"):
+        return {"success": True, "data": {"status": "received", "deliveryJobId": str(request.get("eventDeliveryJobId"))}, "message": "Local-hub receipt and final delivery job are already recorded"}
+    if str(request.get("eventLocalHubStatus") or "") != "in_transit":
+        raise HTTPException(status_code=409, detail="The order must be dispatched to this local hub before receipt can be confirmed")
+    fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
+        raise HTTPException(status_code=409, detail="All required portions must remain verified and stored before hub receipt")
+    now = datetime.utcnow()
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventLocalHubStatus": "received",
+        "eventLocalHubReceivedAt": now,
+        "eventLocalHubReceivedBy": ObjectId(str(current_user["_id"])),
+        "eventDeliveryStatus": "local_hub_received",
+        "updatedAt": now,
+    })
+    refreshed = await request_repo.find_one({"_id": request["_id"], "deletedAt": None})
+    job_id = await _finalize_event_after_warehouse_storage(str(request["_id"]))
+    if not job_id:
+        raise HTTPException(status_code=409, detail="Local-hub receipt was recorded, but the final delivery job could not be created. Check local-hub/customer coordinates and delivery-partner availability, then retry.")
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryJobId": ObjectId(job_id),
+        "eventDeliveryStatus": "delivery_partner_assignment",
+        "updatedAt": datetime.utcnow(),
+    })
+    return {"success": True, "data": {"status": "received", "deliveryJobId": job_id}, "message": "Local-hub receipt confirmed; the single final delivery job is ready for partner assignment."}
 
 
 @router.get("/event-orders/fulfillments")
@@ -1705,18 +1800,18 @@ async def update_event_fulfillment_status(
             "updatedAt": datetime.utcnow(),
         })
     elif statuses and all(s == "stored" for s in statuses):
+        # Storage completes consolidation only. The final delivery job is
+        # intentionally blocked until the receiving local hub confirms arrival.
+        await request_repo.update({"_id": fulfillment["requestId"]}, {
+            "eventDeliveryStatus": "awaiting_local_hub_dispatch",
+            "eventConsolidationStatus": "consolidated",
+            "updatedAt": datetime.utcnow(),
+        })
         job_id = await _finalize_event_after_warehouse_storage(fulfillment["requestId"])
         if job_id:
             await request_repo.update({"_id": fulfillment["requestId"]}, {
                 "eventDeliveryStatus": "delivery_partner_assignment",
-                "eventConsolidationStatus": "consolidated",
                 "eventDeliveryJobId": ObjectId(job_id),
-                "updatedAt": datetime.utcnow(),
-            })
-        else:
-            await request_repo.update({"_id": fulfillment["requestId"]}, {
-                "eventDeliveryStatus": "warehouse_stored",
-                "eventConsolidationStatus": "awaiting_delivery_job",
                 "updatedAt": datetime.utcnow(),
             })
     elif any(s == "ready_for_collection" for s in statuses):
