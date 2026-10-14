@@ -590,14 +590,18 @@ async def warehouse_for_district(
 
     def _is_active(doc: Dict[str, Any]) -> bool:
         status_value = str(doc.get("status") or doc.get("approvalStatus") or "").strip().lower()
-        # Explicit inactive flags always win.
+        # Explicit inactive flags/statuses win. Legacy records commonly have
+        # isActive=True but a workflow status such as "pending_setup".
         if doc.get("isActive") is False or doc.get("is_active") is False or doc.get("active") is False:
             return False
         if doc.get("deletedAt") is not None or doc.get("deleted_at") is not None:
             return False
-        if status_value:
-            return status_value in {"active", "approved", "operational", "enabled"}
-        return any(doc.get(key) is True for key in ("isActive", "is_active", "active", "isOperational", "is_operational"))
+        if status_value in {"inactive", "disabled", "suspended", "rejected", "deleted", "deactivated"}:
+            return False
+        return (
+            any(doc.get(key) is True for key in ("isActive", "is_active", "active", "isOperational", "is_operational"))
+            or status_value in {"active", "approved", "operational", "enabled"}
+        )
 
     for doc in docs:
         doc_id = str(doc.get("_id") or "")
@@ -634,7 +638,11 @@ async def warehouse_for_district(
         )
         if available is None and total_capacity is not None:
             available = total_capacity - used_capacity
-        if available is None or available + 1e-9 < float(required_capacity or 0):
+        # Some older warehouse profiles have no capacity field at all. Do not
+        # permanently block a sealed, already-received customer order solely
+        # because the legacy profile lacks the newer capacity schema. If a
+        # capacity value is present, it must still be sufficient.
+        if available is not None and available + 1e-9 < float(required_capacity or 0):
             continue
         matches.append(doc)
 
