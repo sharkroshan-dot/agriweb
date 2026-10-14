@@ -54,7 +54,7 @@ export default withAuth(
       authorized({ token, req }) {
         const { pathname } = req.nextUrl;
         const publicPaths = [
-          "/", "/login", "/register", "/search", "/product", "/categories",
+          "/", "/login", "/register", "/verify", "/search", "/product", "/categories",
           "/roadmap", "/api", "/_next", "/images", "/marketplace", "/nearby", "/trace",
         ];
         if (publicPaths.some((p) => matches(pathname, p))) return true;
