@@ -2809,8 +2809,40 @@ async def dispatch_farmer_fulfillment_to_consolidation(
         "sourceMode": "farmer_fulfillment_transfer",
         "deletedAt": None,
     }, skip=0, limit=1000)
-    if not source_incoming or any(str(x.get("status")) != "stored" for x in source_incoming):
-        raise HTTPException(status_code=400, detail="Receive, quality-check and store this farmer-packed portion before dispatching it to consolidation")
+    if not source_incoming:
+        raise HTTPException(status_code=400, detail="Record the physical receipt of this farmer-packed portion in Incoming Stock before dispatching it to consolidation")
+    # Packed Farmer Fulfillment shipments must remain sealed and are explicitly
+    # excluded from bulk inventory storage. A confirmed physical receipt is
+    # sufficient; requiring status='stored' would make this workflow impossible
+    # because the Incoming Stock API correctly blocks storing packed orders.
+    not_physically_received = [
+        row for row in source_incoming
+        if str(row.get("status") or "").strip().lower() not in ("received", "stored")
+        or not row.get("arrivedWarehouseAt")
+    ]
+    if not_physically_received:
+        raise HTTPException(status_code=400, detail="Complete Farm Collection arrival and confirm physical receipt for every packed portion before consolidation dispatch")
+
+    required_by_product = {}
+    for allocation in allocations:
+        key = (str(allocation.get("productId") or ""), str(allocation.get("variantId") or ""))
+        required_by_product[key] = required_by_product.get(key, 0.0) + float(allocation.get("quantity") or 0)
+    received_by_product = {}
+    for row in source_incoming:
+        key = (str(row.get("productId") or ""), str(row.get("variantId") or ""))
+        quantity_received = row.get("quantityReceived")
+        if quantity_received is None:
+            quantity_received = row.get("receivedQuantity")
+        if quantity_received is None:
+            quantity_received = row.get("actualQuantityReceived")
+        received_by_product[key] = received_by_product.get(key, 0.0) + float(quantity_received or 0)
+    shortages = [
+        {"productId": key[0], "variantId": key[1] or None, "required": quantity, "received": received_by_product.get(key, 0.0)}
+        for key, quantity in required_by_product.items()
+        if received_by_product.get(key, 0.0) + 1e-9 < quantity
+    ]
+    if shortages:
+        raise HTTPException(status_code=409, detail={"message": "Received quantity is below the source allocation; resolve the discrepancy before dispatch", "shortages": shortages})
     source_legs = await legs.find({
         "orderId": ObjectId(order_id),
         "sourceWarehouseId": ObjectId(wid),
