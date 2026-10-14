@@ -1886,6 +1886,229 @@ class OrderService:
         return await order_repository.get_by_id(order_id)
 
     @staticmethod
+    async def mark_farmer_fulfillment_ready_for_pickup(order_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Publish a sealed, farmer-packed order to the warehouse farm-collection queue.
+
+        The action is idempotent: one incoming record and one collection job are
+        maintained per order line. The package remains sealed; warehouse packing
+        and bulk inventory are not used for Farmer Fulfillment.
+        """
+        order = await order_repository.get_by_id(order_id)
+        if not order or str(order.get("farmerId") or "") != str(farmer_id):
+            return None
+        if str(order.get("fulfillmentMethod") or "") not in (FulfillmentMethod.FARM_DIRECT.value, "farmer", "farm_direct"):
+            return None
+        if not order.get("packingComplete") or str(order.get("fulfillmentStage") or "") not in (
+            FulfillmentStage.PACKED.value, FulfillmentStage.DISPATCHED.value
+        ):
+            return None
+        if str(order.get("orderStatus") or "").lower() in ("cancelled", "canceled", "refunded", "delivered", "completed"):
+            return None
+        if str(order.get("deliveryType") or "").lower() == "pickup":
+            return None
+
+        from app.database.mongodb import MongoDB
+        from app.repositories.warehouse_repository import warehouse_repository
+        from app.repositories.incoming_stock_repository import incoming_stock_repository
+        from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+        from app.services.warehouse_collection_service import ensure_collection_job
+        from math import radians, sin, cos, asin, sqrt
+
+        def point(value: Any) -> Optional[tuple[float, float]]:
+            if not isinstance(value, dict):
+                return None
+            nested = value.get("location") or value.get("coordinates")
+            if isinstance(nested, dict):
+                found = point(nested)
+                if found:
+                    return found
+            if isinstance(nested, (list, tuple)) and len(nested) >= 2:
+                try:
+                    # GeoJSON is [longitude, latitude].
+                    lng, lat = float(nested[0]), float(nested[1])
+                    if -90 <= lat <= 90 and -180 <= lng <= 180:
+                        return lat, lng
+                except (TypeError, ValueError):
+                    pass
+            lat = value.get("lat", value.get("latitude"))
+            lng = value.get("lng", value.get("longitude", value.get("lon")))
+            try:
+                if lat is not None and lng is not None:
+                    lat, lng = float(lat), float(lng)
+                    if -90 <= lat <= 90 and -180 <= lng <= 180:
+                        return lat, lng
+            except (TypeError, ValueError):
+                pass
+            return None
+
+        farmer_id_value = str(order.get("farmerId") or farmer_id)
+        farmer_profile = None
+        farmers = MongoDB.get_collection("farmers")
+        if ObjectId.is_valid(farmer_id_value):
+            farmer_oid = ObjectId(farmer_id_value)
+            farmer_profile = await farmers.find_one({"$or": [
+                {"_id": farmer_oid}, {"userId": farmer_oid}, {"userId": farmer_id_value}
+            ], "deletedAt": None})
+        farm_location = (
+            order.get("farmLocation") or order.get("farmerLocation")
+            or order.get("pickupLocation") or order.get("originLocation")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("coordinates")
+            or (farmer_profile or {}).get("address") or {}
+        )
+        farm_point = point(farm_location)
+
+        source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+        warehouse = await warehouse_repository.get_by_id(source_id) if ObjectId.is_valid(source_id) else None
+        if not warehouse:
+            if not farm_point:
+                raise ValueError("Farm coordinates are required to select an active source warehouse. Add the farm's live location, then retry.")
+            warehouse = await warehouse_repository.find_best_warehouse(
+                farm_point[0], farm_point[1],
+                required_capacity=sum(float(item.get("actualPackedQuantity", item.get("packedQuantity", item.get("quantity", 0))) or 0) for item in (order.get("items") or [])),
+                radius_km=200, limit=50,
+            )
+            if not warehouse:
+                raise ValueError("No active warehouse with sufficient capacity could be found within 200 km of this farm.")
+        if warehouse.get("isActive") is False:
+            raise ValueError("The assigned source warehouse is inactive. Select an active warehouse before pickup.")
+        warehouse_id = str(warehouse["_id"])
+
+        delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+        customer_point = point(delivery_address) or point(order.get("customerLocation"))
+        warehouse_point = point(warehouse.get("location")) or point(warehouse.get("coordinates")) or point(warehouse.get("address"))
+        distance_km = None
+        if warehouse_point and customer_point:
+            lat1, lon1 = warehouse_point
+            lat2, lon2 = customer_point
+            p1, p2 = radians(lat1), radians(lat2)
+            dlat, dlon = radians(lat2-lat1), radians(lon2-lon1)
+            a = sin(dlat/2)**2 + cos(p1)*cos(p2)*sin(dlon/2)**2
+            distance_km = 6371.0088 * 2 * asin(sqrt(max(0.0, min(1.0, a))))
+
+        warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+        source_district = str(warehouse.get("district") or warehouse_address.get("district") or warehouse_address.get("city") or warehouse.get("city") or "").strip()
+        customer_nested = delivery_address.get("location") if isinstance(delivery_address.get("location"), dict) else {}
+        customer_address = delivery_address.get("address") if isinstance(delivery_address.get("address"), dict) else {}
+        destination_district = str(delivery_address.get("district") or customer_nested.get("district") or customer_address.get("district") or customer_address.get("city") or delivery_address.get("city") or order.get("destinationDistrict") or "").strip()
+        threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+        if distance_km is not None and distance_km <= threshold_km:
+            logistics_mode = "farmer_to_delivery_partner"
+            route_category = "nearby"
+        elif source_district and destination_district and source_district.casefold() != destination_district.casefold():
+            logistics_mode = "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+            route_category = "inter_district"
+        elif source_district and destination_district and source_district.casefold() == destination_district.casefold() and distance_km is not None:
+            logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+            route_category = "same_district"
+        else:
+            # Keep the package in a safe, reviewable warehouse-transfer path;
+            # the transfer UI will show Needs Location Data rather than guessing.
+            logistics_mode = "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+            route_category = "needs_location"
+
+        order_oid = order["_id"]
+        incoming_collection = MongoDB.get_collection("incoming_stock")
+        existing_rows = await incoming_collection.find({
+            "orderId": {"$in": [order_oid, str(order_oid)]},
+            "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+            "sourceMode": "farmer_fulfillment_transfer",
+            "deletedAt": None,
+        }).to_list(length=1000)
+        now = datetime.utcnow()
+        pickup_location = {
+            "name": (farmer_profile or {}).get("farmName") or (farmer_profile or {}).get("name") or "Farmer Farm",
+            "address": (farm_location.get("address") if isinstance(farm_location, dict) else None) or (farmer_profile or {}).get("address") or "",
+        }
+        if farm_point:
+            pickup_location["coordinates"] = [farm_point[1], farm_point[0]]
+            pickup_location["lat"], pickup_location["lng"] = farm_point
+        items = order.get("items") or []
+        if not items:
+            raise ValueError("The packed order has no item lines to collect.")
+        for item in items:
+            product_id = str(item.get("productId") or item.get("product_id") or "")
+            variant_id = str(item.get("variantId") or item.get("variant_id") or "")
+            quantity = float(item.get("actualPackedQuantity", item.get("packedQuantity", item.get("quantity", 0))) or 0)
+            if quantity <= 0:
+                continue
+            matching = next((row for row in existing_rows
+                if str(row.get("productId") or "") == product_id
+                and str(row.get("variantId") or "") == variant_id), None)
+            if matching:
+                incoming = matching
+            else:
+                incoming_data = {
+                    "warehouseId": ObjectId(warehouse_id),
+                    "orderId": order_oid,
+                    "orderNumber": order.get("orderNumber"),
+                    "farmerId": ObjectId(farmer_id_value) if ObjectId.is_valid(farmer_id_value) else farmer_id_value,
+                    "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                    "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else (variant_id or None),
+                    "productName": item.get("productName") or item.get("name") or "Product",
+                    "quantity": quantity,
+                    "expectedQuantity": quantity,
+                    "unit": item.get("unit") or "kg",
+                    "sourceMode": "farmer_fulfillment_transfer",
+                    "collectionType": "packed_orders_transfer",
+                    "fulfillmentType": "farmer_fulfillment",
+                    "shipmentType": "farmer_fulfillment",
+                    "packingRequired": False,
+                    "packingVerified": True,
+                    "readyForPickup": True,
+                    "transferReadyForPickup": True,
+                    "readyForPickupAt": now,
+                    "pickupLocation": pickup_location,
+                    "packageCount": 1,
+                    "status": "scheduled",
+                    "expectedDate": now,
+                    "deletedAt": None,
+                }
+                incoming_id = await incoming_stock_repository.create_incoming(incoming_data)
+                incoming = await incoming_stock_repository.get_by_id(str(incoming_id)) if incoming_id else None
+                if not incoming:
+                    raise RuntimeError("Unable to create the farm collection receipt for a packed order line.")
+                existing_rows.append(incoming)
+            # A collection job is created or reconciled idempotently for each
+            # incoming line. The package is never sent through warehouse packing.
+            incoming["readyForPickup"] = True
+            incoming["packingRequired"] = False
+            await ensure_collection_job(incoming, "packed_orders_transfer", "farmer_fulfillment_transfer")
+
+        await order_repository.update({"_id": order_oid}, {
+            "warehouseId": ObjectId(warehouse_id),
+            "sourceWarehouseId": ObjectId(warehouse_id),
+            "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
+            "sourceWarehouseLocation": warehouse.get("location") or warehouse.get("coordinates") or warehouse.get("address"),
+            "logisticsMode": logistics_mode,
+            "nearbyDeliveryThresholdKm": threshold_km,
+            "warehouseFulfillmentStage": "pickup_requested",
+            "warehouseCollectionStatus": "ready_for_pickup",
+            "warehouseCollectionRequestedAt": now,
+            "transferStatus": "awaiting_farm_pickup",
+            "routeDistanceKm": distance_km,
+            "routeCategory": route_category,
+            "sourceDistrict": source_district or None,
+            "destinationDistrict": destination_district or None,
+            "routeDecisionReason": "Route calculated from warehouse-to-customer distance and district. Missing coordinates/districts require manual review." if route_category == "needs_location" else None,
+            "orderStatus": OrderStatus.READY_FOR_PICKUP.value,
+            "updatedAt": now,
+        })
+        refreshed = await order_repository.get_by_id(order_id)
+        if refreshed:
+            try:
+                await order_repository.append_tracking_event(
+                    order_id, "farmer_fulfillment_ready_for_pickup",
+                    "Farmer-packed order ready for pickup",
+                    "The farmer confirmed the sealed package is ready. A warehouse collection job was created; warehouse packing is disabled for this order.",
+                    actor_id=farmer_id, actor_role="farmer",
+                    metadata={"warehouseId": warehouse_id, "logisticsMode": logistics_mode, "routeCategory": route_category, "distanceKm": distance_km},
+                )
+            except Exception:
+                logger.exception("Failed to append Farmer Fulfillment pickup event for %s", order_id)
+        return refreshed
+
+    @staticmethod
     async def mark_warehouse_ready_for_pickup(order_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
         """Farmer confirms warehouse-fulfillment harvest/bulk stock is ready at the farm."""
         order = await order_repository.get_by_id(order_id)
