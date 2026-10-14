@@ -293,9 +293,10 @@ async def list_requests(
             # the farmer RFQ inbox.
             farmer_id = ObjectId(current_user["_id"])
             match["$or"] = [
-                {"requestType": {"$ne": "bulk_event"}},
-                {"eventFulfillmentMode": "planned", "rfqFarmerIds": farmer_id},
-                {"eventFulfillmentMode": "planned", "rfqFarmerIds": str(current_user["_id"])},
+                {"requestType": {"$nin": ["bulk_event", "b2b"]}},
+                {"requestType": {"$in": ["bulk_event", "b2b"]}, "eventFulfillmentMode": {"$ne": "planned"}},
+                {"requestType": {"$in": ["bulk_event", "b2b"]}, "eventFulfillmentMode": "planned", "rfqFarmerIds": farmer_id},
+                {"requestType": {"$in": ["bulk_event", "b2b"]}, "eventFulfillmentMode": "planned", "rfqFarmerIds": str(current_user["_id"])},
             ]
     elif role in ("admin", "super_admin"):
         match = {"deletedAt": None}
