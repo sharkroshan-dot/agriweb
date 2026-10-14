@@ -1054,17 +1054,12 @@ async def get_farmer_fulfillment_transfers(
         assigned_warehouse_ids = {
             str(warehouse_ref) for warehouse_ref in (order.get("warehouseIds") or []) if warehouse_ref
         }
-        explicit_multi_warehouse = (
-            order.get("isMultiWarehouseConsolidation") is True
-            or order.get("fulfillmentPurpose") in ("event_bulk", "multi_source_customer_order")
-            or bool(order.get("consolidationRequested"))
-            or bool(order.get("consolidationId"))
-            or is_consolidation_warehouse
-        )
-        is_multi_warehouse_order = (
-            len(allocation_warehouse_ids | assigned_warehouse_ids) > 1
-            or explicit_multi_warehouse
-        )
+        # A stale logisticsMode/consolidationId/warehouseCount must not
+        # turn a single-source order into a multi-warehouse order. Require at
+        # least two distinct source warehouses in the persisted source records.
+        # Bulk/event intent alone describes the order purpose, not its sourcing.
+        distinct_source_warehouse_ids = allocation_warehouse_ids or assigned_warehouse_ids
+        is_multi_warehouse_order = len(distinct_source_warehouse_ids) > 1
         route_category = classify_farmer_fulfillment_route(
             calculated_distance_km,
             threshold_km,
