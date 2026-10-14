@@ -1944,11 +1944,53 @@ async def bulk_order_tracking(
         result["id"] = str(result.pop("_id", ""))
         return result
 
+    # Product-level summary preserves the single parent event order while
+    # exposing requested, allocated, and outstanding quantities per product.
+    product_summary = []
+    for requested_item in request.get("items", []) or []:
+        requested_name = str(requested_item.get("name") or "").strip()
+        matching = [
+            f for f in fulfillments
+            if str(f.get("productName") or "").strip().casefold() == requested_name.casefold()
+        ]
+        requested_qty = float(requested_item.get("quantityKg") or 0)
+        allocated_qty = sum(float(f.get("allocatedQuantityKg") or 0) for f in matching)
+        product_summary.append({
+            "productName": requested_name,
+            "category": requested_item.get("category"),
+            "qualityGrade": requested_item.get("qualityGrade"),
+            "requestedQuantityKg": requested_qty,
+            "allocatedQuantityKg": allocated_qty,
+            "remainingQuantityKg": max(0.0, requested_qty - allocated_qty),
+            "sourceCount": len(matching),
+            "sourceStatuses": [
+                {
+                    "fulfillmentId": str(f.get("_id") or ""),
+                    "farmerId": str(f.get("farmerId") or ""),
+                    "farmName": f.get("farmName") or f.get("farmerName"),
+                    "allocatedQuantityKg": float(f.get("allocatedQuantityKg") or 0),
+                    "status": str(f.get("status") or "pending"),
+                    "collectionStatus": str(f.get("collectionStatus") or "not_started"),
+                    "warehouseStatus": str(f.get("warehouseStatus") or f.get("receiptStatus") or "not_received"),
+                    "qualityStatus": str(f.get("qualityStatus") or "pending"),
+                }
+                for f in matching
+            ],
+            "status": (
+                "not_sourced" if not matching else
+                "complete" if allocated_qty >= requested_qty and all(
+                    str(f.get("status") or "") not in ("cancelled", "rejected") for f in matching
+                ) else
+                "partially_sourced" if allocated_qty > 0 else "awaiting_allocation"
+            ),
+        })
+
     return {
         "success": True,
         "data": {
             "request": _stringify_request(dict(request)),
             "purchaseMode": request.get("purchaseMode") or "event",
+            "productSummary": product_summary,
             "fulfillments": [await _stringify_event_fulfillment(dict(f)) for f in fulfillments],
             "orders": [await _stringify_order(dict(o)) for o in bulk_orders],
             "deliveryJobs": [serialize_job(j) for j in delivery_jobs],
