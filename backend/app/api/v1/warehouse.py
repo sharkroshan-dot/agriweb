@@ -2200,6 +2200,10 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         "deliveryAssignedBy": ObjectId(str(current_user["_id"])),
         "deliveryPartnerJobId": ObjectId(job_id),
         "deliveryPickupLocation": pickup,
+        # Persist the corrected route so this recovered single-source order
+        # no longer carries the stale multi-warehouse consolidation mode.
+        "logisticsMode": "farmer_to_delivery_partner",
+        "farmerFulfillmentRouteType": "nearby",
         "deliveryDecisionStatus": "partner_pending",
         "partnerAssignmentOpen": False,
         "updatedAt": now,
