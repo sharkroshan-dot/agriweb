@@ -273,6 +273,53 @@ export default function FarmerFulfillmentTransfersPage() {
         <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><strong>Exception path:</strong> If source/customer address, coordinates, district, vehicle capacity, or warehouse assignment is missing, resolve it before dispatch. Never confirm a physical handoff that has not happened.</p>
       </div></CardContent>
     </Card>
+    <Card className="border-sky-200 bg-sky-50/30">
+      <CardHeader className="border-b bg-white/70">
+        <CardTitle className="flex items-center gap-2 text-lg"><ClipboardCheck className="h-5 w-5 text-sky-700"/>Customer Delivery Service & Event Order Flowcharts</CardTitle>
+        <p className="text-sm text-muted-foreground">Operational decision flows for regular customer orders and planned/urgent event orders. Time windows are interpreted in local service time; actual partner availability and ETA must come from live backend data.</p>
+      </CardHeader>
+      <CardContent className="grid gap-4 p-4 xl:grid-cols-2">
+        <section className="rounded-xl border bg-white p-4">
+          <h3 className="font-semibold text-slate-950">A · Regular Customer Order</h3>
+          <div className="mt-3 space-y-2 text-center text-sm">
+            <div className="rounded-lg border-2 border-slate-300 p-3"><strong>Customer checkout → Check stock</strong><p className="mt-1 text-muted-foreground">Out of stock → block order. In stock → continue.</p></div>
+            <div className="text-slate-400">↓</div>
+            <div className="rounded-lg border p-3"><strong>Check delivery service time</strong><p className="mt-1 text-muted-foreground">21:30–06:00 → accept if policy permits and schedule 06:00 delivery. 06:00–21:30 → search available partners.</p></div>
+            <div className="text-slate-400">↓</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>No eligible partner</strong><p className="mt-1 text-muted-foreground">Show the next available time; do not invent a partner.</p></div>
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3"><strong>Partner available</strong><p className="mt-1 text-muted-foreground">Calculate live ETA. ≤30 min: fastest option. &gt;30 min: standard option.</p></div>
+            </div>
+            <div className="text-slate-400">↓</div>
+            <div className="rounded-lg border p-3"><strong>Confirm order → Farmer fulfillment → Packing complete</strong><p className="mt-1 text-muted-foreground">Then follow the Farm-to-Customer Fulfillment Flowchart above for pickup, warehouse/hub transfers, and final delivery.</p></div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild size="sm"><Link href="/checkout">Open Customer Checkout <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
+            <Button size="sm" variant="outline" onClick={()=>{document.getElementById("full-workflow")?.scrollIntoView({behavior:"smooth",block:"start"});}}>Open Fulfillment Flow</Button>
+          </div>
+        </section>
+        <section className="rounded-xl border bg-white p-4">
+          <h3 className="font-semibold text-slate-950">B · Event / Bulk Order</h3>
+          <div className="mt-3 space-y-2 text-center text-sm">
+            <div className="rounded-lg border-2 border-slate-300 p-3"><strong>Create event order</strong><p className="mt-1 text-muted-foreground">Event date · delivery date/time · guest count · products and quantities.</p></div>
+            <div className="text-slate-400">↓</div>
+            <div className="rounded-lg border p-3"><strong>Check time until delivery</strong><p className="mt-1 text-muted-foreground">≤24 hours → urgent event. &gt;24 hours → planned event.</p></div>
+            <div className="text-slate-400">↓</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3"><strong>Urgent event</strong><p className="mt-1 text-muted-foreground">Smart sourcing with availability and delivery deadline checks.</p></div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3"><strong>Planned event</strong><p className="mt-1 text-muted-foreground">Smart sourcing and planned fulfillment before the event deadline.</p></div>
+            </div>
+            <div className="text-slate-400">↓</div>
+            <div className="rounded-lg border p-3"><strong>Source stock → receive/verify portions → consolidate if multiple sources → local hub → final delivery</strong><p className="mt-1 text-muted-foreground">Use consolidation for a single event order that combines products from multiple farmers/warehouses. Confirm each real receipt before the next leg.</p></div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild size="sm"><Link href="/marketplace">Open Marketplace <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
+            <Button asChild size="sm" variant="outline"><Link href="/warehouse/consolidation">Open Multi-Warehouse Consolidation <ArrowRight className="ml-2 h-4 w-4"/></Link></Button>
+          </div>
+          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">The 24-hour event split is shown here as the requested workflow. The event-order creation form, deadline validation, smart-sourcing engine, and live ETA must be connected to their actual business/order APIs before this flow can be considered fully automated.</p>
+        </section>
+      </CardContent>
+    </Card>
     <Card className="border-emerald-200 bg-emerald-50/40">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg"><Route className="h-5 w-5 text-emerald-700"/>Delivery Route Planning</CardTitle>
