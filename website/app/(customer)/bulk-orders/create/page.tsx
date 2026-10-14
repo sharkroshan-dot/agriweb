@@ -10,7 +10,7 @@ import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import toast from "react-hot-toast";
 
-const purposes = ["Wedding", "Birthday", "Function", "Festival", "Family Event", "Other"];
+const purposes = ["Wedding", "Birthday", "Function", "Festival", "Family Event", "Restaurant / Hotel Supply", "Catering", "Retail / Resale", "Institutional Kitchen", "Community Kitchen", "Other"];
 const timeSlots = ["6:00 AM – 9:00 AM", "9:00 AM – 12:00 PM", "12:00 PM – 3:00 PM", "3:00 PM – 6:00 PM", "6:00 PM – 9:00 PM"];
 const grades = ["premium", "standard", "economy"];
 
@@ -25,6 +25,9 @@ export default function CreateBulkOrderPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [purchaseMode, setPurchaseMode] = useState<"event" | "family_weekly">("event");
+  const [buyerCategory, setBuyerCategory] = useState<"individual" | "event_organizer" | "business" | "institution">("event_organizer");
+  const [organizationName, setOrganizationName] = useState("");
+  const [organizationType, setOrganizationType] = useState("");
   const [purpose, setPurpose] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [guestCount, setGuestCount] = useState("");
@@ -76,7 +79,10 @@ export default function CreateBulkOrderPage() {
   const submit = () => {
     const selected = addresses.find((a: any) => String(a.id) === selectedAddress);
     const payload: any = {
-      requestType: "bulk_event",
+      requestType: buyerCategory === "business" || buyerCategory === "institution" ? "b2b" : "bulk_event",
+      buyerCategory,
+      organizationName: organizationName.trim() || undefined,
+      organizationType: organizationType.trim() || undefined,
       purchaseMode,
       purpose: purchaseMode === "family_weekly" ? "Weekly Family Basket" : purpose,
       eventDate: purchaseMode === "event" ? eventDate || undefined : undefined,
@@ -126,9 +132,26 @@ export default function CreateBulkOrderPage() {
       </div>
       <p className="text-sm text-gray-500">
         {isFamilyWeekly
-          ? "Choose the products and quantities you need for one week. AgriConnect will find suitable nearby farmers with live stock."
-          : "Need large quantities for a wedding, function or festival? Send your requirements to eligible farmers and compare their quotes."}
+          ? "Choose the products and quantities your household needs for one week. AgriConnect will find suitable farmers with live stock."
+          : "Create one order containing multiple products. AgriConnect can source portions from several farmers, collect and quality-check them, consolidate the order, and arrange one final delivery."}
       </p>
+      {!isFamilyWeekly && <Card className="border-emerald-100"><CardContent className="space-y-3 p-4">
+        <div><p className="font-semibold text-slate-900">Who is placing this order?</p><p className="text-xs text-slate-500">Choose the buyer type so the request is routed through the correct bulk or B2B sourcing process.</p></div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {([
+            ["individual", "Individual / Household", "Large household or group purchase"],
+            ["event_organizer", "Event Organizer", "Wedding, birthday, festival or function"],
+            ["business", "Business Buyer", "Restaurant, hotel, caterer, retailer or processor"],
+            ["institution", "Institution / Community", "School, college, hospital, hostel or community kitchen"],
+          ] as const).map(([value, title, description]) => <button key={value} type="button" onClick={() => { setBuyerCategory(value); if (value === "individual") setPurpose("Other"); }} className={`rounded-xl border p-3 text-left ${buyerCategory === value ? "border-emerald-500 bg-emerald-50" : "border-slate-200"}`}>
+            <p className="font-semibold">{title}</p><p className="mt-1 text-xs text-slate-500">{description}</p>
+          </button>)}
+        </div>
+        {(buyerCategory === "business" || buyerCategory === "institution") && <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1"><label className="text-sm font-medium">Organization name *</label><Input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} placeholder={buyerCategory === "business" ? "e.g. Green Leaf Hotel" : "e.g. ABC College"} /></div>
+          <div className="space-y-1"><label className="text-sm font-medium">Organization type</label><Input value={organizationType} onChange={(e) => setOrganizationType(e.target.value)} placeholder={buyerCategory === "business" ? "Restaurant, hotel, caterer…" : "School, hospital, hostel…"} /></div>
+        </div>}
+      </CardContent></Card>}
 
       <Card className="border-slate-200 bg-white shadow-sm">
         <CardContent className="space-y-3 p-4">
@@ -153,7 +176,7 @@ export default function CreateBulkOrderPage() {
         <CardContent className="space-y-5 p-6">
           {purchaseMode === "event" && (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">What are you buying for? *</label>
+              <label className="text-sm font-medium text-gray-700">{buyerCategory === "business" ? "Business purchase purpose *" : buyerCategory === "institution" ? "Institutional purchase purpose *" : buyerCategory === "individual" ? "Purchase purpose *" : "What are you buying for? *"}</label>
               <div className="flex flex-wrap gap-2">
                 {purposes.map((p) => (
                   <button
@@ -291,12 +314,14 @@ export default function CreateBulkOrderPage() {
                 <Send className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
                 <div>
                   <p className="font-semibold text-emerald-900">
-                    {urgentEventPreview ? "Urgent Event — Smart Sourcing" : "Planned Event — Request Farmer Quotes"}
+                    {buyerCategory === "business" || buyerCategory === "institution"
+                      ? "B2B / Institutional Sourcing"
+                      : urgentEventPreview ? "Urgent Bulk Order — Smart Sourcing" : "Planned Bulk Order — Farmer Quotes"}
                   </p>
                   <p className="mt-1 text-emerald-800">
                     {urgentEventPreview
-                      ? "Delivery is within 24 hours. AgriConnect will prioritize nearby farmers with live stock and will not wait for quotes."
-                      : "AgriConnect will smart-source suitable farmers first, then send the RFQ to eligible farmers. Distance influences the recommendation but is not a hard requirement."}
+                      ? "Delivery is within 24 hours. AgriConnect prioritizes nearby live stock, then moves each selected source portion through packing, collection, warehouse receipt and quality checks."
+                      : "AgriConnect matches each product to eligible farmers. You can source one product from multiple farms; the workflow tracks every portion and only consolidates the order after all required portions pass receipt and quality checks."}
                   </p>
                 </div>
               </div>
@@ -311,7 +336,7 @@ export default function CreateBulkOrderPage() {
             ) : (
               <Send className="mr-2 h-4 w-4" />
             )}
-            {isFamilyWeekly ? "Find Available Farmers" : urgentEventPreview ? "Find Available Stock" : "Request Quotes"}
+            {isFamilyWeekly ? "Find Available Farmers" : urgentEventPreview ? "Find Available Stock" : buyerCategory === "business" || buyerCategory === "institution" ? "Find Suppliers / Request Quotes" : "Request Quotes"}
           </Button>
         </CardContent>
       </Card>
