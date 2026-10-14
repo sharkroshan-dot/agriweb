@@ -2089,6 +2089,122 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "isConsolidationWarehouse": str(order.get("consolidationWarehouseId") or "") == str(warehouse["_id"]),
             "deliveryPartnerJobId": order.get("deliveryPartnerJobId"),
         })
+    # Event/business bulk orders are stored in bulk_requests + event_fulfillments,
+    # not the standard orders collection. Include them in this same operational
+    # screen so warehouse staff can track every farmer/product portion.
+    bulk_requests = MongoDB.get_collection("bulk_requests")
+    event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
+    event_requests = await bulk_requests.find({
+        "deletedAt": None,
+        "$or": [
+            {"eventWarehouseId": {"$in": warehouse_refs}},
+            {"eventLocalHubId": {"$in": warehouse_refs}},
+        ],
+        "eventSourcingStatus": {"$nin": ["cancelled"]},
+        "status": {"$nin": ["cancelled"]},
+    }).sort("updatedAt", -1).limit(200).to_list(length=200)
+    for request in event_requests:
+        event_warehouse_id = str(request.get("eventWarehouseId") or "")
+        local_hub_id = str(request.get("eventLocalHubId") or "")
+        is_event_consolidation_warehouse = event_warehouse_id == warehouse_id
+        is_event_local_hub = local_hub_id == warehouse_id
+        fulfillments = await event_fulfillments_collection.find({
+            "requestId": request["_id"], "deletedAt": None,
+        }).to_list(length=500)
+        if not fulfillments:
+            continue
+        incoming_rows = await incoming_stock_repository.find_many({
+            "eventRequestId": request["_id"], "deletedAt": None,
+        }, skip=0, limit=1000)
+        incoming_by_fulfillment = {
+            str(row.get("eventFulfillmentId")): row
+            for row in incoming_rows if row.get("eventFulfillmentId")
+        }
+        portions = []
+        stored_count = 0
+        for fulfillment in fulfillments:
+            fid = str(fulfillment.get("_id") or "")
+            incoming_row = incoming_by_fulfillment.get(fid) or {}
+            fulfillment_status = str(fulfillment.get("status") or "pending_farmer_confirmation")
+            actual_received = incoming_row.get("quantityReceived")
+            if actual_received is None:
+                actual_received = incoming_row.get("receivedQuantity")
+            if actual_received is None:
+                actual_received = incoming_row.get("actualQuantityReceived")
+            actual_received = float(actual_received or 0)
+            required_qty = float(fulfillment.get("allocatedQuantityKg") or 0)
+            quality_status = str(incoming_row.get("qualityCheck") or "pending")
+            is_stored = fulfillment_status == "stored" and str(incoming_row.get("status") or "").lower() == "stored" and quality_status.lower() == "passed" and actual_received + 1e-9 >= required_qty
+            if is_stored:
+                stored_count += 1
+            farmer = await farmer_repository.find_one({"userId": fulfillment.get("farmerId")}) if fulfillment.get("farmerId") else None
+            portion_status = (
+                "stored_at_consolidation" if is_stored else
+                "warehouse_received" if fulfillment_status == "warehouse_received" else
+                "quality_check" if str(incoming_row.get("status") or "").lower() in ("quality_check", "quality_check_pending") else
+                "received_at_warehouse" if str(incoming_row.get("status") or "").lower() == "received" else
+                "ready_for_collection" if fulfillment_status == "ready_for_collection" else
+                fulfillment_status
+            )
+            portions.append({
+                "sourceWarehouseId": str(fulfillment.get("farmerId") or ""),
+                "sourceWarehouseName": fulfillment.get("farmName") or (farmer or {}).get("farmName") or "Farmer source",
+                "farmerName": (farmer or {}).get("farmName") or "Farmer",
+                "farmerId": str(fulfillment.get("farmerId") or ""),
+                "productId": str(fulfillment.get("productId") or ""),
+                "productName": fulfillment.get("productName") or "Product",
+                "requiredQuantity": required_qty,
+                "unit": "kg",
+                "receivedQuantity": actual_received,
+                "acceptedQuantity": float(incoming_row.get("usableQuantity") or incoming_row.get("acceptedQuantity") or 0),
+                "qualityStatus": quality_status,
+                "collectionStatus": fulfillment.get("collectionStatus") or "pending",
+                "incomingStatus": incoming_row.get("status") or "not_created",
+                "transferLegId": fid,
+                "transferStatus": str(request.get("eventLocalHubStatus") or portion_status),
+                "portionStatus": portion_status,
+                "shortageQuantity": max(0.0, required_qty - actual_received),
+                "incomingRecordIds": [str(incoming_row.get("_id"))] if incoming_row.get("_id") else [],
+                "eventFulfillmentId": fid,
+                "eventFulfillmentStatus": fulfillment_status,
+            })
+        all_stored = len(fulfillments) > 0 and stored_count == len(fulfillments)
+        result.append({
+            "orderId": str(request["_id"]),
+            "requestId": str(request["_id"]),
+            "orderNumber": request.get("requestNumber") or str(request["_id"]),
+            "buyerName": request.get("buyerName") or "Customer / Business",
+            "buyerType": request.get("buyerType") or request.get("requestType") or "event",
+            "isEventOrder": True,
+            "isConsolidationWarehouse": is_event_consolidation_warehouse,
+            "isLocalHub": is_event_local_hub,
+            "canDispatchToConsolidation": False,
+            "warehouseCount": len({str(x.get("farmerId")) for x in fulfillments if x.get("farmerId")}),
+            "productPortions": portions,
+            "consolidationLegs": [],
+            "totalConsolidationLegCount": len(fulfillments),
+            "receivedConsolidationLegCount": stored_count,
+            "allWarehousesReceived": all_stored,
+            "allConsolidationLegsReceived": all_stored,
+            "hasInTransitConsolidationLegs": False,
+            "consolidationStatus": request.get("eventConsolidationStatus") or "pending_collection",
+            "transferStatus": request.get("eventLocalHubStatus") or request.get("eventDeliveryStatus"),
+            "localHubStatus": request.get("eventLocalHubStatus"),
+            "localHubName": request.get("eventLocalHubName"),
+            "localHubId": local_hub_id or None,
+            "consolidationWarehouseId": event_warehouse_id or None,
+            "consolidationWarehouseName": request.get("eventWarehouseName") or "Event consolidation warehouse",
+            "isEventLocalHub": is_event_local_hub,
+            "eventDeliveryJobId": str(request.get("eventDeliveryJobId") or "") or None,
+            "deliveryJobId": str(request.get("eventDeliveryJobId") or "") or None,
+            "deliveryPartnerId": str(request.get("deliveryPartnerId") or "") or None,
+            "deliveryAddress": request.get("deliveryAddress") or {},
+            "requestedDeliveryDate": request.get("requestedDeliveryDate"),
+            "requestedDeliveryTime": request.get("requestedDeliveryTime"),
+            "eventStatus": request.get("eventDeliveryStatus"),
+            "eventRequestStatus": request.get("status"),
+            "allEventPortionsStored": all_stored,
+        })
     return {"success": True, "data": {"consolidations": result}}
 
 
