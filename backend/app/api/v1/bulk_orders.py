@@ -1588,6 +1588,47 @@ async def update_event_fulfillment_status(
             if not manager_warehouse or str(request_for_warehouse.get("eventWarehouseId")) != str(manager_warehouse["_id"]):
                 raise HTTPException(status_code=403, detail="This fulfillment is not assigned to your warehouse")
 
+    # Warehouse milestones must be backed by the actual Incoming Stock
+    # record. The status endpoint must not let a user skip physical receipt,
+    # quality inspection, or storage by posting a later event status directly.
+    if new_status in ("warehouse_received", "stored"):
+        incoming_record = await incoming_stock_repository.find_one({
+            "eventFulfillmentId": fulfillment["_id"],
+            "deletedAt": None,
+        })
+        if not incoming_record:
+            raise HTTPException(
+                status_code=409,
+                detail="No farm-collection shipment exists for this fulfillment. Mark the farmer portion ready for collection first.",
+            )
+        if not incoming_record.get("arrivedWarehouseAt"):
+            raise HTTPException(
+                status_code=409,
+                detail="The shipment has not been physically marked as arrived at the assigned warehouse.",
+            )
+        incoming_status = str(incoming_record.get("status") or "").strip().lower()
+        if new_status == "warehouse_received" and incoming_status not in ("received", "stored"):
+            raise HTTPException(
+                status_code=409,
+                detail="Confirm the actual physical quantity in Incoming Stock before recording warehouse receipt.",
+            )
+        if new_status == "stored":
+            if incoming_status != "stored" or str(incoming_record.get("qualityCheck") or "").lower() != "passed":
+                raise HTTPException(
+                    status_code=409,
+                    detail="Approve the quality check and store the received portion in Incoming Stock before marking it stored.",
+                )
+            actual_received = incoming_record.get("quantityReceived")
+            if actual_received is None:
+                actual_received = incoming_record.get("receivedQuantity")
+            if actual_received is None:
+                actual_received = incoming_record.get("actualQuantityReceived")
+            if float(actual_received or 0) + 1e-9 < float(fulfillment.get("allocatedQuantityKg") or 0):
+                raise HTTPException(
+                    status_code=409,
+                    detail="The physically received quantity is below the reserved fulfillment quantity. Resolve the discrepancy before storage.",
+                )
+
     if new_status == "cancelled":
         if current not in ("pending_farmer_confirmation", "accepted"):
             raise HTTPException(status_code=400, detail="Event fulfillment can only be declined before packing starts")
