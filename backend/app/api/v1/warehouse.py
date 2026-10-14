@@ -480,11 +480,7 @@ async def get_farmer_fulfillment_transfers(
     query: Dict[str, Any] = {
         "$and": [
             {"deletedAt": None},
-            {"orderStatus": (
-                {"$in": ["delivered", "completed"]}
-                if include_completed
-                else {"$nin": ["delivered", "completed", "cancelled", "refunded"]}
-            )},
+            ({} if include_completed else {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}}),
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
@@ -617,10 +613,13 @@ async def get_farmer_fulfillment_transfers(
             )
             or packed_receipt
         )
-        terminal_statuses = ("delivered", "completed") if include_completed else ("delivered", "completed", "cancelled", "refunded")
-        if not is_farmer_transfer or linked_status in terminal_statuses and not include_completed:
-            continue
-        if include_completed and linked_status not in ("delivered", "completed"):
+        # The history/progress view intentionally includes in-flight transfers
+        # as well as delivered orders. The operational queue (default) hides
+        # terminal orders, but history must preserve every real workflow stage.
+        if not is_farmer_transfer or (
+            linked_status in ("delivered", "completed", "cancelled", "refunded")
+            and not include_completed
+        ):
             continue
         packed_incoming_by_order.setdefault(linked_order_id, []).append(incoming_row)
         if linked_order_id not in known_order_ids:
@@ -1265,7 +1264,7 @@ async def get_farmer_fulfillment_transfers(
     pending_unassigned = await order_repository.find_many({
         "$and": [
             {"deletedAt": None},
-            {"orderStatus": ({"$in": ["delivered", "completed"]} if include_completed else {"$nin": ["delivered", "completed", "cancelled", "refunded"]})},
+            ({} if include_completed else {"orderStatus": {"$nin": ["delivered", "completed", "cancelled", "refunded"]}}),
             {"$or": [
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
                 {"fulfillment_route": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}},
