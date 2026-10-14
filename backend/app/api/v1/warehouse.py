@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+import math
 from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from bson import ObjectId
@@ -962,7 +963,6 @@ async def get_farmer_fulfillment_transfers(
         # (the screenshot showed an implausible 8706.4 km for a local route).
         calculated_distance_km = None
         if source_point and customer_point:
-            import math
             lat1, lon1 = source_point
             lat2, lon2 = customer_point
             p1, p2 = math.radians(lat1), math.radians(lat2)
