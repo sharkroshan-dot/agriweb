@@ -46,6 +46,7 @@ export default function BulkOrderTrackingPage() {
   const current = tracking.currentStage === "cancelled" ? -1 : stageIndex(tracking.currentStage);
   const isWeekly = tracking.purchaseMode === "family_weekly";
   const fulfillments = tracking.fulfillments || [];
+  const productSummary = tracking.productSummary || [];
   const jobs = tracking.deliveryJobs || [];
   const collected = fulfillments.filter((f: any) => ["collected", "warehouse_received", "stored"].includes(f.status)).length;
   const totalFulfillments = fulfillments.length;
@@ -99,6 +100,42 @@ export default function BulkOrderTrackingPage() {
                 </div>
               );
             })}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div><h2 className="text-lg font-semibold">All Products in This Order</h2><p className="text-sm text-slate-500">Requested quantity, source allocation, and fulfillment status for each product.</p></div>
+            <Badge variant="outline">{productSummary.length || request.items?.length || 0} products</Badge>
+          </div>
+          <div className="space-y-3">
+            {(productSummary.length ? productSummary : (request.items || []).map((item: any) => ({
+              productName: item.name, category: item.category, qualityGrade: item.qualityGrade,
+              requestedQuantityKg: item.quantityKg, allocatedQuantityKg: 0,
+              remainingQuantityKg: item.quantityKg, sourceCount: 0, sourceStatuses: [], status: "not_sourced",
+            }))).map((product: any, index: number) => (
+              <div key={String(product.productName) + "-" + index} className="rounded-xl border p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div><p className="font-semibold text-slate-900">{product.productName || "Product"}</p>
+                    <p className="mt-1 text-sm text-slate-500">{product.category || "General"}{product.qualityGrade ? " · " + product.qualityGrade + " quality" : ""}</p></div>
+                  <Badge variant={product.status === "complete" ? "success" : product.status === "not_sourced" ? "destructive" : "secondary"}>{String(product.status || "pending").replace(/_/g, " ")}</Badge>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                  <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Requested</p><p className="font-semibold">{Number(product.requestedQuantityKg || 0).toLocaleString()} kg</p></div>
+                  <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Allocated to farmers</p><p className="font-semibold">{Number(product.allocatedQuantityKg || 0).toLocaleString()} kg</p></div>
+                  <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Still to source</p><p className="font-semibold">{Number(product.remainingQuantityKg ?? Math.max(0, Number(product.requestedQuantityKg || 0) - Number(product.allocatedQuantityKg || 0))).toLocaleString()} kg</p></div>
+                  <div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Source portions</p><p className="font-semibold">{product.sourceCount || 0}</p></div>
+                </div>
+                {(product.sourceStatuses || []).length > 0 ? <div className="mt-3 space-y-2">
+                  {(product.sourceStatuses || []).map((source: any) => <div key={source.fulfillmentId || source.farmerId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3 text-sm">
+                    <div><p className="font-medium">{source.farmName || "Assigned farmer"}</p><p className="text-xs text-slate-500">{Number(source.allocatedQuantityKg || 0).toLocaleString()} kg · Collection: {String(source.collectionStatus || "not started").replace(/_/g, " ")} · Warehouse: {String(source.warehouseStatus || "not received").replace(/_/g, " ")} · Quality: {String(source.qualityStatus || "pending").replace(/_/g, " ")}</p></div>
+                    <Badge variant="outline">{String(source.status || "pending").replace(/_/g, " ")}</Badge>
+                  </div>)}
+                </div> : <p className="mt-3 text-sm text-amber-700">No farmer/source portion allocated yet.</p>}
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
