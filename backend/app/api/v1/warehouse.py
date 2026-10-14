@@ -1042,9 +1042,18 @@ async def get_farmer_fulfillment_transfers(
             str(order.get("deliveryDecision") or "").strip().lower(),
             str(order.get("deliveryPartnerRoute") or "").strip().lower(),
         }
+        # Legacy records incorrectly tagged for consolidation may still be
+        # single-source direct-delivery orders. Once the persisted source data
+        # proves there is only one source, use the measured route (15 km default)
+        # instead of letting that stale mode hide Nearby eligibility.
         direct_delivery_configured = bool(
             "farmer_to_delivery_partner" in direct_delivery_mode_values
             or direct_delivery_mode_values.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"})
+            or (
+                str(order.get("logisticsMode") or "").strip().lower()
+                == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+                and not is_multi_warehouse_order
+            )
         )
         allocation_warehouse_ids = {
             str(allocation.get("warehouseId") or allocation.get("sourceWarehouseId") or "")
@@ -2040,6 +2049,16 @@ async def assign_nearby_farmer_fulfillment_delivery_partner(
         "farmer_to_delivery_partner" in direct_modes
         or bool(direct_modes.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"}))
     )
+    # Permit recovery of a legacy single-source order that was mistakenly
+    # stamped as multi-warehouse. The measured route below still enforces the
+    # configured 15 km Nearby threshold, and receipt/partner validations remain.
+    if not direct_delivery_configured and logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        allocations = order.get("warehouseAllocations") if isinstance(order.get("warehouseAllocations"), list) else []
+        allocation_sources = {str(a.get("warehouseId") or a.get("sourceWarehouseId") or "") for a in allocations if isinstance(a, dict)}
+        declared_sources = {str(x) for x in (order.get("warehouseIds") or []) if x}
+        item_sources = {str(i.get("sourceWarehouseId") or i.get("warehouseId") or "") for i in (order.get("items") or []) if isinstance(i, dict) and (i.get("sourceWarehouseId") or i.get("warehouseId"))}
+        distinct_sources = allocation_sources or declared_sources or item_sources
+        direct_delivery_configured = len(distinct_sources) <= 1
     if not direct_delivery_configured:
         raise HTTPException(status_code=409, detail="This order is not configured for direct warehouse-to-customer delivery. Use the local-hub or destination-warehouse route instead.")
     if str(order.get("deliveryType") or "").strip().lower() == "pickup":
