@@ -56,7 +56,15 @@ export default function LoginPage() {
       const raw = window.localStorage.getItem("agri_saved_emails");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setSavedEmails(parsed.filter((e) => typeof e === "string").slice(0, 10));
+        if (Array.isArray(parsed)) {
+          const emails = [...new Set(
+            parsed
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim().toLowerCase())
+              .filter(Boolean),
+          )].slice(0, 10);
+          setSavedEmails(emails);
+        }
       }
     } catch {}
   }, []);
@@ -64,13 +72,11 @@ export default function LoginPage() {
   function saveEmail(emailValue: string) {
     const clean = emailValue.trim().toLowerCase();
     if (!clean) return;
-    setSavedEmails((prev) => {
-      const next = [clean, ...prev.filter((e) => e !== clean)].slice(0, 10);
-      try {
-        window.localStorage.setItem("agri_saved_emails", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    const next = [clean, ...savedEmails.filter((savedEmail) => savedEmail !== clean)].slice(0, 10);
+    setSavedEmails(next);
+    try {
+      window.localStorage.setItem("agri_saved_emails", JSON.stringify(next));
+    } catch {}
   }
 
   useEffect(() => {
@@ -112,6 +118,7 @@ export default function LoginPage() {
     event.preventDefault();
     setIsLoading(true);
     setError("");
+    saveEmail(email);
 
     const result = await signIn("credentials", {
       email,
@@ -119,9 +126,7 @@ export default function LoginPage() {
       role,
       redirect: false,
     });
-
     if (result?.ok) {
-      saveEmail(email);
       await updateSession();
       router.push(callbackUrl || `/${role}/dashboard`);
       return;

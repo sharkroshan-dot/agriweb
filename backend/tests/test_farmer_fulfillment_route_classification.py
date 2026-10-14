@@ -1,4 +1,8 @@
-from app.services.logistics_routing_service import classify_farmer_fulfillment_route
+from app.services.logistics_routing_service import (
+    _warehouse_available_capacity,
+    _warehouse_serves_district,
+    classify_farmer_fulfillment_route,
+)
 
 
 def test_nearby_route_requires_direct_delivery_configuration():
@@ -20,3 +24,22 @@ def test_same_district_route_requires_distance_beyond_threshold():
 
 def test_multi_warehouse_route_is_not_overridden_by_distance_or_delivery_mode():
     assert classify_farmer_fulfillment_route(5, 15, "north", "south", True, True) == "multi_warehouse"
+
+
+def test_warehouse_capacity_uses_total_minus_used_over_stale_available_value():
+    assert _warehouse_available_capacity({
+        "totalCapacity": 100,
+        "usedCapacity": 35,
+        "availableCapacity": 0,
+    }) == 65
+
+
+def test_warehouse_capacity_uses_legacy_available_value_when_total_is_missing():
+    assert _warehouse_available_capacity({"availableCapacity": 25}) == 25
+
+
+def test_warehouse_matches_district_in_free_text_address():
+    assert _warehouse_serves_district(
+        {"address": {"fullAddress": "Perambalur, Tamil Nadu, India"}},
+        "Perambalur",
+    )

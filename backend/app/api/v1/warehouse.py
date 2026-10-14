@@ -1134,6 +1134,18 @@ async def get_farmer_fulfillment_transfers(
             and (not receipt_rows or len(fully_received_lines) == len(receipt_rows))
         )
 
+        destination_transfer = None
+        if logistics_mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+            destination_transfer = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find_one({
+                "orderId": order["_id"],
+                "legType": "warehouse_to_destination_warehouse",
+                "deletedAt": None,
+            })
+        local_hub_transfer = await MongoDB.get_collection("farmer_fulfillment_hub_transfers").find_one({
+            "orderId": order["_id"],
+            "deletedAt": None,
+        })
+
         result.append({
             "id": str(order["_id"]),
             "orderNumber": order.get("orderNumber"),
@@ -1147,6 +1159,11 @@ async def get_farmer_fulfillment_transfers(
             "sourceWarehouseName": order.get("sourceWarehouseName") or (order.get("warehouseName") if is_source_warehouse and not is_allocated_source_warehouse else (warehouse.get("name") or warehouse.get("warehouseName") if is_allocated_source_warehouse else None)),
             "destinationWarehouseId": destination_warehouse_id or None,
             "destinationWarehouseName": order.get("destinationWarehouseName"),
+            "destinationWarehouseDistrict": order.get("destinationWarehouseDistrict"),
+            "destinationWarehouseRegionalFallback": bool(order.get("destinationWarehouseRegionalFallback")),
+            "destinationWarehouseCapacityOverrideRequired": bool(order.get("destinationWarehouseCapacityOverrideRequired")),
+            "destinationWarehouseAvailableCapacity": order.get("destinationWarehouseAvailableCapacity"),
+            "destinationWarehouseRequiredCapacity": order.get("destinationWarehouseRequiredCapacity"),
             "currentWarehouseRole": "destination" if is_destination_warehouse else ("source" if is_source_warehouse else ("consolidation" if is_consolidation_warehouse else "assigned")) ,
             "deliveryPartnerId": str(order.get("deliveryPartnerId")) if order.get("deliveryPartnerId") else None,
             "routeDistanceKm": calculated_distance_km,
@@ -1168,6 +1185,9 @@ async def get_farmer_fulfillment_transfers(
             "isConsolidationWarehouse": is_consolidation_warehouse,
             "consolidation": consolidation,
             "transferStatus": order.get("transferStatus"),
+            "destinationTransferStatus": (destination_transfer or {}).get("status"),
+            "localHubTransferStatus": (local_hub_transfer or {}).get("status"),
+            "localHubTransferAssigned": bool((local_hub_transfer or {}).get("assignedDeliveryPartnerId")),
             "sourceTransfer": {
                 "legCount": len(source_legs),
                 "inTransitLegs": sum(1 for x in source_legs if str(x.get("status") or "") == "in_transit"),
@@ -2270,6 +2290,9 @@ async def assign_farmer_fulfillment_destination_warehouse(
                 "destinationWarehouseId": existing_destination_id,
                 "destinationWarehouseName": order.get("destinationWarehouseName"),
                 "destinationDistrict": order.get("destinationDistrict"),
+                "destinationWarehouseDistrict": order.get("destinationWarehouseDistrict"),
+                "destinationWarehouseRegionalFallback": bool(order.get("destinationWarehouseRegionalFallback")),
+                "destinationWarehouseCapacityOverrideRequired": bool(order.get("destinationWarehouseCapacityOverrideRequired")),
                 "alreadyAssigned": True,
             },
             "message": "A destination warehouse is already assigned.",
@@ -2282,14 +2305,33 @@ async def assign_farmer_fulfillment_destination_warehouse(
         customer_district,
         required_capacity=required_capacity,
         exclude_warehouse_id=source_id,
+        allow_capacity_override=True,
     )
     if not destination:
         raise HTTPException(
             status_code=409,
-            detail="No active warehouse in the customer delivery district has enough available capacity. Configure the district warehouse before creating an inter-district transfer.",
+            detail="No active destination warehouse other than the source warehouse is available. Add or activate the warehouse serving the customer district; a warehouse with a capacity shortfall can be assigned with explicit confirmation.",
         )
     destination_id = str(destination["_id"])
     destination_address = destination.get("address") if isinstance(destination.get("address"), dict) else {}
+    destination_location = destination.get("location") if isinstance(destination.get("location"), dict) else {}
+    destination_warehouse_district = str(
+        destination.get("district")
+        or destination.get("city")
+        or destination_address.get("district")
+        or destination_address.get("city")
+        or destination_location.get("district")
+        or destination_location.get("city")
+        or ""
+    ).strip()
+    regional_fallback = bool(destination.get("_districtFallback"))
+    capacity_override_required = bool(destination.get("_capacityOverride"))
+    available_capacity = destination.get("_availableCapacity")
+    capacity_message = (
+        f"Capacity override required: {destination.get('name') or destination.get('warehouseName') or 'Selected warehouse'} has {float(available_capacity or 0):g} available capacity but this order requires {required_capacity:g}. Confirm the warehouse can physically receive this sealed shipment before dispatch."
+        if capacity_override_required
+        else ""
+    )
     now = datetime.utcnow()
     destination_name = destination.get("name") or destination.get("warehouseName") or "Destination Warehouse"
     destination_location = destination.get("location") or destination.get("coordinates")
@@ -2308,7 +2350,13 @@ async def assign_farmer_fulfillment_destination_warehouse(
         "destinationWarehouseId": ObjectId(destination_id),
         "destinationWarehouseName": destination_name,
         "destinationWarehouseLocation": destination_location,
-        "destinationDistrict": resolved_destination_district,
+        "destinationDistrict": customer_district,
+        "destinationWarehouseDistrict": destination_warehouse_district or None,
+        "destinationWarehouseRegionalFallback": regional_fallback,
+        "destinationWarehouseCapacityOverrideRequired": capacity_override_required,
+        "destinationWarehouseAvailableCapacity": available_capacity,
+        "destinationWarehouseRequiredCapacity": required_capacity,
+        "destinationWarehouseCapacityOverrideConfirmed": False,
         "destinationWarehouseAssignedAt": now,
         "destinationWarehouseAssignedBy": ObjectId(str(current_user["_id"])),
         "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
@@ -2361,26 +2409,53 @@ async def assign_farmer_fulfillment_destination_warehouse(
         order_id,
         "destination_warehouse_assigned",
         "Destination warehouse assigned",
-        f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected using the customer delivery district and available capacity.",
+        (
+            f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was assigned with a capacity override; manager confirmation is required before dispatch."
+            if capacity_override_required
+            else f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected with available capacity."
+            + (" as a regional fallback because no eligible warehouse serves the customer district." if regional_fallback else " using the customer delivery district.")
+        ),
         actor_id=str(current_user["_id"]),
         actor_role="warehouse",
-        metadata={"sourceWarehouseId": source_id, "destinationWarehouseId": destination_id},
+        metadata={
+            "sourceWarehouseId": source_id,
+            "destinationWarehouseId": destination_id,
+            "customerDistrict": customer_district,
+            "destinationWarehouseDistrict": destination_warehouse_district or None,
+            "regionalFallback": regional_fallback,
+            "capacityOverrideRequired": capacity_override_required,
+            "availableCapacity": available_capacity,
+            "requiredCapacity": required_capacity,
+        },
     )
     return {
         "success": True,
         "data": {
             "destinationWarehouseId": destination_id,
             "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
-            "destinationDistrict": destination.get("district") or destination_address.get("district") or customer_district,
+            "destinationDistrict": customer_district,
+            "destinationWarehouseDistrict": destination_warehouse_district or None,
+            "destinationWarehouseRegionalFallback": regional_fallback,
+            "destinationWarehouseCapacityOverrideRequired": capacity_override_required,
+            "destinationWarehouseAvailableCapacity": available_capacity,
+            "destinationWarehouseRequiredCapacity": required_capacity,
             "alreadyAssigned": False,
         },
-        "message": "Destination warehouse assigned from the customer delivery district. Confirm the transfer manifest before dispatch.",
+        "message": (
+            capacity_message
+            or (
+                "A regional destination warehouse with sufficient capacity was assigned. Confirm the destination with operations before dispatch."
+                if regional_fallback
+                else "Destination warehouse assigned from the customer delivery district. Confirm the transfer manifest before dispatch."
+            )
+        ),
     }
 
 
 @router.post("/me/farmer-fulfillment/{order_id}/dispatch-to-destination")
 async def dispatch_farmer_fulfillment_to_destination(
     order_id: str,
+    capacityOverrideConfirmed: bool = Query(False),
     current_user: dict = Depends(get_current_user),
 ):
     """Dispatch a sealed farmer-packed order from source to destination warehouse."""
@@ -2402,6 +2477,13 @@ async def dispatch_farmer_fulfillment_to_destination(
         raise HTTPException(status_code=400, detail="A different destination warehouse must be assigned before dispatch")
     if warehouse_id != source_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this order")
+    capacity_override_required = bool(order.get("destinationWarehouseCapacityOverrideRequired"))
+    if capacity_override_required:
+        if not capacityOverrideConfirmed:
+            raise HTTPException(
+                status_code=409,
+                detail="The selected destination is below its configured capacity. Confirm that it can physically receive this sealed shipment before dispatch.",
+            )
     incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
     def _complete_transfer_receipt(row: dict) -> bool:
         receipt_status = str(row.get("status") or "").strip().lower()
@@ -2418,6 +2500,28 @@ async def dispatch_farmer_fulfillment_to_destination(
             return False
     if not incoming or any(not _complete_transfer_receipt(row) for row in incoming):
         raise HTTPException(status_code=400, detail="Physically receive the complete farmer-packed shipment before dispatch")
+    if capacity_override_required:
+        confirmed_at = datetime.utcnow()
+        await order_repository.update({"_id": ObjectId(order_id)}, {
+            "destinationWarehouseCapacityOverrideRequired": False,
+            "destinationWarehouseCapacityOverrideConfirmed": True,
+            "destinationWarehouseCapacityOverrideConfirmedAt": confirmed_at,
+            "destinationWarehouseCapacityOverrideConfirmedBy": ObjectId(str(current_user["_id"])),
+            "updatedAt": confirmed_at,
+        })
+        await order_repository.append_tracking_event(
+            order_id,
+            "destination_warehouse_capacity_override_confirmed",
+            "Destination capacity override confirmed",
+            "The warehouse manager confirmed that the destination can physically receive the sealed shipment.",
+            actor_id=str(current_user["_id"]),
+            actor_role="warehouse",
+            metadata={
+                "destinationWarehouseId": destination_id,
+                "availableCapacity": order.get("destinationWarehouseAvailableCapacity"),
+                "requiredCapacity": order.get("destinationWarehouseRequiredCapacity"),
+            },
+        )
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
     leg = await legs.find_one({
         "orderId": ObjectId(order_id),

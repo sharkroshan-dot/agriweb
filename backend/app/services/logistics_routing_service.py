@@ -542,7 +542,7 @@ def _warehouse_serves_district(warehouse: Dict[str, Any], district: str) -> bool
     import re
     for value in text_values:
         normalized_text = _normalized_district(value)
-        if normalized_text == normalized or re.search(rf"\\b{re.escape(normalized)}\\b", normalized_text):
+        if normalized_text == normalized or re.search(rf"\b{re.escape(normalized)}\b", normalized_text):
             return True
 
     service_areas = (
@@ -559,10 +559,43 @@ def _warehouse_serves_district(warehouse: Dict[str, Any], district: str) -> bool
     return False
 
 
+def _warehouse_available_capacity(warehouse: Dict[str, Any]) -> Optional[float]:
+    def _number(*values):
+        for value in values:
+            if value is None or value == "":
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    total_capacity = _number(
+        warehouse.get("totalCapacity"), warehouse.get("total_capacity"),
+        warehouse.get("storageCapacity"), warehouse.get("storage_capacity"),
+        warehouse.get("capacity"), warehouse.get("capacityKg"), warehouse.get("capacity_kg"),
+        warehouse.get("maxCapacity"), warehouse.get("max_capacity"),
+        warehouse.get("warehouseCapacity"), warehouse.get("warehouse_capacity"),
+        warehouse.get("capacityLimit"), warehouse.get("capacity_limit"),
+    )
+    used_capacity = _number(
+        warehouse.get("usedCapacity"), warehouse.get("used_capacity"),
+        warehouse.get("currentUsage"), warehouse.get("current_usage"),
+    ) or 0.0
+    if total_capacity is not None:
+        return max(0.0, total_capacity - used_capacity)
+
+    return _number(
+        warehouse.get("availableCapacity"), warehouse.get("available_capacity"),
+        warehouse.get("availableCapacityKg"), warehouse.get("available_capacity_kg"),
+    )
+
+
 async def warehouse_for_district(
     district: str,
     required_capacity: float = 0,
     exclude_warehouse_id: Optional[str] = None,
+    allow_capacity_override: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Find an active warehouse serving a district with enough available capacity.
 
@@ -577,16 +610,7 @@ async def warehouse_for_district(
     collection = MongoDB.get_collection("warehouses")
     docs = await collection.find({}).to_list(length=2000)
     matches = []
-
-    def _number(*values):
-        for value in values:
-            if value is None or value == "":
-                continue
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                continue
-        return None
+    over_capacity_district_matches = []
 
     def _is_active(doc: Dict[str, Any]) -> bool:
         status_value = str(doc.get("status") or doc.get("approvalStatus") or "").strip().lower()
@@ -625,29 +649,17 @@ async def warehouse_for_district(
             # unavailable; do not turn a temporary sync error into an unhandled 500.
             pass
 
-        total_capacity = _number(
-            doc.get("totalCapacity"), doc.get("total_capacity"),
-            doc.get("storageCapacity"), doc.get("storage_capacity"),
-            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),
-            doc.get("maxCapacity"), doc.get("max_capacity"),
-            doc.get("warehouseCapacity"), doc.get("warehouse_capacity"),
-            doc.get("capacityLimit"), doc.get("capacity_limit"),
-        )
-        used_capacity = _number(
-            doc.get("usedCapacity"), doc.get("used_capacity"),
-            doc.get("currentUsage"), doc.get("current_usage"),
-        ) or 0.0
-        available = _number(
-            doc.get("availableCapacity"), doc.get("available_capacity"),
-            doc.get("availableCapacityKg"), doc.get("available_capacity_kg"),
-        )
-        if available is None and total_capacity is not None:
-            available = total_capacity - used_capacity
+        available = _warehouse_available_capacity(doc)
         # Some older warehouse profiles have no capacity field at all. Do not
         # permanently block a sealed, already-received customer order solely
         # because the legacy profile lacks the newer capacity schema. If a
         # capacity value is present, it must still be sufficient.
         if available is not None and available + 1e-9 < float(required_capacity or 0):
+            if allow_capacity_override:
+                doc["_availableCapacity"] = available
+                doc["_requiredCapacity"] = float(required_capacity or 0)
+                doc["_capacityOverride"] = True
+                over_capacity_district_matches.append(doc)
             continue
         matches.append(doc)
 
@@ -661,6 +673,7 @@ async def warehouse_for_district(
     # annotate the selected record so the caller/UI can disclose that it is a
     # regional fallback and staff can confirm the destination before dispatch.
     fallback_matches = []
+    over_capacity_fallback_matches = []
     for doc in docs:
         doc_id = str(doc.get("_id") or "")
         if exclude_warehouse_id and doc_id == str(exclude_warehouse_id):
@@ -674,30 +687,37 @@ async def warehouse_for_district(
                 doc = refreshed
         except Exception:
             pass
-        total_capacity = _number(
-            doc.get("totalCapacity"), doc.get("total_capacity"),
-            doc.get("storageCapacity"), doc.get("storage_capacity"),
-            doc.get("capacity"), doc.get("capacityKg"), doc.get("capacity_kg"),
-            doc.get("maxCapacity"), doc.get("max_capacity"),
-            doc.get("warehouseCapacity"), doc.get("warehouse_capacity"),
-            doc.get("capacityLimit"), doc.get("capacity_limit"),
-        )
-        used_capacity = _number(
-            doc.get("usedCapacity"), doc.get("used_capacity"),
-            doc.get("currentUsage"), doc.get("current_usage"),
-        ) or 0.0
-        available = _number(
-            doc.get("availableCapacity"), doc.get("available_capacity"),
-            doc.get("availableCapacityKg"), doc.get("available_capacity_kg"),
-        )
-        if available is None and total_capacity is not None:
-            available = total_capacity - used_capacity
+        available = _warehouse_available_capacity(doc)
         if available is not None and available + 1e-9 < float(required_capacity or 0):
+            if allow_capacity_override:
+                doc["_availableCapacity"] = available
+                doc["_requiredCapacity"] = float(required_capacity or 0)
+                doc["_capacityOverride"] = True
+                doc["_districtFallback"] = True
+                over_capacity_fallback_matches.append(doc)
             continue
         doc["_districtFallback"] = True
         fallback_matches.append(doc)
     fallback_matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
-    return fallback_matches[0] if fallback_matches else None
+    if fallback_matches:
+        return fallback_matches[0]
+    if over_capacity_district_matches:
+        over_capacity_district_matches.sort(
+            key=lambda item: (
+                -float(item.get("_availableCapacity") or 0),
+                str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""),
+            )
+        )
+        return over_capacity_district_matches[0]
+    if over_capacity_fallback_matches:
+        over_capacity_fallback_matches.sort(
+            key=lambda item: (
+                -float(item.get("_availableCapacity") or 0),
+                str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""),
+            )
+        )
+        return over_capacity_fallback_matches[0]
+    return None
 
 async def _create_standard_farmer_pickup(order: Dict[str, Any], warehouse: Dict[str, Any], origin: Optional[Dict[str, Any]]) -> None:
     """Create farm collection work for a single-source packed transfer.
