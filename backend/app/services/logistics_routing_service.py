@@ -598,10 +598,15 @@ async def warehouse_for_district(
             return False
         if status_value in {"inactive", "disabled", "suspended", "rejected", "deleted", "deactivated"}:
             return False
-        return (
-            any(doc.get(key) is True for key in ("isActive", "is_active", "active", "isOperational", "is_operational"))
-            or status_value in {"active", "approved", "operational", "enabled"}
-        )
+        explicit_active_flag = any(key in doc for key in ("isActive", "is_active", "active", "isOperational", "is_operational"))
+        if explicit_active_flag:
+            return any(doc.get(key) is True for key in ("isActive", "is_active", "active", "isOperational", "is_operational"))
+        if status_value:
+            return status_value in {"active", "approved", "operational", "enabled"}
+        # Legacy warehouse documents may predate isActive/status fields. Treat
+        # them as eligible unless an explicit inactive/deleted signal exists;
+        # capacity and destination routing checks still apply.
+        return True
 
     for doc in docs:
         doc_id = str(doc.get("_id") or "")
