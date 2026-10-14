@@ -3020,6 +3020,16 @@ async def handoff_farmer_fulfillment_to_local_hub(
             "consolidationId": order.get("consolidationId"),
             "transferType": "consolidated_order_to_hub" if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner" else "farmer_order_to_hub",
             "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
+            "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Source Warehouse",
+            "destinationWarehouseId": (
+                ObjectId(str(order.get("destinationWarehouseId")))
+                if mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+                and ObjectId.is_valid(str(order.get("destinationWarehouseId") or ""))
+                else None
+            ),
+            "destinationWarehouseName": order.get("destinationWarehouseName") if mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" else None,
+            "currentWarehouseId": ObjectId(str(warehouse["_id"])),
+            "currentWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Current Warehouse",
             "localHubId": ObjectId(str(hub_id)),
             "localHubName": hub_doc.get("name") or hub_doc.get("hubName") or "Local Fulfillment Hub",
             "quantity": sum(float(item.get("quantity") or 0) for item in (order.get("items") or [])),
@@ -3033,7 +3043,22 @@ async def handoff_farmer_fulfillment_to_local_hub(
     else:
         await transfer_collection.update_one(
             {"_id": existing_transfer["_id"]},
-            {"$set": {"status": "in_transit", "updatedAt": datetime.utcnow()}},
+            {"$set": {
+                "status": "in_transit",
+                "sourceWarehouseId": ObjectId(str(warehouse["_id"])),
+                "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Source Warehouse",
+                "destinationWarehouseId": (
+                    ObjectId(str(order.get("destinationWarehouseId")))
+                    if mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+                    and ObjectId.is_valid(str(order.get("destinationWarehouseId") or ""))
+                    else None
+                ),
+                "destinationWarehouseName": order.get("destinationWarehouseName") if mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner" else None,
+                "currentWarehouseId": ObjectId(str(warehouse["_id"])),
+                "currentWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Current Warehouse",
+                "localHubId": ObjectId(str(hub_id)),
+                "updatedAt": datetime.utcnow(),
+            }},
         )
 
     await order_repository.update(
