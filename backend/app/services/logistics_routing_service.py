@@ -542,42 +542,57 @@ async def warehouse_for_district(
     required_capacity: float = 0,
     exclude_warehouse_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Return the active warehouse responsible for a delivery district."""
+    """Find an active warehouse serving a district with enough available capacity.
+
+    Warehouse profiles have evolved over time, so evaluate legacy and current
+    active/status/capacity fields consistently instead of excluding valid records
+    in a Mongo query before checking their schema.
+    """
     normalized = _normalized_district(district)
     if not normalized:
         return None
-    docs = await MongoDB.get_collection("warehouses").find({
-        "deletedAt": None,
-        "$or": [
-            {"status": {"$regex": "^(active|approved|operational)$", "$options": "i"}, "isActive": {"$ne": False}},
-            {"isActive": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
-            {"is_active": True, "$or": [{"status": {"$exists": False}}, {"status": None}]},
-            {"isOperational": True, "isActive": {"$ne": False}},
-        ],
-    }).to_list(length=200)
+
+    collection = MongoDB.get_collection("warehouses")
+    docs = await collection.find({"deletedAt": None}).to_list(length=500)
     matches = []
+
+    def _number(*values):
+        for value in values:
+            if value is None or value == "":
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def _is_active(doc: Dict[str, Any]) -> bool:
+        status_value = str(doc.get("status") or doc.get("approvalStatus") or "").strip().lower()
+        # Explicit inactive flags always win.
+        if doc.get("isActive") is False or doc.get("is_active") is False or doc.get("active") is False:
+            return False
+        if doc.get("deletedAt") is not None or doc.get("deleted_at") is not None:
+            return False
+        if status_value:
+            return status_value in {"active", "approved", "operational", "enabled"}
+        return any(doc.get(key) is True for key in ("isActive", "is_active", "active", "isOperational", "is_operational"))
+
     for doc in docs:
         doc_id = str(doc.get("_id") or "")
         if exclude_warehouse_id and doc_id == str(exclude_warehouse_id):
             continue
-        if not _warehouse_serves_district(doc, normalized):
+        if not _is_active(doc) or not _warehouse_serves_district(doc, normalized):
             continue
+
         try:
             await warehouse_repository.sync_capacity_usage(doc_id)
             refreshed = await warehouse_repository.get_by_id(doc_id)
             if refreshed:
                 doc = refreshed
         except Exception:
+            # Capacity can still be read from the stored profile if usage sync is
+            # unavailable; do not turn a temporary sync error into an unhandled 500.
             pass
-        def _number(*values):
-            for value in values:
-                if value is None or value == "":
-                    continue
-                try:
-                    return float(value)
-                except (TypeError, ValueError):
-                    continue
-            return None
 
         total_capacity = _number(
             doc.get("totalCapacity"), doc.get("total_capacity"),
@@ -597,9 +612,10 @@ async def warehouse_for_district(
         )
         if available is None and total_capacity is not None:
             available = total_capacity - used_capacity
-        if available is None or available < float(required_capacity or 0):
+        if available is None or available + 1e-9 < float(required_capacity or 0):
             continue
         matches.append(doc)
+
     matches.sort(key=lambda item: str(item.get("name") or item.get("warehouseName") or item.get("_id") or ""))
     return matches[0] if matches else None
 
