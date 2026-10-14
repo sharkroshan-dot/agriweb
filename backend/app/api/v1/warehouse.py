@@ -2512,11 +2512,43 @@ async def receive_farmer_fulfillment_at_destination(
         "status": "received_at_destination", "receivedAtDestination": now,
         "receivedByDestination": ObjectId(str(current_user["_id"])), "updatedAt": now,
     }})
+    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    destination_name = warehouse.get("name") or warehouse.get("warehouseName") or order.get("destinationWarehouseName") or "Destination Warehouse"
+    destination_location = warehouse.get("location") or warehouse.get("coordinates")
     await order_repository.update({"_id": ObjectId(order_id)}, {
+        # Preserve the original source references for audit while recording the
+        # current physical custodian separately.
+        "sourceWarehouseId": ObjectId(source_id) if ObjectId.is_valid(source_id) else source_id,
+        "sourceWarehouseName": order.get("sourceWarehouseName") or order.get("warehouseName"),
+        "destinationWarehouseId": ObjectId(warehouse_id),
+        "destinationWarehouseName": destination_name,
+        "destinationWarehouseLocation": destination_location,
+        "currentWarehouseId": ObjectId(warehouse_id),
+        "currentWarehouseName": destination_name,
+        "currentWarehouseRole": "destination",
+        "destinationWarehouseReceivedAt": now,
+        "destinationWarehouseReceivedBy": ObjectId(str(current_user["_id"])),
         "transferStatus": "destination_warehouse_received",
         "warehouseFulfillmentStage": "destination_warehouse_received",
         "updatedAt": now,
     })
+    # Mirror the confirmed handover on operational rows so Incoming Stock and
+    # the transfers page agree on where the sealed packet currently resides.
+    for collection_name in ("incoming_stock", "warehouse_collections"):
+        operational_collection = MongoDB.get_collection(collection_name)
+        await operational_collection.update_many(
+            {"orderId": {"$in": [ObjectId(order_id), order_id]}, "deletedAt": None},
+            {"$set": {
+                "sourceWarehouseId": ObjectId(source_id) if ObjectId.is_valid(source_id) else source_id,
+                "destinationWarehouseId": ObjectId(warehouse_id),
+                "destinationWarehouseName": destination_name,
+                "currentWarehouseId": ObjectId(warehouse_id),
+                "currentWarehouseName": destination_name,
+                "currentWarehouseRole": "destination",
+                "destinationWarehouseReceivedAt": now,
+                "updatedAt": now,
+            }},
+        )
     await order_repository.append_tracking_event(
         order_id, "destination_warehouse_received", "Order received at destination warehouse",
         "The destination warehouse confirmed physical receipt of the sealed farmer-packed order.",
