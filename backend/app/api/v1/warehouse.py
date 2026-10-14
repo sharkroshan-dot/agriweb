@@ -2179,7 +2179,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "isConsolidationWarehouse": is_event_consolidation_warehouse,
             "isLocalHub": is_event_local_hub,
             "canDispatchToConsolidation": False,
-            "warehouseCount": len({str(x.get("farmerId")) for x in fulfillments if x.get("farmerId")}),
+            "warehouseCount": len(fulfillments),
             "productPortions": portions,
             "consolidationLegs": [],
             "totalConsolidationLegCount": len(fulfillments),
