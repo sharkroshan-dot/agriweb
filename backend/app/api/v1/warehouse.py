@@ -2161,7 +2161,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
                 "collectionStatus": fulfillment.get("collectionStatus") or "pending",
                 "incomingStatus": incoming_row.get("status") or "not_created",
                 "transferLegId": fid,
-                "transferStatus": str(request.get("eventLocalHubStatus") or portion_status),
+                "transferStatus": portion_status,
                 "portionStatus": portion_status,
                 "shortageQuantity": max(0.0, required_qty - actual_received),
                 "incomingRecordIds": [str(incoming_row.get("_id"))] if incoming_row.get("_id") else [],
