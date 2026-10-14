@@ -1972,9 +1972,85 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "deletedAt": None,
         }).to_list(length=1000)
         received_consolidation_legs = [x for x in consolidation_legs if str(x.get("status")) == "received_at_consolidation"]
+        # Build one operational row per required product/source allocation so
+        # staff can see what is missing instead of only seeing aggregate counts.
+        product_portions = []
+        for allocation in (order.get("warehouseAllocations") or []):
+            source_id = str(allocation.get("warehouseId") or allocation.get("sourceWarehouseId") or "")
+            product_id = str(allocation.get("productId") or "")
+            variant_id = str(allocation.get("variantId") or "")
+            expected_qty = float(allocation.get("quantity") or 0)
+            matching_incoming = [
+                row for row in incoming
+                if str(row.get("warehouseId") or "") == source_id
+                and str(row.get("productId") or "") == product_id
+                and str(row.get("variantId") or "") == variant_id
+            ]
+            matching_legs = [
+                leg for leg in consolidation_legs
+                if str(leg.get("sourceWarehouseId") or "") == source_id
+                and str(leg.get("productId") or "") == product_id
+                and str(leg.get("variantId") or "") == variant_id
+            ]
+            received_qty = sum(float(
+                row.get("quantityReceived") if row.get("quantityReceived") is not None
+                else row.get("receivedQuantity") if row.get("receivedQuantity") is not None
+                else row.get("actualQuantityReceived") if row.get("actualQuantityReceived") is not None
+                else 0
+            ) for row in matching_incoming if str(row.get("status") or "").lower() in ("received", "stored"))
+            accepted_qty = sum(float(row.get("usableQuantity") or row.get("acceptedQuantity") or 0) for row in matching_incoming)
+            source_leg = matching_legs[0] if matching_legs else {}
+            incoming_statuses = [str(row.get("status") or "not_created").lower() for row in matching_incoming]
+            if matching_legs and all(str(leg.get("status") or "") == "received_at_consolidation" for leg in matching_legs):
+                portion_status = "received_at_consolidation"
+            elif any(str(leg.get("status") or "") == "in_transit" for leg in matching_legs):
+                portion_status = "in_transit"
+            elif any(s == "stored" for s in incoming_statuses):
+                portion_status = "stored_at_source"
+            elif any(s == "received" for s in incoming_statuses):
+                portion_status = "received_at_source"
+            elif any(s in ("quality_check", "quality_check_pending") for s in incoming_statuses):
+                portion_status = "quality_check"
+            elif matching_incoming:
+                portion_status = "ready_for_collection" if any(row.get("readyForPickup") for row in matching_incoming) else incoming_statuses[0]
+            else:
+                portion_status = "awaiting_farm_collection"
+            item = next((x for x in (order.get("items") or []) if str(x.get("productId") or "") == product_id and str(x.get("variantId") or "") == variant_id), {})
+            incoming_sample = matching_incoming[0] if matching_incoming else {}
+            product_name = allocation.get("productName") or item.get("productName") or item.get("name") or incoming_sample.get("eventProductName") or "Product"
+            source_warehouse = await warehouse_repository.get_by_id(source_id) if ObjectId.is_valid(source_id) else None
+            product_portions.append({
+                "sourceWarehouseId": source_id,
+                "sourceWarehouseName": allocation.get("warehouseName") or (source_warehouse or {}).get("name") or (source_warehouse or {}).get("warehouseName") or "Source warehouse",
+                "productId": product_id,
+                "variantId": variant_id or None,
+                "productName": product_name,
+                "requiredQuantity": expected_qty,
+                "unit": allocation.get("unit") or item.get("unit") or "kg",
+                "receivedQuantity": received_qty,
+                "acceptedQuantity": accepted_qty,
+                "qualityStatus": incoming_sample.get("qualityCheck") or "pending",
+                "collectionStatus": incoming_sample.get("collectionStatus") or incoming_sample.get("pickupStatus") or ("collection_job_created" if incoming_sample.get("readyForPickup") else "not_started"),
+                "incomingStatus": incoming_sample.get("status") or "not_created",
+                "transferLegId": str(source_leg.get("_id")) if source_leg.get("_id") else None,
+                "transferStatus": str(source_leg.get("status") or "not_dispatched"),
+                "portionStatus": portion_status,
+                "shortageQuantity": max(0.0, expected_qty - received_qty),
+                "incomingRecordIds": [str(row.get("_id")) for row in matching_incoming if row.get("_id")],
+            })
+        delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
         result.append({
             "orderId": str(order["_id"]),
             "orderNumber": order.get("orderNumber"),
+            "buyerName": order.get("buyerName") or order.get("customerName") or order.get("businessName") or "Customer",
+            "buyerType": order.get("buyerType") or order.get("orderType") or ("event" if order.get("eventRequestId") else "customer"),
+            "deliveryAddress": delivery_address,
+            "requestedDeliveryDate": order.get("requestedDeliveryDate") or order.get("deliveryDay"),
+            "requestedDeliveryTime": order.get("requestedDeliveryTime") or order.get("timeSlot"),
+            "orderStatus": order.get("orderStatus") or order.get("status"),
+            "deliveryJobId": str(order.get("deliveryJobId") or order.get("deliveryPartnerJobId") or "") or None,
+            "deliveryPartnerId": str(order.get("deliveryPartnerId") or "") or None,
+            "productPortions": product_portions,
             "warehouseIds": [str(x) for x in (order.get("warehouseIds") or [])],
             "warehouseCount": int(order.get("warehouseCount") or len(order.get("warehouseIds") or [])),
             "allocations": order.get("warehouseAllocations") or [],
