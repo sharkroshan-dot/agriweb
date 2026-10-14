@@ -389,6 +389,39 @@ class CustomerShortageResolutionRequest(BaseModel):
     substituteVariantId: Optional[str] = None
 
 
+@router.post("/{order_id}/farmer-fulfillment-ready-for-pickup")
+async def mark_farmer_fulfillment_ready_for_pickup(
+    order_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm a sealed Farmer Fulfillment parcel is ready for warehouse collection."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only the order's farmer can confirm pickup readiness")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    try:
+        result = await OrderService.mark_farmer_fulfillment_ready_for_pickup(
+            order_id, str(current_user["_id"])
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception:
+        logger.exception("Failed to create Farmer Fulfillment pickup for order %s", order_id)
+        raise HTTPException(status_code=500, detail="Unable to prepare this packed order for pickup. Refresh and retry.")
+    if not result:
+        raise HTTPException(
+            status_code=409,
+            detail="This order must be fully packed, belong to the signed-in farmer, and be eligible for delivery before pickup can be requested.",
+        )
+    result["id"] = str(result.get("_id") or order_id)
+    result.pop("_id", None)
+    return {
+        "success": True,
+        "data": result,
+        "message": "Order marked Ready for Pickup. A sealed-package farm collection job is now available to the warehouse pickup team.",
+    }
+
+
 @router.post("/{order_id}/farmer-packing-cancel")
 async def cancel_farmer_packing_order(order_id: str, payload: dict = Body(...), current_user: dict = Depends(get_current_user)):
     """Cancel a Farmer Fulfillment order during packing when the farmer cannot fulfill it due to shortage."""
