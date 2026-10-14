@@ -2191,8 +2191,43 @@ async def assign_farmer_fulfillment_destination_warehouse(
         raise HTTPException(status_code=404, detail="Order or warehouse not found")
     logistics_mode = str(order.get("logisticsMode") or "").strip().lower()
     fulfillment_method = str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").strip().lower()
-    if logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
-        raise HTTPException(status_code=409, detail="Multi-warehouse orders must use consolidation, not a single destination-warehouse transfer")
+
+    # A legacy/wrongly assigned logisticsMode must not force a normal single
+    # farmer-packed customer order into event/bulk consolidation. Consolidation
+    # is reserved for an order whose packet is genuinely sourced from multiple
+    # warehouses/farmers. Count distinct source identities, not item-line count:
+    # one farmer can supply several lines without being a multi-warehouse order.
+    allocations = order.get("warehouseAllocations") if isinstance(order.get("warehouseAllocations"), list) else []
+    items = order.get("items") if isinstance(order.get("items"), list) else []
+    allocation_sources = {
+        str(row.get("warehouseId") or row.get("sourceWarehouseId") or "")
+        for row in allocations if isinstance(row, dict)
+        and (row.get("warehouseId") or row.get("sourceWarehouseId"))
+    }
+    item_sources = {
+        str(row.get("farmerId") or row.get("sourceFarmerId") or row.get("warehouseId") or row.get("sourceWarehouseId") or "")
+        for row in items if isinstance(row, dict)
+        and (row.get("farmerId") or row.get("sourceFarmerId") or row.get("warehouseId") or row.get("sourceWarehouseId"))
+    }
+    explicit_consolidation = bool(
+        order.get("requiresConsolidation")
+        or order.get("consolidationRequested")
+        or order.get("isEventOrder")
+        or order.get("isBusinessOrder")
+        or order.get("isBulkOrder")
+        or str(order.get("orderType") or order.get("orderCategory") or "").strip().lower()
+        in {"event", "event_order", "bulk", "bulk_order", "business", "business_order", "multi_warehouse"}
+    )
+    genuinely_multi_source = len(allocation_sources) > 1 or len(item_sources) > 1
+    if (
+        logistics_mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner"
+        and genuinely_multi_source
+        and explicit_consolidation
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="This is a genuine multi-source event/business/bulk order. Use Multi-Warehouse Consolidation to receive all source portions before final delivery.",
+        )
     if fulfillment_method not in ("farmer", "farm_direct") and logistics_mode not in (
         "farmer_to_delivery_partner",
         "farmer_to_warehouse_to_local_hub_to_delivery_partner",
