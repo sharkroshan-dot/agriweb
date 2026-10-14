@@ -265,3 +265,52 @@ async def test_warehouse_cannot_store_quality_rejected_or_short_portion(
 
     assert exc.value.status_code == 409
     assert expected_message.lower() in exc.value.detail.lower()
+
+
+
+@pytest.mark.asyncio
+async def test_source_confirmation_rejects_missing_product_quantity(monkeypatch):
+    request_id = ObjectId()
+    buyer_id = ObjectId()
+    farmer_id = ObjectId()
+    tomato_id = ObjectId()
+    onion_id = ObjectId()
+    request = {
+        "_id": request_id,
+        "buyerUserId": buyer_id,
+        "status": "open",
+        "eventSourcingStatus": "plan_ready",
+        "deliveryAddress": {"location": {"coordinates": [76.95, 11.02]}},
+        "items": [
+            {"name": "Tomato", "quantityKg": 100},
+            {"name": "Onion", "quantityKg": 40},
+        ],
+        "eventSourcingPlan": {
+            "plan": [
+                {"productName": "Tomato", "allocations": [{"farmerId": str(farmer_id), "productId": str(tomato_id), "quantityKg": 100, "farmName": "Farm A"}]},
+                {"productName": "Onion", "allocations": [{"farmerId": str(farmer_id), "productId": str(onion_id), "quantityKg": 40, "farmName": "Farm A"}]},
+            ]
+        },
+    }
+
+    async def fake_find_request(query):
+        return request
+
+    monkeypatch.setattr(bulk_module.request_repo, "find_one", fake_find_request)
+
+    with pytest.raises(HTTPException) as exc:
+        await bulk_module.confirm_event_source(
+            str(request_id),
+            bulk_module.EventSourceConfirm(allocations=[{
+                "productName": "Tomato",
+                "farmerId": str(farmer_id),
+                "productId": str(tomato_id),
+                "quantityKg": 60,
+            }]),
+            current_user={"_id": str(buyer_id), "role": "customer"},
+        )
+
+    assert exc.value.status_code == 400
+    assert "Every event requirement must be fully sourced" in exc.value.detail["message"]
+    shortages = {row["productName"]: row["shortageKg"] for row in exc.value.detail["shortages"]}
+    assert shortages == {"Tomato": 40.0, "Onion": 40.0}
