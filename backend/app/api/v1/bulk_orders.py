@@ -84,7 +84,10 @@ class BulkItemCreate(BaseModel):
 
 class BulkRequestCreate(BaseModel):
     requestType: str = Field(..., description="bulk_event | b2b")
-    purpose: str = Field(..., description="wedding/birthday/function/festival/family_event/other or business purpose")
+    buyerCategory: Optional[str] = Field("event_organizer", description="individual | event_organizer | business | institution")
+    organizationName: Optional[str] = None
+    organizationType: Optional[str] = None
+    purpose: str = Field(..., description="event, household, business, or institutional purchase purpose")
     eventDate: Optional[str] = None
     guestCount: Optional[int] = Field(None, gt=0)
     familySize: Optional[int] = Field(None, gt=0)
@@ -210,7 +213,17 @@ async def create_request(
         raise HTTPException(status_code=403, detail="Only customers and business accounts can create requests")
 
     buyer_type = "business" if role == "business" else "customer"
-    request_type = data.requestType or ("b2b" if role == "business" else "bulk_event")
+    buyer_category = (data.buyerCategory or ("business" if role == "business" else "event_organizer")).strip().lower()
+    allowed_buyer_categories = {"individual", "event_organizer", "business", "institution"}
+    if buyer_category not in allowed_buyer_categories:
+        raise HTTPException(status_code=400, detail="buyerCategory must be individual, event_organizer, business, or institution")
+    if role == "business":
+        buyer_category = "business"
+    request_type = "bulk_event" if (data.purchaseMode or "event") == "family_weekly" else (data.requestType or ("b2b" if buyer_category in ("business", "institution") or role == "business" else "bulk_event"))
+    if request_type not in ("bulk_event", "b2b"):
+        raise HTTPException(status_code=400, detail="requestType must be bulk_event or b2b")
+    if buyer_category in ("business", "institution") and not data.organizationName and role == "business":
+        data.organizationName = current_user.get("businessName") or current_user.get("companyName") or current_user.get("firstName")
 
     delivery_address = await _resolve_delivery_address(str(current_user["_id"]), data)
     if not delivery_address.get("addressLine1") and not data.deliveryCity:
@@ -218,6 +231,9 @@ async def create_request(
 
     req = {
         "buyerType": buyer_type,
+        "buyerCategory": buyer_category,
+        "organizationName": (data.organizationName or "").strip() or None,
+        "organizationType": (data.organizationType or "").strip() or None,
         "requestType": request_type,
         "buyerUserId": ObjectId(current_user["_id"]),
         "buyerName": _buyer_label(current_user),
@@ -899,8 +915,8 @@ async def smart_source_event(
         raise HTTPException(status_code=404, detail="Event request not found")
     if str(request.get("buyerUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your event request")
-    if request.get("requestType") != "bulk_event" or request.get("purchaseMode") not in ("event", "family_weekly"):
-        raise HTTPException(status_code=400, detail="Smart sourcing is only available for event and weekly family bulk requests")
+    if request.get("requestType") not in ("bulk_event", "b2b") or request.get("purchaseMode") not in ("event", "family_weekly"):
+        raise HTTPException(status_code=400, detail="Smart sourcing is only available for supported bulk, event, business, and weekly family requests")
 
     # City/address-only event requests are geocoded once so nearby sourcing still
     # works when the customer did not provide GPS coordinates.
@@ -964,8 +980,8 @@ async def planned_event_source(
         raise HTTPException(status_code=404, detail="Event request not found")
     if str(request.get("buyerUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your event request")
-    if request.get("requestType") != "bulk_event" or request.get("purchaseMode") != "event":
-        raise HTTPException(status_code=400, detail="Planned RFQ is only available for event orders")
+    if request.get("requestType") not in ("bulk_event", "b2b") or request.get("purchaseMode") != "event":
+        raise HTTPException(status_code=400, detail="Planned RFQ is only available for event, business, and institutional bulk orders")
 
     sourcing = await _event_candidates(request)
     if sourcing.get("urgent"):
