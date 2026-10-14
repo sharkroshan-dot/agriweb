@@ -138,3 +138,71 @@ async def test_unsupported_buyer_category_is_rejected(create_request_dependencie
 
     assert exc.value.status_code == 400
     assert "buyerCategory must be" in exc.value.detail
+
+
+
+@pytest.mark.asyncio
+async def test_tracking_summarizes_multi_farmer_product_portions(monkeypatch):
+    request_id = ObjectId()
+    buyer_id = ObjectId()
+    request = {
+        "_id": request_id,
+        "buyerUserId": buyer_id,
+        "buyerCategory": "institution",
+        "requestType": "b2b",
+        "organizationName": "Coimbatore Community Kitchen",
+        "purpose": "Weekly kitchen supply",
+        "status": "open",
+        "eventLocalHubStatus": "in_transit",
+        "items": [
+            {"name": "Tomato", "quantityKg": 100, "category": "Vegetable", "qualityGrade": "Grade A"},
+            {"name": "Onion", "quantityKg": 40, "category": "Vegetable", "qualityGrade": "Standard"},
+        ],
+    }
+    fulfillments = [
+        {"_id": ObjectId(), "requestId": request_id, "productName": "Tomato", "farmerId": "farmer-a", "farmName": "Farm A", "allocatedQuantityKg": 60, "status": "packed", "collectionStatus": "pending"},
+        {"_id": ObjectId(), "requestId": request_id, "productName": "Tomato", "farmerId": "farmer-b", "farmName": "Farm B", "allocatedQuantityKg": 25, "status": "ready_for_collection", "collectionStatus": "ready"},
+        {"_id": ObjectId(), "requestId": request_id, "productName": "Onion", "farmerId": "farmer-c", "farmName": "Farm C", "allocatedQuantityKg": 40, "status": "packed", "collectionStatus": "pending"},
+    ]
+
+    async def fake_find_request(query):
+        return request
+
+    async def fake_find_fulfillments(query, **kwargs):
+        return fulfillments
+
+    async def fake_find_orders(query, **kwargs):
+        return []
+
+    async def fake_stringify_fulfillment(row):
+        return {**row, "id": str(row["_id"])}
+
+    class FakeDeliveryRepo:
+        def __init__(self, name):
+            assert name == "delivery_jobs"
+
+        async def find_many(self, query, **kwargs):
+            return []
+
+    monkeypatch.setattr(bulk_module.request_repo, "find_one", fake_find_request)
+    monkeypatch.setattr(bulk_module.event_fulfillment_repo, "find_many", fake_find_fulfillments)
+    monkeypatch.setattr(bulk_module.order_repo, "find_many", fake_find_orders)
+    monkeypatch.setattr(bulk_module, "BaseRepository", FakeDeliveryRepo)
+    monkeypatch.setattr(bulk_module, "_stringify_event_fulfillment", fake_stringify_fulfillment)
+
+    result = await bulk_module.bulk_order_tracking(
+        str(request_id),
+        current_user={"_id": str(buyer_id), "role": "customer"},
+    )
+    data = result["data"]
+    by_name = {item["productName"]: item for item in data["productSummary"]}
+
+    assert data["currentStage"] == "local_hub_receipt"
+    assert by_name["Tomato"]["requestedQuantityKg"] == 100
+    assert by_name["Tomato"]["allocatedQuantityKg"] == 85
+    assert by_name["Tomato"]["remainingQuantityKg"] == 15
+    assert by_name["Tomato"]["sourceCount"] == 2
+    assert by_name["Tomato"]["status"] == "partially_sourced"
+    assert by_name["Onion"]["allocatedQuantityKg"] == 40
+    assert by_name["Onion"]["remainingQuantityKg"] == 0
+    assert by_name["Onion"]["status"] == "complete"
