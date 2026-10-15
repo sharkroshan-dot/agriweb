@@ -431,9 +431,15 @@ async def get_my_collections(
         batch = await get_batch(str(job.get("batchId") or ""))
         farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
         farmer_district = farmer_district_for(farmer_profile, job.get("pickupLocation") or {})
-        # Fail closed until the manager explicitly configures farm collection districts.
-        if not configured_districts or not farmer_district or farmer_district not in configured_districts:
+        # Do not hide an otherwise assigned pickup merely because the farmer's
+        # address is incomplete. Exclude known out-of-district jobs, but show
+        # unknown-district jobs with a visible resolution status so staff can
+        # fix the location instead of seeing an unexplained empty queue.
+        if not configured_districts:
             continue
+        if farmer_district and farmer_district not in configured_districts:
+            continue
+        district_match_status = "matched" if farmer_district in configured_districts else "needs_location_data"
         profile_name = await display_name_for_profile(farmer_profile, "")
         farmer_user_id = str((farmer_profile or {}).get("userId") or job.get("farmerId") or "")
         farmer_user = await get_user(farmer_user_id)
@@ -533,7 +539,11 @@ async def get_my_collections(
             "pickupAddress": pickup_address or "Farm address not provided",
             "warehouseName": readable(warehouse.get("name")) or readable(warehouse.get("warehouseName")) or "Assigned warehouse",
             "farmDistrict": farmer_district,
-            "districtMatchStatus": "matched",
+            "districtMatchStatus": district_match_status,
+            "districtMatchMessage": (
+                None if district_match_status == "matched"
+                else "Farm district could not be verified. Confirm the farmer's district/address before assigning this pickup route."
+            ),
             "actualCollectedQuantity": job.get("actualCollectedQuantity"),
         })
         result.append(item)
