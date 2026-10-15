@@ -40,6 +40,7 @@ const humanIdFallback = (value: any, label: string) => {
 };
 
 const getFarmGroupKey = (item: any) =>
+  (isFarmerPackedIncoming(item) ? "farmer-fulfillment:" : "warehouse-fulfillment:") +
   String(item.farmId || item.farmerId || item.farmName || item.farmerName || item.pickupLocation?.name || item.pickupLocation?.address || "unknown-farm");
 
 const isFarmerPackedIncoming = (item: any) => {
