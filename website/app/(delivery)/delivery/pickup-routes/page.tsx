@@ -38,10 +38,21 @@ const isCarryoverRoute = (route: any) => {
   return routeDay < todayDay;
 };
 
-const isPickupCompleted = (item: any) =>
-  // "completed" only means farm collection has finished. Pickup work is done
-  // only when the route's warehouse handover is recorded.
-  ["returned_to_warehouse", "arrived_warehouse"].includes(String(item?.status || "").toLowerCase());
+const isPickupCompleted = (item: any) => {
+  // Some APIs expose warehouse handover as "received" on the route/order,
+  // while older pickup routes use returned_to_warehouse or arrived_warehouse.
+  // All of these confirm the partner's work reached the warehouse; "completed"
+  // alone is deliberately excluded because it can mean farm collection only.
+  const status = String(item?.status || item?.orderStatus || item?.collectionStatus || "").trim().toLowerCase().replace(/[ -]+/g, "_");
+  return [
+    "received",
+    "warehouse_received",
+    "received_at_warehouse",
+    "arrived_warehouse",
+    "returned_to_warehouse",
+    "stored",
+  ].includes(status);
+};
 
 const isTransferCompleted = (item: any) =>
   // Use the driver's actual arrival statuses only. Downstream receipt or a
