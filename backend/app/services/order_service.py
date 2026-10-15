@@ -3018,6 +3018,80 @@ class OrderService:
             if warehouse and warehouse.get("_id") and warehouse.get("isActive", True) is not False:
                 return str(warehouse["_id"])
 
+        # Warehouse profiles are often managed by warehouse accounts rather
+        # than owned by farmers. If no direct ownership link exists, choose an
+        # active warehouse only when its district/service area explicitly matches
+        # the farmer's registered district. Do not guess an unrelated destination.
+        try:
+            from app.repositories.warehouse_repository import warehouse_repository
+            from app.repositories.base_repository import BaseRepository
+
+            farmer_profile = None
+            if ObjectId.is_valid(str(farmer_id)):
+                farmer_repo = BaseRepository("farmers")
+                farmer_profile = await farmer_repo.find_one({
+                    "$or": [
+                        {"userId": ObjectId(farmer_id)},
+                        {"userId": str(farmer_id)},
+                        {"farmerId": ObjectId(farmer_id)},
+                        {"farmerId": str(farmer_id)},
+                    ]
+                })
+            user_profile = None
+            if ObjectId.is_valid(str(farmer_id)):
+                user_repo = BaseRepository("users")
+                user_profile = await user_repo.find_one({"_id": ObjectId(farmer_id)})
+
+            def _district_candidates(value: Any) -> List[str]:
+                values: List[str] = []
+                if isinstance(value, dict):
+                    for key, nested in value.items():
+                        key_norm = str(key).lower().replace("_", "")
+                        if key_norm in {"district", "districtname", "city", "town"} and isinstance(nested, (str, int)):
+                            normalized = str(nested).strip().lower()
+                            if normalized:
+                                values.append(normalized)
+                        elif isinstance(nested, dict):
+                            values.extend(_district_candidates(nested))
+                elif isinstance(value, list):
+                    for nested in value:
+                        values.extend(_district_candidates(nested))
+                return values
+
+            farmer_districts = set()
+            for profile in (farmer_profile, user_profile):
+                if not isinstance(profile, dict):
+                    continue
+                farmer_districts.update(_district_candidates(profile))
+                for key in ("district", "districtName", "city", "town"):
+                    raw = profile.get(key)
+                    if isinstance(raw, str) and raw.strip():
+                        farmer_districts.add(raw.strip().lower())
+                for key in ("address", "farmAddress", "location", "profile", "farm"):
+                    farmer_districts.update(_district_candidates(profile.get(key)))
+
+            if farmer_districts:
+                warehouses = await warehouse_repository.get_all_warehouses(is_active=True, skip=0, limit=1000)
+                for warehouse in warehouses:
+                    warehouse_values = set(_district_candidates(warehouse))
+                    for key in ("district", "districtName", "city", "town"):
+                        raw = warehouse.get(key)
+                        if isinstance(raw, str) and raw.strip():
+                            warehouse_values.add(raw.strip().lower())
+                    for key in ("address", "location"):
+                        warehouse_values.update(_district_candidates(warehouse.get(key)))
+                    service_areas = warehouse.get("serviceAreas") or warehouse.get("service_areas") or []
+                    if isinstance(service_areas, list):
+                        warehouse_values.update(str(area).strip().lower() for area in service_areas if area)
+                    if farmer_districts.intersection(warehouse_values) and warehouse.get("_id"):
+                        logger.info(
+                            "Resolved warehouse %s for farmer %s by matching district/service area %s",
+                            warehouse.get("_id"), farmer_id, sorted(farmer_districts.intersection(warehouse_values)),
+                        )
+                        return str(warehouse["_id"])
+        except Exception as exc:
+            logger.warning("District-based warehouse lookup failed for farmer %s: %s", farmer_id, exc)
+
         if lookup_errors:
             logger.warning(
                 "Could not resolve configured warehouse for farmer %s (%s)",
