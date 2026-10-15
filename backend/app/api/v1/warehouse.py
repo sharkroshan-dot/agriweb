@@ -380,8 +380,42 @@ async def get_my_collections(
                     return candidate
         return default
 
-    result: List[Dict[str, Any]] = []
+    # Recover legacy collection jobs that were created without a warehouseId.
+    # They may only be attached to this warehouse after the farmer's district is
+    # verified against this warehouse's explicit coverage or Settings location.
+    # Never claim a job already assigned to another warehouse.
+    unassigned_jobs = await warehouse_collection_repository.find_many({
+        "deletedAt": None,
+        "$or": [
+            {"warehouseId": {"$exists": False}},
+            {"warehouseId": None},
+            {"warehouseId": ""},
+        ],
+    }, skip=0, limit=1000, sort=[("createdAt", 1)])
+
+    for candidate_job in unassigned_jobs:
+        farmer_profile = await get_farmer(str(candidate_job.get("farmerId") or ""))
+        candidate_district = farmer_district_for(farmer_profile, candidate_job.get("pickupLocation") or {})
+        if not configured_districts or not candidate_district or candidate_district not in configured_districts:
+            continue
+        candidate_id = str(candidate_job.get("_id") or "")
+        if not ObjectId.is_valid(candidate_id):
+            continue
+        await warehouse_collection_repository.update_job(candidate_id, {
+            "warehouseId": ObjectId(warehouse_id),
+            "districtAssignmentSource": district_source or "farm_collection_district",
+            "districtAssignedAt": datetime.utcnow(),
+        })
+        candidate_job["warehouseId"] = ObjectId(warehouse_id)
+        jobs.append(candidate_job)
+
+    # Avoid duplicate rows if a job appeared in both the assigned and recovery query.
+    unique_jobs: Dict[str, Dict[str, Any]] = {}
     for job in jobs:
+        unique_jobs[str(job.get("_id") or job.get("id") or id(job))] = job
+
+    result: List[Dict[str, Any]] = []
+    for job in unique_jobs.values():
         item = serialize_collection(job)
         order = await get_order(str(job.get("orderId") or ""))
         order_items = (order or {}).get("items") or []
