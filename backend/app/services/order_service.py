@@ -3068,11 +3068,34 @@ class OrderService:
                 for suffix in (" district", " dist.", " dist"):
                     if normalized.endswith(suffix):
                         normalized = normalized[:-len(suffix)].strip()
-                return normalized
+                # Common names for the same Tamil Nadu district are used
+                # interchangeably in legacy farmer addresses and warehouse
+                # service-area configuration.
+                aliases = {
+                    "trichy": "tiruchirapalli",
+                    "trichirapalli": "tiruchirapalli",
+                    "tiruchirappalli": "tiruchirapalli",
+                    "tiruchirapalli": "tiruchirapalli",
+                }
+                return aliases.get(normalized, normalized)
 
             def _district_candidates(value: Any) -> List[str]:
                 values: List[str] = []
-                if isinstance(value, dict):
+                if isinstance(value, str):
+                    normalized = _normalize_area(value)
+                    if normalized:
+                        values.append(normalized)
+                    # Legacy farmer profiles often store only a free-text
+                    # farmAddress (for example, "Trichy Main Road, Trichy")
+                    # instead of farmDistrict/farmCity. Extract known city
+                    # names from that address so they can match serviceAreas.
+                    address_text = value.lower().replace("_", " ").replace("-", " ")
+                    for city in LOCAL_CITY_COORDINATES:
+                        if city in address_text:
+                            canonical_city = _normalize_area(city)
+                            if canonical_city:
+                                values.append(canonical_city)
+                elif isinstance(value, dict):
                     for key, nested in value.items():
                         key_norm = str(key).lower().replace("_", "").replace("-", "")
                         # Farmer profiles use farmDistrict/farmCity, while
@@ -3094,6 +3117,8 @@ class OrderService:
                             normalized = _normalize_area(nested)
                             if normalized:
                                 values.append(normalized)
+                            if isinstance(nested, str):
+                                values.extend(_district_candidates(nested))
                         elif isinstance(nested, (dict, list)):
                             values.extend(_district_candidates(nested))
                 return values
