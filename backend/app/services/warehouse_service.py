@@ -269,11 +269,35 @@ class WarehouseService:
             collection_id = str(order.get("collectionId") or "")
             incoming_stock_id = str(order.get("incomingStockId") or "")
             existing = await incoming_stock_repository.get_by_id(incoming_stock_id) if ObjectId.is_valid(incoming_stock_id) else None
+
+            # The farmer's persisted fulfillment choice is authoritative. Both
+            # fulfillment types can travel through Farm Collection, but they
+            # must enter different Incoming Stock workflows after arrival.
+            linked_order = None
+            order_id = str(order.get("orderId") or (existing or {}).get("orderId") or "")
+            if ObjectId.is_valid(order_id):
+                linked_order = await order_repository.get_by_id(order_id)
+            fulfillment_method = str(
+                (linked_order or {}).get("fulfillmentMethod")
+                or order.get("fulfillmentMethod")
+                or (existing or {}).get("fulfillmentMethod")
+                or ""
+            ).strip().lower()
+            is_farmer_fulfillment = fulfillment_method == "farmer"
+            source_mode = "farmer_fulfillment_transfer" if is_farmer_fulfillment else "warehouse_fulfillment_bulk"
+            packing_required = not is_farmer_fulfillment
+
             quantity_value = order.get("actualQuantity")
             if quantity_value is None:
                 quantity_value = order.get("actualCollectedQuantity")
             if quantity_value is None:
                 quantity_value = order.get("quantity")
+            if quantity_value is None and linked_order:
+                quantity_value = sum(
+                    float(line.get("actualPackedQuantity", line.get("packedQuantity", line.get("quantity", 0))) or 0)
+                    for line in (linked_order.get("items") or [])
+                    if isinstance(line, dict)
+                )
 
             if existing:
                 qty = float(quantity_value if quantity_value is not None else existing.get("quantity") or 0)
@@ -284,8 +308,9 @@ class WarehouseService:
                     "quantityRejected": 0,
                     "pickupRouteId": ObjectId(route_id),
                     "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
-                    "sourceMode": "farmer_fulfillment_transfer",
-                    "packingRequired": False,
+                    "sourceMode": source_mode,
+                    "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
+                    "packingRequired": packing_required,
                     "status": "in_transit",
                     # The route is only materialized here after the pickup team
                     # has completed/returned the route to the warehouse.
@@ -327,8 +352,9 @@ class WarehouseService:
                 "storageType": order.get("storageType") or "ambient",
                 "pickupRouteId": ObjectId(route_id),
                 "collectionId": ObjectId(collection_id) if ObjectId.is_valid(collection_id) else collection_id,
-                "sourceMode": "farmer_fulfillment_transfer",
-                "packingRequired": False,
+                "sourceMode": source_mode,
+                "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
+                "packingRequired": packing_required,
                 # Incoming records are created only after the route returns to warehouse.
                 "arrivedWarehouseAt": datetime.utcnow(),
             })
