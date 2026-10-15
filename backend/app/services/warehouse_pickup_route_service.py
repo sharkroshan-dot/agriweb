@@ -59,13 +59,14 @@ def select_route_team_assignments(
     memberships: List[Dict[str, Any]],
     busy_partner_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Choose one approved, capacity-suitable pickup team per route.
+    """Choose an approved team for each route using per-route vehicle capacity.
 
-    Each team is assigned at most one route in this batch. Teams already carrying
-    an active route are excluded. Best-fit selection avoids wasting the largest
-    vehicles on small routes.
+    Vehicle capacity is a limit for each pickup trip, not a lifetime/daily
+    balance. A previous route must not consume the vehicle's capacity for a new
+    route. The same approved team may therefore be selected for multiple routes
+    in one planning batch; every individual route is still checked against the
+    team's registered capacity.
     """
-    busy = {str(value) for value in (busy_partner_ids or [])}
     available = []
     for member in memberships:
         partner_id = str(member.get("deliveryPartnerId") or "")
@@ -73,7 +74,7 @@ def select_route_team_assignments(
             capacity = float(member.get("capacity") or 0)
         except (TypeError, ValueError):
             capacity = 0
-        if partner_id and capacity > 0 and partner_id not in busy:
+        if partner_id and capacity > 0:
             item = dict(member)
             item["_assignmentCapacity"] = capacity
             available.append(item)
@@ -84,13 +85,13 @@ def select_route_team_assignments(
         suitable = [member for member in available if member["_assignmentCapacity"] >= required]
         if not suitable:
             raise ValueError(
-                f"No unassigned approved pickup team has enough capacity for a "
-                f"{required:g} kg route. Offer routes to partners or review vehicle capacity."
+                f"No approved pickup team has enough registered vehicle capacity for a "
+                f"{required:g} kg route. Check the approved team's capacity or split the route."
             )
+        # Best-fit by registered capacity. Do not remove the chosen team after
+        # assignment: capacity applies independently to each pickup route.
         chosen = min(suitable, key=lambda member: member["_assignmentCapacity"])
-        available.remove(chosen)
-        chosen.pop("_assignmentCapacity", None)
-        assignments.append(chosen)
+        assignments.append({key: value for key, value in chosen.items() if key != "_assignmentCapacity"})
     return assignments
 
 
