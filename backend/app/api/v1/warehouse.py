@@ -199,6 +199,65 @@ async def get_my_collections(
             return None
         return text
 
+    district_aliases = {
+        "trichy": "tiruchirappalli",
+        "trichirapalli": "tiruchirappalli",
+        "tiruchirapalli": "tiruchirappalli",
+        "tiruchirappalli": "tiruchirappalli",
+        "krishnagiri district": "krishnagiri",
+    }
+
+    def district_key(value: Any) -> str:
+        raw = " ".join(str(value or "").strip().lower().replace(",", " ").replace("-", " ").split())
+        return district_aliases.get(raw, raw)
+
+    configured_districts = {
+        district_key(value)
+        for value in (warehouse.get("farmCollectionDistricts") or [])
+        if str(value or "").strip()
+    }
+
+    def farmer_district_for(profile: Optional[Dict[str, Any]], pickup_location: Any) -> Optional[str]:
+        if profile:
+            for key in ("farmDistrict", "district", "farmCity", "city"):
+                value = profile.get(key)
+                if isinstance(value, str) and value.strip():
+                    candidate = district_key(value)
+                    if candidate in configured_districts:
+                        return candidate
+            for address_key in ("farmAddress", "address"):
+                address = profile.get(address_key)
+                if isinstance(address, dict):
+                    for key in ("district", "city", "village"):
+                        value = address.get(key)
+                        if isinstance(value, str) and value.strip():
+                            candidate = district_key(value)
+                            if candidate in configured_districts:
+                                return candidate
+                    address_text = " ".join(str(value) for value in address.values() if value)
+                else:
+                    address_text = str(address or "")
+                normalized_address = district_key(address_text)
+                for configured in configured_districts:
+                    aliases = [configured]
+                    if configured == "tiruchirappalli":
+                        aliases.extend(["trichy", "trichirapalli", "tiruchirapalli"])
+                    if any(alias in normalized_address for alias in aliases):
+                        return configured
+        if isinstance(pickup_location, dict):
+            address_text = " ".join(
+                str(pickup_location.get(key) or "")
+                for key in ("district", "city", "address", "formattedAddress", "farmAddress", "streetAddress")
+            )
+            normalized_address = district_key(address_text)
+            for configured in configured_districts:
+                aliases = [configured]
+                if configured == "tiruchirappalli":
+                    aliases.extend(["trichy", "trichirapalli", "tiruchirapalli"])
+                if any(alias in normalized_address for alias in aliases):
+                    return configured
+        return None
+
     async def get_user(user_id: Optional[str]) -> Optional[Dict[str, Any]]:
         key = str(user_id or "")
         if not key or not ObjectId.is_valid(key):
@@ -284,6 +343,10 @@ async def get_my_collections(
         product = await get_product(product_id or str(order_item.get("productId") or ""))
         batch = await get_batch(str(job.get("batchId") or ""))
         farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
+        farmer_district = farmer_district_for(farmer_profile, job.get("pickupLocation") or {})
+        # Fail closed until the manager explicitly configures farm collection districts.
+        if not configured_districts or not farmer_district or farmer_district not in configured_districts:
+            continue
         profile_name = await display_name_for_profile(farmer_profile, "")
         farmer_user_id = str((farmer_profile or {}).get("userId") or job.get("farmerId") or "")
         farmer_user = await get_user(farmer_user_id)
@@ -382,6 +445,8 @@ async def get_my_collections(
             "routeNumber": readable((route or {}).get("routeNumber")),
             "pickupAddress": pickup_address or "Farm address not provided",
             "warehouseName": readable(warehouse.get("name")) or readable(warehouse.get("warehouseName")) or "Assigned warehouse",
+            "farmDistrict": farmer_district,
+            "districtMatchStatus": "matched",
             "actualCollectedQuantity": job.get("actualCollectedQuantity"),
         })
         result.append(item)
@@ -389,6 +454,8 @@ async def get_my_collections(
     return {
         "success": True,
         "data": {
+            "configuredFarmCollectionDistricts": sorted(configured_districts),
+            "districtConfigurationRequired": not bool(configured_districts),
             "collections": result,
             "counts": {
                 "total": len(result),
