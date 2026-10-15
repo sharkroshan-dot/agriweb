@@ -88,7 +88,7 @@ const getFarmProgress = (farmJobs: any[]) => {
 
 export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
-  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("all");
+  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("today");
   const [search, setSearch] = useState("");
   const [focusFarmKey, setFocusFarmKey] = useState("");
   const [focusCollectionIds, setFocusCollectionIds] = useState<string[]>([]);
