@@ -3062,20 +3062,40 @@ class OrderService:
                 user_repo = BaseRepository("users")
                 user_profile = await user_repo.find_one({"_id": ObjectId(farmer_id)})
 
+            def _normalize_area(raw: Any) -> str:
+                normalized = str(raw or "").strip().lower().replace("_", " ").replace("-", " ")
+                normalized = " ".join(normalized.split())
+                for suffix in (" district", " dist.", " dist"):
+                    if normalized.endswith(suffix):
+                        normalized = normalized[:-len(suffix)].strip()
+                return normalized
+
             def _district_candidates(value: Any) -> List[str]:
                 values: List[str] = []
                 if isinstance(value, dict):
                     for key, nested in value.items():
-                        key_norm = str(key).lower().replace("_", "")
-                        if key_norm in {"district", "districtname", "city", "town"} and isinstance(nested, (str, int)):
-                            normalized = str(nested).strip().lower()
+                        key_norm = str(key).lower().replace("_", "").replace("-", "")
+                        # Farmer profiles use farmDistrict/farmCity, while
+                        # warehouse records commonly use address.district and
+                        # serviceAreas. Treat these equivalent location fields
+                        # consistently, including camelCase and snake_case.
+                        if key_norm in {
+                            "district", "districtname", "farmdistrict",
+                            "city", "cityname", "farmcity", "town",
+                        } and isinstance(nested, (str, int)):
+                            normalized = _normalize_area(nested)
                             if normalized:
                                 values.append(normalized)
-                        elif isinstance(nested, dict):
+                        elif isinstance(nested, (dict, list)):
                             values.extend(_district_candidates(nested))
                 elif isinstance(value, list):
                     for nested in value:
-                        values.extend(_district_candidates(nested))
+                        if isinstance(nested, (str, int)):
+                            normalized = _normalize_area(nested)
+                            if normalized:
+                                values.append(normalized)
+                        elif isinstance(nested, (dict, list)):
+                            values.extend(_district_candidates(nested))
                 return values
 
             farmer_districts = set()
@@ -3083,10 +3103,10 @@ class OrderService:
                 if not isinstance(profile, dict):
                     continue
                 farmer_districts.update(_district_candidates(profile))
-                for key in ("district", "districtName", "city", "town"):
+                for key in ("district", "districtName", "farmDistrict", "city", "farmCity", "town"):
                     raw = profile.get(key)
                     if isinstance(raw, str) and raw.strip():
-                        farmer_districts.add(raw.strip().lower())
+                        farmer_districts.add(_normalize_area(raw))
                 for key in ("address", "farmAddress", "location", "profile", "farm"):
                     farmer_districts.update(_district_candidates(profile.get(key)))
 
@@ -3097,12 +3117,14 @@ class OrderService:
                     for key in ("district", "districtName", "city", "town"):
                         raw = warehouse.get(key)
                         if isinstance(raw, str) and raw.strip():
-                            warehouse_values.add(raw.strip().lower())
+                            warehouse_values.add(_normalize_area(raw))
                     for key in ("address", "location"):
                         warehouse_values.update(_district_candidates(warehouse.get(key)))
                     service_areas = warehouse.get("serviceAreas") or warehouse.get("service_areas") or []
                     if isinstance(service_areas, list):
-                        warehouse_values.update(str(area).strip().lower() for area in service_areas if area)
+                        warehouse_values.update(
+                            _normalize_area(area) for area in service_areas if area
+                        )
                     if farmer_districts.intersection(warehouse_values) and warehouse.get("_id"):
                         logger.info(
                             "Resolved warehouse %s for farmer %s by matching district/service area %s",
