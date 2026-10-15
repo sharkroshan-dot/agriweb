@@ -2493,6 +2493,61 @@ async def assign_farmer_fulfillment_destination_warehouse(
 
     delivery_address = order.get("deliveryAddress") if isinstance(order.get("deliveryAddress"), dict) else {}
     shipping_address = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
+
+    # Old orders may only store deliveryAddressId and omit the district from
+    # the embedded snapshot. Resolve the address from the authenticated
+    # customer's saved addresses before rejecting destination assignment.
+    customer_id = str(order.get("customerId") or "")
+    delivery_address_id = str(order.get("deliveryAddressId") or order.get("shippingAddressId") or "")
+    saved_customer_address = None
+    if customer_id and ObjectId.is_valid(customer_id):
+        if delivery_address_id and ObjectId.is_valid(delivery_address_id):
+            try:
+                saved_customer_address = await address_repository.get_address_by_id(
+                    delivery_address_id, customer_id
+                )
+            except Exception:
+                saved_customer_address = None
+        if not saved_customer_address and not (
+            delivery_address.get("district") or delivery_address.get("districtName")
+            or delivery_address.get("city") or delivery_address.get("town")
+            or shipping_address.get("district") or shipping_address.get("districtName")
+            or shipping_address.get("city") or shipping_address.get("town")
+            or order.get("destinationDistrict") or order.get("customerDistrict")
+        ):
+            try:
+                customer_addresses = await address_repository.get_user_addresses(customer_id)
+            except Exception:
+                customer_addresses = []
+            # Only use a default address, or the sole saved address. Never
+            # arbitrarily choose among multiple non-default addresses.
+            saved_customer_address = next(
+                (item for item in customer_addresses if item.get("isDefault") or item.get("is_default")),
+                None,
+            )
+            if not saved_customer_address and len(customer_addresses) == 1:
+                saved_customer_address = customer_addresses[0]
+
+    if saved_customer_address:
+        delivery_address = {
+            **saved_customer_address,
+            **delivery_address,
+            "district": (
+                delivery_address.get("district") or delivery_address.get("districtName")
+                or delivery_address.get("district_name")
+                or saved_customer_address.get("district") or saved_customer_address.get("districtName")
+                or saved_customer_address.get("district_name")
+                or saved_customer_address.get("city") or saved_customer_address.get("town")
+                or saved_customer_address.get("municipality") or ""
+            ),
+            "city": (
+                delivery_address.get("city") or saved_customer_address.get("city")
+                or saved_customer_address.get("town") or saved_customer_address.get("municipality") or ""
+            ),
+            "state": delivery_address.get("state") or saved_customer_address.get("state") or "",
+            "location": delivery_address.get("location") or saved_customer_address.get("location"),
+        }
+
     customer_location = (
         delivery_address.get("location")
         or shipping_address.get("location")
@@ -2506,17 +2561,37 @@ async def assign_farmer_fulfillment_destination_warehouse(
     nested_shipping_address = shipping_address.get("address") if isinstance(shipping_address.get("address"), dict) else {}
     customer_district = str(
         delivery_address.get("district")
+        or delivery_address.get("districtName")
+        or delivery_address.get("district_name")
+        or delivery_address.get("city")
+        or delivery_address.get("town")
+        or delivery_address.get("municipality")
         or delivery_location.get("district")
+        or delivery_location.get("districtName")
+        or delivery_location.get("district_name")
         or delivery_location.get("city")
         or nested_delivery_address.get("district")
+        or nested_delivery_address.get("districtName")
+        or nested_delivery_address.get("district_name")
         or nested_delivery_address.get("city")
+        or nested_delivery_address.get("town")
         or shipping_address.get("district")
+        or shipping_address.get("districtName")
+        or shipping_address.get("district_name")
+        or shipping_address.get("city")
+        or shipping_address.get("town")
         or shipping_location.get("district")
+        or shipping_location.get("districtName")
+        or shipping_location.get("district_name")
         or shipping_location.get("city")
         or nested_shipping_address.get("district")
+        or nested_shipping_address.get("districtName")
+        or nested_shipping_address.get("district_name")
         or nested_shipping_address.get("city")
+        or nested_shipping_address.get("town")
         or order.get("destinationDistrict")
         or order.get("customerDistrict")
+        or order.get("deliveryCity")
         or ""
     ).strip().casefold()
     source_address_value = source_warehouse.get("address")
