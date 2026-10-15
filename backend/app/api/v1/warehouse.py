@@ -428,6 +428,18 @@ async def get_my_collections(
             {"$or": [
                 {"warehouseId": {"$in": warehouse_refs}},
                 {"sourceWarehouseId": {"$in": warehouse_refs}},
+                {"$and": [
+                    {"$or": [
+                        {"warehouseId": {"$exists": False}},
+                        {"warehouseId": None},
+                        {"warehouseId": ""},
+                    ]},
+                    {"$or": [
+                        {"sourceWarehouseId": {"$exists": False}},
+                        {"sourceWarehouseId": None},
+                        {"sourceWarehouseId": ""},
+                    ]},
+                ]},
             ]},
             {"$or": [
                 {"warehouseCollectionStatus": {"$in": ["ready_for_pickup", "pickup_requested"]}},
@@ -446,15 +458,18 @@ async def get_my_collections(
         order_oid = ready_order.get("_id")
         if not order_oid:
             continue
+        # A pre-existing explicit assignment to another warehouse must never
+        # be overwritten. For legacy orders with no source warehouse, match the
+        # farmer's saved district/address to this warehouse's configured or
+        # inferred district before claiming the order.
+        assigned_refs = [
+            str(ready_order.get("sourceWarehouseId") or ""),
+            str(ready_order.get("warehouseId") or ""),
+        ]
+        assigned_refs = [value for value in assigned_refs if value and value not in {"None", ""}]
+        if any(value != warehouse_id for value in assigned_refs):
+            continue
         order_id_text = str(order_oid)
-        current_rows = await incoming_stock_repository.find_many({
-            "$and": [
-                {"warehouseId": {"$in": warehouse_refs}},
-                {"orderId": {"$in": [order_oid, order_id_text]}},
-                {"deletedAt": None},
-            ]
-        }, skip=0, limit=1000)
-        now = datetime.utcnow()
         farm_profile = await get_farmer(str(ready_order.get("farmerId") or ""))
         farm_location = (
             ready_order.get("farmLocation")
@@ -467,6 +482,22 @@ async def get_my_collections(
         )
         if not isinstance(farm_location, dict):
             farm_location = {"address": str(farm_location)}
+        if not assigned_refs:
+            candidate_district = farmer_district_for(farm_profile, farm_location)
+            if not configured_districts or not candidate_district or candidate_district not in configured_districts:
+                logger.info(
+                    "Skipping unassigned ready warehouse order %s: farmer district cannot be matched to warehouse %s",
+                    order_id_text, warehouse_id,
+                )
+                continue
+        current_rows = await incoming_stock_repository.find_many({
+            "$and": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"orderId": {"$in": [order_oid, order_id_text]}},
+                {"deletedAt": None},
+            ]
+        }, skip=0, limit=1000)
+        now = datetime.utcnow()
         for line in (ready_order.get("items") or []):
             qty = float(line.get("actualPackedQuantity", line.get("packedQuantity", line.get("quantity", 0))) or 0)
             if qty <= 0:
