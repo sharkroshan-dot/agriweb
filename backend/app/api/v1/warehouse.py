@@ -5080,14 +5080,17 @@ async def create_pickup_routes(
     if data.assignmentMode == "assign_team":
         assignments = [selected_membership for _ in route_groups]
     elif data.assignmentMode == "auto_assign":
-        # A team already assigned to an active route should not receive another
-        # concurrent route. Route capacity is checked per team before any records
-        # are created, so the request fails atomically on capacity/team mismatch.
+        # Capacity is per pickup run, not a lifetime or historical balance.
+        # Keep a team unavailable only when it already has an active route for
+        # today's farm-pickup shift. Yesterday's route must not consume today's
+        # capacity or prevent the team from being selected again.
+        route_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
         existing_routes = await warehouse_pickup_route_repository.get_by_warehouse(warehouse_id)
         busy_partner_ids = [
             str(route.get("deliveryPartnerId"))
             for route in existing_routes
             if route.get("deliveryPartnerId")
+            and str(route.get("routeDate") or "") == route_date
             and route.get("status") in {"assigned", "in_progress", "en_route", "collecting"}
         ]
         try:
@@ -5097,7 +5100,7 @@ async def create_pickup_routes(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     created = []
-    route_date = datetime.utcnow().strftime("%Y-%m-%d")
+    route_date = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
     for index, group in enumerate(route_groups):
         route_id = await warehouse_pickup_route_repository.create_route({
             "warehouseId": warehouse["_id"],
