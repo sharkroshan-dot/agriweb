@@ -26,10 +26,18 @@ export default function WarehouseLayout({
     }
   }, [status, session, router]);
 
-  if (status === "loading") {
+  const roleMismatch = Boolean(session?.user?.role && session.user.role !== "warehouse");
+  const redirectPending = status === "unauthenticated" || roleMismatch;
+
+  // Do not mount warehouse page components (and their React Query requests)
+  // until authentication has resolved and the session belongs to a warehouse.
+  // Previously children rendered during the redirect effect, which could start
+  // page queries under the wrong or missing role and then immediately unmount.
+  if (status === "loading" || redirectPending) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center" role="status" aria-live="polite">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <span className="sr-only">Verifying warehouse access…</span>
       </div>
     );
   }
