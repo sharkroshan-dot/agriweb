@@ -258,7 +258,7 @@ export default function DeliveryPickupRoutesPage() {
         <Button
           type="button"
           variant={routeView === "transfers" ? "default" : "outline"}
-          className={routeView === "transfers" ? "h-12 bg-indigo-700 text-base hover:bg-indigo-800" : "h-12 text-base"}
+          className={routeView === "transfers" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
           onClick={() => setRouteView("transfers")}
           aria-pressed={routeView === "transfers"}
         >
