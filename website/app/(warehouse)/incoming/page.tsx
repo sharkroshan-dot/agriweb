@@ -42,10 +42,20 @@ const humanIdFallback = (value: any, label: string) => {
 const getFarmGroupKey = (item: any) =>
   String(item.farmId || item.farmerId || item.farmName || item.farmerName || item.pickupLocation?.name || item.pickupLocation?.address || "unknown-farm");
 
-const isFarmerPackedIncoming = (item: any) =>
-  item?.sourceMode === "farmer_fulfillment_transfer" ||
-  item?.packingRequired === false ||
-  Boolean(item?.orderId && item?.pickupRouteId);
+const isFarmerPackedIncoming = (item: any) => {
+  // The farmer's explicit choice takes precedence over legacy route links.
+  // Warehouse-fulfilled orders also have orderId + pickupRouteId, but they
+  // must go through quality inspection, storage, packing, and shortage checks.
+  const method = String(item?.fulfillmentMethod || "").trim().toLowerCase();
+  if (method === "farmer") return true;
+  if (method === "warehouse") return false;
+  const sourceMode = String(item?.sourceMode || "").trim().toLowerCase();
+  if (sourceMode === "farmer_fulfillment_transfer" || sourceMode === "farmer_fulfillment") return true;
+  if (sourceMode === "warehouse_fulfillment_bulk" || sourceMode === "warehouse_fulfillment") return false;
+  if (item?.packingRequired === false) return true;
+  if (item?.packingRequired === true) return false;
+  return Boolean(item?.orderId && item?.pickupRouteId);
+};
 
 const getFarmDisplayName = (item: any) =>
   item.farmName || item.farmerName || item.pickupLocation?.farmName ||
@@ -367,7 +377,7 @@ export default function WarehouseIncomingPage() {
 
   return (
     <div className="space-y-6">
-      <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Two fulfillment workflows</p><p className="mt-1 text-sm leading-6 text-muted-foreground"><b>Farmer Fulfillment:</b> verify packed orders and quantities → optional temporary storage → Transfers / Multi-Warehouse Consolidation. Skip normal warehouse QC and repacking. <b>Normal Warehouse Fulfillment:</b> Receive → Quality Inspection → Store → Stock Management → Order Packing → Outgoing / Dispatch.</p></div></CardContent></Card>
+      <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Two fulfillment workflows</p><p className="mt-1 text-sm leading-6 text-muted-foreground"><b>Farmer Fulfillment:</b> Receive stock → confirm receipt → automatic distance/route split → assign pickup or delivery teams for warehouse/local-hub handoff. Orders are already packed, so skip bulk quality inspection and repacking. <b>Warehouse Fulfillment:</b> Receive stock → Quality Check → Store → pack each order → verify all order items and resolve shortages → dispatch through the warehouse fulfillment workflow.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments · {dateFilter === "today" ? "Today" : dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : "All Time"}</p></div>
         <div className="flex flex-wrap items-center gap-2"><Button asChild><Link href="/warehouse/farmer-fulfillment"><Route className="mr-2 h-4 w-4" />Farmer Fulfillment Transfer</Link></Button><Button asChild variant="outline"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
@@ -561,7 +571,7 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Bulk Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so warehouse quality inspection and repacking are skipped." : "Record the received quantity. After receipt, complete Quality Inspection and Store before order packing."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Warehouse Fulfillment Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so warehouse quality inspection and repacking are skipped." : "Record the received quantity. After receipt, complete Quality Inspection and Store before order packing."}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
             <div className="rounded-lg border bg-slate-50 p-3 text-sm"><p className="font-medium">Farmer declared quantity: {selectedIncoming?.quantity ?? "—"} {selectedIncoming?.unit || "kg"}</p><p className="mt-1 text-muted-foreground">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Count the sealed packets and confirm the number of packed orders received." : "Weigh the bulk stock on the warehouse scale and enter the measured quantity below."}</p></div>
             <div><label className="text-sm font-medium">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Received packet quantity / order units" : "Actual weight measured at warehouse (kg)"}</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Difference: {(Number(receiveForm.quantity || 0) - Number(selectedIncoming?.quantity || 0)).toFixed(2)} {selectedIncoming?.unit || "kg"}</p></div>
