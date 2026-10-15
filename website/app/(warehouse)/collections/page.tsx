@@ -117,14 +117,28 @@ export default function WarehouseCollectionsPage() {
   });
   const warehouseName = warehouseData?.name || "Warehouse";
 
-  const { data, isLoading, refetch } = useQuery({
+  const {
+    data,
+    isLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["warehouseCollectionsPage"],
+    // Always issue a fresh request when this page mounts. The shared query
+    // client caches data for a short period, which can otherwise hide whether
+    // the warehouse queue endpoint is being called during navigation.
     queryFn: () => api.get("/warehouse/me/collections", { params: { status: "all" } }),
-    // Delivery partners own route progress. Poll frequently so every farm card
-    // reflects their latest stop update without a manual page refresh.
-    refetchInterval: 5000,
+    enabled: true,
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    networkMode: "always",
+    // Pickup status is operational and should not depend on navigating away
+    // and back to refresh the queue.
+    refetchInterval: 5000,
   });
 
   const { data: teamsData, refetch: refetchTeams } = useQuery({
@@ -137,7 +151,7 @@ export default function WarehouseCollectionsPage() {
   const selectedTeam = eligibleTeams.find((team: any) => team.id === selectedTeamId);
 
   const jobs = useMemo(() => {
-    const source = data?.data?.collections || [];
+    const source = data?.data?.collections ?? data?.collections ?? [];
     const q = search.trim().toLowerCase();
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -515,7 +529,26 @@ export default function WarehouseCollectionsPage() {
       </Card>
 
       {isLoading ? (
-        <div className="space-y-3">{[1, 2, 3].map((i) => <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />)}</div>
+        <div className="space-y-3" role="status" aria-live="polite">
+          <p className="text-sm text-slate-600">Loading farm collection queue…</p>
+          {[1, 2, 3].map((i) => <div key={i} className="h-40 animate-pulse rounded-xl bg-muted" />)}
+        </div>
+      ) : isError ? (
+        <Card className="border-red-200 p-6" role="alert">
+          <h2 className="text-lg font-bold text-red-800">Could not load Farm Collection</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-700">
+            The queue request failed. This is different from an empty queue, so no orders are being hidden as “No collection jobs”.
+          </p>
+          <p className="mt-2 break-words rounded-md bg-slate-50 p-3 font-mono text-xs text-slate-700">
+            {error instanceof Error ? error.message : String(error || "Unknown request error")}
+          </p>
+          <div className="mt-4 flex items-center gap-3">
+            <Button type="button" onClick={() => refetch()} disabled={isFetching}>
+              <RefreshCw className="mr-2 h-4 w-4" />{isFetching ? "Retrying…" : "Retry queue request"}
+            </Button>
+            <span className="text-xs text-slate-500">GET /api/v1/warehouse/me/collections?status=all</span>
+          </div>
+        </Card>
       ) : jobs.length === 0 ? (
         <Card className="p-12 text-center">
           <Truck className="mx-auto h-12 w-12 text-muted-foreground" />
