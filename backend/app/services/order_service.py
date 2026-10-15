@@ -1819,12 +1819,33 @@ class OrderService:
         if delivery_type != DeliveryType.DELIVERY.value:
             return None
         order_status = str(order.get("orderStatus") or "").strip().lower()
-        if order_status != OrderStatus.PROCESSING.value:
+        # Farmers can choose the fulfillment route once they accept the order.
+        # The UI exposes this action for Confirmed orders too, so transition those
+        # orders to Processing as part of the same route-selection operation.
+        if order_status not in (OrderStatus.CONFIRMED.value, OrderStatus.PROCESSING.value):
+            logger.warning(
+                "Fulfillment route rejected for order %s: unsupported status=%s",
+                order_id, order_status,
+            )
             return None
 
         fm = fulfillment_method.value if hasattr(fulfillment_method, "value") else str(fulfillment_method)
         if fm not in (FulfillmentMethod.FARM_DIRECT.value, FulfillmentMethod.WAREHOUSE.value):
+            logger.warning("Fulfillment route rejected for order %s: invalid method=%s", order_id, fm)
             return None
+
+        warehouse_id = None
+        if fm == FulfillmentMethod.WAREHOUSE.value:
+            warehouse_id = await OrderService.get_farmer_warehouse(
+                user_id,
+                str(order.get("warehouseId") or "") or None,
+            )
+            if not warehouse_id:
+                logger.warning(
+                    "Warehouse fulfillment rejected for order %s: no active warehouse matched farmer %s",
+                    order_id, user_id,
+                )
+                return None
 
         update = {
             "fulfillmentMethod": fm,
@@ -1834,6 +1855,12 @@ class OrderService:
             "deliveryResponsibility": None,
             "updatedAt": datetime.utcnow(),
         }
+        if order_status == OrderStatus.CONFIRMED.value:
+            update["orderStatus"] = OrderStatus.PROCESSING.value
+
+        if fm == FulfillmentMethod.WAREHOUSE.value:
+            update["warehouseFulfillmentStage"] = "incoming"
+            update["warehouseId"] = ObjectId(warehouse_id)
 
         try:
             updated_order = await order_repository.get_by_id(order_id)
@@ -1851,16 +1878,6 @@ class OrderService:
                 )
         except Exception as e:
             logger.warning("Failed to notify fulfillment selection for %s: %s", order_id, e)
-
-        if fm == FulfillmentMethod.WAREHOUSE.value:
-            update["warehouseFulfillmentStage"] = "incoming"
-            warehouse_id = await OrderService.get_farmer_warehouse(
-                user_id,
-                str(order.get("warehouseId") or "") or None,
-            )
-            if not warehouse_id:
-                return None
-            update["warehouseId"] = ObjectId(warehouse_id)
 
         await order_repository.update({"_id": order["_id"]}, update)
         try:
