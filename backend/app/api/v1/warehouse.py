@@ -600,7 +600,7 @@ async def get_my_collections(
             or bool(order_doc.get("transferReadyForPickup"))
             or bool(order_doc.get("warehouseTransferReadyForPickup"))
         )
-        if not explicitly_ready or not bool(order_doc.get("packingComplete")):
+        if not explicitly_ready:
             continue
         order_status = str(order_doc.get("orderStatus") or "").strip().lower()
         pickup_marker = str(order_doc.get("warehouseCollectionStatus") or "").strip().lower()
