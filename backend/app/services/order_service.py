@@ -1704,6 +1704,25 @@ class OrderService:
                     updated = await OrderService.set_fulfillment_route(
                         oid, farmer_id, "farmer", method
                     )
+                elif action == "warehouse_ready_for_pickup":
+                    # Bulk action for warehouse fulfillment: only publish orders
+                    # that already have the warehouse route and a prepared
+                    # incoming-stock record. The per-order service remains the
+                    # single source of truth for eligibility and idempotency.
+                    if (
+                        route == FulfillmentMethod.WAREHOUSE.value
+                        and status == OrderStatus.PROCESSING.value
+                    ):
+                        updated = await OrderService.mark_warehouse_ready_for_pickup(
+                            oid, farmer_id
+                        )
+                        if not updated:
+                            skipped.append({
+                                "orderId": oid,
+                                "orderNumber": order.get("orderNumber"),
+                                "reason": "No scheduled warehouse incoming-stock record is ready to publish, or the order is not eligible.",
+                            })
+                            continue
                 elif action == "pack" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PENDING.value:
                     # Actual packing quantities must be entered through the final
                     # packing endpoint; never auto-claim the ordered quantity.
