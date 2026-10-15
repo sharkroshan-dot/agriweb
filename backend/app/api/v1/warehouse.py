@@ -490,6 +490,17 @@ async def get_my_collections(
                     order_id_text, warehouse_id,
                 )
                 continue
+            # Persist the resolved source assignment so later fulfillment stages
+            # and the next Farm Collection refresh use the same warehouse.
+            await orders_collection.update_one(
+                {"_id": order_oid},
+                {"$set": {
+                    "warehouseId": ObjectId(warehouse_id),
+                    "sourceWarehouseId": ObjectId(warehouse_id),
+                    "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
+                    "updatedAt": datetime.utcnow(),
+                }},
+            )
         current_rows = await incoming_stock_repository.find_many({
             "$and": [
                 {"warehouseId": {"$in": warehouse_refs}},
