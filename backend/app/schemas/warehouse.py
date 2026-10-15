@@ -43,8 +43,10 @@ class WarehouseBase(BaseModel):
     address: Dict[str, str]
     totalCapacity: float = Field(ge=0)
     coldStorageCapacity: Optional[float] = Field(0, ge=0)
-    # A warehouse may serve multiple districts; these fields are used for automatic selection.
+    # General logistics/service coverage; independent from farm collection coverage.
     serviceAreas: List[str] = Field(default_factory=list)
+    # Explicit districts whose farm pickup jobs appear in this warehouse's Farm Collection queue.
+    farmCollectionDistricts: List[str] = Field(default_factory=list)
     supportedStorageTypes: List[str] = Field(default_factory=list)
     managerId: Optional[str] = None
     isActive: bool = True
@@ -61,6 +63,7 @@ class WarehouseUpdate(BaseModel):
     totalCapacity: Optional[float] = Field(None, ge=0)
     coldStorageCapacity: Optional[float] = Field(None, ge=0)
     serviceAreas: Optional[List[str]] = None
+    farmCollectionDistricts: Optional[List[str]] = None
     supportedStorageTypes: Optional[List[str]] = None
     managerId: Optional[str] = None
     isActive: Optional[bool] = None
