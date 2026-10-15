@@ -462,6 +462,12 @@ async def get_my_collections(
             {"deletedAt": None},
         ]
     }).to_list(length=1000)
+    # These orders are handled by the warehouse-fulfillment reconciliation
+    # below. Do not let the generic legacy transfer recovery reclassify them
+    # as sealed Farmer Fulfillment transfers.
+    warehouse_ready_order_ids = {
+        str(order.get("_id")) for order in warehouse_ready_orders if order.get("_id")
+    }
 
     for ready_order in warehouse_ready_orders:
         order_oid = ready_order.get("_id")
@@ -579,6 +585,8 @@ async def get_my_collections(
     }).to_list(length=1000)
 
     for order_doc in candidate_orders:
+        if str(order_doc.get("_id") or "") in warehouse_ready_order_ids:
+            continue
         # Farmer-ready pickup orders have used several fulfillment labels over
         # the lifetime of the app. Treat the persisted warehouse/source
         # assignment plus explicit ready-for-pickup markers as authoritative,
