@@ -5469,6 +5469,14 @@ async def get_my_incoming_stock(
             try:
                 order = await order_repository.get_by_id(order_id)
                 if order:
+                    # Reflect the farmer's saved fulfillment choice in the
+                    # Incoming Stock tabs, even for legacy rows whose sourceMode
+                    # was missing or incorrectly defaulted during pickup sync.
+                    chosen_method = str(order.get("fulfillmentMethod") or safe_item.get("fulfillmentMethod") or "").strip().lower()
+                    if chosen_method in {"farmer", "warehouse"}:
+                        safe_item["fulfillmentMethod"] = chosen_method
+                        safe_item["sourceMode"] = "farmer_fulfillment_transfer" if chosen_method == "farmer" else "warehouse_fulfillment_bulk"
+                        safe_item["packingRequired"] = chosen_method == "warehouse"
                     safe_item["orderNumber"] = order.get("orderNumber") or f"Order #{order_id[-6:].upper()}"
                     safe_item["customerName"] = safe_item.get("customerName") or " ".join(filter(None, [
                         (order.get("customer") or {}).get("firstName") if isinstance(order.get("customer"), dict) else None,
