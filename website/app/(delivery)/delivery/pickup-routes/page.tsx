@@ -28,7 +28,7 @@ const routeDayLabel = (route: any) => {
 };
 
 const isCarryoverRoute = (route: any) => {
-  const value = route.routeDate || route.createdAt;
+  const value = route.routeDate || route.createdAt || route.assignedAt || route.scheduledAt;
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
@@ -37,6 +37,31 @@ const isCarryoverRoute = (route: any) => {
   const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   return routeDay < todayDay;
 };
+
+const routeDateValue = (item: any) =>
+  item?.routeDate || item?.scheduledAt || item?.assignedAt || item?.createdAt || item?.updatedAt || item?.startedAt || item?.completedAt || item?.arrivedAt || item?.date;
+
+const isInDatePeriod = (item: any, period: "today" | "yesterday") => {
+  const value = routeDateValue(item);
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const start = period === "today"
+    ? todayStart
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const end = period === "today"
+    ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    : todayStart;
+  return date >= start && date < end;
+};
+
+const isPickupCompleted = (item: any) =>
+  ["completed", "returned_to_warehouse", "arrived_warehouse", "delivered"].includes(String(item?.status || "").toLowerCase());
+
+const isTransferCompleted = (item: any) =>
+  ["completed", "received", "delivered", "arrived_at_destination", "arrived_at_hub"].includes(String(item?.status || "").toLowerCase());
 
 const mergeFarmStopsForDisplay = (input: any[]) => {
   const groups: Record<string, any> = {};
@@ -132,6 +157,7 @@ const stopStatusLabel = (value: string) => ({
 
 export default function DeliveryPickupRoutesPage() {
   const [routeView, setRouteView] = useState<"pickup" | "transfers">("pickup");
+  const [datePeriod, setDatePeriod] = useState<"today" | "yesterday">("today");
   const offersQ = useQuery({
     queryKey: ["myPickupOffers"],
     queryFn: () => api.get("/delivery/me/pickup-offers"),
@@ -159,12 +185,47 @@ export default function DeliveryPickupRoutesPage() {
     queryFn: () => api.get("/delivery/me/pickup-jobs"),
     refetchInterval: 5000,
   });
-  const offers = offersQ.data?.data?.routes || [];
-  const routes = routesQ.data?.data?.routes || [];
-  const pickupJobs = marketplaceQ.data?.data?.openJobs || [];
-  const acceptedPickupJobs = marketplaceQ.data?.data?.acceptedJobs || [];
-  const hubTransfers = hubTransfersQ.data?.data?.transfers || [];
-  const warehouseTransfers = warehouseTransfersQ.data?.data?.transfers || [];
+  const allOffers = offersQ.data?.data?.routes || [];
+  const allRoutes = routesQ.data?.data?.routes || [];
+  const allPickupJobs = marketplaceQ.data?.data?.openJobs || [];
+  const allAcceptedPickupJobs = marketplaceQ.data?.data?.acceptedJobs || [];
+  const allHubTransfers = hubTransfersQ.data?.data?.transfers || [];
+  const allWarehouseTransfers = warehouseTransfersQ.data?.data?.transfers || [];
+
+  // Keep unfinished routes from earlier days visible while viewing Today so a
+  // delivery partner cannot lose sight of work that still needs handover.
+  const routes = allRoutes.filter((item: any) =>
+    isInDatePeriod(item, datePeriod) ||
+    (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
+  );
+  const offers = allOffers.filter((item: any) => isInDatePeriod(item, datePeriod));
+  const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod));
+  const acceptedPickupJobs = allAcceptedPickupJobs.filter((item: any) =>
+    isInDatePeriod(item, datePeriod) ||
+    (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
+  );
+  const hubTransfers = allHubTransfers.filter((item: any) => isInDatePeriod(item, datePeriod));
+  const warehouseTransfers = allWarehouseTransfers.filter((item: any) => isInDatePeriod(item, datePeriod));
+
+  const pickupPendingCount =
+    routes.filter((item: any) => !isPickupCompleted(item)).length +
+    offers.filter((item: any) => !isPickupCompleted(item)).length +
+    pickupJobs.filter((item: any) => !isPickupCompleted(item)).length +
+    acceptedPickupJobs.filter((item: any) => !isPickupCompleted(item)).length;
+  const pickupCompletedCount =
+    routes.filter(isPickupCompleted).length +
+    offers.filter(isPickupCompleted).length +
+    pickupJobs.filter(isPickupCompleted).length +
+    acceptedPickupJobs.filter(isPickupCompleted).length;
+  const transferPendingCount =
+    warehouseTransfers.filter((item: any) => !isTransferCompleted(item)).length +
+    hubTransfers.filter((item: any) => !isTransferCompleted(item)).length;
+  const transferCompletedCount =
+    warehouseTransfers.filter(isTransferCompleted).length +
+    hubTransfers.filter(isTransferCompleted).length;
+  const overduePickupCount = datePeriod === "today"
+    ? allRoutes.filter((item: any) => isCarryoverRoute(item) && !isPickupCompleted(item) && !isInDatePeriod(item, "today")).length
+    : 0;
 
   const accept = async (routeId: string) => {
     try {
@@ -243,6 +304,44 @@ export default function DeliveryPickupRoutesPage() {
             : "Move sealed shipments between warehouses or from a warehouse to the assigned local hub."}
         </p>
       </div>
+
+      <Card className="shadow-sm">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="font-semibold text-slate-900">Route activity</h2>
+              <p className="text-sm text-muted-foreground">Choose a day to check whether pickups and transfers are available, pending, or completed.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant={datePeriod === "today" ? "default" : "outline"} className={datePeriod === "today" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("today")} aria-pressed={datePeriod === "today"}>Today</Button>
+              <Button type="button" variant={datePeriod === "yesterday" ? "default" : "outline"} className={datePeriod === "yesterday" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
+                <Route className="h-5 w-5 text-emerald-700" />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Pending</p><p className="mt-1 text-2xl font-bold text-amber-700">{pickupPendingCount}</p></div>
+                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{pickupCompletedCount}</p></div>
+              </div>
+              {overduePickupCount > 0 && datePeriod === "today" && <p className="mt-3 text-sm font-medium text-amber-800">{overduePickupCount} unfinished route(s) from earlier days remain visible below.</p>}
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-semibold text-emerald-950">Warehouse Transfer Routes</p>
+                <Truck className="h-5 w-5 text-emerald-700" />
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Pending</p><p className="mt-1 text-2xl font-bold text-amber-700">{transferPendingCount}</p></div>
+                <div className="rounded-lg bg-white p-3"><p className="text-sm text-slate-500">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{transferCompletedCount}</p></div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Button
@@ -735,7 +834,7 @@ export default function DeliveryPickupRoutesPage() {
       {routeView === "transfers" && warehouseTransfers.length === 0 && hubTransfers.length === 0 && (
         <Card className="p-10 text-center">
           <Truck className="mx-auto h-10 w-10 text-muted-foreground" />
-          <h2 className="mt-3 font-semibold">No warehouse transfer routes assigned</h2>
+          <h2 className="mt-3 font-semibold">No warehouse transfer routes for {datePeriod === "today" ? "today" : "yesterday"}</h2>
           <p className="mt-1 text-sm text-muted-foreground">Assigned warehouse-to-warehouse and warehouse-to-local-hub transfers will appear here. Farm collections remain under Farm Pickup Routes.</p>
         </Card>
       )}
