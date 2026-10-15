@@ -131,6 +131,7 @@ const stopStatusLabel = (value: string) => ({
 } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function DeliveryPickupRoutesPage() {
+  const [routeView, setRouteView] = useState<"pickup" | "transfers">("pickup");
   const offersQ = useQuery({
     queryKey: ["myPickupOffers"],
     queryFn: () => api.get("/delivery/me/pickup-offers"),
@@ -234,13 +235,40 @@ export default function DeliveryPickupRoutesPage() {
   return (
     <div className="space-y-6">
       <div className="rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white">
-        <p className="text-sm text-emerald-100">Warehouse pickup operations</p>
-        <h1 className="mt-1 text-3xl font-bold">Pickup Routes</h1>
+        <p className="text-sm text-emerald-100">Delivery partner route operations</p>
+        <h1 className="mt-1 text-3xl font-bold">{routeView === "pickup" ? "Farm Pickup Routes" : "Warehouse Transfer Routes"}</h1>
         <p className="mt-2 text-sm text-emerald-50">
-          Open routes are offered to every approved pickup partner. The first partner to accept gets the route.
+          {routeView === "pickup"
+            ? "Collect packed orders from farms and deliver sealed shipments to the assigned warehouse."
+            : "Move sealed shipments between warehouses or from a warehouse to the assigned local hub."}
         </p>
       </div>
 
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <Button
+          type="button"
+          variant={routeView === "pickup" ? "default" : "outline"}
+          className={routeView === "pickup" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          onClick={() => setRouteView("pickup")}
+          aria-pressed={routeView === "pickup"}
+        >
+          <Route className="mr-2 h-5 w-5" /> Farm Pickup Routes
+          <Badge className="ml-2" variant={routeView === "pickup" ? "secondary" : "outline"}>{pickupJobs.length + acceptedPickupJobs.length + offers.length + routes.length}</Badge>
+        </Button>
+        <Button
+          type="button"
+          variant={routeView === "transfers" ? "default" : "outline"}
+          className={routeView === "transfers" ? "h-12 bg-indigo-700 text-base hover:bg-indigo-800" : "h-12 text-base"}
+          onClick={() => setRouteView("transfers")}
+          aria-pressed={routeView === "transfers"}
+        >
+          <Truck className="mr-2 h-5 w-5" /> Warehouse Transfer Routes
+          <Badge className="ml-2" variant={routeView === "transfers" ? "secondary" : "outline"}>{warehouseTransfers.length + hubTransfers.length}</Badge>
+        </Button>
+      </div>
+
+      {routeView === "transfers" && (
+        <>
       {warehouseTransfers.length > 0 && (
         <Card className="border-amber-200">
           <CardHeader className="border-b bg-amber-50/70">
@@ -296,6 +324,11 @@ export default function DeliveryPickupRoutesPage() {
         </Card>
       )}
 
+        </>
+      )}
+
+      {routeView === "pickup" && (
+        <>
       {pickupJobs.length > 0 && (
         <Card className="border-blue-200">
           <CardHeader className="border-b bg-blue-50/70">
@@ -696,6 +729,15 @@ export default function DeliveryPickupRoutesPage() {
             );
           })}
         </div>
+      )}
+        </>
+      )}
+      {routeView === "transfers" && warehouseTransfers.length === 0 && hubTransfers.length === 0 && (
+        <Card className="p-10 text-center">
+          <Truck className="mx-auto h-10 w-10 text-muted-foreground" />
+          <h2 className="mt-3 font-semibold">No warehouse transfer routes assigned</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Assigned warehouse-to-warehouse and warehouse-to-local-hub transfers will appear here. Farm collections remain under Farm Pickup Routes.</p>
+        </Card>
       )}
     </div>
   );
