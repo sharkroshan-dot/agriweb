@@ -3028,14 +3028,17 @@ class OrderService:
 
             farmer_profile = None
             if ObjectId.is_valid(str(farmer_id)):
-                farmer_repo = BaseRepository("farmers")
+                # Farmer profile data is stored in farmer_profiles (not farmers).
+                # Support both string and ObjectId userId values in legacy records.
+                farmer_repo = BaseRepository("farmer_profiles")
                 farmer_profile = await farmer_repo.find_one({
                     "$or": [
                         {"userId": ObjectId(farmer_id)},
                         {"userId": str(farmer_id)},
                         {"farmerId": ObjectId(farmer_id)},
                         {"farmerId": str(farmer_id)},
-                    ]
+                    ],
+                    "deletedAt": None,
                 })
             user_profile = None
             if ObjectId.is_valid(str(farmer_id)):
