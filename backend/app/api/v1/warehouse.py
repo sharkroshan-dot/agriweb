@@ -2586,7 +2586,26 @@ async def assign_farmer_fulfillment_destination_warehouse(
     if not source_district and farmer_id and ObjectId.is_valid(farmer_id):
         farmer_profile = await farmer_repository.get_by_id(farmer_id)
         if farmer_profile:
-            source_district = str(farmer_profile.get("district") or farmer_profile.get("farmDistrict") or "").strip().casefold()
+            farm_address_value = farmer_profile.get("farmAddress") or farmer_profile.get("address")
+            farm_address = farm_address_value if isinstance(farm_address_value, dict) else {}
+            farm_location_value = farmer_profile.get("farmLocation") or farmer_profile.get("location")
+            farm_location = farm_location_value if isinstance(farm_location_value, dict) else {}
+            source_district = str(
+                farmer_profile.get("district")
+                or farmer_profile.get("farmDistrict")
+                or farmer_profile.get("districtName")
+                or farmer_profile.get("city")
+                or farmer_profile.get("farmCity")
+                or farm_address.get("district")
+                or farm_address.get("districtName")
+                or farm_address.get("city")
+                or farm_address.get("town")
+                or farm_location.get("district")
+                or farm_location.get("districtName")
+                or farm_location.get("city")
+                or farm_location.get("town")
+                or ""
+            ).strip().casefold()
     source_location = (
         source_warehouse.get("location")
         or source_warehouse.get("coordinates")
