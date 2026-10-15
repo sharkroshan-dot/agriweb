@@ -38,11 +38,30 @@ const isCarryoverRoute = (route: any) => {
   return routeDay < todayDay;
 };
 
-const routeDateValue = (item: any) =>
-  item?.routeDate || item?.scheduledAt || item?.assignedAt || item?.createdAt || item?.updatedAt || item?.startedAt || item?.completedAt || item?.arrivedAt || item?.date;
+const isPickupCompleted = (item: any) =>
+  // "completed" only means farm collection has finished. Pickup work is done
+  // only when the route's warehouse handover is recorded.
+  ["returned_to_warehouse", "arrived_warehouse"].includes(String(item?.status || "").toLowerCase());
 
-const isInDatePeriod = (item: any, period: "today" | "yesterday") => {
-  const value = routeDateValue(item);
+const isTransferCompleted = (item: any) =>
+  // Arrival at the assigned warehouse or hub completes the driver's transfer leg.
+  ["arrived_at_destination", "arrived_at_hub", "received_at_destination", "received_at_hub"].includes(
+    String(item?.status || "").toLowerCase()
+  );
+
+const routeDateValue = (item: any, workflow: "pickup" | "transfer" = "pickup") => {
+  const status = String(item?.status || "").toLowerCase();
+  if (workflow === "pickup" && isPickupCompleted(item)) {
+    return item?.returnedAt || item?.warehouseArrivedAt || item?.arrivedWarehouseAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
+  }
+  if (workflow === "transfer" && isTransferCompleted(item)) {
+    return item?.arrivedAtDestinationAt || item?.arrivedAtHubAt || item?.arrivedAt || item?.receivedAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
+  }
+  return item?.routeDate || item?.scheduledAt || item?.assignedAt || item?.createdAt || item?.date;
+};
+
+const isInDatePeriod = (item: any, period: "today" | "yesterday", workflow: "pickup" | "transfer" = "pickup") => {
+  const value = routeDateValue(item, workflow);
   if (!value) return false;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return false;
@@ -57,14 +76,6 @@ const isInDatePeriod = (item: any, period: "today" | "yesterday") => {
   return date >= start && date < end;
 };
 
-// A farm pickup is not complete when the partner has only collected the
-// orders from farms. The route stays pending until the partner returns to and
-// hands the shipments over at the source warehouse.
-const isPickupCompleted = (item: any) =>
-  // Route status "completed" only means every farm stop was collected.
-  // The partner's pickup work is complete after the warehouse handover.
-  ["returned_to_warehouse", "arrived_warehouse"].includes(String(item?.status || "").toLowerCase());
-
 const uniqueById = (items: any[]) => {
   const seen = new Set<string>();
   return (items || []).filter((item: any, index: number) => {
@@ -75,13 +86,6 @@ const uniqueById = (items: any[]) => {
     return true;
   });
 };
-
-// A transfer is complete once the partner has physically reached its assigned
-// destination warehouse or local hub. "in_transit" and "started" remain pending.
-const isTransferCompleted = (item: any) =>
-  ["arrived_at_destination", "arrived_at_hub", "completed", "received", "delivered"].includes(
-    String(item?.status || "").toLowerCase()
-  );
 
 const mergeFarmStopsForDisplay = (input: any[]) => {
   const groups: Record<string, any> = {};
@@ -215,33 +219,36 @@ export default function DeliveryPickupRoutesPage() {
   // Keep unfinished routes from earlier days visible while viewing Today so a
   // delivery partner cannot lose sight of work that still needs handover.
   const routes = allRoutes.filter((item: any) =>
-    isInDatePeriod(item, datePeriod) ||
+    isInDatePeriod(item, datePeriod, "pickup") ||
     (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
   );
-  const offers = allOffers.filter((item: any) => isInDatePeriod(item, datePeriod));
-  const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod));
+  const offers = allOffers.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
+  const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
   const acceptedPickupJobs = allAcceptedPickupJobs.filter((item: any) =>
-    isInDatePeriod(item, datePeriod) ||
+    isInDatePeriod(item, datePeriod, "pickup") ||
     (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
   );
-  const hubTransfers = allHubTransfers.filter((item: any) => isInDatePeriod(item, datePeriod));
-  const warehouseTransfers = allWarehouseTransfers.filter((item: any) => isInDatePeriod(item, datePeriod));
+  const hubTransfers = allHubTransfers.filter((item: any) => isInDatePeriod(item, datePeriod, "transfer"));
+  const warehouseTransfers = allWarehouseTransfers.filter((item: any) => isInDatePeriod(item, datePeriod, "transfer"));
 
   // The same route can appear in both "My Routes" and the offers feed.
   // Count each actual route once; pickup jobs are stops/orders within routes,
   // not additional routes, so they must not inflate these summary totals.
-  const summaryPickupRoutes = uniqueById([...routes, ...offers]).filter((item: any) =>
-    isInDatePeriod(item, datePeriod) ||
+  // Offers can include routes already claimed by another partner. Only count
+  // offers still open to claim, plus the routes assigned to this partner.
+  const openOffers = offers.filter((item: any) => String(item?.status || "offered").toLowerCase() === "offered");
+  const summaryPickupRoutes = uniqueById([...routes, ...openOffers]).filter((item: any) =>
+    isInDatePeriod(item, datePeriod, "pickup") ||
     (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
   );
   const pickupPendingCount = summaryPickupRoutes.filter((item: any) => !isPickupCompleted(item)).length;
   const pickupCompletedCount = summaryPickupRoutes.filter(isPickupCompleted).length;
-  const transferPendingCount =
-    warehouseTransfers.filter((item: any) => !isTransferCompleted(item)).length +
-    hubTransfers.filter((item: any) => !isTransferCompleted(item)).length;
-  const transferCompletedCount =
-    warehouseTransfers.filter(isTransferCompleted).length +
-    hubTransfers.filter(isTransferCompleted).length;
+
+  // Count each transfer once across the two route categories and use the
+  // driver's arrival state, not a downstream warehouse/hub receipt state.
+  const summaryTransfers = uniqueById([...warehouseTransfers, ...hubTransfers]);
+  const transferPendingCount = summaryTransfers.filter((item: any) => !isTransferCompleted(item)).length;
+  const transferCompletedCount = summaryTransfers.filter(isTransferCompleted).length;
   const overduePickupCount = datePeriod === "today"
     ? allRoutes.filter((item: any) => isCarryoverRoute(item) && !isPickupCompleted(item) && !isInDatePeriod(item, "today")).length
     : 0;
