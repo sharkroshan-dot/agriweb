@@ -357,6 +357,127 @@ async def get_my_collections(
             farmer_cache[key] = profile
         return farmer_cache[key]
 
+    # Reconcile packed Farmer Fulfillment orders that were marked Ready for
+    # Pickup before a collection job was created (or while the old endpoint
+    # failed). The order must already name this warehouse as its source; this
+    # does not claim orders assigned to another warehouse.
+    orders_collection = MongoDB.get_collection("orders")
+    warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+    candidate_orders = await orders_collection.find({
+        "$and": [
+            {"deletedAt": None},
+            {"$or": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"sourceWarehouseId": {"$in": warehouse_refs}},
+            ]},
+        ]
+    }).to_list(length=1000)
+
+    for order_doc in candidate_orders:
+        if str(order_doc.get("fulfillmentMethod") or "").strip().lower() not in {
+            "farm_direct", "farmer", "farm_direct_delivery"
+        }:
+            continue
+        if not bool(order_doc.get("packingComplete")):
+            continue
+        order_status = str(order_doc.get("orderStatus") or "").strip().lower()
+        pickup_marker = str(order_doc.get("warehouseCollectionStatus") or "").strip().lower()
+        transfer_marker = str(order_doc.get("transferStatus") or "").strip().lower()
+        stage_marker = str(order_doc.get("warehouseFulfillmentStage") or "").strip().lower()
+        if not (
+            order_status == "ready_for_pickup"
+            or pickup_marker in {"ready_for_pickup", "pickup_requested"}
+            or transfer_marker == "awaiting_farm_pickup"
+            or stage_marker == "pickup_requested"
+        ):
+            continue
+
+        order_oid = order_doc.get("_id")
+        if not order_oid:
+            continue
+        order_id_text = str(order_oid)
+        farmer_id_text = str(order_doc.get("farmerId") or "")
+        profile = await get_farmer(farmer_id_text)
+        farm_location = (
+            order_doc.get("farmLocation")
+            or order_doc.get("farmerLocation")
+            or order_doc.get("pickupLocation")
+            or (profile or {}).get("farmLocation")
+            or (profile or {}).get("location")
+            or (profile or {}).get("address")
+            or {}
+        )
+        if not isinstance(farm_location, dict):
+            farm_location = {"address": str(farm_location)}
+
+        existing_rows = await incoming_stock_repository.find_many({
+            "$and": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"orderId": {"$in": [order_oid, order_id_text]}},
+                {"sourceMode": "farmer_fulfillment_transfer"},
+                {"deletedAt": None},
+            ]
+        }, skip=0, limit=1000)
+
+        items = order_doc.get("items") or []
+        for line in items:
+            quantity = float(line.get("actualPackedQuantity", line.get("packedQuantity", line.get("quantity", 0))) or 0)
+            if quantity <= 0:
+                continue
+            product_id = str(line.get("productId") or line.get("product_id") or "")
+            variant_id = str(line.get("variantId") or line.get("variant_id") or "")
+            existing = next((
+                row for row in existing_rows
+                if str(row.get("productId") or "") == product_id
+                and str(row.get("variantId") or "") == variant_id
+            ), None)
+            if existing:
+                existing["readyForPickup"] = True
+                existing["packingRequired"] = False
+                await ensure_collection_job(existing, "packed_orders_transfer", "farmer_fulfillment_transfer")
+                continue
+
+            now = datetime.utcnow()
+            incoming_doc = {
+                "warehouseId": ObjectId(warehouse_id),
+                "orderId": order_oid,
+                "orderNumber": order_doc.get("orderNumber") or order_doc.get("orderNo"),
+                "farmerId": ObjectId(farmer_id_text) if ObjectId.is_valid(farmer_id_text) else farmer_id_text,
+                "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else (variant_id or None),
+                "productName": line.get("productName") or line.get("name") or "Product",
+                "quantity": quantity,
+                "expectedQuantity": quantity,
+                "unit": line.get("unit") or "kg",
+                "sourceMode": "farmer_fulfillment_transfer",
+                "collectionType": "packed_orders_transfer",
+                "fulfillmentType": "farmer_fulfillment",
+                "shipmentType": "farmer_fulfillment",
+                "packingRequired": False,
+                "warehousePackingRequired": False,
+                "packingVerified": True,
+                "readyForPickup": True,
+                "transferReadyForPickup": True,
+                "readyForPickupAt": order_doc.get("warehouseCollectionRequestedAt") or now,
+                "pickupLocation": farm_location,
+                "farmLocation": farm_location,
+                "packageCount": 1,
+                "status": "scheduled",
+                "expectedDate": now,
+                "createdAt": now,
+                "updatedAt": now,
+                "deletedAt": None,
+            }
+            incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
+            if not incoming_id:
+                logger.error("Could not recover incoming stock row for packed order %s", order_id_text)
+                continue
+            incoming_doc["_id"] = ObjectId(str(incoming_id))
+            await ensure_collection_job(incoming_doc, "packed_orders_transfer", "farmer_fulfillment_transfer")
+
+    # Reload after reconciliation so newly-created pickup jobs appear immediately.
+    jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
+
     async def display_name_for_profile(profile: Optional[Dict[str, Any]], default: str) -> str:
         if not profile:
             return default
@@ -431,15 +552,15 @@ async def get_my_collections(
         batch = await get_batch(str(job.get("batchId") or ""))
         farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
         farmer_district = farmer_district_for(farmer_profile, job.get("pickupLocation") or {})
-        # Do not hide an otherwise assigned pickup merely because the farmer's
-        # address is incomplete. Exclude known out-of-district jobs, but show
-        # unknown-district jobs with a visible resolution status so staff can
-        # fix the location instead of seeing an unexplained empty queue.
-        if not configured_districts:
-            continue
-        if farmer_district and farmer_district not in configured_districts:
-            continue
-        district_match_status = "matched" if farmer_district in configured_districts else "needs_location_data"
+        # An existing warehouseId is an explicit assignment, so do not hide
+        # that job merely because legacy address data cannot be matched. Surface
+        # the discrepancy in the UI instead of returning an empty queue.
+        if farmer_district in configured_districts and configured_districts:
+            district_match_status = "matched"
+        elif not farmer_district or not configured_districts:
+            district_match_status = "needs_location_data"
+        else:
+            district_match_status = "district_mismatch"
         profile_name = await display_name_for_profile(farmer_profile, "")
         farmer_user_id = str((farmer_profile or {}).get("userId") or job.get("farmerId") or "")
         farmer_user = await get_user(farmer_user_id)
@@ -542,7 +663,11 @@ async def get_my_collections(
             "districtMatchStatus": district_match_status,
             "districtMatchMessage": (
                 None if district_match_status == "matched"
-                else "Farm district could not be verified. Confirm the farmer's district/address before assigning this pickup route."
+                else (
+                    "Farm district differs from this warehouse's configured district. Verify the assignment before planning pickup."
+                    if district_match_status == "district_mismatch"
+                    else "Farm district could not be verified. Confirm the farmer's district/address before assigning this pickup route."
+                )
             ),
             "actualCollectedQuantity": job.get("actualCollectedQuantity"),
         })
