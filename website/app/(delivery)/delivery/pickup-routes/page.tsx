@@ -57,11 +57,20 @@ const isInDatePeriod = (item: any, period: "today" | "yesterday") => {
   return date >= start && date < end;
 };
 
+// A farm pickup is not complete when the partner has only collected the
+// orders from farms. The route stays pending until the partner returns to and
+// hands the shipments over at the source warehouse.
 const isPickupCompleted = (item: any) =>
-  ["completed", "returned_to_warehouse", "arrived_warehouse", "delivered"].includes(String(item?.status || "").toLowerCase());
+  ["returned_to_warehouse", "arrived_warehouse", "warehouse_received", "received_at_warehouse", "stored"].includes(
+    String(item?.status || "").toLowerCase()
+  );
 
+// A transfer is complete once the partner has physically reached its assigned
+// destination warehouse or local hub. "in_transit" and "started" remain pending.
 const isTransferCompleted = (item: any) =>
-  ["completed", "received", "delivered", "arrived_at_destination", "arrived_at_hub"].includes(String(item?.status || "").toLowerCase());
+  ["arrived_at_destination", "arrived_at_hub", "completed", "received", "delivered"].includes(
+    String(item?.status || "").toLowerCase()
+  );
 
 const mergeFarmStopsForDisplay = (input: any[]) => {
   const groups: Record<string, any> = {};
@@ -321,6 +330,7 @@ export default function DeliveryPickupRoutesPage() {
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
+                <p className="text-xs text-emerald-800">Completed only after all collected orders are handed over at the source warehouse.</p>
                 <Route className="h-5 w-5 text-emerald-700" />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3">
@@ -332,6 +342,7 @@ export default function DeliveryPickupRoutesPage() {
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-emerald-950">Warehouse Transfer Routes</p>
+                <p className="text-xs text-emerald-800">Completed after arrival at the destination warehouse or local hub.</p>
                 <Truck className="h-5 w-5 text-emerald-700" />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3">
