@@ -2239,73 +2239,210 @@ class OrderService:
 
     @staticmethod
     async def mark_warehouse_ready_for_pickup(order_id: str, farmer_id: str) -> Optional[Dict[str, Any]]:
-        """Farmer confirms warehouse-fulfillment harvest/bulk stock is ready at the farm."""
+        """Create/reconcile farm collection work when a warehouse-fulfillment order is ready."""
         order = await order_repository.get_by_id(order_id)
-        if not order or str(order.get("farmerId")) != farmer_id:
+        if not order or str(order.get("farmerId") or "") != str(farmer_id):
             return None
         if str(order.get("fulfillmentMethod") or "") != FulfillmentMethod.WAREHOUSE.value:
             return None
         if str(order.get("orderStatus") or "") != OrderStatus.PROCESSING.value:
             return None
 
-        try:
-            updated_order = await order_repository.get_by_id(order_id)
-            if updated_order:
-                await NotificationService.send_order_workflow_update(
-                    updated_order,
-                    stage="ready_for_pickup",
-                    title=f"Order #{order.get('orderNumber') or order_id}: product ready for warehouse collection",
-                    message="The farmer has prepared the product. The warehouse collection team can now schedule pickup.",
-                    actor_role="farmer",
-                )
-        except Exception as e:
-            logger.warning("Failed to notify warehouse about collection readiness for %s: %s", order_id, e)
-
+        from app.database.mongodb import MongoDB
+        from app.repositories.warehouse_repository import warehouse_repository
         from app.repositories.incoming_stock_repository import incoming_stock_repository
+        from app.repositories.warehouse_collection_repository import warehouse_collection_repository
         from app.services.warehouse_collection_service import ensure_collection_job
-        incoming_items = await incoming_stock_repository.get_by_warehouse_id(
-            str(order.get("warehouseId")), status=None, skip=0, limit=1000
+
+        # Resolve the farmer profile so the pickup job always carries the farm
+        # address/location needed by route planning.
+        farmer_profile = None
+        profiles = MongoDB.get_collection("farmer_profiles")
+        farmer_ref = ObjectId(farmer_id) if ObjectId.is_valid(str(farmer_id)) else str(farmer_id)
+        profile_query = [{"_id": farmer_ref}, {"userId": farmer_ref}, {"userId": str(farmer_id)}]
+        if isinstance(farmer_ref, ObjectId):
+            profile_query.append({"_id": str(farmer_ref)})
+        farmer_profile = await profiles.find_one({"$or": profile_query, "deletedAt": None})
+
+        farm_location = (
+            order.get("farmLocation")
+            or order.get("farmerLocation")
+            or order.get("pickupLocation")
+            or (farmer_profile or {}).get("farmLocation")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("coordinates")
+            or (farmer_profile or {}).get("address")
+            or {}
         )
-        matching = [x for x in incoming_items if str(x.get("orderId")) == str(order["_id"])]
-        if not matching:
+        if not isinstance(farm_location, dict):
+            farm_location = {"address": str(farm_location)}
+
+        def point(value: Any) -> Optional[tuple[float, float]]:
+            if not isinstance(value, dict):
+                return None
+            coords = value.get("coordinates")
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    lng, lat = float(coords[0]), float(coords[1])
+                    if -180 <= lng <= 180 and -90 <= lat <= 90:
+                        return lat, lng
+                except (TypeError, ValueError):
+                    pass
+            lat = value.get("latitude", value.get("lat"))
+            lng = value.get("longitude", value.get("lng", value.get("lon")))
+            try:
+                lat, lng = float(lat), float(lng)
+                if -90 <= lat <= 90 and -180 <= lng <= 180:
+                    return lat, lng
+            except (TypeError, ValueError):
+                pass
             return None
 
-        for incoming in matching:
-            if str(incoming.get("status")) not in ("scheduled", "ready_for_pickup"):
-                continue
-            await incoming_stock_repository.update(
-                {"_id": incoming["_id"]},
-                {"status": "ready_for_pickup", "readyForPickup": True, "readyForPickupAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+        # Use the order's assigned source warehouse when available. For older
+        # orders without one, select the nearest active warehouse from the farm
+        # coordinates rather than leaving the pickup queue permanently empty.
+        warehouse_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+        warehouse = await warehouse_repository.get_by_id(warehouse_id) if ObjectId.is_valid(warehouse_id) else None
+        order_items = order.get("items") or []
+        required_capacity = sum(
+            float(item.get("actualPackedQuantity", item.get("packedQuantity", item.get("quantity", 0))) or 0)
+            for item in order_items
+        )
+        farm_point = point(farm_location)
+        if not warehouse and farm_point:
+            warehouse = await warehouse_repository.find_best_warehouse(
+                farm_point[0], farm_point[1],
+                required_capacity=required_capacity,
+                radius_km=200,
+                limit=50,
             )
-            # Promote the existing warehouse collection job only after the
-            # farmer has explicitly confirmed that the shipment is ready.
-            from app.repositories.warehouse_collection_repository import warehouse_collection_repository
-            collection_job = await warehouse_collection_repository.get_by_incoming(str(incoming["_id"]))
-            if collection_job:
-                await warehouse_collection_repository.update_job(str(collection_job["_id"]), {
-                    "status": "ready_for_pickup",
+        if not warehouse or warehouse.get("isActive") is False:
+            logger.warning(
+                "Cannot create farm collection for order %s: no active source warehouse; assignedWarehouseId=%s, farmPointAvailable=%s",
+                order_id, warehouse_id or None, bool(farm_point),
+            )
+            return None
+        warehouse_id = str(warehouse.get("_id") or "")
+        if not ObjectId.is_valid(warehouse_id):
+            return None
+
+        if not order_items:
+            logger.warning("Cannot create farm collection for order %s: order has no item lines", order_id)
+            return None
+
+        warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+        order_refs = [order["_id"], str(order["_id"])]
+        existing_rows = await incoming_stock_repository.find_many({
+            "$and": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"orderId": {"$in": order_refs}},
+                {"deletedAt": None},
+            ]
+        }, skip=0, limit=1000)
+
+        now = datetime.utcnow()
+        created_or_reconciled = 0
+        for line in order_items:
+            quantity = float(line.get("actualPackedQuantity", line.get("packedQuantity", line.get("quantity", 0))) or 0)
+            if quantity <= 0:
+                continue
+            product_id = str(line.get("productId") or line.get("product_id") or "")
+            variant_id = str(line.get("variantId") or line.get("variant_id") or "")
+            incoming = next((
+                row for row in existing_rows
+                if str(row.get("productId") or "") == product_id
+                and str(row.get("variantId") or "") == variant_id
+            ), None)
+
+            if not incoming:
+                incoming_doc = {
+                    "warehouseId": ObjectId(warehouse_id),
+                    "orderId": order["_id"],
+                    "orderNumber": order.get("orderNumber") or order.get("orderNo"),
+                    "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(str(farmer_id)) else str(farmer_id),
+                    "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                    "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else (variant_id or None),
+                    "productName": line.get("productName") or line.get("name") or "Product",
+                    "quantity": quantity,
+                    "expectedQuantity": quantity,
+                    "unit": line.get("unit") or "kg",
+                    "sourceMode": "warehouse_fulfillment",
+                    "collectionType": "bulk_harvest",
+                    "fulfillmentType": "warehouse_fulfillment",
+                    "packingRequired": True,
                     "readyForPickup": True,
-                    "readyAt": datetime.utcnow(),
-                })
-            refreshed = await incoming_stock_repository.get_by_id(str(incoming["_id"]))
+                    "warehouseTransferReadyForPickup": True,
+                    "readyForPickupAt": now,
+                    "pickupLocation": farm_location,
+                    "farmLocation": farm_location,
+                    "status": "scheduled",
+                    "expectedDate": now,
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "deletedAt": None,
+                }
+                incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
+                incoming = await incoming_stock_repository.get_by_id(str(incoming_id)) if incoming_id else None
+                if not incoming:
+                    logger.error("Could not create incoming stock for warehouse-ready order %s", order_id)
+                    continue
+                existing_rows.append(incoming)
+            else:
+                # Readiness is explicit from the farmer's button. Preserve any
+                # collected/received progress, but make scheduled lines actionable.
+                existing_status = str(incoming.get("status") or "scheduled").lower()
+                if existing_status in {"scheduled", "ready_for_pickup"}:
+                    await incoming_stock_repository.update(
+                        {"_id": incoming["_id"]},
+                        {
+                            "readyForPickup": True,
+                            "warehouseTransferReadyForPickup": True,
+                            "readyForPickupAt": incoming.get("readyForPickupAt") or now,
+                            "updatedAt": now,
+                        },
+                    )
+                    incoming["readyForPickup"] = True
+                    incoming["warehouseTransferReadyForPickup"] = True
+
+            # One farm collection job per incoming line; helper is idempotent.
+            refreshed = await incoming_stock_repository.get_by_id(str(incoming.get("_id") or ""))
             if refreshed:
-                await ensure_collection_job(refreshed, "bulk_harvest", "warehouse_fulfillment")
+                job = await ensure_collection_job(refreshed, "bulk_harvest", "warehouse_fulfillment")
+                if job:
+                    created_or_reconciled += 1
+
+        if created_or_reconciled == 0:
+            logger.warning("No farm collection jobs were created for warehouse-ready order %s", order_id)
+            return None
 
         await order_repository.update(
             {"_id": order["_id"]},
             {
+                "warehouseId": ObjectId(warehouse_id),
+                "sourceWarehouseId": ObjectId(warehouse_id),
+                "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName"),
                 "warehouseFulfillmentStage": "pickup_requested",
                 "warehouseCollectionStatus": "ready_for_pickup",
-                "warehouseCollectionRequestedAt": datetime.utcnow(),
-                "updatedAt": datetime.utcnow(),
+                "warehouseCollectionRequestedAt": now,
+                "updatedAt": now,
             },
         )
+        try:
+            await NotificationService.send_order_workflow_update(
+                await order_repository.get_by_id(order_id) or order,
+                stage="ready_for_pickup",
+                title=f"Order #{order.get('orderNumber') or order_id}: ready for warehouse collection",
+                message="The farmer confirmed readiness. Farm Collection now has pickup jobs for team assignment.",
+                actor_role="farmer",
+            )
+        except Exception:
+            logger.warning("Failed to notify warehouse about collection readiness for %s", order_id, exc_info=True)
         try:
             await order_repository.append_tracking_event(
                 order_id,
                 "warehouse_pickup_requested",
                 "Product ready for warehouse pickup",
-                "The farmer has confirmed that the bulk product is ready for collection.",
+                "The farmer confirmed readiness and collection jobs were created for the source warehouse.",
                 actor_id=farmer_id,
                 actor_role="farmer",
             )
