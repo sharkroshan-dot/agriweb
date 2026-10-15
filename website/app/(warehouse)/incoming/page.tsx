@@ -54,6 +54,47 @@ const getFarmDisplayName = (item: any) =>
 const getProductDisplayName = (item: any) =>
   humanIdFallback(item.productName || item.product?.name || item.productId, "Product details unavailable");
 
+// Use the event date that best represents the shipment's current stage.
+// For received shipments, prefer the actual receipt time; otherwise use the
+// expected delivery date, then creation/update timestamps as fallbacks.
+const getIncomingActivityDate = (item: any): Date | null => {
+  const rawDate =
+    (["received", "quality_check", "stored", "rejected"].includes(String(item?.status))
+      ? item?.receivedAt || item?.qualityCheckedAt || item?.storedAt
+      : null) ||
+    item?.expectedDate ||
+    item?.arrivedWarehouseAt ||
+    item?.createdAt ||
+    item?.updatedAt;
+  if (!rawDate) return null;
+  const parsed = new Date(rawDate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const matchesIncomingDateFilter = (item: any, period: string): boolean => {
+  if (period === "all") return true;
+  const date = getIncomingActivityDate(item);
+  if (!date) return false;
+
+  // Calendar boundaries use the browser's local timezone so Today/Week/Month
+  // match the dates shown to the warehouse manager.
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(start);
+  if (period === "today") {
+    end.setDate(start.getDate() + 1);
+  } else if (period === "week") {
+    const dayFromMonday = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - dayFromMonday);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 7);
+  } else if (period === "month") {
+    start.setDate(1);
+    end.setFullYear(start.getFullYear(), start.getMonth() + 1, 1);
+  }
+  return date >= start && date < end;
+};
+
 const emptyIncomingForm = {
   productId: "",
   farmerId: "",
@@ -131,6 +172,7 @@ export default function WarehouseIncomingPage() {
         if (fulfillmentFilter === "warehouse") return !isFarmerPackedIncoming(item);
         return true;
       })
+      .filter((item: any) => matchesIncomingDateFilter(item, dateFilter))
       .filter((item: any) =>
         !query || [
           item.displayFarmName, item.displayProductName, item.displayOrderNumber,
@@ -152,7 +194,7 @@ export default function WarehouseIncomingPage() {
       stagePriority(a) - stagePriority(b) ||
       new Date(a.expectedDate || a.createdAt || 0).getTime() - new Date(b.expectedDate || b.createdAt || 0).getTime()
     );
-  }, [incomingData, searchTerm, fulfillmentFilter]);
+  }, [incomingData, searchTerm, fulfillmentFilter, dateFilter]);
 
 
 
@@ -327,7 +369,7 @@ export default function WarehouseIncomingPage() {
     <div className="space-y-6">
       <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Two fulfillment workflows</p><p className="mt-1 text-sm leading-6 text-muted-foreground"><b>Farmer Fulfillment:</b> verify packed orders and quantities → optional temporary storage → Transfers / Multi-Warehouse Consolidation. Skip normal warehouse QC and repacking. <b>Normal Warehouse Fulfillment:</b> Receive → Quality Inspection → Store → Stock Management → Order Packing → Outgoing / Dispatch.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
+        <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments · {dateFilter === "today" ? "Today" : dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : "All Time"}</p></div>
         <div className="flex flex-wrap items-center gap-2"><Button asChild><Link href="/warehouse/farmer-fulfillment"><Route className="mr-2 h-4 w-4" />Farmer Fulfillment Transfer</Link></Button><Button asChild variant="outline"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
