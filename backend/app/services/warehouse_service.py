@@ -252,6 +252,8 @@ class WarehouseService:
         # A route stop represents a physical farm. Incoming stock remains
         # order-level, so fan each farm group back into one incoming record per
         # order/collection to preserve product, quantity, batch and order links.
+        from app.repositories.order_repository import order_repository
+
         route_orders: List[Dict[str, Any]] = []
         for farm_stop in route.get("stops") or []:
             orders = farm_stop.get("orders") or [farm_stop]
@@ -283,6 +285,14 @@ class WarehouseService:
                 or (existing or {}).get("fulfillmentMethod")
                 or ""
             ).strip().lower()
+            legacy_source_mode = str(
+                order.get("sourceMode") or (existing or {}).get("sourceMode") or ""
+            ).strip().lower()
+            if fulfillment_method not in {"farmer", "warehouse"}:
+                if legacy_source_mode in {"farmer_fulfillment_transfer", "farmer_fulfillment"} or order.get("packingRequired") is False or (existing or {}).get("packingRequired") is False:
+                    fulfillment_method = "farmer"
+                elif legacy_source_mode in {"warehouse_fulfillment_bulk", "warehouse_fulfillment"} or order.get("packingRequired") is True or (existing or {}).get("packingRequired") is True:
+                    fulfillment_method = "warehouse"
             is_farmer_fulfillment = fulfillment_method == "farmer"
             source_mode = "farmer_fulfillment_transfer" if is_farmer_fulfillment else "warehouse_fulfillment_bulk"
             packing_required = not is_farmer_fulfillment
