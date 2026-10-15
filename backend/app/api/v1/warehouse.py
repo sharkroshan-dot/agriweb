@@ -357,6 +357,63 @@ async def get_my_collections(
             farmer_cache[key] = profile
         return farmer_cache[key]
 
+    # Reconcile incoming-stock records first. This covers BOTH warehouse
+    # fulfillment bulk pickups and sealed Farmer Fulfillment transfers, even if
+    # the order document has a legacy/missing fulfillmentMethod or the older
+    # order-based recovery query cannot classify it.
+    incoming_refs = [ObjectId(warehouse_id), warehouse_id]
+    incoming_candidates = await incoming_stock_repository.find_many({
+        "$and": [
+            {"warehouseId": {"$in": incoming_refs}},
+            {"deletedAt": None},
+            {"$or": [
+                {"readyForPickup": True},
+                {"transferReadyForPickup": True},
+                {"warehouseTransferReadyForPickup": True},
+                {"status": {"$in": ["ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm", "collected", "departed_farm"]}},
+                {"sourceMode": "farmer_fulfillment_transfer"},
+                {"collectionType": "packed_orders_transfer"},
+            ]},
+        ]
+    }, skip=0, limit=2000)
+
+    recovered_from_incoming = 0
+    for incoming in incoming_candidates:
+        incoming_status = str(incoming.get("status") or "").strip().lower()
+        if incoming_status in {"received", "quality_check", "stored", "rejected", "cancelled", "delivered"}:
+            continue
+        # A transfer row is always sealed; bulk rows require the farmer's
+        # explicit ready flag or ready status before pickup can be scheduled.
+        is_packed_transfer = (
+            str(incoming.get("sourceMode") or "").strip().lower() == "farmer_fulfillment_transfer"
+            or str(incoming.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
+            or incoming.get("packingRequired") is False
+        )
+        ready_flag = bool(
+            incoming.get("readyForPickup")
+            or incoming.get("transferReadyForPickup")
+            or incoming.get("warehouseTransferReadyForPickup")
+            or incoming_status in {"ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm", "collected", "departed_farm"}
+        )
+        if not is_packed_transfer and not ready_flag:
+            continue
+        existing_job = await warehouse_collection_repository.get_by_incoming(str(incoming.get("_id") or ""))
+        if existing_job:
+            # Keep already-started route progress intact; only reconcile a
+            # not-yet-assigned job to Ready for Pickup when the source is ready.
+            existing_status = str(existing_job.get("status") or "scheduled").strip().lower()
+            if ready_flag and existing_status in {"", "scheduled"}:
+                await warehouse_collection_repository.update_job(str(existing_job["_id"]), {
+                    "status": "ready_for_pickup",
+                    "readyForPickup": True,
+                    "readyAt": incoming.get("readyForPickupAt") or incoming.get("updatedAt") or datetime.utcnow(),
+                })
+            continue
+        source_mode = str(incoming.get("sourceMode") or "warehouse_fulfillment")
+        collection_type = str(incoming.get("collectionType") or ("packed_orders_transfer" if is_packed_transfer else "bulk_harvest"))
+        await ensure_collection_job(incoming, collection_type, source_mode)
+        recovered_from_incoming += 1
+
     # Reconcile packed Farmer Fulfillment orders that were marked Ready for
     # Pickup before a collection job was created (or while the old endpoint
     # failed). The order must already name this warehouse as its source; this
