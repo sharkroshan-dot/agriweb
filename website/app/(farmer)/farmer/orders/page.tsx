@@ -168,7 +168,7 @@ export default function FarmerOrdersPage() {
     }
   };
 
-  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment") => {
+  const handleBulkWorkflowAction = async (action: "confirm" | "process" | "farmer_fulfillment" | "warehouse_fulfillment" | "warehouse_ready_for_pickup") => {
     try {
       const response = await api.post("/orders/farmer/bulk-advance", { action });
       const result = response?.data || response;
@@ -179,6 +179,7 @@ export default function FarmerOrdersPage() {
         process: "processing started",
         farmer_fulfillment: "set to Farmer Fulfillment",
         warehouse_fulfillment: "set to Warehouse Fulfillment",
+        warehouse_ready_for_pickup: "marked Ready for Warehouse Pickup",
       };
       toast.success(
         processed
@@ -411,6 +412,9 @@ export default function FarmerOrdersPage() {
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_fulfillment")}>
                 <Store className="mr-1.5 h-3.5 w-3.5" /> Warehouse Fulfillment All
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => handleBulkWorkflowAction("warehouse_ready_for_pickup")}>
+                <Truck className="mr-1.5 h-3.5 w-3.5" /> Warehouse Ready for Pickup All
               </Button>
               <Button size="sm" variant="outline" onClick={() => setShowBulkSummary(true)}>
                 <ShoppingBag className="mr-1.5 h-3.5 w-3.5" /> Bulk Summary
