@@ -129,7 +129,7 @@ class BulkOrderProcessRequest(BaseModel):
 
 
 class BulkFarmerOrderRequest(BaseModel):
-    action: str = Field(..., pattern="^(confirm|process|farmer_fulfillment|warehouse_fulfillment|pack|dispatch)$")
+    action: str = Field(..., pattern="^(confirm|process|farmer_fulfillment|warehouse_fulfillment|warehouse_ready_for_pickup|pack|dispatch)$")
 
 class OrderResponse(BaseModel):
     id: str
