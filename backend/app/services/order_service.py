@@ -1663,9 +1663,31 @@ class OrderService:
                         oid, farmer_id, "farmer",
                         OrderStatusUpdate(status=OrderStatus.PROCESSING)
                     )
-                elif action in ("farmer_fulfillment", "warehouse_fulfillment") and status == OrderStatus.PROCESSING.value:
+                elif action in ("farmer_fulfillment", "warehouse_fulfillment") and status in (
+                    OrderStatus.CONFIRMED.value,
+                    OrderStatus.PROCESSING.value,
+                ):
                     method = FulfillmentMethod.FARM_DIRECT if action == "farmer_fulfillment" else FulfillmentMethod.WAREHOUSE
-                    updated = await OrderService.set_fulfillment_route(oid, farmer_id, "farmer", method)
+                    # The bulk fulfillment button is a single user intent: move
+                    # confirmed orders into processing when necessary, then set
+                    # the selected fulfillment route. Preflight warehouse config
+                    # before changing status to avoid stranded partial updates.
+                    if action == "warehouse_fulfillment":
+                        warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
+                        if not warehouse_id:
+                            skipped.append({
+                                "orderId": oid,
+                                "orderNumber": order.get("orderNumber"),
+                                "reason": "No active warehouse is linked to this farmer. Link the farmer to a warehouse or configure the warehouse manager/user association.",
+                            })
+                            continue
+                    if status == OrderStatus.CONFIRMED.value:
+                        moved_to_processing = await OrderService.update_order_status(
+                            oid, farmer_id, "farmer",
+                            OrderStatusUpdate(status=OrderStatus.PROCESSING),
+                        )
+                        if moved_to_processing:
+                            updated = await OrderService.set_fulfillment_route(oid, farmer_id, "farmer", method)
                 elif action == "pack" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PENDING.value:
                     # Actual packing quantities must be entered through the final
                     # packing endpoint; never auto-claim the ordered quantity.
@@ -1790,9 +1812,11 @@ class OrderService:
         order = await order_repository.get_by_id(order_id)
         if not order or str(order.get("farmerId")) != user_id:
             return None
-        if str(order.get("deliveryType") or "delivery") != DeliveryType.DELIVERY.value:
+        delivery_type = str(order.get("deliveryType") or DeliveryType.DELIVERY.value).strip().lower()
+        if delivery_type != DeliveryType.DELIVERY.value:
             return None
-        if str(order.get("orderStatus")) != OrderStatus.PROCESSING.value:
+        order_status = str(order.get("orderStatus") or "").strip().lower()
+        if order_status != OrderStatus.PROCESSING.value:
             return None
 
         fm = fulfillment_method.value if hasattr(fulfillment_method, "value") else str(fulfillment_method)
@@ -2950,11 +2974,34 @@ class OrderService:
     
     @staticmethod
     async def get_farmer_warehouse(farmer_id: str) -> Optional[str]:
-        """Get farmer's preferred warehouse."""
+        """Resolve the active warehouse configured for a farmer across legacy link fields.
+
+        Older warehouse profiles were saved with the farmer as manager/user/owner
+        instead of farmerId. Check those explicit associations before treating
+        the farmer as unconfigured; never choose an unrelated warehouse.
+        """
         from app.repositories.warehouse_repository import warehouse_repository
-        warehouse = await warehouse_repository.get_by_farmer_id(farmer_id)
-        if warehouse:
-            return str(warehouse["_id"])
+
+        lookup_errors = []
+        for lookup_name, lookup in (
+            ("farmer", warehouse_repository.get_by_farmer_id),
+            ("manager", warehouse_repository.get_by_manager),
+            ("user", warehouse_repository.get_by_user_id),
+        ):
+            try:
+                warehouse = await lookup(farmer_id)
+            except Exception as exc:
+                lookup_errors.append(f"{lookup_name}: {exc}")
+                warehouse = None
+            if warehouse and warehouse.get("_id") and warehouse.get("isActive", True) is not False:
+                return str(warehouse["_id"])
+
+        if lookup_errors:
+            logger.warning(
+                "Could not resolve configured warehouse for farmer %s (%s)",
+                farmer_id,
+                "; ".join(lookup_errors),
+            )
         return None
     
     @staticmethod
