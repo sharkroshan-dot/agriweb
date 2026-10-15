@@ -2525,20 +2525,61 @@ async def assign_farmer_fulfillment_destination_warehouse(
     source_location = source_location_value if isinstance(source_location_value, dict) else {}
     nested_source_address = source_address.get("address") if isinstance(source_address.get("address"), dict) else {}
     nested_source_location = source_location.get("address") if isinstance(source_location.get("address"), dict) else {}
+    # Warehouse profiles created by older UI versions may save the physical
+    # district under different address/location keys. Resolve the source from
+    # its physical address first; do not use a destination warehouse's district
+    # or the customer's district as a substitute.
+    source_service_areas = source_warehouse.get("serviceAreas") or source_warehouse.get("service_areas") or []
+    if isinstance(source_service_areas, str):
+        source_service_areas = [source_service_areas]
+    if not isinstance(source_service_areas, list):
+        source_service_areas = []
+    source_service_areas = [
+        str(value).strip() for value in source_service_areas
+        if isinstance(value, (str, int, float)) and str(value).strip()
+    ]
+    # A single configured service area is a safe legacy fallback only when the
+    # warehouse has no physical district value at all. Multiple service areas
+    # describe coverage, not the warehouse's actual district, so they are not
+    # used to infer its origin.
     source_district = str(
         source_warehouse.get("district")
+        or source_warehouse.get("districtName")
+        or source_warehouse.get("district_name")
         or source_warehouse.get("city")
+        or source_warehouse.get("cityName")
+        or source_warehouse.get("city_name")
         or source_address.get("district")
+        or source_address.get("districtName")
+        or source_address.get("district_name")
         or source_address.get("city")
+        or source_address.get("cityName")
+        or source_address.get("city_name")
+        or source_address.get("town")
+        or source_address.get("municipality")
         or source_location.get("district")
+        or source_location.get("districtName")
+        or source_location.get("district_name")
         or source_location.get("city")
+        or source_location.get("cityName")
+        or source_location.get("city_name")
         or nested_source_address.get("district")
+        or nested_source_address.get("districtName")
+        or nested_source_address.get("district_name")
         or nested_source_address.get("city")
+        or nested_source_address.get("cityName")
+        or nested_source_address.get("city_name")
         or nested_source_location.get("district")
+        or nested_source_location.get("districtName")
+        or nested_source_location.get("district_name")
         or nested_source_location.get("city")
+        or nested_source_location.get("cityName")
+        or nested_source_location.get("city_name")
         or order.get("sourceDistrict")
+        or order.get("sourceWarehouseDistrict")
         or order.get("warehouseDistrict")
         or order.get("farmerDistrict")
+        or (source_service_areas[0] if len(source_service_areas) == 1 else "")
         or ""
     ).strip().casefold()
     farmer_id = str(order.get("farmerId") or "")
@@ -2566,7 +2607,15 @@ async def assign_farmer_fulfillment_destination_warehouse(
         or bool(delivery_modes.intersection({"direct", "direct_delivery", "warehouse_to_customer", "warehouse_to_customer_direct"}))
     )
     if not source_district or not customer_district:
-        raise HTTPException(status_code=409, detail="Verified source and customer districts are required before assigning an inter-district destination")
+        missing = []
+        if not source_district:
+            missing.append("source warehouse district (set the warehouse's physical district/city in its address or location)")
+        if not customer_district:
+            missing.append("customer delivery district")
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot assign an inter-district destination because " + " and ".join(missing) + " is missing. Save the missing district, then retry; creating a destination warehouse does not fill the source warehouse's district.",
+        )
     if source_district == customer_district:
         raise HTTPException(status_code=409, detail="This order belongs in Same-District routing, not Inter-District routing")
     if route_distance is not None and route_distance <= nearby_threshold and direct_delivery_configured:
