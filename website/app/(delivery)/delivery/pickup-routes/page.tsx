@@ -44,18 +44,17 @@ const isPickupCompleted = (item: any) =>
   ["returned_to_warehouse", "arrived_warehouse"].includes(String(item?.status || "").toLowerCase());
 
 const isTransferCompleted = (item: any) =>
-  // Arrival at the assigned warehouse or hub completes the driver's transfer leg.
-  ["arrived_at_destination", "arrived_at_hub", "received_at_destination", "received_at_hub"].includes(
-    String(item?.status || "").toLowerCase()
-  );
+  // Use the driver's actual arrival statuses only. Downstream receipt or a
+  // generic "completed" status must not mark this transfer leg complete.
+  ["arrived_at_destination", "arrived_at_hub"].includes(String(item?.status || "").toLowerCase());
 
 const routeDateValue = (item: any, workflow: "pickup" | "transfer" = "pickup") => {
-  const status = String(item?.status || "").toLowerCase();
   if (workflow === "pickup" && isPickupCompleted(item)) {
-    return item?.returnedAt || item?.warehouseArrivedAt || item?.arrivedWarehouseAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
+    return item?.returnedAt || item?.arrivedWarehouseAt || item?.warehouseArrivedAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
   }
   if (workflow === "transfer" && isTransferCompleted(item)) {
-    return item?.arrivedAtDestinationAt || item?.arrivedAtHubAt || item?.arrivedAt || item?.receivedAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
+    // These names match the timestamps written by the delivery API.
+    return item?.arrivedAtDestination || item?.arrivedAtHubAt || item?.arrivedAtHub || item?.arrivedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
   }
   return item?.routeDate || item?.scheduledAt || item?.assignedAt || item?.createdAt || item?.date;
 };
