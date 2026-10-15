@@ -1684,13 +1684,26 @@ class OrderService:
                                 "reason": "No active warehouse is linked to this farmer. Link the farmer to a warehouse or configure the warehouse manager/user association.",
                             })
                             continue
+                    # Route selection must also run for orders that are
+                    # already Processing. Previously, the bulk action only called
+                    # set_fulfillment_route inside the Confirmed branch, so valid
+                    # Processing orders were incorrectly reported as "not ready".
                     if status == OrderStatus.CONFIRMED.value:
                         moved_to_processing = await OrderService.update_order_status(
                             oid, farmer_id, "farmer",
                             OrderStatusUpdate(status=OrderStatus.PROCESSING),
                         )
-                        if moved_to_processing:
-                            updated = await OrderService.set_fulfillment_route(oid, farmer_id, "farmer", method)
+                        if not moved_to_processing:
+                            skipped.append({
+                                "orderId": oid,
+                                "orderNumber": order.get("orderNumber"),
+                                "reason": "Could not move confirmed order into processing",
+                            })
+                            continue
+
+                    updated = await OrderService.set_fulfillment_route(
+                        oid, farmer_id, "farmer", method
+                    )
                 elif action == "pack" and route == FulfillmentMethod.FARM_DIRECT.value and status == OrderStatus.PROCESSING.value and stage == FulfillmentStage.PENDING.value:
                     # Actual packing quantities must be entered through the final
                     # packing endpoint; never auto-claim the ordered quantity.
