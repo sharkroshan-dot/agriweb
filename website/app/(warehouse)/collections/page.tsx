@@ -88,6 +88,7 @@ const getFarmProgress = (farmJobs: any[]) => {
 
 export default function WarehouseCollectionsPage() {
   const [filter, setFilter] = useState("all");
+  const [datePeriod, setDatePeriod] = useState<"all" | "today" | "yesterday" | "week" | "month">("all");
   const [search, setSearch] = useState("");
   const [focusFarmKey, setFocusFarmKey] = useState("");
   const [focusCollectionIds, setFocusCollectionIds] = useState<string[]>([]);
@@ -138,12 +139,40 @@ export default function WarehouseCollectionsPage() {
   const jobs = useMemo(() => {
     const source = data?.data?.collections || [];
     const q = search.trim().toLowerCase();
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrowStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekday = (weekStart.getDay() + 6) % 7; // Monday is the first day of the week.
+    weekStart.setDate(weekStart.getDate() - weekday);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
     return source.filter((job: any) => {
       const typeOk = filter === "all" || job.collectionType === filter;
-      const text = [job.farmerName, job.farmerId, job.orderId, job.productName, job.productId, job.status].filter(Boolean).join(" ").toLowerCase();
-      return typeOk && (!q || text.includes(q));
+      const text = [job.farmerName, job.farmerId, job.orderId, job.orderNumber, job.productName, job.productId, job.status].filter(Boolean).join(" ").toLowerCase();
+      // readyAt is the operational date for a farm collection; fall back to
+      // creation/update timestamps for older records that predate readyAt.
+      const rawDate = job.readyAt || job.readyForPickupAt || job.scheduledAt || job.createdAt || job.updatedAt;
+      const jobDate = rawDate ? new Date(rawDate) : null;
+      const validDate = jobDate && !Number.isNaN(jobDate.getTime());
+      let dateOk = true;
+      if (datePeriod !== "all") {
+        if (!validDate) {
+          dateOk = false;
+        } else if (datePeriod === "today") {
+          dateOk = jobDate! >= todayStart && jobDate! < tomorrowStart;
+        } else if (datePeriod === "yesterday") {
+          dateOk = jobDate! >= yesterdayStart && jobDate! < todayStart;
+        } else if (datePeriod === "week") {
+          dateOk = jobDate! >= weekStart && jobDate! < tomorrowStart;
+        } else if (datePeriod === "month") {
+          dateOk = jobDate! >= monthStart && jobDate! < tomorrowStart;
+        }
+      }
+      return typeOk && dateOk && (!q || text.includes(q));
     });
-  }, [data, filter, search]);
+  }, [data, filter, datePeriod, search]);
 
   const farmGroups = useMemo(() => {
     const groups = new Map<string, { key: string; farmerName: string; pickupAddress: string; jobs: any[] }>();
@@ -193,7 +222,8 @@ export default function WarehouseCollectionsPage() {
 
 
   const counts = useMemo(() => {
-    const source = data?.data?.collections || [];
+    // Keep the summary cards consistent with the currently selected date/type/search filters.
+    const source = jobs;
     return {
       total: source.length,
       ready: source.filter((x: any) => ["ready_for_pickup", "team_assigned"].includes(x.status) && !x.pickupRouteId).length,
@@ -202,7 +232,7 @@ export default function WarehouseCollectionsPage() {
       active: source.filter((x: any) => !["ready_for_pickup", "arrived_warehouse"].includes(x.status)).length,
       warehouse: source.filter((x: any) => x.status === "arrived_warehouse").length,
     };
-  }, [data]);
+  }, [jobs]);
 
   const readyVisibleJobs = jobs.filter((job: any) => ["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId);
   const selectedVisibleIds = readyVisibleJobs.map((job: any) => String(job.id || job._id));
@@ -342,9 +372,33 @@ export default function WarehouseCollectionsPage() {
       </div>
 
       <Card className="shadow-sm">
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row">
-          <Input className="h-12 flex-1 text-base placeholder:text-base" placeholder="Search farmer, order, product or team..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          <Select value={filter} onValueChange={setFilter}><SelectTrigger className="h-12 w-full text-base sm:w-[280px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Collection Types</SelectItem><SelectItem value="bulk_harvest">Bulk Harvest · Warehouse Fulfillment</SelectItem><SelectItem value="packed_orders_transfer">Packed Orders · Long Distance</SelectItem></SelectContent></Select>
+        <CardContent className="flex flex-col gap-3 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Input className="h-12 flex-1 text-base placeholder:text-base" placeholder="Search farmer, order, product or team..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Select value={filter} onValueChange={setFilter}><SelectTrigger className="h-12 w-full text-base sm:w-[280px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Collection Types</SelectItem><SelectItem value="bulk_harvest">Bulk Harvest · Warehouse Fulfillment</SelectItem><SelectItem value="packed_orders_transfer">Packed Orders · Long Distance</SelectItem></SelectContent></Select>
+          </div>
+          <div className="flex flex-wrap items-center gap-2" aria-label="Filter farm collections by date">
+            <span className="mr-1 text-sm font-semibold text-slate-700">Show orders:</span>
+            {([
+              ["all", "All Time"],
+              ["today", "Today"],
+              ["yesterday", "Yesterday"],
+              ["week", "This Week"],
+              ["month", "This Month"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                variant={datePeriod === value ? "default" : "outline"}
+                className={datePeriod === value ? "h-10 bg-emerald-700 px-4 hover:bg-emerald-800" : "h-10 px-4"}
+                onClick={() => setDatePeriod(value)}
+                aria-pressed={datePeriod === value}
+              >
+                {label}
+              </Button>
+            ))}
+            <span className="ml-auto text-sm text-slate-500">{jobs.length} {jobs.length === 1 ? "order" : "orders"} shown</span>
+          </div>
         </CardContent>
       </Card>
 
