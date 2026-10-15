@@ -61,13 +61,29 @@ class WarehouseRepository(BaseRepository):
             return False
 
     async def get_by_farmer_id(self, farmer_id: str) -> Optional[Dict[str, Any]]:
+        """Find a farmer's warehouse across canonical and legacy owner fields.
+
+        Older warehouse records may store farmer references as strings, or use
+        snake_case fields. Query only explicit owner/farmer associations; never
+        assign an arbitrary warehouse to an order.
+        """
         try:
-            return await self.find_one({
-                "farmerId": ObjectId(farmer_id),
-                "deletedAt": None
+            farmer_ref: Any = ObjectId(farmer_id) if ObjectId.is_valid(str(farmer_id)) else str(farmer_id)
+            refs = [farmer_ref]
+            if isinstance(farmer_ref, ObjectId):
+                refs.append(str(farmer_ref))
+            warehouse = await self.find_one({
+                "$or": [
+                    {"farmerId": {"$in": refs}},
+                    {"farmer_id": {"$in": refs}},
+                    {"ownerFarmerId": {"$in": refs}},
+                    {"owner_farmer_id": {"$in": refs}},
+                ],
+                "deletedAt": None,
             })
+            return warehouse
         except Exception as e:
-            logger.error(f"Error getting warehouse by farmer ID: {str(e)}")
+            logger.error("Error getting warehouse by farmer ID %s: %s", farmer_id, str(e))
             return None
 
     async def get_by_user_id(self, user_id: str) -> Optional[Dict[str, Any]]:
