@@ -77,6 +77,7 @@ export default function WarehouseIncomingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("today");
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "farmer" | "warehouse">("all");
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showQualityDialog, setShowQualityDialog] = useState(false);
@@ -105,25 +106,53 @@ export default function WarehouseIncomingPage() {
     refetchOnWindowFocus: true,
   });
 
+  const incomingTypeCounts = useMemo(() => {
+    const items = incomingData?.data?.incoming || [];
+    return {
+      all: items.length,
+      farmer: items.filter((item: any) => isFarmerPackedIncoming(item)).length,
+      warehouse: items.filter((item: any) => !isFarmerPackedIncoming(item)).length,
+    };
+  }, [incomingData]);
+
   const incomingList = useMemo(() => {
     const items = incomingData?.data?.incoming || [];
     const query = searchTerm.trim().toLowerCase();
 
-    const readableItems = items.map((item: any) => ({
-      ...item,
-      displayFarmName: getFarmDisplayName(item),
-      displayProductName: getProductDisplayName(item),
-      displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber, "Order reference unavailable"),
-    }));
+    const readableItems = items
+      .map((item: any) => ({
+        ...item,
+        displayFarmName: getFarmDisplayName(item),
+        displayProductName: getProductDisplayName(item),
+        displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber, "Order reference unavailable"),
+      }))
+      .filter((item: any) => {
+        if (fulfillmentFilter === "farmer") return isFarmerPackedIncoming(item);
+        if (fulfillmentFilter === "warehouse") return !isFarmerPackedIncoming(item);
+        return true;
+      })
+      .filter((item: any) =>
+        !query || [
+          item.displayFarmName, item.displayProductName, item.displayOrderNumber,
+          item.pickupLocation?.address, item.batchNumber, statusLabels[item.status] || item.status,
+        ].filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
+      );
 
-    if (!query) return readableItems;
-
-    return readableItems.filter((item: any) =>
-      [item.displayFarmName, item.displayProductName, item.displayOrderNumber, item.pickupLocation?.address, item.batchNumber, statusLabels[item.status] || item.status]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query))
+    // Keep work that still needs a warehouse action at the top. Shipments whose
+    // receipt is complete appear after pending receipt/inspection work.
+    const stagePriority = (item: any) => {
+      if (["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status))) return 0;
+      if (item.status === "received") return 1;
+      if (item.status === "quality_check") return 2;
+      if (item.status === "stored") return 3;
+      if (item.status === "rejected") return 4;
+      return 5;
+    };
+    return readableItems.sort((a: any, b: any) =>
+      stagePriority(a) - stagePriority(b) ||
+      new Date(a.expectedDate || a.createdAt || 0).getTime() - new Date(b.expectedDate || b.createdAt || 0).getTime()
     );
-  }, [incomingData, searchTerm]);
+  }, [incomingData, searchTerm, fulfillmentFilter]);
 
 
 
@@ -300,6 +329,38 @@ export default function WarehouseIncomingPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments</p></div>
         <div className="flex flex-wrap items-center gap-2"><Button asChild><Link href="/warehouse/farmer-fulfillment"><Route className="mr-2 h-4 w-4" />Farmer Fulfillment Transfer</Link></Button><Button asChild variant="outline"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3" role="tablist" aria-label="Incoming stock fulfillment type">
+        {([
+          { key: "all", label: "All", description: "Every incoming shipment", count: incomingTypeCounts.all },
+          { key: "farmer", label: "Farmer Fulfillment", description: "Packed farmer orders", count: incomingTypeCounts.farmer },
+          { key: "warehouse", label: "Warehouse Fulfillment", description: "Bulk stock for inventory", count: incomingTypeCounts.warehouse },
+        ] as const).map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={fulfillmentFilter === tab.key}
+            onClick={() => setFulfillmentFilter(tab.key)}
+            className={cn(
+              "rounded-xl border p-4 text-left transition-colors",
+              fulfillmentFilter === tab.key
+                ? "border-emerald-700 bg-emerald-50 ring-1 ring-emerald-700"
+                : "border-slate-200 bg-white hover:border-emerald-300 hover:bg-slate-50"
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{tab.label}</span>
+              <span className={cn("rounded-full px-2.5 py-1 text-sm font-bold", fulfillmentFilter === tab.key ? "bg-emerald-700 text-white" : "bg-slate-100 text-slate-700")}>{tab.count}</span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{tab.description}</p>
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <span className="font-semibold">Action-first order:</span> shipments waiting for receipt appear first, followed by receipt/quality work. Orders whose receipt is complete are shown after pending work.
       </div>
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
