@@ -217,6 +217,59 @@ async def get_my_collections(
         if str(value or "").strip()
     }
 
+    # Explicit farm-collection coverage wins. If it is empty, derive the
+    # warehouse's default district from the saved Settings address/location.
+    # Coordinates alone are not treated as a district because that would need
+    # a trusted reverse-geocoding source.
+    district_source = "farm_collection_settings" if configured_districts else None
+    if not configured_districts:
+        warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+        warehouse_location = warehouse.get("location") if isinstance(warehouse.get("location"), dict) else {}
+        district_candidates = [
+            warehouse.get("farmCollectionDistrict"),
+            warehouse.get("district"),
+            warehouse_address.get("district"),
+            warehouse_address.get("city"),
+            warehouse_location.get("district"),
+            warehouse_location.get("city"),
+        ]
+        inferred_district = next(
+            (district_key(value) for value in district_candidates if isinstance(value, str) and value.strip()),
+            None,
+        )
+        if not inferred_district:
+            location_text = " ".join(str(value or "") for value in (
+                warehouse_address.get("line1"),
+                warehouse_address.get("line2"),
+                warehouse_address.get("street"),
+                warehouse_address.get("address"),
+                warehouse_location.get("address"),
+                warehouse_location.get("formattedAddress"),
+            ))
+            normalized_location_text = district_key(location_text)
+            known_district_aliases = {
+                "tiruchirappalli": ("tiruchirappalli", "tiruchirapalli", "trichirapalli", "trichy"),
+                "krishnagiri": ("krishnagiri",),
+                "perambalur": ("perambalur",),
+                "coimbatore": ("coimbatore",),
+                "tiruppur": ("tiruppur", "tirupur"),
+                "erode": ("erode",),
+                "salem": ("salem",),
+                "madurai": ("madurai",),
+                "thanjavur": ("thanjavur", "tanjore"),
+                "chennai": ("chennai",),
+            }
+            inferred_district = next(
+                (
+                    district for district, aliases in known_district_aliases.items()
+                    if any(alias in normalized_location_text for alias in aliases)
+                ),
+                None,
+            )
+        if inferred_district:
+            configured_districts = {inferred_district}
+            district_source = "warehouse_settings_location"
+
     def farmer_district_for(profile: Optional[Dict[str, Any]], pickup_location: Any) -> Optional[str]:
         if profile:
             for key in ("farmDistrict", "district", "farmCity", "city"):
@@ -455,6 +508,7 @@ async def get_my_collections(
         "success": True,
         "data": {
             "configuredFarmCollectionDistricts": sorted(configured_districts),
+            "farmCollectionDistrictSource": district_source,
             "districtConfigurationRequired": not bool(configured_districts),
             "collections": result,
             "counts": {
