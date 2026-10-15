@@ -420,6 +420,103 @@ async def get_my_collections(
     # does not claim orders assigned to another warehouse.
     orders_collection = MongoDB.get_collection("orders")
     warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+    # Also recover warehouse-fulfillment orders whose Ready for Pickup
+    # action was saved on the order but whose incoming-stock lines were never
+    # created (legacy data or an interrupted request).
+    warehouse_ready_orders = await orders_collection.find({
+        "$and": [
+            {"$or": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"sourceWarehouseId": {"$in": warehouse_refs}},
+            ]},
+            {"$or": [
+                {"warehouseCollectionStatus": {"$in": ["ready_for_pickup", "pickup_requested"]}},
+                {"warehouseFulfillmentStage": "pickup_requested"},
+                {"orderStatus": "ready_for_pickup"},
+            ]},
+            {"$or": [
+                {"fulfillmentMethod": {"$in": ["warehouse", "warehouse_fulfillment"]}},
+                {"fulfillmentType": "warehouse_fulfillment"},
+            ]},
+            {"deletedAt": None},
+        ]
+    }).to_list(length=1000)
+
+    for ready_order in warehouse_ready_orders:
+        order_oid = ready_order.get("_id")
+        if not order_oid:
+            continue
+        order_id_text = str(order_oid)
+        current_rows = await incoming_stock_repository.find_many({
+            "$and": [
+                {"warehouseId": {"$in": warehouse_refs}},
+                {"orderId": {"$in": [order_oid, order_id_text]}},
+                {"deletedAt": None},
+            ]
+        }, skip=0, limit=1000)
+        now = datetime.utcnow()
+        farm_profile = await get_farmer(str(ready_order.get("farmerId") or ""))
+        farm_location = (
+            ready_order.get("farmLocation")
+            or ready_order.get("farmerLocation")
+            or ready_order.get("pickupLocation")
+            or (farm_profile or {}).get("farmLocation")
+            or (farm_profile or {}).get("location")
+            or (farm_profile or {}).get("address")
+            or {}
+        )
+        if not isinstance(farm_location, dict):
+            farm_location = {"address": str(farm_location)}
+        for line in (ready_order.get("items") or []):
+            qty = float(line.get("actualPackedQuantity", line.get("packedQuantity", line.get("quantity", 0))) or 0)
+            if qty <= 0:
+                continue
+            product_id = str(line.get("productId") or line.get("product_id") or "")
+            variant_id = str(line.get("variantId") or line.get("variant_id") or "")
+            current = next((
+                row for row in current_rows
+                if str(row.get("productId") or "") == product_id
+                and str(row.get("variantId") or "") == variant_id
+            ), None)
+            if current:
+                current["readyForPickup"] = True
+                current["warehouseTransferReadyForPickup"] = True
+                current["packingRequired"] = bool(current.get("packingRequired", True))
+                await ensure_collection_job(current, str(current.get("collectionType") or "bulk_harvest"), str(current.get("sourceMode") or "warehouse_fulfillment"))
+                continue
+            incoming_doc = {
+                "warehouseId": ObjectId(warehouse_id),
+                "orderId": order_oid,
+                "orderNumber": ready_order.get("orderNumber") or ready_order.get("orderNo"),
+                "farmerId": ObjectId(str(ready_order.get("farmerId"))) if ObjectId.is_valid(str(ready_order.get("farmerId") or "")) else ready_order.get("farmerId"),
+                "productId": ObjectId(product_id) if ObjectId.is_valid(product_id) else product_id,
+                "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else (variant_id or None),
+                "productName": line.get("productName") or line.get("name") or "Product",
+                "quantity": qty,
+                "expectedQuantity": qty,
+                "unit": line.get("unit") or "kg",
+                "sourceMode": "warehouse_fulfillment",
+                "collectionType": "bulk_harvest",
+                "fulfillmentType": "warehouse_fulfillment",
+                "packingRequired": True,
+                "readyForPickup": True,
+                "warehouseTransferReadyForPickup": True,
+                "readyForPickupAt": ready_order.get("warehouseCollectionRequestedAt") or now,
+                "pickupLocation": farm_location,
+                "farmLocation": farm_location,
+                "status": "scheduled",
+                "expectedDate": now,
+                "createdAt": now,
+                "updatedAt": now,
+                "deletedAt": None,
+            }
+            incoming_id = await incoming_stock_repository.create_incoming(incoming_doc)
+            if not incoming_id:
+                logger.error("Could not recover incoming stock for ready warehouse order %s", order_id_text)
+                continue
+            incoming_doc["_id"] = ObjectId(str(incoming_id))
+            await ensure_collection_job(incoming_doc, "bulk_harvest", "warehouse_fulfillment")
+
     candidate_orders = await orders_collection.find({
         "$and": [
             {"deletedAt": None},
