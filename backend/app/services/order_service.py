@@ -1673,7 +1673,10 @@ class OrderService:
                     # the selected fulfillment route. Preflight warehouse config
                     # before changing status to avoid stranded partial updates.
                     if action == "warehouse_fulfillment":
-                        warehouse_id = await OrderService.get_farmer_warehouse(farmer_id)
+                        warehouse_id = await OrderService.get_farmer_warehouse(
+                            farmer_id,
+                            str(order.get("warehouseId") or "") or None,
+                        )
                         if not warehouse_id:
                             skipped.append({
                                 "orderId": oid,
@@ -1851,7 +1854,10 @@ class OrderService:
 
         if fm == FulfillmentMethod.WAREHOUSE.value:
             update["warehouseFulfillmentStage"] = "incoming"
-            warehouse_id = await OrderService.get_farmer_warehouse(user_id)
+            warehouse_id = await OrderService.get_farmer_warehouse(
+                user_id,
+                str(order.get("warehouseId") or "") or None,
+            )
             if not warehouse_id:
                 return None
             update["warehouseId"] = ObjectId(warehouse_id)
@@ -2973,14 +2979,30 @@ class OrderService:
         return None
     
     @staticmethod
-    async def get_farmer_warehouse(farmer_id: str) -> Optional[str]:
-        """Resolve the active warehouse configured for a farmer across legacy link fields.
+    async def get_farmer_warehouse(
+        farmer_id: str,
+        preferred_warehouse_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Resolve an active warehouse for the farmer or the order's assignment.
 
-        Older warehouse profiles were saved with the farmer as manager/user/owner
-        instead of farmerId. Check those explicit associations before treating
-        the farmer as unconfigured; never choose an unrelated warehouse.
+        Prefer a warehouse already explicitly assigned to this order. Otherwise
+        resolve the farmer's configured warehouse across canonical and legacy
+        ownership fields. Never choose an unrelated warehouse by geography alone.
         """
         from app.repositories.warehouse_repository import warehouse_repository
+
+        if preferred_warehouse_id:
+            try:
+                preferred = await warehouse_repository.get_by_id(str(preferred_warehouse_id))
+                if preferred and preferred.get("_id") and preferred.get("isActive", True) is not False:
+                    return str(preferred["_id"])
+            except Exception as exc:
+                logger.warning(
+                    "Could not resolve order-assigned warehouse %s for farmer %s: %s",
+                    preferred_warehouse_id,
+                    farmer_id,
+                    exc,
+                )
 
         lookup_errors = []
         for lookup_name, lookup in (
