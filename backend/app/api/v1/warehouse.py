@@ -570,11 +570,37 @@ async def get_my_collections(
     }).to_list(length=1000)
 
     for order_doc in candidate_orders:
-        if str(order_doc.get("fulfillmentMethod") or "").strip().lower() not in {
-            "farm_direct", "farmer", "farm_direct_delivery"
-        }:
+        # Farmer-ready pickup orders have used several fulfillment labels over
+        # the lifetime of the app. Treat the persisted warehouse/source
+        # assignment plus explicit ready-for-pickup markers as authoritative,
+        # rather than silently excluding orders because one label differs.
+        fulfillment_method = str(
+            order_doc.get("fulfillmentMethod")
+            or order_doc.get("fulfillmentType")
+            or order_doc.get("fulfillment_type")
+            or ""
+        ).strip().lower().replace("-", "_").replace(" ", "_")
+        eligible_fulfillment_methods = {
+            "farm_direct", "farmer", "farm_direct_delivery",
+            "farmer_fulfillment", "farmer_fulfillment_transfer",
+            "warehouse", "warehouse_fulfillment", "warehouse_transfer",
+        }
+        if fulfillment_method and fulfillment_method not in eligible_fulfillment_methods:
             continue
-        if not bool(order_doc.get("packingComplete")):
+        order_status = str(order_doc.get("orderStatus") or "").strip().lower()
+        pickup_marker = str(order_doc.get("warehouseCollectionStatus") or "").strip().lower()
+        transfer_marker = str(order_doc.get("transferStatus") or "").strip().lower()
+        stage_marker = str(order_doc.get("warehouseFulfillmentStage") or "").strip().lower()
+        explicitly_ready = (
+            order_status == "ready_for_pickup"
+            or pickup_marker in {"ready_for_pickup", "pickup_requested"}
+            or transfer_marker in {"awaiting_farm_pickup", "ready_for_pickup", "pickup_requested"}
+            or stage_marker in {"pickup_requested", "ready_for_pickup"}
+            or bool(order_doc.get("readyForPickup"))
+            or bool(order_doc.get("transferReadyForPickup"))
+            or bool(order_doc.get("warehouseTransferReadyForPickup"))
+        )
+        if not explicitly_ready or not bool(order_doc.get("packingComplete")):
             continue
         order_status = str(order_doc.get("orderStatus") or "").strip().lower()
         pickup_marker = str(order_doc.get("warehouseCollectionStatus") or "").strip().lower()
