@@ -21,6 +21,10 @@ const CUSTOMER_ONLY_PREFIXES = [
 ];
 
 const WAREHOUSE_ONLY_PREFIXES = [
+  // Warehouse role-group pages that intentionally use short URLs.
+  // These paths are not covered by ROLE_PROTECTED_PREFIXES because their
+  // filesystem parent is the (warehouse) route group, not /warehouse.
+  "/collections", "/pickup-routes", "/pickup-team",
   "/stock", "/incoming", "/outgoing", "/cold-storage", "/transfers",
 ];
 
