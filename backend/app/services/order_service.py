@@ -2275,7 +2275,7 @@ class OrderService:
                 continue
             await incoming_stock_repository.update(
                 {"_id": incoming["_id"]},
-                {"status": "ready_for_pickup", "readyForPickupAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+                {"status": "ready_for_pickup", "readyForPickup": True, "readyForPickupAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
             )
             # Promote the existing warehouse collection job only after the
             # farmer has explicitly confirmed that the shipment is ready.
