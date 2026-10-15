@@ -441,14 +441,23 @@ async def get_my_collections(
                     ]},
                 ]},
             ]},
+            # Ready flags are written by different versions of the Farmer
+            # Orders workflow. Query all supported persisted markers, not only
+            # the status strings, otherwise ready warehouse-fulfillment orders
+            # can be invisible to Farm Collection.
             {"$or": [
                 {"warehouseCollectionStatus": {"$in": ["ready_for_pickup", "pickup_requested"]}},
-                {"warehouseFulfillmentStage": "pickup_requested"},
+                {"warehouseFulfillmentStage": {"$in": ["pickup_requested", "ready_for_pickup"]}},
                 {"orderStatus": "ready_for_pickup"},
+                {"transferStatus": {"$in": ["awaiting_farm_pickup", "ready_for_pickup", "pickup_requested"]}},
+                {"readyForPickup": True},
+                {"transferReadyForPickup": True},
+                {"warehouseTransferReadyForPickup": True},
             ]},
             {"$or": [
-                {"fulfillmentMethod": {"$in": ["warehouse", "warehouse_fulfillment"]}},
-                {"fulfillmentType": "warehouse_fulfillment"},
+                {"fulfillmentMethod": {"$in": ["warehouse", "warehouse_fulfillment", "warehouse_transfer"]}},
+                {"fulfillmentType": {"$in": ["warehouse", "warehouse_fulfillment", "warehouse_transfer"]}},
+                {"fulfillment_type": {"$in": ["warehouse", "warehouse_fulfillment", "warehouse_transfer"]}},
             ]},
             {"deletedAt": None},
         ]
@@ -606,13 +615,10 @@ async def get_my_collections(
         pickup_marker = str(order_doc.get("warehouseCollectionStatus") or "").strip().lower()
         transfer_marker = str(order_doc.get("transferStatus") or "").strip().lower()
         stage_marker = str(order_doc.get("warehouseFulfillmentStage") or "").strip().lower()
-        if not (
-            order_status == "ready_for_pickup"
-            or pickup_marker in {"ready_for_pickup", "pickup_requested"}
-            or transfer_marker == "awaiting_farm_pickup"
-            or stage_marker == "pickup_requested"
-        ):
-            continue
+        # Do not apply a second, narrower status check here: explicitly-ready
+        # booleans and the newer ready_for_pickup stage were accepted above but
+        # used to be discarded at this point, preventing legacy orders from
+        # being reconciled into incoming stock and collection jobs.
 
         order_oid = order_doc.get("_id")
         if not order_oid:
@@ -696,6 +702,15 @@ async def get_my_collections(
                 continue
             incoming_doc["_id"] = ObjectId(str(incoming_id))
             await ensure_collection_job(incoming_doc, "packed_orders_transfer", "farmer_fulfillment_transfer")
+
+    logger.info(
+        "Farm Collection reconciliation warehouse=%s incoming_candidates=%s incoming_recovered=%s warehouse_ready_orders=%s total_jobs_before_reload=%s",
+        warehouse_id,
+        len(incoming_candidates),
+        recovered_from_incoming,
+        len(warehouse_ready_orders),
+        len(jobs),
+    )
 
     # Reload after reconciliation so newly-created pickup jobs appear immediately.
     jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
