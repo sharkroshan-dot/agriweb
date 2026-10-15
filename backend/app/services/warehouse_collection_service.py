@@ -7,6 +7,116 @@ from app.repositories.warehouse_collection_repository import (
     COLLECTION_READY,
 )
 
+_DISTRICT_ALIASES = {
+    "trichy": "tiruchirappalli",
+    "trichirapalli": "tiruchirappalli",
+    "tiruchirapalli": "tiruchirappalli",
+    "tiruchirappalli": "tiruchirappalli",
+    "krishnagiri district": "krishnagiri",
+}
+_KNOWN_DISTRICT_ALIASES = {
+    "tiruchirappalli": ("tiruchirappalli", "tiruchirapalli", "trichirapalli", "trichy"),
+    "krishnagiri": ("krishnagiri",),
+    "perambalur": ("perambalur",),
+    "coimbatore": ("coimbatore",),
+    "tiruppur": ("tiruppur", "tirupur"),
+    "erode": ("erode",),
+    "salem": ("salem",),
+    "madurai": ("madurai",),
+    "thanjavur": ("thanjavur", "tanjore"),
+    "chennai": ("chennai",),
+}
+
+
+def normalize_collection_district(value: Any) -> str:
+    raw = " ".join(str(value or "").strip().lower().replace(",", " ").replace("-", " ").split())
+    return _DISTRICT_ALIASES.get(raw, raw)
+
+
+def warehouse_collection_districts(warehouse: Dict[str, Any]) -> set[str]:
+    """Return configured farm coverage, falling back to the warehouse Settings location."""
+    configured = {
+        normalize_collection_district(value)
+        for value in (warehouse.get("farmCollectionDistricts") or [])
+        if str(value or "").strip()
+    }
+    if configured:
+        return configured
+
+    address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    location = warehouse.get("location") if isinstance(warehouse.get("location"), dict) else {}
+    candidates = (
+        warehouse.get("farmCollectionDistrict"),
+        warehouse.get("district"),
+        address.get("district"),
+        address.get("city"),
+        location.get("district"),
+        location.get("city"),
+    )
+    district = next(
+        (normalize_collection_district(value) for value in candidates if isinstance(value, str) and value.strip()),
+        None,
+    )
+    if district:
+        return {district}
+
+    location_text = normalize_collection_district(" ".join(str(value or "") for value in (
+        address.get("line1"),
+        address.get("line2"),
+        address.get("street"),
+        address.get("address"),
+        location.get("address"),
+        location.get("formattedAddress"),
+    )))
+    return {
+        district
+        for district, aliases in _KNOWN_DISTRICT_ALIASES.items()
+        if any(alias in location_text for alias in aliases)
+    }
+
+
+def farmer_collection_district(
+    profile: Optional[Dict[str, Any]],
+    pickup_location: Any,
+    configured_districts: set[str],
+) -> Optional[str]:
+    """Resolve a farmer's district only when it matches warehouse farm coverage."""
+    if profile:
+        for key in ("farmDistrict", "district", "farmCity", "city"):
+            value = profile.get(key)
+            if isinstance(value, str) and value.strip():
+                candidate = normalize_collection_district(value)
+                if candidate in configured_districts:
+                    return candidate
+        for address_key in ("farmAddress", "address"):
+            address = profile.get(address_key)
+            if isinstance(address, dict):
+                for key in ("district", "city", "village"):
+                    value = address.get(key)
+                    if isinstance(value, str) and value.strip():
+                        candidate = normalize_collection_district(value)
+                        if candidate in configured_districts:
+                            return candidate
+                address_text = " ".join(str(value) for value in address.values() if value)
+            else:
+                address_text = str(address or "")
+            normalized_address = normalize_collection_district(address_text)
+            for district in configured_districts:
+                aliases = _KNOWN_DISTRICT_ALIASES.get(district, (district,))
+                if any(alias in normalized_address for alias in aliases):
+                    return district
+    if isinstance(pickup_location, dict):
+        address_text = " ".join(
+            str(pickup_location.get(key) or "")
+            for key in ("district", "city", "address", "formattedAddress", "farmAddress", "streetAddress")
+        )
+        normalized_address = normalize_collection_district(address_text)
+        for district in configured_districts:
+            aliases = _KNOWN_DISTRICT_ALIASES.get(district, (district,))
+            if any(alias in normalized_address for alias in aliases):
+                return district
+    return None
+
 
 async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, source_mode: str) -> Optional[Dict[str, Any]]:
     """Create one farm collection job for an incoming stock record."""

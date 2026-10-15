@@ -32,7 +32,12 @@ from app.repositories.delivery_job_repository import delivery_job_repository, JO
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
-from app.services.warehouse_collection_service import ensure_collection_job, serialize_collection
+from app.services.warehouse_collection_service import (
+    ensure_collection_job,
+    farmer_collection_district,
+    serialize_collection,
+    warehouse_collection_districts,
+)
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.services.warehouse_pickup_route_service import build_smart_routes, serialize_route, assign_route, enrich_pickup_route_display
@@ -199,117 +204,14 @@ async def get_my_collections(
             return None
         return text
 
-    district_aliases = {
-        "trichy": "tiruchirappalli",
-        "trichirapalli": "tiruchirappalli",
-        "tiruchirapalli": "tiruchirappalli",
-        "tiruchirappalli": "tiruchirappalli",
-        "krishnagiri district": "krishnagiri",
-    }
-
-    def district_key(value: Any) -> str:
-        raw = " ".join(str(value or "").strip().lower().replace(",", " ").replace("-", " ").split())
-        return district_aliases.get(raw, raw)
-
-    configured_districts = {
-        district_key(value)
-        for value in (warehouse.get("farmCollectionDistricts") or [])
-        if str(value or "").strip()
-    }
-
-    # Explicit farm-collection coverage wins. If it is empty, derive the
-    # warehouse's default district from the saved Settings address/location.
-    # Coordinates alone are not treated as a district because that would need
-    # a trusted reverse-geocoding source.
-    district_source = "farm_collection_settings" if configured_districts else None
-    if not configured_districts:
-        warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
-        warehouse_location = warehouse.get("location") if isinstance(warehouse.get("location"), dict) else {}
-        district_candidates = [
-            warehouse.get("farmCollectionDistrict"),
-            warehouse.get("district"),
-            warehouse_address.get("district"),
-            warehouse_address.get("city"),
-            warehouse_location.get("district"),
-            warehouse_location.get("city"),
-        ]
-        inferred_district = next(
-            (district_key(value) for value in district_candidates if isinstance(value, str) and value.strip()),
-            None,
-        )
-        if not inferred_district:
-            location_text = " ".join(str(value or "") for value in (
-                warehouse_address.get("line1"),
-                warehouse_address.get("line2"),
-                warehouse_address.get("street"),
-                warehouse_address.get("address"),
-                warehouse_location.get("address"),
-                warehouse_location.get("formattedAddress"),
-            ))
-            normalized_location_text = district_key(location_text)
-            known_district_aliases = {
-                "tiruchirappalli": ("tiruchirappalli", "tiruchirapalli", "trichirapalli", "trichy"),
-                "krishnagiri": ("krishnagiri",),
-                "perambalur": ("perambalur",),
-                "coimbatore": ("coimbatore",),
-                "tiruppur": ("tiruppur", "tirupur"),
-                "erode": ("erode",),
-                "salem": ("salem",),
-                "madurai": ("madurai",),
-                "thanjavur": ("thanjavur", "tanjore"),
-                "chennai": ("chennai",),
-            }
-            inferred_district = next(
-                (
-                    district for district, aliases in known_district_aliases.items()
-                    if any(alias in normalized_location_text for alias in aliases)
-                ),
-                None,
-            )
-        if inferred_district:
-            configured_districts = {inferred_district}
-            district_source = "warehouse_settings_location"
-
-    def farmer_district_for(profile: Optional[Dict[str, Any]], pickup_location: Any) -> Optional[str]:
-        if profile:
-            for key in ("farmDistrict", "district", "farmCity", "city"):
-                value = profile.get(key)
-                if isinstance(value, str) and value.strip():
-                    candidate = district_key(value)
-                    if candidate in configured_districts:
-                        return candidate
-            for address_key in ("farmAddress", "address"):
-                address = profile.get(address_key)
-                if isinstance(address, dict):
-                    for key in ("district", "city", "village"):
-                        value = address.get(key)
-                        if isinstance(value, str) and value.strip():
-                            candidate = district_key(value)
-                            if candidate in configured_districts:
-                                return candidate
-                    address_text = " ".join(str(value) for value in address.values() if value)
-                else:
-                    address_text = str(address or "")
-                normalized_address = district_key(address_text)
-                for configured in configured_districts:
-                    aliases = [configured]
-                    if configured == "tiruchirappalli":
-                        aliases.extend(["trichy", "trichirapalli", "tiruchirapalli"])
-                    if any(alias in normalized_address for alias in aliases):
-                        return configured
-        if isinstance(pickup_location, dict):
-            address_text = " ".join(
-                str(pickup_location.get(key) or "")
-                for key in ("district", "city", "address", "formattedAddress", "farmAddress", "streetAddress")
-            )
-            normalized_address = district_key(address_text)
-            for configured in configured_districts:
-                aliases = [configured]
-                if configured == "tiruchirappalli":
-                    aliases.extend(["trichy", "trichirapalli", "tiruchirapalli"])
-                if any(alias in normalized_address for alias in aliases):
-                    return configured
-        return None
+    configured_districts = warehouse_collection_districts(warehouse)
+    # Explicit farm-collection coverage wins; otherwise the Settings location
+    # district is used as this warehouse's default coverage.
+    district_source = (
+        "farm_collection_settings"
+        if warehouse.get("farmCollectionDistricts")
+        else "warehouse_settings_location" if configured_districts else None
+    )
 
     async def get_user(user_id: Optional[str]) -> Optional[Dict[str, Any]]:
         key = str(user_id or "")
@@ -414,10 +316,10 @@ async def get_my_collections(
         await ensure_collection_job(incoming, collection_type, source_mode)
         recovered_from_incoming += 1
 
-    # Reconcile packed Farmer Fulfillment orders that were marked Ready for
-    # Pickup before a collection job was created (or while the old endpoint
-    # failed). The order must already name this warehouse as its source; this
-    # does not claim orders assigned to another warehouse.
+    # Reconcile ready warehouse-fulfillment orders by farm district. An old
+    # source assignment may point to a warehouse outside the farmer's district;
+    # the receiving warehouse's explicit coverage (or Settings location when
+    # coverage is empty) is authoritative for an unplanned farm pickup.
     orders_collection = MongoDB.get_collection("orders")
     warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
     # Also recover warehouse-fulfillment orders whose Ready for Pickup
@@ -425,22 +327,6 @@ async def get_my_collections(
     # created (legacy data or an interrupted request).
     warehouse_ready_orders = await orders_collection.find({
         "$and": [
-            {"$or": [
-                {"warehouseId": {"$in": warehouse_refs}},
-                {"sourceWarehouseId": {"$in": warehouse_refs}},
-                {"$and": [
-                    {"$or": [
-                        {"warehouseId": {"$exists": False}},
-                        {"warehouseId": None},
-                        {"warehouseId": ""},
-                    ]},
-                    {"$or": [
-                        {"sourceWarehouseId": {"$exists": False}},
-                        {"sourceWarehouseId": None},
-                        {"sourceWarehouseId": ""},
-                    ]},
-                ]},
-            ]},
             # Ready flags are written by different versions of the Farmer
             # Orders workflow. Query all supported persisted markers, not only
             # the status strings, otherwise ready warehouse-fulfillment orders
@@ -473,17 +359,11 @@ async def get_my_collections(
         order_oid = ready_order.get("_id")
         if not order_oid:
             continue
-        # A pre-existing explicit assignment to another warehouse must never
-        # be overwritten. For legacy orders with no source warehouse, match the
-        # farmer's saved district/address to this warehouse's configured or
-        # inferred district before claiming the order.
         assigned_refs = [
             str(ready_order.get("sourceWarehouseId") or ""),
             str(ready_order.get("warehouseId") or ""),
         ]
         assigned_refs = [value for value in assigned_refs if value and value not in {"None", ""}]
-        if any(value != warehouse_id for value in assigned_refs):
-            continue
         order_id_text = str(order_oid)
         farm_profile = await get_farmer(str(ready_order.get("farmerId") or ""))
         farm_location = (
@@ -497,14 +377,92 @@ async def get_my_collections(
         )
         if not isinstance(farm_location, dict):
             farm_location = {"address": str(farm_location)}
-        if not assigned_refs:
-            candidate_district = farmer_district_for(farm_profile, farm_location)
-            if not configured_districts or not candidate_district or candidate_district not in configured_districts:
-                logger.info(
-                    "Skipping unassigned ready warehouse order %s: farmer district cannot be matched to warehouse %s",
-                    order_id_text, warehouse_id,
-                )
+        candidate_district = farmer_collection_district(farm_profile, farm_location, configured_districts)
+        if not candidate_district:
+            continue
+
+        assigned_to_another_warehouse = any(value != warehouse_id for value in assigned_refs)
+        if assigned_to_another_warehouse:
+            assigned_warehouse_ids = {
+                value for value in assigned_refs
+                if ObjectId.is_valid(value) and value != warehouse_id
+            }
+            assigned_warehouse_serves_farm = False
+            for assigned_warehouse_id in assigned_warehouse_ids:
+                assigned_warehouse = await warehouse_repository.get_by_id(assigned_warehouse_id)
+                if assigned_warehouse and candidate_district in warehouse_collection_districts(assigned_warehouse):
+                    assigned_warehouse_serves_farm = True
+                    break
+            if assigned_warehouse_serves_farm:
                 continue
+
+            collection_jobs = MongoDB.get_collection("warehouse_collections")
+            order_refs = [order_oid, order_id_text]
+            active_collection = await collection_jobs.find_one({
+                "$and": [
+                    {"orderId": {"$in": order_refs}},
+                    {"deletedAt": None},
+                    {"$or": [
+                        {"pickupRouteId": {"$exists": True, "$nin": [None, ""]}},
+                        {"collectionTeamId": {"$exists": True, "$nin": [None, ""]}},
+                        {"status": {"$in": ["team_assigned", "en_route", "arrived_at_farm", "collected", "departed_farm", "arrived_warehouse"]}},
+                    ]},
+                ]
+            })
+            if active_collection:
+                continue
+
+            now = datetime.utcnow()
+            warehouse_name = warehouse.get("name") or warehouse.get("warehouseName")
+            warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or warehouse.get("address")
+            await orders_collection.update_one(
+                {"_id": order_oid},
+                {"$set": {
+                    "warehouseId": ObjectId(warehouse_id),
+                    "sourceWarehouseId": ObjectId(warehouse_id),
+                    "sourceWarehouseName": warehouse_name,
+                    "sourceWarehouseLocation": warehouse_location,
+                    "updatedAt": now,
+                }},
+            )
+            await incoming_stock_repository.collection.update_many(
+                {
+                    "$and": [
+                        {"orderId": {"$in": order_refs}},
+                        {"deletedAt": None},
+                        {"status": {"$nin": ["received", "quality_check", "stored", "rejected", "cancelled", "delivered"]}},
+                    ]
+                },
+                {"$set": {
+                    "warehouseId": ObjectId(warehouse_id),
+                    "updatedAt": now,
+                }},
+            )
+            await collection_jobs.update_many(
+                {
+                    "$and": [
+                        {"orderId": {"$in": order_refs}},
+                        {"deletedAt": None},
+                        {"status": {"$in": ["scheduled", "ready_for_pickup"]}},
+                        {"pickupRouteId": {"$in": [None, ""]}},
+                        {"collectionTeamId": {"$in": [None, ""]}},
+                    ]
+                },
+                {"$set": {
+                    "warehouseId": ObjectId(warehouse_id),
+                    "districtAssignmentSource": district_source or "warehouse_settings_location",
+                    "districtAssignedAt": now,
+                    "updatedAt": now,
+                }},
+            )
+            ready_order["warehouseId"] = ObjectId(warehouse_id)
+            ready_order["sourceWarehouseId"] = ObjectId(warehouse_id)
+            assigned_refs = [warehouse_id]
+            logger.info(
+                "Reassigned unplanned ready farm pickup order %s to warehouse %s by farm district %s",
+                order_id_text, warehouse_id, candidate_district,
+            )
+        elif not assigned_refs:
             # Persist the resolved source assignment so later fulfillment stages
             # and the next Farm Collection refresh use the same warehouse.
             await orders_collection.update_one(
@@ -761,7 +719,9 @@ async def get_my_collections(
 
     for candidate_job in unassigned_jobs:
         farmer_profile = await get_farmer(str(candidate_job.get("farmerId") or ""))
-        candidate_district = farmer_district_for(farmer_profile, candidate_job.get("pickupLocation") or {})
+        candidate_district = farmer_collection_district(
+            farmer_profile, candidate_job.get("pickupLocation") or {}, configured_districts
+        )
         if not configured_districts or not candidate_district or candidate_district not in configured_districts:
             continue
         candidate_id = str(candidate_job.get("_id") or "")
@@ -796,7 +756,9 @@ async def get_my_collections(
         product = await get_product(product_id or str(order_item.get("productId") or ""))
         batch = await get_batch(str(job.get("batchId") or ""))
         farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
-        farmer_district = farmer_district_for(farmer_profile, job.get("pickupLocation") or {})
+        farmer_district = farmer_collection_district(
+            farmer_profile, job.get("pickupLocation") or {}, configured_districts
+        )
         # An existing warehouseId is an explicit assignment, so do not hide
         # that job merely because legacy address data cannot be matched. Surface
         # the discrepancy in the UI instead of returning an empty queue.
