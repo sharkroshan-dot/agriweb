@@ -61,9 +61,20 @@ const isInDatePeriod = (item: any, period: "today" | "yesterday") => {
 // orders from farms. The route stays pending until the partner returns to and
 // hands the shipments over at the source warehouse.
 const isPickupCompleted = (item: any) =>
-  ["returned_to_warehouse", "arrived_warehouse", "warehouse_received", "received_at_warehouse", "stored"].includes(
-    String(item?.status || "").toLowerCase()
-  );
+  // Route status "completed" only means every farm stop was collected.
+  // The partner's pickup work is complete after the warehouse handover.
+  ["returned_to_warehouse", "arrived_warehouse"].includes(String(item?.status || "").toLowerCase());
+
+const uniqueById = (items: any[]) => {
+  const seen = new Set<string>();
+  return (items || []).filter((item: any, index: number) => {
+    const id = String(item?.id || item?._id || item?.routeId || item?.jobId || "");
+    const key = id || "row:" + index;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
 
 // A transfer is complete once the partner has physically reached its assigned
 // destination warehouse or local hub. "in_transit" and "started" remain pending.
@@ -216,16 +227,15 @@ export default function DeliveryPickupRoutesPage() {
   const hubTransfers = allHubTransfers.filter((item: any) => isInDatePeriod(item, datePeriod));
   const warehouseTransfers = allWarehouseTransfers.filter((item: any) => isInDatePeriod(item, datePeriod));
 
-  const pickupPendingCount =
-    routes.filter((item: any) => !isPickupCompleted(item)).length +
-    offers.filter((item: any) => !isPickupCompleted(item)).length +
-    pickupJobs.filter((item: any) => !isPickupCompleted(item)).length +
-    acceptedPickupJobs.filter((item: any) => !isPickupCompleted(item)).length;
-  const pickupCompletedCount =
-    routes.filter(isPickupCompleted).length +
-    offers.filter(isPickupCompleted).length +
-    pickupJobs.filter(isPickupCompleted).length +
-    acceptedPickupJobs.filter(isPickupCompleted).length;
+  // The same route can appear in both "My Routes" and the offers feed.
+  // Count each actual route once; pickup jobs are stops/orders within routes,
+  // not additional routes, so they must not inflate these summary totals.
+  const summaryPickupRoutes = uniqueById([...routes, ...offers]).filter((item: any) =>
+    isInDatePeriod(item, datePeriod) ||
+    (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
+  );
+  const pickupPendingCount = summaryPickupRoutes.filter((item: any) => !isPickupCompleted(item)).length;
+  const pickupCompletedCount = summaryPickupRoutes.filter(isPickupCompleted).length;
   const transferPendingCount =
     warehouseTransfers.filter((item: any) => !isTransferCompleted(item)).length +
     hubTransfers.filter((item: any) => !isTransferCompleted(item)).length;
