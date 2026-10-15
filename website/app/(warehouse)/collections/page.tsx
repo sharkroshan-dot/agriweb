@@ -101,6 +101,9 @@ export default function WarehouseCollectionsPage() {
   const [planning, setPlanning] = useState(false);
 
   useEffect(() => {
+    // Reset the date filter whenever the Farm Collection page is opened.
+    // The default queue should show today's pickup jobs, not historical jobs.
+    setDatePeriod("today");
     const params = new URLSearchParams(window.location.search);
     const requestedSearch = params.get("search") || "";
     const requestedFarm = params.get("focusFarm") || "";
