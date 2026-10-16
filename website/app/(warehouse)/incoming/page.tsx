@@ -330,7 +330,7 @@ export default function WarehouseIncomingPage() {
       return;
     }
     if (!isFarmerPacked && quantityMismatch) {
-      const accepted = window.confirm("The measured weight does not match the declared quantity. This receipt will remain pending quality review. Continue?");
+      const accepted = window.confirm("The measured weight differs from the declared quantity. Save the receipt as pending until the discrepancy is resolved?");
       if (!accepted) return;
     }
 
@@ -344,7 +344,17 @@ export default function WarehouseIncomingPage() {
           notes: receiveForm.notes.trim() || undefined,
         },
       });
-      toast.success(isFarmerPacked ? "Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation." : quantityMismatch ? "Weight discrepancy recorded. Keep stock on hold and contact the farm before quality approval." : "Bulk stock received. Continue to Quality Inspection, then Store.");
+      if (isFarmerPacked) {
+        toast.success("Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation.");
+      } else if (quantityMismatch) {
+        toast.success("Receipt saved with a quantity discrepancy. Stock remains on hold; contact the farm before storing.");
+      } else if (receiveForm.qualityCheck === "passed") {
+        toast.success("Receipt and quality check passed. Continue to Store.");
+      } else if (receiveForm.qualityCheck === "failed") {
+        toast.error("Receipt saved as rejected. Contact the farm about the damaged stock; do not store it.");
+      } else {
+        toast.success("Receipt saved as pending quality review. It cannot be stored until approved.");
+      }
       setShowReceiveDialog(false);
       await refetch();
     } catch (error) {
@@ -600,16 +610,16 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Warehouse Fulfillment Stock"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so warehouse quality inspection and repacking are skipped." : "Record the received quantity. After receipt, complete Quality Inspection and Store before order packing."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Stock & Quality Check"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so bulk quality inspection and repacking are skipped." : "Record the actual quantity and complete the quality check here. If passed, Save Receipt leads directly to Store. If failed, keep the stock on hold and contact the farm."}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
             <div className="rounded-lg border bg-slate-50 p-3 text-sm"><p className="font-medium">Farmer declared quantity: {selectedIncoming?.quantity ?? "—"} {selectedIncoming?.unit || "kg"}</p><p className="mt-1 text-muted-foreground">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Count the sealed packets and confirm the number of packed orders received." : "Weigh the bulk stock on the warehouse scale and enter the measured quantity below."}</p></div>
             <div><label className="text-sm font-medium">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Received packet quantity / order units" : "Actual weight measured at warehouse (kg)"}</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Difference: {(Number(receiveForm.quantity || 0) - Number(selectedIncoming?.quantity || 0)).toFixed(2)} {selectedIncoming?.unit || "kg"}</p></div>
-            <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">If measured weight differs from declared weight, add a note. The stock stays pending quality review until the discrepancy is resolved.</p></div>
+            <div><label className="text-sm font-medium">Usable Quantity for Packing</label><Input type="number" min="0" max={receiveForm.quantity} step="0.01" value={receiveForm.usableQuantity} onChange={(event) => updateReceiveForm("usableQuantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">A quantity mismatch requires a note and keeps the receipt pending. Failed stock is rejected and must not be stored.</p></div>
             {!isFarmerPackedIncoming(selectedIncoming) && <div>
               <label className="text-sm font-medium">Quality Result</label>
               <Select value={receiveForm.qualityCheck} onValueChange={(value) => updateReceiveForm("qualityCheck", value)}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Select quality result" /></SelectTrigger>
-                <SelectContent><SelectItem value="passed">Passed</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="failed">Failed</SelectItem></SelectContent>
+                <SelectContent><SelectItem value="passed">Passed — continue to Store</SelectItem><SelectItem value="pending">Pending — hold for review</SelectItem><SelectItem value="failed">Failed — contact farm</SelectItem></SelectContent>
               </Select>
             </div>}
             {selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" && <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">After receipt, continue to Farmer Fulfillment Transfers / Multi-Warehouse Consolidation. Storage is optional and this order will not enter bulk inventory.</p>}
