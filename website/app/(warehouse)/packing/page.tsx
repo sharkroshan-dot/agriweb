@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle } from "lucide-react";
+import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle, Warehouse } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -12,7 +12,8 @@ import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
 export default function WarehousePackingPage() {
-  const [team, setTeam] = useState<Record<string,string>>({});
+  const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
+  const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
   const { data, isLoading, error: packingError, refetch } = useQuery({
     queryKey: ["warehousePackingTasks"],
     queryFn: () => api.get("/warehouse/me/packing-tasks", { params: { status: "all" } }),
@@ -25,6 +26,50 @@ export default function WarehousePackingPage() {
   });
   const shortageRoot = shortageData?.data ?? shortageData;
   const shortages = shortageRoot?.data?.shortages ?? shortageRoot?.shortages ?? [];
+
+  const getFarmDetails = (task: any) => {
+    const item = (task.items || [])[0] || (task.packingItems || [])[0] || {};
+    const farm = task.farm || task.sourceFarm || task.farmDetails || item.farm || item.sourceFarm || {};
+    const farmId = String(task.farmId || task.sourceFarmId || task.farmProfileId || farm.id || farm._id || item.farmId || item.sourceFarmId || "").trim();
+    const farmName = String(task.farmName || task.sourceFarmName || task.farmerName || farm.name || farm.farmName || farm.farmerName || item.farmName || item.sourceFarmName || "").trim();
+    const farmerName = String(task.farmer?.name || task.farmer?.fullName || farm.farmer?.name || farm.ownerName || "").trim();
+    const address = String(farm.address || farm.location?.formattedAddress || farm.location?.address || task.sourceFarmAddress || task.farmAddress || "").trim();
+    const key = farmId ? "farm:" + farmId : farmName ? "name:" + farmName.toLowerCase() : farmerName ? "farmer:" + farmerName.toLowerCase() : address ? "address:" + address.toLowerCase() : "order:" + task.id;
+    return { key, name: farmName || farmerName || (farmId ? "Farm " + farmId.slice(-6) : "Farm details unavailable"), farmerName, address };
+  };
+
+  const farmGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; name: string; farmerName: string; address: string; tasks: any[] }>();
+    for (const task of tasks) {
+      const details = getFarmDetails(task);
+      const group = groups.get(details.key) || { ...details, tasks: [] };
+      group.tasks.push(task);
+      groups.set(details.key, group);
+    }
+    return Array.from(groups.values());
+  }, [tasks]);
+
+  const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
+    const teamId = (farmTeam[farm.key] || "").trim();
+    if (!teamId) { toast.error("Enter a packing team ID for this farm first."); return; }
+    const eligible = farm.tasks.filter((task: any) => ["ready_for_packing", "assigned"].includes(task.status));
+    if (!eligible.length) { toast("This farm has no orders waiting for packing-team assignment."); return; }
+    setAssigningFarm(farm.key);
+    let assigned = 0;
+    const failed: string[] = [];
+    for (const task of eligible) {
+      try {
+        await api.put("/warehouse/me/packing-tasks/" + task.id + "/assign", { packingTeamId: teamId });
+        assigned += 1;
+      } catch {
+        failed.push(task.orderNumber || task.orderId || task.id);
+      }
+    }
+    if (assigned) toast.success("Packing team assigned to " + assigned + " order(s) for " + farm.name + ".");
+    if (failed.length) toast.error("Could not assign team to " + failed.length + " order(s): " + failed.slice(0, 3).join(", "));
+    setAssigningFarm(null);
+    await refetch();
+  };
 
   const printLabel = (t: any) => {
     const address = t.deliveryAddress || {};
@@ -105,7 +150,18 @@ export default function WarehousePackingPage() {
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && tasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No packing tasks</h3><p className="mt-2 text-sm text-muted-foreground">Received warehouse-fulfillment products will appear here.</p></Card>
-      ) : <div className="space-y-4">{tasks.map((t:any) => (
+      ) : <div className="space-y-6">{farmGroups.map((farm) => (
+        <section key={farm.key} className="space-y-3">
+          <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2"><Warehouse className="h-5 w-5 text-emerald-700"/><h2 className="text-lg font-semibold">{farm.name}</h2><Badge variant="outline">{farm.tasks.length} order{farm.tasks.length === 1 ? "" : "s"}</Badge></div>
+              {farm.farmerName && farm.farmerName !== farm.name && <p className="mt-1 text-sm text-muted-foreground">Farmer: {farm.farmerName}</p>}
+              {farm.address && <p className="mt-1 text-sm text-muted-foreground">{farm.address}</p>}
+              <p className="mt-1 text-xs text-muted-foreground">Assign one packing team to all eligible orders from this farm. Packing and verification remain order-by-order.</p>
+            </div>
+            {farm.tasks.some((task: any) => ["ready_for_packing", "assigned"].includes(task.status)) && <div className="flex flex-wrap items-center gap-2"><Users className="h-4 w-4"/><Input className="w-40" placeholder="Packing Team ID" value={farmTeam[farm.key] || ""} onChange={e=>setFarmTeam({...farmTeam,[farm.key]:e.target.value})}/><Button disabled={assigningFarm === farm.key} onClick={() => assignFarmTeam(farm)}>{assigningFarm === farm.key ? "Assigning…" : "Assign Team to Farm"}</Button></div>}
+          </CardContent></Card>
+          <div className="space-y-3">{farm.tasks.map((t:any) => (
         <Card key={t.id}><CardContent className="p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -132,7 +188,7 @@ export default function WarehousePackingPage() {
               <p className="mt-1 text-xs text-muted-foreground">Delivery: {t.deliveryAddress ? [t.deliveryAddress.addressLine1, t.deliveryAddress.city, t.deliveryAddress.state, t.deliveryAddress.zipCode].filter(Boolean).join(", ") : "Address not available"}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {["ready_for_packing","assigned"].includes(t.status) && <div className="flex items-center gap-2"><Users className="h-4 w-4"/><Input className="w-32" placeholder="Team ID" value={team[t.id] || ""} onChange={e=>setTeam({...team,[t.id]:e.target.value})}/><Button size="sm" variant="outline" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/assign`,{packingTeamId:team[t.id]})}>Assign</Button></div>}
+              
               {t.status === "assigned" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/start`)}><Play className="mr-2 h-4 w-4"/>Start</Button>}
               {["packing","partially_packed"].includes(t.status) && <Button size="sm" onClick={async()=>{const items=(t.packingItems||[]).map((i:any)=>{const q=window.prompt(`Actual packed quantity for ${i.productName} (required ${i.quantityRequired} ${i.unit||"kg"})`,String(i.packedQuantity||i.quantityAvailable||0)); return q===null?null:{productId:i.productId,variantId:i.variantId||undefined,packedQuantity:Number(q)};}).filter(Boolean); if(!items.length)return; await run(`/warehouse/me/packing-tasks/${t.id}/complete`,{items,packedQuantity:items.reduce((s:any,i:any)=>s+Number(i.packedQuantity||0),0),packageId:t.packageId||undefined});}}><PackageCheck className="mr-2 h-4 w-4"/>Finish Packing & Check Shortage</Button>}
               {t.status === "packed" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify</Button>}
@@ -141,6 +197,8 @@ export default function WarehousePackingPage() {
             </div>
           </div>
         </CardContent></Card>
+          ))}</div>
+        </section>
       ))}</div>}
     </div>
   );
