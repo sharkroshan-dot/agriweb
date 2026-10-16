@@ -163,7 +163,14 @@ export default function WarehouseIncomingPage() {
   });
 
   const incomingTypeCounts = useMemo(() => {
-    const items = incomingData?.data?.incoming || [];
+    const rawIncoming = incomingData?.data?.incoming;
+    const items: any[] = Array.isArray(rawIncoming)
+      ? rawIncoming
+      : Array.isArray(rawIncoming?.items)
+        ? rawIncoming.items
+        : Array.isArray(rawIncoming?.results)
+          ? rawIncoming.results
+          : [];
     return {
       all: items.length,
       farmer: items.filter((item: any) => isFarmerPackedIncoming(item)).length,
@@ -172,7 +179,14 @@ export default function WarehouseIncomingPage() {
   }, [incomingData]);
 
   const incomingList = useMemo(() => {
-    const items = incomingData?.data?.incoming || [];
+    const rawIncoming = incomingData?.data?.incoming;
+    const items: any[] = Array.isArray(rawIncoming)
+      ? rawIncoming
+      : Array.isArray(rawIncoming?.items)
+        ? rawIncoming.items
+        : Array.isArray(rawIncoming?.results)
+          ? rawIncoming.results
+          : [];
     const query = searchTerm.trim().toLowerCase();
 
     const readableItems = items
