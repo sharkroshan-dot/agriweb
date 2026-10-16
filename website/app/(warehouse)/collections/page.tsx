@@ -98,6 +98,7 @@ export default function WarehouseCollectionsPage() {
   const [routePlanningMode, setRoutePlanningMode] = useState<"automatic" | "manual">("automatic");
   const [manualFarmOrder, setManualFarmOrder] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [farmTeamSelections, setFarmTeamSelections] = useState<Record<string, string>>({});
   const [planning, setPlanning] = useState(false);
 
   useEffect(() => {
@@ -318,6 +319,40 @@ export default function WarehouseCollectionsPage() {
     setSelectedCollectionIds((current) => checked
       ? Array.from(new Set([...current, ...eligibleCollectionIds]))
       : current.filter((id) => !eligibleCollectionIds.includes(id)));
+  };
+
+  const assignFarmToTeam = async (farm: any) => {
+    const collectionIds = Array.from(new Set((farm.readyJobIds || []).map(String)));
+    if (collectionIds.length === 0) {
+      toast.error("This farm has no unassigned Ready for Pickup orders.");
+      return;
+    }
+    const teamId = farmTeamSelections[farm.key] || selectedTeamId;
+    const team = eligibleTeams.find((candidate: any) => String(candidate.id) === String(teamId));
+    if (!team || Number(team.capacity) <= 0) {
+      toast.error("Select a pickup team with a registered vehicle capacity for this farm.");
+      return;
+    }
+    if (!team.deliveryPartnerId) {
+      toast.error("The selected pickup team has no linked delivery partner.");
+      return;
+    }
+    setPlanning(true);
+    try {
+      const response = await api.post("/warehouse/me/pickup-routes", {
+        collectionIds,
+        maxWeightKg: Number(team.capacity),
+        assignmentMode: "assign_team",
+        deliveryPartnerId: team.deliveryPartnerId,
+      });
+      toast.success(response?.message || response?.data?.message || `Assigned ${collectionIds.length} order(s) from ${farm.farmerName} to ${team.name || "the selected pickup team"}.`);
+      setSelectedCollectionIds((current) => current.filter((id) => !collectionIds.includes(String(id))));
+      await Promise.all([refetch(), refetchTeams()]);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not assign this farm's orders to the selected team.");
+    } finally {
+      setPlanning(false);
+    }
   };
 
   const planSelectedPickups = async () => {
@@ -612,6 +647,30 @@ export default function WarehouseCollectionsPage() {
                         )}
                       </div>
                     </div>
+                    <div className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm lg:col-span-2 xl:col-span-1">
+                      <label className="mb-2 block text-sm font-bold text-slate-800">Assign one team to this farm</label>
+                      <select
+                        value={farmTeamSelections[farm.key] || selectedTeamId}
+                        onChange={(event) => setFarmTeamSelections((current) => ({ ...current, [farm.key]: event.target.value }))}
+                        className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        aria-label={"Pickup team for " + farm.farmerName}
+                      >
+                        <option value="">Choose pickup team</option>
+                        {eligibleTeams.map((team: any) => (
+                          <option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {team.capacity} kg</option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">One team assignment covers all {farm.readyCount} eligible order(s) from this farm.</p>
+                      <Button
+                        type="button"
+                        className="mt-3 min-h-11 w-full text-sm font-bold"
+                        onClick={() => assignFarmToTeam(farm)}
+                        disabled={planning || farm.readyCount === 0 || eligibleTeams.length === 0}
+                      >
+                        <Truck className="mr-2 h-4 w-4" />{planning ? "Assigning team..." : "Assign Team to Farm"}
+                      </Button>
+                      {eligibleTeams.length === 0 && <p className="mt-2 text-xs text-amber-800">No eligible pickup team with vehicle capacity is available.</p>}
+                    </div>
                     <div className="flex justify-start lg:col-start-2 lg:row-start-2 xl:col-start-3 xl:row-start-1 xl:justify-end">
                       <Button
                         className="min-h-12 shrink-0 px-5 text-base font-bold"
@@ -632,7 +691,7 @@ export default function WarehouseCollectionsPage() {
                   <CardContent id={expandableId} className="space-y-5 bg-slate-50/50 p-5 sm:p-6">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-lg font-bold text-slate-950">All orders from {farm.farmerName}</p>
-                      <p className="text-sm leading-6 text-slate-700">Select eligible orders below for bulk pickup planning.</p>
+                      <p className="text-sm leading-6 text-slate-700">Orders are grouped by farm. Assign the pickup team once on the farm card to cover all eligible orders below.</p>
                     </div>
 
                     {farm.jobs.map((job: any) => {
@@ -644,18 +703,6 @@ export default function WarehouseCollectionsPage() {
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
-                                  {["ready_for_pickup", "team_assigned"].includes(job.status) && !job.pickupRouteId && (
-                                    <label className="mr-1 inline-flex cursor-pointer items-center gap-3 text-base font-semibold text-slate-800">
-                                      <input
-                                        type="checkbox"
-                                        aria-label={"Select " + (job.orderNumber || job.productName || "collection job")}
-                                        checked={selectedCollectionIds.includes(String(job.id || job._id))}
-                                        onChange={(event) => toggleCollectionSelection(String(job.id || job._id), event.target.checked)}
-                                        className="h-5 w-5 rounded border-slate-300 accent-emerald-600"
-                                      />
-                                      Select for pickup
-                                    </label>
-                                  )}
                                   <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>
                                     {isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}
                                   </Badge>
