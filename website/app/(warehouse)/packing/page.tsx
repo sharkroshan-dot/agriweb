@@ -51,7 +51,7 @@ export default function WarehousePackingPage() {
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
     const teamId = (farmTeam[farm.key] || "").trim();
-    if (!teamId) { toast.error("Enter a packing team ID for this farm first."); return; }
+    if (!teamId) { toast.error("Enter a valid packing team ID for this farm first."); return; }
     const eligible = farm.tasks.filter((task: any) => ["ready_for_packing", "assigned"].includes(task.status));
     if (!eligible.length) { toast("This farm has no orders waiting for packing-team assignment."); return; }
     setAssigningFarm(farm.key);
@@ -61,14 +61,25 @@ export default function WarehousePackingPage() {
       try {
         await api.put("/warehouse/me/packing-tasks/" + task.id + "/assign", { packingTeamId: teamId });
         assigned += 1;
-      } catch {
-        failed.push(task.orderNumber || task.orderId || task.id);
+      } catch (error: any) {
+        const detail = error?.response?.data?.detail || error?.message;
+        failed.push((task.orderNumber || task.orderId || task.id) + (detail ? ": " + detail : ""));
       }
     }
     if (assigned) toast.success("Packing team assigned to " + assigned + " order(s) for " + farm.name + ".");
-    if (failed.length) toast.error("Could not assign team to " + failed.length + " order(s): " + failed.slice(0, 3).join(", "));
+    if (failed.length) toast.error("Could not assign team to " + failed.length + " order(s): " + failed.slice(0, 2).join("; "));
     setAssigningFarm(null);
-    await refetch();
+    await Promise.all([refetch(), refetchShortages()]);
+  };
+
+  const run = async (path: string, payload?: any) => {
+    try {
+      const response = payload === undefined ? await api.put(path) : await api.put(path, payload);
+      toast.success(response?.data?.message || response?.message || "Packing task updated.");
+      await Promise.all([refetch(), refetchShortages()]);
+    } catch (error: any) {
+      toast.error(error?.response?.data?.detail || error?.message || "Could not update packing task.");
+    }
   };
 
   const printLabel = (t: any) => {
@@ -189,9 +200,9 @@ export default function WarehousePackingPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               
-              {t.status === "assigned" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/start`)}><Play className="mr-2 h-4 w-4"/>Start</Button>}
+              {t.status === "assigned" && <div className="flex items-center gap-2"><Badge variant="outline">Team assigned</Badge><Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/start`)}><Play className="mr-2 h-4 w-4"/>Start Packing</Button></div>}
               {["packing","partially_packed"].includes(t.status) && <Button size="sm" onClick={async()=>{const items=(t.packingItems||[]).map((i:any)=>{const q=window.prompt(`Actual packed quantity for ${i.productName} (required ${i.quantityRequired} ${i.unit||"kg"})`,String(i.packedQuantity||i.quantityAvailable||0)); return q===null?null:{productId:i.productId,variantId:i.variantId||undefined,packedQuantity:Number(q)};}).filter(Boolean); if(!items.length)return; await run(`/warehouse/me/packing-tasks/${t.id}/complete`,{items,packedQuantity:items.reduce((s:any,i:any)=>s+Number(i.packedQuantity||0),0),packageId:t.packageId||undefined});}}><PackageCheck className="mr-2 h-4 w-4"/>Finish Packing & Check Shortage</Button>}
-              {t.status === "packed" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify</Button>}
+              {t.status === "packed" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify Packed Order</Button>}
               {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
               {t.status === "ready_for_dispatch" && <div className="flex flex-wrap items-center gap-2"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Verified · Ready for Dispatch</Badge><Button size="sm" onClick={() => { window.location.href = "/outgoing"; }}><PackageCheck className="mr-2 h-4 w-4"/>Continue to Dispatch</Button></div>}
             </div>
