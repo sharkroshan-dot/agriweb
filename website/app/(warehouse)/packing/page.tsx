@@ -17,12 +17,14 @@ export default function WarehousePackingPage() {
   const [farmAssignmentMessages, setFarmAssignmentMessages] = useState<Record<string, { kind: "success" | "error" | "info"; text: string }>>({});
   const [farmAssignedLocally, setFarmAssignedLocally] = useState<Record<string, boolean>>({});
   const [farmStartedLocally, setFarmStartedLocally] = useState<Record<string, boolean>>({});
+  const [taskStatusOverrides, setTaskStatusOverrides] = useState<Record<string, string>>({});
   const { data, isLoading, error: packingError, refetch } = useQuery({
     queryKey: ["warehousePackingTasks"],
     queryFn: () => api.get("/warehouse/me/packing-tasks", { params: { status: "all" } }),
   });
   const packingRoot = data?.data ?? data;
-  const tasks = packingRoot?.data?.tasks ?? packingRoot?.tasks ?? [];
+  const serverTasks = packingRoot?.data?.tasks ?? packingRoot?.tasks ?? [];
+  const tasks = serverTasks.map((task: any) => ({ ...task, status: taskStatusOverrides[task.id] || task.status }));
   const { data: shortageData, refetch: refetchShortages } = useQuery({
     queryKey: ["warehouseShortages"],
     queryFn: () => api.get("/warehouse/me/shortages", { params: { status: "all" } }),
@@ -74,6 +76,7 @@ export default function WarehousePackingPage() {
     for (const task of eligible) {
       try {
         await api.put("/warehouse/me/packing-tasks/" + task.id + "/assign", { packingTeamId: teamId });
+        setTaskStatusOverrides((current) => ({ ...current, [task.id]: "assigned" }));
         assigned += 1;
       } catch (error: any) {
         const detail = error?.response?.data?.detail || error?.message;
@@ -112,6 +115,7 @@ export default function WarehousePackingPage() {
     for (const task of assignedTasks) {
       try {
         await api.put("/warehouse/me/packing-tasks/" + task.id + "/start");
+        setTaskStatusOverrides((current) => ({ ...current, [task.id]: "packing" }));
         started += 1;
       } catch (error: any) {
         failed.push((task.orderNumber || task.orderId || task.id) + ": " + (error?.response?.data?.detail || error?.message || "Could not start"));
@@ -134,6 +138,9 @@ export default function WarehousePackingPage() {
   const run = async (path: string, payload?: any) => {
     try {
       const response = payload === undefined ? await api.put(path) : await api.put(path, payload);
+      const statusAction = path.includes("/start") ? "packing" : path.includes("/complete") ? "packed" : path.includes("/verify") ? "ready_for_dispatch" : path.includes("/assign") ? "assigned" : "";
+      const taskIdMatch = path.match(/packing-tasks\/([^/]+)\//);
+      if (statusAction && taskIdMatch) setTaskStatusOverrides((current) => ({ ...current, [taskIdMatch[1]]: statusAction }));
       toast.success(response?.data?.message || response?.message || "Packing task updated.");
       await Promise.all([refetch(), refetchShortages()]);
     } catch (error: any) {
