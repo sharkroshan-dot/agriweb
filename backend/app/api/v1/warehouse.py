@@ -5587,6 +5587,83 @@ async def receive_incoming_stock(
             detail="Failed to receive stock"
         )
 
+    # Persist an immutable receipt snapshot on the incoming shipment so staff can
+    # reopen/reprint it later without calling the receive endpoint again.
+    try:
+        latest_incoming = await incoming_stock_repository.get_by_id(incoming_id) or incoming
+        existing_receipt = latest_incoming.get("receipt") if isinstance(latest_incoming.get("receipt"), dict) else {}
+        order_record = None
+        order_id_value = latest_incoming.get("orderId")
+        if order_id_value:
+            order_record = await order_repository.get_by_id(str(order_id_value))
+        farm_name = (
+            latest_incoming.get("farmName")
+            or latest_incoming.get("farmerName")
+            or latest_incoming.get("pickupLocation", {}).get("farmName")
+            or latest_incoming.get("pickupLocation", {}).get("name")
+            or "Farm details unavailable"
+        )
+        customer = (order_record or {}).get("customer") or {}
+        if not isinstance(customer, dict):
+            customer = {}
+        customer_name = (
+            latest_incoming.get("customerName")
+            or customer.get("name")
+            or " ".join(filter(None, [customer.get("firstName"), customer.get("lastName")])).strip()
+            or "Customer details unavailable"
+        )
+        delivery_address = (
+            latest_incoming.get("deliveryAddress")
+            or latest_incoming.get("shippingAddress")
+            or (order_record or {}).get("deliveryAddress")
+            or (order_record or {}).get("shippingAddress")
+            or (order_record or {}).get("address")
+        )
+        if isinstance(delivery_address, dict):
+            delivery_address = ", ".join(str(delivery_address.get(key)) for key in (
+                "addressLine1", "addressLine2", "street", "city", "district", "state", "zipCode", "postalCode"
+            ) if delivery_address.get(key))
+        warehouse_name = warehouse.get("name") or warehouse.get("warehouseName") or "Warehouse details unavailable"
+        received_at = latest_incoming.get("receivedAt") or datetime.utcnow()
+        receipt_number = existing_receipt.get("receiptNumber") or latest_incoming.get("receiptNumber") or (
+            f"AGR-RCPT-{received_at.strftime('%Y%m%d%H%M%S')}-{incoming_id[-6:].upper()}"
+        )
+        receipt = {
+            "receiptNumber": receipt_number,
+            "receivedAt": received_at,
+            "shipmentId": str(latest_incoming.get("_id") or incoming_id),
+            "orderId": str(order_id_value) if order_id_value else None,
+            "orderNumber": (order_record or {}).get("orderNumber") or latest_incoming.get("orderNumber"),
+            "farmName": farm_name,
+            "farmId": str(latest_incoming.get("farmId") or latest_incoming.get("farmerId") or "") or None,
+            "warehouseId": str(warehouse.get("_id") or ""),
+            "warehouseName": warehouse_name,
+            "productName": latest_incoming.get("productName") or ((latest_incoming.get("product") or {}).get("name") if isinstance(latest_incoming.get("product"), dict) else None),
+            "declaredQuantity": float(latest_incoming.get("quantity") or 0),
+            "receivedQuantity": float(latest_incoming.get("quantityReceived") if latest_incoming.get("quantityReceived") is not None else quantity),
+            "usableQuantity": float(latest_incoming.get("usableQuantity") if latest_incoming.get("usableQuantity") is not None else (usable_quantity if usable_quantity is not None else quantity)),
+            "rejectedQuantity": float(latest_incoming.get("quantityRejected") or 0),
+            "unit": latest_incoming.get("unit") or "kg",
+            "qualityResult": str(latest_incoming.get("qualityCheck") or quality_check),
+            "qualityNotes": notes or latest_incoming.get("qualityNotes") or latest_incoming.get("notes"),
+            "customerName": customer_name,
+            "customerPhone": latest_incoming.get("customerPhone") or customer.get("phone") or (order_record or {}).get("customerPhone") or (order_record or {}).get("phone"),
+            "deliveryAddress": delivery_address,
+            "orderItems": (order_record or {}).get("items") or latest_incoming.get("orderItems") or [],
+            "recordedBy": str(current_user.get("_id") or ""),
+        }
+        await incoming_stock_repository.update(
+            {"_id": latest_incoming.get("_id")},
+            {"receipt": receipt, "receiptNumber": receipt_number},
+        )
+        incoming = await incoming_stock_repository.get_by_id(incoming_id) or incoming
+    except Exception:
+        logger.exception("Failed to persist receipt snapshot for incoming shipment %s", incoming_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stock was received but the receipt record could not be saved. Contact support before retrying receipt.",
+        )
+
     # Notify farmer/customer when warehouse receiving changes the authoritative order workflow.
     try:
         order_id = incoming.get("orderId")
