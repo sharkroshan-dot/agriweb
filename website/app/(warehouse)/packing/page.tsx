@@ -43,12 +43,34 @@ export default function WarehousePackingPage() {
     } catch (e:any) { toast.error(e?.message || "Packing action failed"); }
   };
 
+  const verifyAllPackedTasks = async () => {
+    const eligible = tasks.filter((task: any) => task.status === "packed");
+    if (!eligible.length) {
+      toast("No fully packed orders are waiting for verification.");
+      return;
+    }
+    let verified = 0;
+    const failed: string[] = [];
+    for (const task of eligible) {
+      try {
+        await api.put(`/warehouse/me/packing-tasks/${task.id}/verify`, { verified: true });
+        verified += 1;
+      } catch {
+        failed.push(task.orderNumber || task.orderId || task.id);
+      }
+    }
+    if (verified) toast.success(`Verified ${verified} order(s). Ready orders can continue to dispatch.`);
+    if (failed.length) toast.error(`${failed.length} order(s) need review. Check quantities, shortages, and dispatch records.`);
+    await refetch();
+    await refetchShortages();
+  };
+
   return (
     <div className="space-y-6">
       <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
       <div className="flex items-center justify-between">
         <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
-        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button><Button asChild variant="outline"><Link href="/outgoing">Open Dispatch / Outgoing Stock</Link></Button></div>
+        <div className="flex flex-wrap items-center gap-2"><Button onClick={verifyAllPackedTasks} disabled={!tasks.some((task: any) => task.status === "packed")}><ShieldCheck className="mr-2 h-4 w-4"/>Verify All Packed</Button><Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button><Button asChild variant="outline"><Link href="/outgoing">Open Dispatch / Outgoing Stock</Link></Button></div>
       </div>
       {shortages.length > 0 && (
         <Card className="border-red-200 bg-red-50/70">
