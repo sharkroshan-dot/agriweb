@@ -5950,6 +5950,32 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
         raise HTTPException(status_code=403, detail="Only warehouse managers can access packing tasks")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse: raise HTTPException(status_code=404, detail="Warehouse not found")
+    # Self-heal legacy warehouse orders that were stored before the packing task
+    # was created (or whose old incoming rows lacked packingRequired=True).
+    # The packing service itself validates warehouse fulfillment and usable stock.
+    try:
+        stored_rows = await incoming_stock_repository.find_many({
+            "warehouseId": warehouse["_id"],
+            "status": "stored",
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        order_ids = {
+            str(row.get("orderId"))
+            for row in stored_rows
+            if row.get("orderId")
+            and str(row.get("sourceMode") or "").lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
+            and row.get("packingRequired") is not False
+        }
+        for order_id in order_ids:
+            if not ObjectId.is_valid(order_id):
+                continue
+            order = await order_repository.get_by_id(order_id)
+            if not order or str(order.get("fulfillmentMethod") or "").lower() != "warehouse":
+                continue
+            await WarehouseService.ensure_order_packing_task(order_id, str(warehouse["_id"]))
+    except Exception:
+        logger.exception("Failed to reconcile stored warehouse orders into packing tasks")
+
     tasks = await warehouse_packing_repository.get_by_warehouse(str(warehouse["_id"]), status)
     for task in tasks:
         task["id"] = str(task["_id"])
