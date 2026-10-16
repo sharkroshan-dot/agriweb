@@ -16,6 +16,7 @@ export default function WarehousePackingPage() {
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
   const [farmAssignmentMessages, setFarmAssignmentMessages] = useState<Record<string, { kind: "success" | "error" | "info"; text: string }>>({});
   const [farmAssignedLocally, setFarmAssignedLocally] = useState<Record<string, boolean>>({});
+  const [farmStartedLocally, setFarmStartedLocally] = useState<Record<string, boolean>>({});
   const { data, isLoading, error: packingError, refetch } = useQuery({
     queryKey: ["warehousePackingTasks"],
     queryFn: () => api.get("/warehouse/me/packing-tasks", { params: { status: "all" } }),
@@ -122,6 +123,7 @@ export default function WarehousePackingPage() {
     setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: failed.length ? "error" : started ? "success" : "error", text: failed.length && started ? message + " Failed: " + failed.slice(0, 2).join("; ") : message } }));
     if (started) {
       setFarmAssignedLocally((current) => ({ ...current, [farm.key]: false }));
+      setFarmStartedLocally((current) => ({ ...current, [farm.key]: true }));
       toast.success("Started packing for " + started + " order(s).");
     }
     if (failed.length && !started) toast.error(message);
@@ -231,9 +233,9 @@ export default function WarehousePackingPage() {
               {farm.address && <p className="mt-1 text-sm text-muted-foreground">{farm.address}</p>}
               <p className="mt-1 text-xs text-muted-foreground">Assign one packing team to all eligible orders from this farm. Packing and verification remain order-by-order.</p>
             </div>
-            {farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing") && !farmAssignedLocally[farm.key] && !farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "assigned") && <div className="flex flex-wrap items-center gap-2"><Users className="h-4 w-4"/><Input className="w-40" placeholder="Packing Team ID" value={farmTeam[farm.key] || ""} onChange={e=>{setFarmTeam({...farmTeam,[farm.key]:e.target.value});setFarmAssignmentMessages((current)=>{const next={...current};delete next[farm.key];return next;});}}/><Button type="button" disabled={assigningFarm === farm.key} onClick={() => assignFarmTeam(farm)}>{assigningFarm === farm.key ? "Assigning…" : "Assign Team to Farm"}</Button></div>}
-            {(farmAssignedLocally[farm.key] || farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "assigned")) && !farm.tasks.some((task: any) => ["packing","partially_packed","packed","verified","ready_for_dispatch","dispatched"].includes(String(task.status || "").toLowerCase())) && <Button type="button" disabled={assigningFarm === farm.key} onClick={() => startPackingForFarm(farm)}><Play className="mr-2 h-4 w-4"/>{assigningFarm === farm.key ? "Starting…" : "Next: Start Packing for Farm"}</Button>}
-            {farm.tasks.some((task: any) => ["packing","partially_packed"].includes(String(task.status || "").toLowerCase())) && <Badge variant="outline">Packing in progress — enter quantities on each order below</Badge>}
+            {!farmStartedLocally[farm.key] && farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "ready_for_packing") && !farmAssignedLocally[farm.key] && !farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "assigned") && <div className="flex flex-wrap items-center gap-2"><Users className="h-4 w-4"/><Input className="w-40" placeholder="Packing Team ID" value={farmTeam[farm.key] || ""} onChange={e=>{setFarmTeam({...farmTeam,[farm.key]:e.target.value});setFarmAssignmentMessages((current)=>{const next={...current};delete next[farm.key];return next;});}}/><Button type="button" disabled={assigningFarm === farm.key} onClick={() => assignFarmTeam(farm)}>{assigningFarm === farm.key ? "Assigning…" : "Assign Team to Farm"}</Button></div>}
+            {!farmStartedLocally[farm.key] && (farmAssignedLocally[farm.key] || farm.tasks.some((task: any) => String(task.status || "").toLowerCase() === "assigned")) && !farm.tasks.some((task: any) => ["packing","partially_packed","packed","verified","ready_for_dispatch","dispatched"].includes(String(task.status || "").toLowerCase())) && <Button type="button" disabled={assigningFarm === farm.key} onClick={() => startPackingForFarm(farm)}><Play className="mr-2 h-4 w-4"/>{assigningFarm === farm.key ? "Starting…" : "Next: Start Packing for Farm"}</Button>}
+            {(farmStartedLocally[farm.key] || farm.tasks.some((task: any) => ["packing","partially_packed"].includes(String(task.status || "").toLowerCase()))) && <Badge variant="outline">Packing in progress — enter quantities on each order below</Badge>}
             {farmAssignmentMessages[farm.key] && <div role="status" aria-live="polite" className={"mt-3 rounded-md border px-3 py-2 text-sm " + (farmAssignmentMessages[farm.key].kind === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : farmAssignmentMessages[farm.key].kind === "error" ? "border-red-200 bg-red-50 text-red-900" : "border-blue-200 bg-blue-50 text-blue-900")}>{farmAssignmentMessages[farm.key].text}</div>}
           </CardContent></Card>
           <div className="space-y-3">{farm.tasks.map((t:any) => (
