@@ -137,6 +137,8 @@ export default function WarehouseIncomingPage() {
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showQualityDialog, setShowQualityDialog] = useState(false);
+  const [showStoreDialog, setShowStoreDialog] = useState(false);
+  const [storeForm, setStoreForm] = useState({ usableQuantity: "", storageLocation: "", storageType: "ambient" });
   const [showTrackDialog, setShowTrackDialog] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [incomingForm, setIncomingForm] = useState(emptyIncomingForm);
@@ -381,13 +383,40 @@ export default function WarehouseIncomingPage() {
 
   const openQualityDialog = (item: any) => { setSelectedIncoming(item); setQualityNotes(""); setShowQualityDialog(true); };
 
-  const handleStoreIncoming = async (item: any) => {
-    if (!item?.id) return;
+  const openStoreDialog = (item: any) => {
+    setSelectedIncoming(item);
+    const received = Number(item?.quantityReceived ?? item?.receivedQuantity ?? item?.actualQuantityReceived ?? item?.quantity ?? 0);
+    setStoreForm({
+      usableQuantity: String(Number(item?.usableQuantity ?? received)),
+      storageLocation: String(item?.storageLocation || ""),
+      storageType: String(item?.storageType || "ambient"),
+    });
+    setShowStoreDialog(true);
+  };
+
+  const handleStoreIncoming = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedIncoming?.id) return;
+    const received = Number(selectedIncoming?.quantityReceived ?? selectedIncoming?.receivedQuantity ?? selectedIncoming?.actualQuantityReceived ?? selectedIncoming?.quantity ?? 0);
+    const usable = Number(storeForm.usableQuantity);
+    if (!Number.isFinite(usable) || usable <= 0 || usable > received) {
+      toast.error(`Usable quantity must be greater than zero and no more than the ${received} received.`);
+      return;
+    }
+    if (!storeForm.storageLocation.trim()) {
+      toast.error("Enter the storage location before confirming storage.");
+      return;
+    }
     try {
       setIsSaving(true);
-      await api.put(`/warehouse/me/incoming/${item.id}/store`);
-      toast.success("Stock stored successfully");
-      refetch();
+      await api.put(`/warehouse/me/incoming/${selectedIncoming.id}/store`, {
+        usableQuantity: usable,
+        storageLocation: storeForm.storageLocation.trim(),
+        storageType: storeForm.storageType,
+      });
+      toast.success("Stock stored and inventory updated. Continue to Order Packing.");
+      setShowStoreDialog(false);
+      await refetch();
     } catch (error: any) {
       toast.error(error?.message || "Failed to store incoming stock");
     } finally {
@@ -526,13 +555,13 @@ export default function WarehouseIncomingPage() {
           return (
             <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><div><p className="font-semibold">{productName}</p><p className="mt-1 text-sm text-muted-foreground">Order: {item.displayOrderNumber || "Order reference unavailable"}</p></div><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From farm: {item.displayFarmName || "Farm details unavailable"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); }}><Clock className="mr-2 h-4 w-4" />Track</Button>}{canReceiveStock && <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Stock</Button>}
                       {isPackedFarmerTransfer && !hasPhysicallyArrived && <Badge variant="outline" className="border-amber-300 text-amber-700">Awaiting Farm Pickup / Arrival</Badge>}
-                      {isPackedFarmerTransfer && (item.status === "received" || item.status === "stored") && <Button size="sm" onClick={() => { window.location.href = nextPage; }}><ArrowRight className="mr-2 h-4 w-4" />{requiresConsolidation ? "Continue to Consolidation" : "Continue to Farmer Fulfillment Transfers"}</Button>}{!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "pending").toLowerCase() !== "passed" && String(item.qualityCheck || "").toLowerCase() !== "failed" && <Button size="sm" onClick={() => openQualityDialog(item)}><ArrowRight className="mr-2 h-4 w-4" />Continue to Quality Check</Button>}{!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "").toLowerCase() === "passed" && <Button size="sm" onClick={() => handleStoreIncoming(item)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Storing..." : "Continue to Store"}</Button>}{!isPackedFarmerTransfer && item.status === "stored" && item.orderId && <Button size="sm" onClick={() => { window.location.href = "/packing"; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Order Packing</Button>}{!isPackedFarmerTransfer && item.status === "stored" && !item.orderId && <Button size="sm" variant="outline" onClick={() => { window.location.href = "/stock"; }}><Warehouse className="mr-2 h-4 w-4" />View Inventory</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<div className="relative">
+                      {isPackedFarmerTransfer && (item.status === "received" || item.status === "stored") && <Button size="sm" onClick={() => { window.location.href = nextPage; }}><ArrowRight className="mr-2 h-4 w-4" />{requiresConsolidation ? "Continue to Consolidation" : "Continue to Farmer Fulfillment Transfers"}</Button>}{!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "pending").toLowerCase() !== "passed" && String(item.qualityCheck || "").toLowerCase() !== "failed" && <Button size="sm" onClick={() => openQualityDialog(item)}><ArrowRight className="mr-2 h-4 w-4" />Continue to Quality Check</Button>}{!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "").toLowerCase() === "passed" && <Button size="sm" onClick={() => openStoreDialog(item)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />Continue to Store</Button>}{!isPackedFarmerTransfer && item.status === "stored" && item.orderId && <Button size="sm" onClick={() => { window.location.href = "/packing"; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Order Packing</Button>}{!isPackedFarmerTransfer && item.status === "stored" && !item.orderId && <Button size="sm" variant="outline" onClick={() => { window.location.href = "/stock"; }}><Warehouse className="mr-2 h-4 w-4" />View Inventory</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<div className="relative">
                         <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${productName}`} aria-expanded={openMenuId === item.id} onClick={() => setOpenMenuId((current) => current === item.id ? null : item.id)}><MoreVertical className="h-4 w-4" /></Button>
                         {openMenuId === item.id && <div className="absolute right-0 top-10 z-20 min-w-44 rounded-md border bg-background p-1 shadow-lg">
                           <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); setOpenMenuId(null); }}>View shipment details</button>
                           {canReceiveStock && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { openReceiveDialog(item); setOpenMenuId(null); }}>Receive stock</button>}
                           {!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "pending").toLowerCase() !== "passed" && String(item.qualityCheck || "").toLowerCase() !== "failed" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { openQualityDialog(item); setOpenMenuId(null); }}>Continue to Quality Check</button>}
-                          {!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "").toLowerCase() === "passed" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { void handleStoreIncoming(item); setOpenMenuId(null); }}>Continue to Store</button>}
+                          {!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || "").toLowerCase() === "passed" && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { openStoreDialog(item); setOpenMenuId(null); }}>Continue to Store</button>}
                           {!isPackedFarmerTransfer && item.status === "stored" && item.orderId && <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { window.location.href = "/packing"; setOpenMenuId(null); }}>Continue to Order Packing</button>}
                           <button type="button" className="w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { void refetch(); setOpenMenuId(null); }}>Refresh status</button>
                         </div>}
@@ -593,6 +622,48 @@ export default function WarehouseIncomingPage() {
               </Select>
             </div>
             <div className="flex justify-end gap-2 pt-4"><Button type="button" variant="outline" onClick={() => setShowScheduleDialog(false)}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Schedule Incoming"}</Button></div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showStoreDialog} onOpenChange={setShowStoreDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Storage</DialogTitle>
+            <DialogDescription>Confirm the usable quantity and physical storage location. Only quality-approved stock can be added to warehouse inventory.</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-4" onSubmit={handleStoreIncoming}>
+            <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+              <p className="font-semibold">{selectedIncoming?.displayProductName || getProductDisplayName(selectedIncoming || {})}</p>
+              <p className="mt-1 text-muted-foreground">Received: {Number(selectedIncoming?.quantityReceived ?? selectedIncoming?.receivedQuantity ?? selectedIncoming?.actualQuantityReceived ?? selectedIncoming?.quantity ?? 0)} {selectedIncoming?.unit || "kg"}</p>
+              <p className="mt-1 text-muted-foreground">Quality: {String(selectedIncoming?.qualityCheck || "pending").toUpperCase()}</p>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Usable quantity</label>
+              <Input type="number" min="0.01" max={Number(selectedIncoming?.quantityReceived ?? selectedIncoming?.receivedQuantity ?? selectedIncoming?.actualQuantityReceived ?? selectedIncoming?.quantity ?? 0)} step="0.01" value={storeForm.usableQuantity} onChange={(e) => setStoreForm((current) => ({ ...current, usableQuantity: e.target.value }))} required />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Storage location / bin</label>
+              <Input placeholder="e.g. Cold Room A · Rack 02 · Bin 04" value={storeForm.storageLocation} onChange={(e) => setStoreForm((current) => ({ ...current, storageLocation: e.target.value }))} required />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Storage condition</label>
+              <Select value={storeForm.storageType} onValueChange={(value) => setStoreForm((current) => ({ ...current, storageType: value }))}>
+                <SelectTrigger><SelectValue placeholder="Choose storage condition" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ambient">Ambient / General</SelectItem>
+                  <SelectItem value="cold">Cold Storage</SelectItem>
+                  <SelectItem value="refrigerated">Refrigerated</SelectItem>
+                  <SelectItem value="frozen">Frozen</SelectItem>
+                  <SelectItem value="dry">Dry Storage</SelectItem>
+                  <SelectItem value="other">Other</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setShowStoreDialog(false)} disabled={isSaving}>Cancel</Button>
+              <Button type="submit" disabled={isSaving}>{isSaving ? "Storing..." : "Confirm Store Stock"}</Button>
+            </div>
           </form>
         </DialogContent>
       </Dialog>
