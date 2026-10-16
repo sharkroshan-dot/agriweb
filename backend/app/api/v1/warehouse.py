@@ -59,6 +59,12 @@ class WarehouseIncomingQualityRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class WarehouseIncomingStoreRequest(BaseModel):
+    usableQuantity: Optional[float] = Field(None, gt=0)
+    storageLocation: Optional[str] = Field(None, min_length=1, max_length=120)
+    storageType: Optional[str] = Field(None, pattern="^(ambient|cold|refrigerated|frozen|dry|other)$")
+
+
 class WarehouseDeliveryRouteRequest(BaseModel):
     route: str = Field(..., pattern="^(nearby|long_distance)$")
     radius: int = Field(15, ge=1, le=200)
@@ -5565,10 +5571,12 @@ async def receive_incoming_stock(
     # Physical receipt is separate from quality approval. Bulk stock stays pending until
     # the quality endpoint approves it; packed Farmer Fulfillment bypasses bulk QC.
     is_farmer_fulfillment = str((incoming_record or {}).get("sourceMode") or "") == "farmer_fulfillment_transfer"
+    # Honor the selected inspection result. The UI deliberately sends "pending"
+    # when the measured quantity differs from the declared quantity.
     incoming = await WarehouseService.receive_incoming(
         incoming_id,
         quantity,
-        "pending",
+        quality_check,
         notes,
         str(warehouse["_id"]),
         usable_quantity
@@ -5694,6 +5702,7 @@ async def update_incoming_quality(
 @router.put("/me/incoming/{incoming_id}/store")
 async def store_incoming_stock(
     incoming_id: str,
+    data: Optional[WarehouseIncomingStoreRequest] = None,
     current_user: dict = Depends(get_current_user)
 ):
     if current_user.get("role") != "warehouse":
@@ -5720,8 +5729,30 @@ async def store_incoming_stock(
             actual_received_before_store = existing_incoming.get("actualQuantityReceived")
         if float(actual_received_before_store or 0) + 1e-9 < float(event_portion.get("allocatedQuantityKg") or 0):
             raise HTTPException(status_code=409, detail="Received quantity is below the allocated event portion; resolve the shortage before storing")
+    if existing_incoming and data:
+        received_quantity = float(
+            existing_incoming.get("quantityReceived")
+            if existing_incoming.get("quantityReceived") is not None
+            else existing_incoming.get("quantity") or 0
+        )
+        usable_quantity = data.usableQuantity
+        if usable_quantity is not None and usable_quantity > received_quantity + 1e-9:
+            raise HTTPException(status_code=400, detail="Usable quantity cannot exceed the quantity physically received")
+        store_updates: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
+        if usable_quantity is not None:
+            store_updates["usableQuantity"] = float(usable_quantity)
+            store_updates["quantityRejected"] = max(0.0, received_quantity - float(usable_quantity))
+        if data.storageLocation:
+            store_updates["storageLocation"] = data.storageLocation.strip()
+        if data.storageType:
+            store_updates["storageType"] = data.storageType
+        if len(store_updates) > 1:
+            await incoming_stock_repository.update({"_id": existing_incoming["_id"]}, store_updates)
+
     incoming = await WarehouseService.store_incoming(
-        incoming_id, str(warehouse["_id"])
+        incoming_id,
+        str(warehouse["_id"]),
+        storage_location=(data.storageLocation.strip() if data and data.storageLocation else None),
     )
     if not incoming:
         raise HTTPException(status_code=400, detail="Incoming stock must be received and quality approved before storage")
