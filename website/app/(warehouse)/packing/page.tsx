@@ -92,15 +92,6 @@ export default function WarehousePackingPage() {
     win.document.close();
   };
 
-  const run = async (url: string, body?: any) => {
-    try {
-      await api.put(url, body);
-      toast.success("Packing workflow updated");
-      refetch();
-      refetchShortages();
-    } catch (e:any) { toast.error(e?.message || "Packing action failed"); }
-  };
-
   const verifyAllPackedTasks = async () => {
     const eligible = tasks.filter((task: any) => task.status === "packed");
     if (!eligible.length) {
