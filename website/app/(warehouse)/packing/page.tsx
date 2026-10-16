@@ -13,16 +13,18 @@ import toast from "react-hot-toast";
 
 export default function WarehousePackingPage() {
   const [team, setTeam] = useState<Record<string,string>>({});
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, error: packingError, refetch } = useQuery({
     queryKey: ["warehousePackingTasks"],
     queryFn: () => api.get("/warehouse/me/packing-tasks", { params: { status: "all" } }),
   });
-  const tasks = data?.data?.tasks || [];
+  const packingRoot = data?.data ?? data;
+  const tasks = packingRoot?.data?.tasks ?? packingRoot?.tasks ?? [];
   const { data: shortageData, refetch: refetchShortages } = useQuery({
     queryKey: ["warehouseShortages"],
     queryFn: () => api.get("/warehouse/me/shortages", { params: { status: "all" } }),
   });
-  const shortages = shortageData?.data?.shortages || [];
+  const shortageRoot = shortageData?.data ?? shortageData;
+  const shortages = shortageRoot?.data?.shortages ?? shortageRoot?.shortages ?? [];
 
   const printLabel = (t: any) => {
     const address = t.deliveryAddress || {};
@@ -100,7 +102,8 @@ export default function WarehousePackingPage() {
           </CardContent>
         </Card>
       )}
-      {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : tasks.length === 0 ? (
+      {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
+      {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && tasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No packing tasks</h3><p className="mt-2 text-sm text-muted-foreground">Received warehouse-fulfillment products will appear here.</p></Card>
       ) : <div className="space-y-4">{tasks.map((t:any) => (
         <Card key={t.id}><CardContent className="p-6">
