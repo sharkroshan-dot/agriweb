@@ -7,6 +7,7 @@ import { api } from "../../../lib/api/client";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
 import toast from "react-hot-toast";
 
 type Inspection = {
@@ -184,27 +185,34 @@ export default function WarehouseQualityInspectionPage() {
                 <p className="mt-1 text-sm text-muted-foreground">Farm: {item.farmName || item.farmerName || "Farm details unavailable"} · Received: {item.quantityReceived ?? item.quantity ?? "—"} {item.unit || "kg"}</p>
                 <p className="mt-1 text-sm text-amber-700">Quality: Pending · {item.qualityNotes || item.notes || "Recheck required"}</p>
               </div>
-              <Button onClick={() => openIncomingRecheck(item)}><ShieldCheck className="mr-2 h-4 w-4" />Recheck Quality</Button>
+              <Button type="button" onClick={() => openIncomingRecheck(item)}><ShieldCheck className="mr-2 h-4 w-4" />Recheck Quality</Button>
             </div>
           ))}
         </CardContent>
       </Card>
 
-      {selectedIncoming && (
-        <Card className="border-emerald-200">
-          <CardHeader><CardTitle>Recheck Incoming Shipment</CardTitle><p className="text-sm text-muted-foreground">Order {selectedIncoming.orderNumber || selectedIncoming.orderId || selectedIncoming.id}. This updates the existing receipt; it does not receive stock again.</p></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Declared quantity</p><p className="font-semibold">{selectedIncoming.quantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
-              <div className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Actually received</p><p className="font-semibold">{selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
-              <div><label className="text-sm font-medium">Usable quantity</label><input type="number" min="0" max={Number(selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0)} step="0.01" value={incomingUsableQuantity} onChange={e => setIncomingUsableQuantity(e.target.value)} className="mt-1 w-full rounded-lg border bg-background p-2" /></div>
+      <Dialog open={Boolean(selectedIncoming)} onOpenChange={(open) => { if (!open && !incomingQualityMutation.isPending) setSelectedIncoming(null); }}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Recheck Incoming Shipment Quality</DialogTitle>
+            <DialogDescription>Review the existing receipt and save the final quality result. This does not receive the shipment again.</DialogDescription>
+          </DialogHeader>
+          {selectedIncoming && <div className="space-y-4">
+            <div className="rounded-lg border p-3">
+              <p className="font-semibold">{selectedIncoming.orderNumber || selectedIncoming.orderId || selectedIncoming.id} · {selectedIncoming.productName || selectedIncoming.displayProductName || "Product"}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Farm: {selectedIncoming.farmName || selectedIncoming.farmerName || "Farm details unavailable"}</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-md bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Declared quantity</p><p className="font-semibold">{selectedIncoming.quantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
+                <div className="rounded-md bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Actually received</p><p className="font-semibold">{selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
+              </div>
             </div>
+            <div><label className="text-sm font-medium">Usable quantity</label><input type="number" min="0" max={Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0)} step="0.01" value={incomingUsableQuantity} onChange={e => setIncomingUsableQuantity(e.target.value)} className="mt-1 w-full rounded-lg border bg-background p-2" /></div>
             <div><label className="text-sm font-medium">Final quality result</label><select value={incomingQuality} onChange={e => setIncomingQuality(e.target.value as "passed" | "failed")} className="mt-1 w-full rounded-lg border bg-background p-2"><option value="passed">Passed — continue to Store</option><option value="failed">Failed — reject / hold</option></select></div>
-            <div><label className="text-sm font-medium">Recheck notes</label><textarea value={incomingQualityNotes} onChange={e => setIncomingQualityNotes(e.target.value)} placeholder="Record what was rechecked and the result" className="mt-1 min-h-20 w-full rounded-lg border bg-background p-3" /></div>
-            <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" onClick={() => setSelectedIncoming(null)} disabled={incomingQualityMutation.isPending}>Cancel</Button><Button variant={incomingQuality === "failed" ? "destructive" : "default"} onClick={() => incomingQualityMutation.mutate(incomingQuality)} disabled={incomingQualityMutation.isPending || !incomingUsableQuantity.trim() || !Number.isFinite(Number(incomingUsableQuantity)) || Number(incomingUsableQuantity) < 0 || Number(incomingUsableQuantity) > Number(selectedIncoming.quantityReceived ?? selectedIncoming.quantity ?? 0) || !incomingQualityNotes.trim()}>{incomingQualityMutation.isPending ? "Saving result…" : incomingQuality === "passed" ? "Save Passed Result" : "Save Failed Result"}</Button></div>
-          </CardContent>
-        </Card>
-      )}
+            <div><label className="text-sm font-medium">Recheck notes</label><textarea value={incomingQualityNotes} onChange={e => setIncomingQualityNotes(e.target.value)} placeholder="Record what was rechecked and the result" className="mt-1 min-h-20 w-full rounded-lg border bg-background p-3" required /></div>
+            <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setSelectedIncoming(null)} disabled={incomingQualityMutation.isPending}>Cancel</Button><Button type="button" variant={incomingQuality === "failed" ? "destructive" : "default"} onClick={() => incomingQualityMutation.mutate(incomingQuality)} disabled={incomingQualityMutation.isPending || !incomingUsableQuantity.trim() || !Number.isFinite(Number(incomingUsableQuantity)) || Number(incomingUsableQuantity) < 0 || Number(incomingUsableQuantity) > Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0) || !incomingQualityNotes.trim()}>{incomingQualityMutation.isPending ? "Saving result…" : incomingQuality === "passed" ? "Save Passed Result" : "Save Failed Result"}</Button></div>
+          </div>}
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>
