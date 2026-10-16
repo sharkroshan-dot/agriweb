@@ -143,7 +143,7 @@ class MongoDB:
             await cls.db.ledger_entries.create_index(
                 [("reference", 1), ("type", 1), ("direction", 1), ("amount", 1)],
                 unique=True,
-                partialFilterExpression={"reference": {"$exists": True, "$ne": None}},
+                partialFilterExpression={"reference": {"$type": "string"}},
                 name="ledger_reference_idempotency",
             )
         except Exception as exc:
