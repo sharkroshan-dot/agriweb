@@ -385,7 +385,10 @@ export default function WarehouseIncomingPage() {
           notes: receiveForm.notes.trim() || undefined,
         },
       });
-      if (!isFarmerPacked && !quantityMismatch && receiveForm.qualityCheck === "passed") {\n        printIncomingPackingReceipt(selectedIncoming, actualQuantity, Number(receiveForm.usableQuantity));\n      }\n      if (isFarmerPacked) {
+      if (!isFarmerPacked && !quantityMismatch && receiveForm.qualityCheck === "passed") {
+        printIncomingPackingReceipt(selectedIncoming, actualQuantity, Number(receiveForm.usableQuantity));
+      }
+      if (isFarmerPacked) {
         toast.success("Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation.");
       } else if (quantityMismatch) {
         toast.success("Receipt saved with a quantity discrepancy. Stock remains on hold; contact the farm before storing.");
