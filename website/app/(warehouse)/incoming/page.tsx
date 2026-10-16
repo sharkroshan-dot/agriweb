@@ -139,6 +139,9 @@ export default function WarehouseIncomingPage() {
   const [showQualityDialog, setShowQualityDialog] = useState(false);
   const [showStoreDialog, setShowStoreDialog] = useState(false);
   const [storeForm, setStoreForm] = useState({ usableQuantity: "", storageLocation: "", storageType: "ambient" });
+  const [bulkStoreItems, setBulkStoreItems] = useState<any[]>([]);
+  const [bulkStoreForm, setBulkStoreForm] = useState({ storageLocation: "", storageType: "ambient", usableQuantities: {} as Record<string, string> });
+  const [showBulkStoreDialog, setShowBulkStoreDialog] = useState(false);
   const [showTrackDialog, setShowTrackDialog] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [incomingForm, setIncomingForm] = useState(emptyIncomingForm);
@@ -448,6 +451,51 @@ export default function WarehouseIncomingPage() {
     setShowStoreDialog(true);
   };
 
+  const openBulkStoreDialog = (items: any[]) => {
+    const eligible = items.filter((item) => !isFarmerPackedIncoming(item) && isReceiptQualityPassed(item) && String(item.status || "").toLowerCase() !== "stored");
+    if (!eligible.length) { toast("No quality-approved shipments are waiting to be stored."); return; }
+    setBulkStoreItems(eligible);
+    setBulkStoreForm({
+      storageLocation: "",
+      storageType: "ambient",
+      usableQuantities: Object.fromEntries(eligible.map((item) => [item.id, String(item.usableQuantity ?? item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? "")])),
+    });
+    setShowBulkStoreDialog(true);
+  };
+
+  const handleBulkStoreIncoming = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!bulkStoreItems.length) return;
+    if (!bulkStoreForm.storageLocation.trim()) { toast.error("Enter the storage location before confirming storage."); return; }
+    const invalid = bulkStoreItems.find((item) => {
+      const received = Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0);
+      const usable = Number(bulkStoreForm.usableQuantities[item.id] || 0);
+      return !Number.isFinite(usable) || usable <= 0 || usable > received;
+    });
+    if (invalid) { toast.error("Check each usable quantity. It must be greater than zero and no more than the received quantity."); return; }
+    setIsSaving(true);
+    let stored = 0;
+    const failures: string[] = [];
+    try {
+      for (const item of bulkStoreItems) {
+        try {
+          await api.put("/warehouse/me/incoming/" + item.id + "/store", {
+            usableQuantity: Number(bulkStoreForm.usableQuantities[item.id]),
+            storageLocation: bulkStoreForm.storageLocation.trim(),
+            storageType: bulkStoreForm.storageType,
+          });
+          stored++;
+        } catch {
+          failures.push(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment");
+        }
+      }
+      if (stored) toast.success("Stored " + stored + " approved shipment(s). Continue to Order Packing.");
+      if (failures.length) toast.error(failures.length + " shipment(s) could not be stored: " + failures.join(", "));
+      setShowBulkStoreDialog(false);
+      await refetch();
+    } finally { setIsSaving(false); }
+  };
+
   const storeAllApprovedShipments = async () => {
     const items = incomingList.filter((item: any) =>
       !isFarmerPackedIncoming(item) &&
@@ -624,7 +672,7 @@ export default function WarehouseIncomingPage() {
               await refetch();
             } finally { setIsSaving(false); }
           };
-          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />Continue Farm Orders to {farmContinueLabel}</Button>}{canReceiveAnyFarmStock && <Button size="sm" onClick={() => packedFarmerGroup ? confirmAllPackets() : openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : packedFarmerGroup ? "Confirm All Packets Received" : "Receive All Stock"}</Button>}{!packedFarmerGroup && passedBulkItems.length > 0 && <Button size="sm" onClick={() => openStoreDialog(passedBulkItems[0])} disabled={isSaving}><ArrowRight className="mr-2 h-4 w-4" />Continue to Store ({passedBulkItems.length})</Button>}{!packedFarmerGroup && storedBulkItems.some((row: any) => Boolean(row.orderId)) && <Button size="sm" variant="outline" onClick={() => { window.location.href = "/packing"; }}>Continue to Order Packing ({storedBulkItems.filter((row: any) => Boolean(row.orderId)).length})</Button>}</div></div><div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4"><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total orders</p><p className="mt-1 text-2xl font-semibold">{farmItems.length}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{packedFarmerGroup ? "Packed packets" : "Farmer-declared weight"}</p><p className="mt-1 text-2xl font-semibold">{packedFarmerGroup ? farmItems.length : declaredTotal.toLocaleString() + " kg"}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Received</p><p className="mt-1 text-2xl font-semibold">{receivedCount}</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? "packets received" : receivedQuantityTotal.toLocaleString() + " kg recorded"}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remaining</p><p className="mt-1 text-2xl font-semibold">{pendingCount}</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? "packets to receive" : Math.max(0, declaredTotal - receivedQuantityTotal).toLocaleString() + " kg to reconcile"}</p></div></div></div><div className="space-y-3 p-3 sm:p-4">{farmItems.map((item: any) => {
+          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />Continue Farm Orders to {farmContinueLabel}</Button>}{canReceiveAnyFarmStock && <Button size="sm" onClick={() => packedFarmerGroup ? confirmAllPackets() : openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : packedFarmerGroup ? "Confirm All Packets Received" : "Receive All Stock"}</Button>}{!packedFarmerGroup && passedBulkItems.length > 0 && <Button size="sm" onClick={() => openBulkStoreDialog(passedBulkItems)} disabled={isSaving}><ArrowRight className="mr-2 h-4 w-4" />Continue to Store ({passedBulkItems.length})</Button>}{!packedFarmerGroup && storedBulkItems.some((row: any) => Boolean(row.orderId)) && <Button size="sm" variant="outline" onClick={() => { window.location.href = "/packing"; }}>Continue to Order Packing ({storedBulkItems.filter((row: any) => Boolean(row.orderId)).length})</Button>}</div></div><div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4"><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total orders</p><p className="mt-1 text-2xl font-semibold">{farmItems.length}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{packedFarmerGroup ? "Packed packets" : "Farmer-declared weight"}</p><p className="mt-1 text-2xl font-semibold">{packedFarmerGroup ? farmItems.length : declaredTotal.toLocaleString() + " kg"}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Received</p><p className="mt-1 text-2xl font-semibold">{receivedCount}</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? "packets received" : receivedQuantityTotal.toLocaleString() + " kg recorded"}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remaining</p><p className="mt-1 text-2xl font-semibold">{pendingCount}</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? "packets to receive" : Math.max(0, declaredTotal - receivedQuantityTotal).toLocaleString() + " kg to reconcile"}</p></div></div></div><div className="space-y-3 p-3 sm:p-4">{farmItems.map((item: any) => {
           const productName = item.displayProductName || getProductDisplayName(item);
           const isPackedFarmerTransfer = isFarmerPackedIncoming(item);
           const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
@@ -727,6 +775,33 @@ export default function WarehouseIncomingPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={showBulkStoreDialog} onOpenChange={setShowBulkStoreDialog}>
+        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Continue to Store — All Approved Orders</DialogTitle><DialogDescription>Review farm totals and each order before storing. Each order keeps its own received and usable quantity.</DialogDescription></DialogHeader>
+          <form className="space-y-4" onSubmit={handleBulkStoreIncoming}>
+            <div className="rounded-lg border bg-slate-50 p-4">
+              <p className="font-semibold">{bulkStoreItems[0]?.displayFarmName || getFarmDisplayName(bulkStoreItems[0] || {})}</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div><p className="text-xs text-muted-foreground">Approved orders</p><p className="text-xl font-semibold">{bulkStoreItems.length}</p></div>
+                <div><p className="text-xs text-muted-foreground">Received total</p><p className="text-xl font-semibold">{bulkStoreItems.reduce((sum, item) => sum + Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0), 0).toLocaleString()} kg</p></div>
+                <div><p className="text-xs text-muted-foreground">Usable total</p><p className="text-xl font-semibold">{bulkStoreItems.reduce((sum, item) => sum + Number(bulkStoreForm.usableQuantities[item.id] || 0), 0).toLocaleString()} kg</p></div>
+              </div>
+            </div>
+            {bulkStoreItems.map((item) => {
+              const order = item.order || {};
+              const address = item.deliveryAddress || item.shippingAddress || order.deliveryAddress || order.shippingAddress || order.address || {};
+              const addressText = typeof address === "string" ? address : [address.addressLine1, address.addressLine2, address.street, address.city, address.district, address.state, address.zipCode, address.postalCode].filter(Boolean).join(", ");
+              return <div key={item.id} className="rounded-lg border p-3 space-y-2">
+                <div className="flex flex-wrap justify-between gap-2"><div><p className="font-semibold">{item.displayProductName || getProductDisplayName(item)}</p><p className="text-sm text-muted-foreground">Order {item.displayOrderNumber || item.orderNumber || order.orderNumber || "reference unavailable"}</p></div><Badge variant="outline">Quality passed</Badge></div>
+                <div className="grid gap-2 text-sm sm:grid-cols-2"><p>Customer: {item.customerName || order.customerName || order.customer?.name || item.customer?.name || "Not available"}</p><p>Phone: {item.customerPhone || order.customerPhone || order.customer?.phone || item.customer?.phone || order.phone || "Not available"}</p><p className="sm:col-span-2">Delivery address: {addressText || "Not available in incoming shipment data"}</p><p>Received: {item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0} {item.unit || "kg"}</p></div>
+                <div><label className="text-sm font-medium">Usable quantity for this order ({item.unit || "kg"})</label><Input type="number" min="0.01" max={Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0)} step="0.01" value={bulkStoreForm.usableQuantities[item.id] ?? ""} onChange={(e) => setBulkStoreForm((current) => ({ ...current, usableQuantities: { ...current.usableQuantities, [item.id]: e.target.value } }))} required /></div>
+              </div>;
+            })}
+            <div className="grid gap-3 sm:grid-cols-2"><div><label className="text-sm font-medium">Storage location / bin (applies to all orders)</label><Input placeholder="e.g. Rack A · Bin 04" value={bulkStoreForm.storageLocation} onChange={(e) => setBulkStoreForm((current) => ({ ...current, storageLocation: e.target.value }))} required /></div><div><label className="text-sm font-medium">Storage condition</label><Select value={bulkStoreForm.storageType} onValueChange={(value) => setBulkStoreForm((current) => ({ ...current, storageType: value }))}><SelectTrigger><SelectValue placeholder="Choose storage condition" /></SelectTrigger><SelectContent><SelectItem value="ambient">Ambient / General</SelectItem><SelectItem value="cold">Cold Storage</SelectItem><SelectItem value="refrigerated">Refrigerated</SelectItem><SelectItem value="frozen">Frozen</SelectItem><SelectItem value="dry">Dry Storage</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div></div>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowBulkStoreDialog(false)} disabled={isSaving}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Storing..." : "Confirm Store All (" + bulkStoreItems.length + ")"}</Button></div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={showStoreDialog} onOpenChange={setShowStoreDialog}>
         <DialogContent>
           <DialogHeader>
