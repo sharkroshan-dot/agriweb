@@ -5619,10 +5619,16 @@ async def receive_incoming_stock(
             or (order_record or {}).get("shippingAddress")
             or (order_record or {}).get("address")
         )
-        if isinstance(delivery_address, dict):
-            delivery_address = ", ".join(str(delivery_address.get(key)) for key in (
-                "addressLine1", "addressLine2", "street", "city", "district", "state", "zipCode", "postalCode"
-            ) if delivery_address.get(key))
+        if isinstance(delivery_address, str):
+            delivery_address = {"formattedAddress": delivery_address}
+        elif not isinstance(delivery_address, dict):
+            delivery_address = {}
+        address_fields = {
+            "district": delivery_address.get("district") or delivery_address.get("districtName"),
+            "city": delivery_address.get("city") or delivery_address.get("town") or delivery_address.get("cityName"),
+            "state": delivery_address.get("state") or delivery_address.get("stateName") or delivery_address.get("province"),
+            "pinCode": delivery_address.get("pinCode") or delivery_address.get("pincode") or delivery_address.get("postalCode") or delivery_address.get("zipCode") or delivery_address.get("zip"),
+        }
         warehouse_name = warehouse.get("name") or warehouse.get("warehouseName") or "Warehouse details unavailable"
         received_at = latest_incoming.get("receivedAt") or datetime.utcnow()
         receipt_number = existing_receipt.get("receiptNumber") or latest_incoming.get("receiptNumber") or (
@@ -5648,8 +5654,27 @@ async def receive_incoming_stock(
             "qualityNotes": notes or latest_incoming.get("qualityNotes") or latest_incoming.get("notes"),
             "customerName": customer_name,
             "customerPhone": latest_incoming.get("customerPhone") or customer.get("phone") or (order_record or {}).get("customerPhone") or (order_record or {}).get("phone"),
+            # Preserve the structured address and its normalized locality fields for
+            # future reports/integrations, even though the printed slip stays concise.
             "deliveryAddress": delivery_address,
+            **address_fields,
             "orderItems": (order_record or {}).get("items") or latest_incoming.get("orderItems") or [],
+            "customerSnapshot": customer,
+            "orderSnapshot": order_record or {},
+            "shipmentSnapshot": {
+                "status": latest_incoming.get("status"),
+                "sourceMode": latest_incoming.get("sourceMode"),
+                "fulfillmentMethod": latest_incoming.get("fulfillmentMethod"),
+                "batchNumber": latest_incoming.get("batchNumber"),
+                "expectedDate": latest_incoming.get("expectedDate"),
+                "createdAt": latest_incoming.get("createdAt"),
+                "updatedAt": latest_incoming.get("updatedAt"),
+                "notes": latest_incoming.get("notes"),
+                "qualityNotes": latest_incoming.get("qualityNotes"),
+                "pickupLocation": latest_incoming.get("pickupLocation"),
+                "productId": str(latest_incoming.get("productId") or "") or None,
+                "variantId": str(latest_incoming.get("variantId") or "") or None,
+            },
             "recordedBy": str(current_user.get("_id") or ""),
         }
         await incoming_stock_repository.update(
