@@ -5684,9 +5684,20 @@ async def receive_incoming_stock(
     except Exception:
         logger.exception("Failed to notify workflow roles after warehouse receiving")
 
+    def receipt_json_safe(value: Any) -> Any:
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {str(key): receipt_json_safe(child) for key, child in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [receipt_json_safe(child) for child in value]
+        return value
+
     return {
         "success": True,
-        "data": incoming,
+        "data": receipt_json_safe(incoming),
         "message": (
             "Farmer Fulfillment shipment received. Continue to transfers or consolidation."
             if is_farmer_fulfillment
