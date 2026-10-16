@@ -58,6 +58,36 @@ export default function WarehouseOutgoingPage() {
     }
   };
 
+  const dispatchAllRoutedReadyOrders = async () => {
+    const eligible = outgoing.filter((item: any) =>
+      ["pending", "packed"].includes(String(item.status)) && Boolean(selectedRoutes[item.id])
+    );
+    if (!eligible.length) {
+      toast("No ready shipments with a selected delivery route. Choose Nearby or Long Distance for each shipment first.");
+      return;
+    }
+    let completed = 0;
+    const failed: string[] = [];
+    for (const item of eligible) {
+      try {
+        const response = await api.get(`/warehouse/me/orders/${item.orderId}/fulfillment-check`);
+        const audit = response?.data || response;
+        if (!audit?.readyForDispatch) {
+          failed.push(item.orderId || item.id);
+          continue;
+        }
+        await api.put(`/warehouse/me/outgoing/${item.id}/status`, undefined, { params: { status: "dispatched" } });
+        await api.post(`/warehouse/me/outgoing/${item.id}/delivery-route`, { route: selectedRoutes[item.id], radius: 10 });
+        completed += 1;
+      } catch {
+        failed.push(item.orderId || item.id);
+      }
+    }
+    if (completed) toast.success(`Dispatched ${completed} eligible shipment(s).`);
+    if (failed.length) toast.error(`${failed.length} shipment(s) were not dispatched. Review route, packing, shortage, or order-readiness errors.`);
+    await refetch();
+  };
+
   const dispatchSelectedRoute = async (id: string) => {
     const route = selectedRoutes[id];
     if (!route) {
@@ -90,7 +120,7 @@ export default function WarehouseOutgoingPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div><h1 className="text-3xl font-bold">Outgoing & Delivery Decision</h1><p className="text-muted-foreground">Ready for Dispatch → choose Nearby or Long Distance → dispatch → delivery partner.</p></div>
+        <div><h1 className="text-3xl font-bold">Outgoing & Delivery Decision</h1><p className="text-muted-foreground">Ready for Dispatch → choose Nearby or Long Distance → dispatch → delivery partner.</p></div>\n        <Button onClick={dispatchAllRoutedReadyOrders} disabled={!outgoing.some((item: any) => ["pending", "packed"].includes(String(item.status)) && Boolean(selectedRoutes[item.id]))}><Send className="mr-2 h-4 w-4"/>Dispatch All Routed Ready Orders</Button>
         <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
       </div>
       <Card className="border-amber-100 bg-amber-50/60"><CardContent className="flex gap-3 p-4"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"/><div className="text-sm text-amber-950"><p className="font-semibold">Delivery decision happens after warehouse packing is verified.</p><p className="mt-1 text-xs leading-5 text-amber-900">Choose <b>Nearby</b> for Warehouse → Delivery Partner → Customer, or <b>Long Distance</b> for Warehouse → Local Hub → Delivery Partner → Customer. Dispatch remains disabled until a route is selected.</p></div></CardContent></Card>
