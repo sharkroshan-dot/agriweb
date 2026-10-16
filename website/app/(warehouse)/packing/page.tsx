@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
@@ -47,7 +48,7 @@ export default function WarehousePackingPage() {
       <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
       <div className="flex items-center justify-between">
         <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
-        <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4"/></Button>
+        <div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button><Button asChild variant="outline"><Link href="/outgoing">Open Dispatch / Outgoing Stock</Link></Button></div>
       </div>
       {shortages.length > 0 && (
         <Card className="border-red-200 bg-red-50/70">
@@ -111,7 +112,7 @@ export default function WarehousePackingPage() {
               {["packing","partially_packed"].includes(t.status) && <Button size="sm" onClick={async()=>{const items=(t.packingItems||[]).map((i:any)=>{const q=window.prompt(`Actual packed quantity for ${i.productName} (required ${i.quantityRequired} ${i.unit||"kg"})`,String(i.packedQuantity||i.quantityAvailable||0)); return q===null?null:{productId:i.productId,variantId:i.variantId||undefined,packedQuantity:Number(q)};}).filter(Boolean); if(!items.length)return; await run(`/warehouse/me/packing-tasks/${t.id}/complete`,{items,packedQuantity:items.reduce((s:any,i:any)=>s+Number(i.packedQuantity||0),0),packageId:t.packageId||undefined});}}><PackageCheck className="mr-2 h-4 w-4"/>Finish Packing & Check Shortage</Button>}
               {t.status === "packed" && <Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify</Button>}
               {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
-              {t.status === "ready_for_dispatch" && <Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Ready for Dispatch</Badge>}
+              {t.status === "ready_for_dispatch" && <div className="flex flex-wrap items-center gap-2"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Verified · Ready for Dispatch</Badge><Button size="sm" onClick={() => { window.location.href = "/outgoing"; }}><PackageCheck className="mr-2 h-4 w-4"/>Continue to Dispatch</Button></div>}
             </div>
           </div>
         </CardContent></Card>
