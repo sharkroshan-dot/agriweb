@@ -316,6 +316,45 @@ export default function WarehouseIncomingPage() {
     }
   };
 
+  const printIncomingPackingReceipt = (item: any, receivedQuantity: number, usableQuantity: number) => {
+    const win = window.open("", "_blank", "width=800,height=900");
+    if (!win) {
+      toast.error("Allow pop-ups to print the packing receipt. The receipt was saved.");
+      return;
+    }
+    const escapeHtml = (value: unknown) => String(value ?? "—").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[char] as string));
+    const order = item?.order || {};
+    const lines = Array.isArray(item?.orderItems) ? item.orderItems
+      : Array.isArray(order?.items) ? order.items
+      : Array.isArray(item?.items) ? item.items
+      : [];
+    const receiptLines = lines.length ? lines.map((line: any) => ({
+      name: line.productName || line.name || line.product?.name || line.productId || "Product",
+      quantity: line.quantity ?? line.quantityRequired ?? line.orderedQuantity ?? "—",
+      unit: line.unit || "kg",
+    })) : [{
+      name: item?.displayProductName || item?.productName || item?.product?.name || item?.productId || "Product",
+      quantity: item?.orderQuantity ?? item?.quantityRequired ?? receivedQuantity,
+      unit: item?.unit || "kg",
+    }];
+    const receiptNumber = item?.receiptNumber || item?.batchNumber || item?.id || "—";
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Warehouse Packing Receipt</title>
+      <style>body{font-family:Arial,sans-serif;color:#111;padding:28px;max-width:760px;margin:auto}h1{margin-bottom:4px;font-size:24px}.muted{color:#555;font-size:12px}.panel{border:1px solid #777;padding:14px;margin-top:16px}.row{display:flex;justify-content:space-between;gap:20px;padding:10px 4px;border-bottom:1px solid #ddd}.row:last-child{border-bottom:0}.notice{margin-top:18px;padding:12px;background:#f3f4f6;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{text-align:left;border-bottom:1px solid #ccc;padding:10px}th:last-child,td:last-child{text-align:right}.sign{display:flex;justify-content:space-between;margin-top:42px;font-size:12px}</style></head><body>
+      <h1>AGRICONNECT</h1><div class="muted">WAREHOUSE RECEIPT · PACKING TEAM COPY</div>
+      <div class="panel"><div class="row"><strong>Order number</strong><span>${escapeHtml(item?.displayOrderNumber || item?.orderNumber || order?.orderNumber || item?.orderId)}</span></div>
+      <div class="row"><strong>Receipt / batch reference</strong><span>${escapeHtml(receiptNumber)}</span></div>
+      <div class="row"><strong>Farm</strong><span>${escapeHtml(item?.displayFarmName || item?.farmName || item?.farmerName)}</span></div>
+      <div class="row"><strong>Received quantity</strong><span>${escapeHtml(receivedQuantity)} ${escapeHtml(item?.unit || "kg")}</span></div>
+      <div class="row"><strong>Usable quantity for packing</strong><span>${escapeHtml(usableQuantity)} ${escapeHtml(item?.unit || "kg")}</span></div></div>
+      <h2>Products to pack for this order</h2><table><thead><tr><th>Product</th><th>Order quantity</th></tr></thead><tbody>${receiptLines.map((line: any) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)}</td></tr>`).join("")}</tbody></table>
+      <div class="notice"><strong>Packing instruction:</strong> Match this receipt to the order and pack the product quantities listed above. Record actual packed quantities and report shortages before verification. Do not use the total received bulk quantity as the quantity for every order.</div>
+      <div class="sign"><span>Packed by: __________________</span><span>Checked by: __________________</span></div>
+      <script>window.onload=()=>window.print();</script></body></html>`);
+    win.document.close();
+  };
+
   const handleReceiveStock = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -346,7 +385,7 @@ export default function WarehouseIncomingPage() {
           notes: receiveForm.notes.trim() || undefined,
         },
       });
-      if (isFarmerPacked) {
+      if (!isFarmerPacked && !quantityMismatch && receiveForm.qualityCheck === "passed") {\n        printIncomingPackingReceipt(selectedIncoming, actualQuantity, Number(receiveForm.usableQuantity));\n      }\n      if (isFarmerPacked) {
         toast.success("Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation.");
       } else if (quantityMismatch) {
         toast.success("Receipt saved with a quantity discrepancy. Stock remains on hold; contact the farm before storing.");
@@ -681,7 +720,7 @@ export default function WarehouseIncomingPage() {
 
       <Dialog open={showReceiveDialog} onOpenChange={setShowReceiveDialog}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Stock & Quality Check"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so bulk quality inspection and repacking are skipped." : "Record the actual quantity and complete the quality check here. If passed, Save Receipt leads directly to Store. If failed, keep the stock on hold and contact the farm."}</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{isFarmerPackedIncoming(selectedIncoming) ? "Confirm Packed Order Receipt" : "Receive Stock & Quality Check"}</DialogTitle><DialogDescription>{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Verify the quantity physically received. This order is already packed, so bulk quality inspection and repacking are skipped." : "Record the actual quantity and complete the quality check here. If quality passes, save and print the receipt for the packing team, then continue to Store. Failed stock stays on hold."}</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleReceiveStock}>
             <div className="rounded-lg border bg-slate-50 p-3 text-sm"><p className="font-medium">Farmer declared quantity: {selectedIncoming?.quantity ?? "—"} {selectedIncoming?.unit || "kg"}</p><p className="mt-1 text-muted-foreground">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Count the sealed packets and confirm the number of packed orders received." : "Weigh the bulk stock on the warehouse scale and enter the measured quantity below."}</p></div>
             <div><label className="text-sm font-medium">{selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" ? "Received packet quantity / order units" : "Actual weight measured at warehouse (kg)"}</label><Input type="number" min="0.01" step="0.01" value={receiveForm.quantity} onChange={(event) => updateReceiveForm("quantity", event.target.value)} className="mt-1" required /><p className="mt-1 text-xs text-muted-foreground">Difference: {(Number(receiveForm.quantity || 0) - Number(selectedIncoming?.quantity || 0)).toFixed(2)} {selectedIncoming?.unit || "kg"}</p></div>
@@ -695,7 +734,7 @@ export default function WarehouseIncomingPage() {
             </div>}
             {selectedIncoming?.sourceMode === "farmer_fulfillment_transfer" && <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-800">After receipt, continue to Farmer Fulfillment Transfers / Multi-Warehouse Consolidation. Storage is optional and this order will not enter bulk inventory.</p>}
             <div><label className="text-sm font-medium">Notes</label><Input value={receiveForm.notes} onChange={(event) => updateReceiveForm("notes", event.target.value)} className="mt-1" /></div>
-            <div className="flex justify-end gap-2 pt-4"><Button type="button" variant="outline" onClick={() => setShowReceiveDialog(false)}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Save Receipt"}</Button></div>
+            <div className="flex justify-end gap-2 pt-4"><Button type="button" variant="outline" onClick={() => setShowReceiveDialog(false)}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving..." : "Save & Print Receipt"}</Button></div>
           </form>
         </DialogContent>
       </Dialog>
