@@ -69,14 +69,16 @@ export default function WarehouseQualityInspectionPage() {
       const qualityPending = ["", "pending", "quality_check", "not_checked"].includes(quality);
       // Strictly include only explicitly identified Warehouse Fulfillment stock.
       // Do not treat unknown/legacy orders as warehouse fulfillment by default.
-      const isWarehouseFulfillment =
-        fulfillment === "warehouse"
-        || ["warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(mode)
-        || item.packingRequired === true;
+      // Match the fulfillment classifier used by Incoming Stock. Only explicitly
+      // warehouse-fulfilled orders that still require warehouse packing are eligible.
       const isFarmerFulfillment =
         fulfillment === "farmer"
         || ["farmer_fulfillment", "farmer_fulfillment_transfer"].includes(mode)
         || item.packingRequired === false;
+      const isWarehouseFulfillment =
+        ["warehouse", "warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(fulfillment)
+        || ["warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(mode)
+        || (item.packingRequired === true && !isFarmerFulfillment);
       return receivedOrWaiting && qualityPending && isWarehouseFulfillment && !isFarmerFulfillment;
     });
   }, [incomingQuery.data]);
