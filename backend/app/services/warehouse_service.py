@@ -481,7 +481,11 @@ class WarehouseService:
         return await incoming_stock_repository.get_by_id(incoming_id)
 
     @staticmethod
-    async def store_incoming(incoming_id: str, warehouse_id: str) -> Optional[Dict[str, Any]]:
+    async def store_incoming(
+        incoming_id: str,
+        warehouse_id: str,
+        storage_location: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         incoming = await incoming_stock_repository.get_by_id(incoming_id)
         if not incoming or str(incoming.get("warehouseId")) != str(warehouse_id):
             return None
@@ -521,12 +525,21 @@ class WarehouseService:
             "reservedQuantity": float(usable) if is_packed_transfer else 0,
             "batchNumber": incoming.get("batchNumber"),
             "storageType": incoming.get("storageType", "ambient"),
+            "storageLocation": storage_location or incoming.get("storageLocation"),
+            "storageLocations": [storage_location or incoming.get("storageLocation")] if (storage_location or incoming.get("storageLocation")) else [],
             "holdReason": "farmer_fulfillment_transfer" if is_packed_transfer else None,
         }
         if existing_stock:
             stock_update = {
                 "quantity": float(existing_stock.get("quantity", 0) or 0) + (float(usable) if is_packed_transfer else int(usable))
             }
+            location = storage_location or incoming.get("storageLocation")
+            if location:
+                locations = list(existing_stock.get("storageLocations") or [])
+                if location not in locations:
+                    locations.append(location)
+                stock_update["storageLocations"] = locations
+                stock_update["storageLocation"] = location
             if is_packed_transfer:
                 stock_update["reservedQuantity"] = float(existing_stock.get("reservedQuantity", 0) or 0) + float(usable)
             await warehouse_stock_repository.update_stock(str(existing_stock["_id"]), stock_update)
@@ -536,7 +549,13 @@ class WarehouseService:
 
         updated = await incoming_stock_repository.update(
             {"_id": incoming["_id"]},
-            {"status": "stored", "storedAt": datetime.utcnow(), "inventoryPostedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()},
+            {
+                "status": "stored",
+                "storedAt": datetime.utcnow(),
+                "inventoryPostedAt": datetime.utcnow(),
+                "storageLocation": storage_location or incoming.get("storageLocation"),
+                "updatedAt": datetime.utcnow(),
+            },
         )
         if not updated:
             return None
