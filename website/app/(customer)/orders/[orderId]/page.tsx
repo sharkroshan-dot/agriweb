@@ -681,10 +681,13 @@ export default function OrderDetailPage() {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <Button size="sm" onClick={() => handleShortageDecision(item, "customer_approval")}>
-                        Accept Packed Quantity
+                        Accept {packed} Available
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => handleShortageDecision(item, "substitution_approval")}>
                         Choose Substitute
+                      </Button>
+                      <Button size="sm" variant="outline" className="border-red-300 text-red-700 hover:bg-red-50" onClick={() => setShowCancelDialog(true)}>
+                        Cancel Order
                       </Button>
                     </div>
                   </div>
