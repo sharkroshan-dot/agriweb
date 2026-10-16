@@ -6021,6 +6021,62 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
             if order:
                 task["orderNumber"] = order.get("orderNumber")
                 task["deliveryAddress"] = order.get("deliveryAddress") or {}
+                # Expose source-farm details for the packing UI. Legacy packing
+                # tasks may have no farmName, but the linked order/product/profile
+                # often still has the farmer reference and farm address.
+                order_items = order.get("items") or []
+                first_order_item = order_items[0] if order_items else {}
+                product_ref = str(task.get("productId") or first_order_item.get("productId") or "")
+                product_doc = None
+                if product_ref and ObjectId.is_valid(product_ref):
+                    product_doc = await MongoDB.get_collection("products").find_one({"_id": ObjectId(product_ref), "deletedAt": None})
+                farmer_refs = [
+                    task.get("farmerId"), order.get("farmerId"), order.get("farmer_id"),
+                    first_order_item.get("farmerId"), first_order_item.get("farmer_id"),
+                    (product_doc or {}).get("farmerId"), (product_doc or {}).get("farmer_id"),
+                    (product_doc or {}).get("ownerId"), (product_doc or {}).get("sellerId"),
+                ]
+                farmer_profile = None
+                resolved_farmer_ref = ""
+                for farmer_ref in farmer_refs:
+                    if not farmer_ref:
+                        continue
+                    farmer_key = str(farmer_ref)
+                    if not ObjectId.is_valid(farmer_key):
+                        continue
+                    farmer_profile = await farmer_repository.get_by_user_id(farmer_key)
+                    if not farmer_profile:
+                        farmer_profile = await farmer_repository.get_by_id(farmer_key)
+                    if farmer_profile:
+                        resolved_farmer_ref = farmer_key
+                        break
+                farmer_profile = farmer_profile or {}
+                farmer_user_id = str(farmer_profile.get("userId") or resolved_farmer_ref or "")
+                farmer_user = await UserService.get_user_by_id(farmer_user_id) if farmer_user_id and ObjectId.is_valid(farmer_user_id) else None
+                farmer_name = (
+                    farmer_profile.get("farmName") or farmer_profile.get("ownerName")
+                    or farmer_profile.get("fullName") or farmer_profile.get("name")
+                    or (product_doc or {}).get("farmName") or (product_doc or {}).get("farmerName")
+                    or order.get("farmerName")
+                )
+                if not farmer_name and farmer_user:
+                    farmer_name = " ".join(filter(None, [farmer_user.get("firstName"), farmer_user.get("lastName")]))
+                    farmer_name = farmer_name or farmer_user.get("name") or farmer_user.get("displayName")
+                farm_address = (
+                    farmer_profile.get("farmAddress") or farmer_profile.get("address")
+                    or farmer_profile.get("location") or order.get("farmAddress")
+                    or order.get("pickupAddress") or (product_doc or {}).get("farmAddress")
+                    or (product_doc or {}).get("farmLocation") or {}
+                )
+                if isinstance(farm_address, dict):
+                    farm_address = ", ".join(str(farm_address.get(k)).strip() for k in (
+                        "addressLine1", "addressLine2", "street", "village", "city", "district", "state", "pincode", "formattedAddress", "address"
+                    ) if farm_address.get(k) and str(farm_address.get(k)).strip())
+                task["farmerId"] = resolved_farmer_ref or str(task.get("farmerId") or order.get("farmerId") or "")
+                task["farmId"] = str(farmer_profile.get("_id") or resolved_farmer_ref or task["farmerId"] or "")
+                task["farmName"] = str(farmer_name or "").strip()
+                task["farmerName"] = str(farmer_name or "").strip()
+                task["farmAddress"] = str(farm_address or "").strip()
                 task["items"] = [
                     {
                         "productId": str(item.get("productId")),
