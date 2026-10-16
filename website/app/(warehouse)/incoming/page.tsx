@@ -433,6 +433,49 @@ export default function WarehouseIncomingPage() {
     setShowStoreDialog(true);
   };
 
+  const storeAllApprovedShipments = async () => {
+    const items = incomingList.filter((item: any) =>
+      !isFarmerPackedIncoming(item) &&
+      String(item.qualityCheck || "").toLowerCase() === "passed" &&
+      item.status !== "stored" &&
+      item.status !== "rejected"
+    );
+    if (!items.length) {
+      toast("No quality-approved shipments are waiting to be stored.");
+      return;
+    }
+    const location = window.prompt("Enter the storage location for these approved shipments (you can still store each shipment individually for different locations):");
+    if (!location?.trim()) return;
+    setIsSaving(true);
+    let stored = 0;
+    const failures: string[] = [];
+    try {
+      for (const item of items) {
+        try {
+          const received = Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0);
+          const usable = Number(item.usableQuantity ?? received);
+          if (!item.id || received <= 0 || usable <= 0 || usable > received) {
+            failures.push(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment");
+            continue;
+          }
+          await api.put(`/warehouse/me/incoming/${item.id}/store`, {
+            usableQuantity: usable,
+            storageLocation: location.trim(),
+            storageType: item.storageType || "ambient",
+          });
+          stored += 1;
+        } catch {
+          failures.push(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment");
+        }
+      }
+      if (stored) toast.success(`Stored ${stored} approved shipment(s). Continue to Order Packing.`);
+      if (failures.length) toast.error(`${failures.length} shipment(s) could not be stored. Open each shipment to review its location, quantity, or validation errors.`);
+      await refetch();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleStoreIncoming = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedIncoming?.id) return;
@@ -477,7 +520,7 @@ export default function WarehouseIncomingPage() {
       <Card className="border-slate-200 bg-slate-50/80"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-slate-600"/><div className="text-sm"><p className="font-semibold">Two fulfillment workflows</p><p className="mt-1 text-sm leading-6 text-muted-foreground"><b>Farmer Fulfillment:</b> Receive stock → confirm receipt → automatic distance/route split → assign pickup or delivery teams for warehouse/local-hub handoff. Orders are already packed, so skip bulk quality inspection and repacking. <b>Warehouse Fulfillment:</b> Receive stock → Quality Check → Store → pack each order → verify all order items and resolve shortages → dispatch through the warehouse fulfillment workflow.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Incoming Stock</h1><p className="text-muted-foreground">{incomingList.length} incoming shipments · {dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : "All Time"}</p></div>
-        <div className="flex flex-wrap items-center gap-2"><Button asChild><Link href="/warehouse/farmer-fulfillment"><Route className="mr-2 h-4 w-4" />Farmer Fulfillment Transfer</Link></Button><Button asChild variant="outline"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
+        <div className="flex flex-wrap items-center gap-2"><Button variant="outline" onClick={storeAllApprovedShipments} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Storing..." : "Store All Approved"}</Button><Button asChild><Link href="/warehouse/farmer-fulfillment"><Route className="mr-2 h-4 w-4" />Farmer Fulfillment Transfer</Link></Button><Button asChild variant="outline"><Link href="/collections"><Truck className="mr-2 h-4 w-4" />Farm Collection & Route Planning</Link></Button><Button variant="outline" size="icon" aria-label="Refresh incoming stock" onClick={() => { void refetch(); }}><RefreshCw className="h-4 w-4" /></Button></div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3" role="tablist" aria-label="Incoming stock fulfillment type">
