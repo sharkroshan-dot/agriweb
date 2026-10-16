@@ -14,6 +14,7 @@ import toast from "react-hot-toast";
 export default function WarehousePackingPage() {
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
+  const [farmAssignmentMessages, setFarmAssignmentMessages] = useState<Record<string, { kind: "success" | "error" | "info"; text: string }>>({});
   const { data, isLoading, error: packingError, refetch } = useQuery({
     queryKey: ["warehousePackingTasks"],
     queryFn: () => api.get("/warehouse/me/packing-tasks", { params: { status: "all" } }),
@@ -51,9 +52,20 @@ export default function WarehousePackingPage() {
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
     const teamId = (farmTeam[farm.key] || "").trim();
-    if (!teamId) { toast.error("Enter a valid packing team ID for this farm first."); return; }
-    const eligible = farm.tasks.filter((task: any) => ["ready_for_packing", "assigned"].includes(task.status));
-    if (!eligible.length) { toast("This farm has no orders waiting for packing-team assignment."); return; }
+    if (!teamId) {
+      const text = "Enter the packing team ID, then click Assign Team to Farm.";
+      setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "error", text } }));
+      toast.error(text);
+      return;
+    }
+    const eligible = farm.tasks.filter((task: any) => ["ready_for_packing", "assigned"].includes(String(task.status || "").toLowerCase()));
+    if (!eligible.length) {
+      const text = "No orders are waiting for assignment. Only Ready for Packing or already Assigned orders can be assigned.";
+      setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "info", text } }));
+      toast(text);
+      return;
+    }
+    setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "info", text: "Assigning team to " + eligible.length + " order(s)…" } }));
     setAssigningFarm(farm.key);
     let assigned = 0;
     const failed: string[] = [];
@@ -66,8 +78,15 @@ export default function WarehousePackingPage() {
         failed.push((task.orderNumber || task.orderId || task.id) + (detail ? ": " + detail : ""));
       }
     }
-    if (assigned) toast.success("Packing team assigned to " + assigned + " order(s) for " + farm.name + ".");
-    if (failed.length) toast.error("Could not assign team to " + failed.length + " order(s): " + failed.slice(0, 2).join("; "));
+    if (assigned) {
+      const text = "Team assigned successfully to " + assigned + " order(s). Their status should now be Assigned; use Start Packing on each order to continue.";
+      setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: failed.length ? "error" : "success", text: failed.length ? text + " " + failed.length + " order(s) failed: " + failed.slice(0, 2).join("; ") : text } }));
+      toast.success("Packing team assigned to " + assigned + " order(s) for " + farm.name + ".");
+    } else {
+      const text = "Assignment failed. " + (failed.slice(0, 2).join("; ") || "The server did not confirm any assigned orders.");
+      setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "error", text } }));
+      toast.error(text);
+    }
     setAssigningFarm(null);
     await Promise.all([refetch(), refetchShortages()]);
   };
@@ -161,7 +180,8 @@ export default function WarehousePackingPage() {
               {farm.address && <p className="mt-1 text-sm text-muted-foreground">{farm.address}</p>}
               <p className="mt-1 text-xs text-muted-foreground">Assign one packing team to all eligible orders from this farm. Packing and verification remain order-by-order.</p>
             </div>
-            {farm.tasks.some((task: any) => ["ready_for_packing", "assigned"].includes(task.status)) && <div className="flex flex-wrap items-center gap-2"><Users className="h-4 w-4"/><Input className="w-40" placeholder="Packing Team ID" value={farmTeam[farm.key] || ""} onChange={e=>setFarmTeam({...farmTeam,[farm.key]:e.target.value})}/><Button disabled={assigningFarm === farm.key} onClick={() => assignFarmTeam(farm)}>{assigningFarm === farm.key ? "Assigning…" : "Assign Team to Farm"}</Button></div>}
+            {farm.tasks.some((task: any) => ["ready_for_packing", "assigned"].includes(String(task.status || "").toLowerCase())) && <div className="flex flex-wrap items-center gap-2"><Users className="h-4 w-4"/><Input className="w-40" placeholder="Packing Team ID" value={farmTeam[farm.key] || ""} onChange={e=>{setFarmTeam({...farmTeam,[farm.key]:e.target.value});setFarmAssignmentMessages((current)=>{const next={...current};delete next[farm.key];return next;});}}/><Button type="button" disabled={assigningFarm === farm.key} onClick={() => assignFarmTeam(farm)}>{assigningFarm === farm.key ? "Assigning…" : "Assign Team to Farm"}</Button></div>}
+            {farmAssignmentMessages[farm.key] && <div role="status" aria-live="polite" className={"mt-3 rounded-md border px-3 py-2 text-sm " + (farmAssignmentMessages[farm.key].kind === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : farmAssignmentMessages[farm.key].kind === "error" ? "border-red-200 bg-red-50 text-red-900" : "border-blue-200 bg-blue-50 text-blue-900")}>{farmAssignmentMessages[farm.key].text}</div>}
           </CardContent></Card>
           <div className="space-y-3">{farm.tasks.map((t:any) => (
         <Card key={t.id}><CardContent className="p-6">
