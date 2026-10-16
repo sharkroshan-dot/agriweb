@@ -774,9 +774,30 @@ async def get_my_collections(
         )
         product = await get_product(product_id or str(order_item.get("productId") or ""))
         batch = await get_batch(str(job.get("batchId") or ""))
-        farmer_profile = await get_farmer(str(job.get("farmerId") or ""))
+        # Legacy collection jobs often omit farmerId even though the linked order,
+        # order line, or product still points to the farmer profile.
+        farmer_id_candidates = [
+            job.get("farmerId"),
+            (order or {}).get("farmerId"),
+            (order or {}).get("farmer_id"),
+            order_item.get("farmerId"),
+            order_item.get("farmer_id"),
+            (product or {}).get("farmerId"),
+            (product or {}).get("farmer_id"),
+            (product or {}).get("ownerId"),
+            (product or {}).get("sellerId"),
+        ]
+        farmer_profile = None
+        resolved_farmer_id = ""
+        for farmer_ref in farmer_id_candidates:
+            if farmer_ref:
+                farmer_profile = await get_farmer(str(farmer_ref))
+                if farmer_profile:
+                    resolved_farmer_id = str(farmer_ref)
+                    break
+        farmer_profile = farmer_profile or {}
         farmer_district = farmer_collection_district(
-            farmer_profile, job.get("pickupLocation") or {}, configured_districts
+            farmer_profile, job.get("pickupLocation") or (order or {}).get("farmLocation") or {}, configured_districts
         )
         # An existing warehouseId is an explicit assignment, so do not hide
         # that job merely because legacy address data cannot be matched. Surface
@@ -788,10 +809,10 @@ async def get_my_collections(
         else:
             district_match_status = "district_mismatch"
         profile_name = await display_name_for_profile(farmer_profile, "")
-        farmer_user_id = str((farmer_profile or {}).get("userId") or job.get("farmerId") or "")
+        farmer_user_id = str(farmer_profile.get("userId") or resolved_farmer_id or job.get("farmerId") or "")
         farmer_user = await get_user(farmer_user_id)
 
-        farmer_name = readable(job.get("farmerName")) or profile_name
+        farmer_name = (readable(job.get("farmerName")) or readable((order or {}).get("farmerName")) or readable((product or {}).get("farmerName")) or readable(farmer_profile.get("farmName")) or profile_name)
         if not farmer_name and farmer_user:
             farmer_name = " ".join(
                 part for part in (
@@ -846,14 +867,14 @@ async def get_my_collections(
                 route_cache[route_id] = await warehouse_pickup_route_repository.get_by_id(route_id)
             route = route_cache[route_id]
 
-        pickup_location = job.get("pickupLocation") or {}
+        pickup_location = job.get("pickupLocation") or (order or {}).get("farmLocation") or (order or {}).get("farmerLocation") or (product or {}).get("farmLocation") or (farmer_profile.get("farmLocation") if isinstance(farmer_profile, dict) else None) or {}
         pickup_address = None
         for key in ("address", "formattedAddress", "farmAddress", "streetAddress"):
             pickup_address = readable(pickup_location.get(key)) if isinstance(pickup_location, dict) else None
             if pickup_address:
                 break
         if not pickup_address and farmer_profile:
-            address = farmer_profile.get("farmAddress") or farmer_profile.get("address") or {}
+            address = farmer_profile.get("farmAddress") or farmer_profile.get("address") or farmer_profile.get("location") or (order or {}).get("farmAddress") or (order or {}).get("pickupAddress") or {}
             if isinstance(address, dict):
                 address_parts = [
                     readable(address.get(key))
