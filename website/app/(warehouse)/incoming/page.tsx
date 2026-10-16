@@ -346,7 +346,7 @@ export default function WarehouseIncomingPage() {
       });
       toast.success(isFarmerPacked ? "Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation." : quantityMismatch ? "Weight discrepancy recorded. Keep stock on hold and contact the farm before quality approval." : "Bulk stock received. Continue to Quality Inspection, then Store.");
       setShowReceiveDialog(false);
-      refetch();
+      await refetch();
     } catch (error) {
       toast.error("Failed to receive stock");
     } finally {
@@ -490,7 +490,8 @@ export default function WarehouseIncomingPage() {
           const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
           const receivedQuantity = Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? 0);
           const expectedQuantity = Number(item.quantity ?? 0);
-          const receiptComplete = ["received", "stored", "rejected"].includes(String(item.status || "").toLowerCase()) ||
+          const receiptComplete = ["received", "quality_check", "stored", "rejected"].includes(String(item.status || "").toLowerCase()) ||
+            Boolean(item.receivedAt || item.receivedDate || item.warehouseReceivedAt) ||
             (expectedQuantity > 0 && receivedQuantity >= expectedQuantity - 0.001);
           // Once the receipt is complete or quality has been approved, never
           // show Receive Stock again. Show the next outstanding workflow action.
