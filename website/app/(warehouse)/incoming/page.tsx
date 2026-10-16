@@ -148,7 +148,7 @@ export default function WarehouseIncomingPage() {
   const [showBulkReceiveDialog, setShowBulkReceiveDialog] = useState(false);
   const [bulkFarmItems, setBulkFarmItems] = useState<any[]>([]);
   const [bulkMeasuredQuantities, setBulkMeasuredQuantities] = useState<Record<string, string>>({});
-  const [bulkQualityChecks, setBulkQualityChecks] = useState<Record<string, "passed" | "failed">>({});
+  const [bulkQualityChecks, setBulkQualityChecks] = useState<Record<string, "passed" | "pending" | "failed">>({});
   const [bulkReceiveNotes, setBulkReceiveNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -278,9 +278,10 @@ export default function WarehouseIncomingPage() {
       for (const item of bulkFarmItems) {
         const measured = Number(bulkMeasuredQuantities[item.id]);
         const mismatch = Math.abs(measured - Number(item.quantity || 0)) > 0.001;
-        const qualityCheck = mismatch ? "pending" : (bulkQualityChecks[item.id] || "passed");
+        const qualityCheck = mismatch ? "pending" : (bulkQualityChecks[item.id] || "pending");
         await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: measured, usableQuantity: measured, quality_check: qualityCheck, notes: bulkReceiveNotes.trim() || undefined } });
         succeeded++;
+        if (qualityCheck === "passed" && !mismatch) printIncomingPackingReceipt(item, measured, measured);
       }
       toast.success("Received " + succeeded + " shipment(s). Passed stock can continue to Store; failed stock is held for farm follow-up; weight discrepancies remain on hold.");
       setShowBulkReceiveDialog(false); await refetch();
@@ -330,6 +331,10 @@ export default function WarehouseIncomingPage() {
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[char] as string));
     const order = item?.order || {};
+    const address = item?.deliveryAddress || item?.shippingAddress || order?.deliveryAddress || order?.shippingAddress || order?.address || {};
+    const addressText = typeof address === "string" ? address : [address?.addressLine1, address?.addressLine2, address?.street, address?.city, address?.district, address?.state, address?.zipCode, address?.postalCode].filter(Boolean).join(", ");
+    const customerName = item?.customerName || order?.customerName || order?.customer?.name || item?.customer?.name || "Customer";
+    const customerPhone = item?.customerPhone || order?.customerPhone || order?.customer?.phone || item?.customer?.phone || order?.phone || "Not available";
     const lines = Array.isArray(item?.orderItems) ? item.orderItems
       : Array.isArray(order?.items) ? order.items
       : Array.isArray(item?.items) ? item.items
@@ -350,6 +355,9 @@ export default function WarehouseIncomingPage() {
       <div class="panel"><div class="row"><strong>Order number</strong><span>${escapeHtml(item?.displayOrderNumber || item?.orderNumber || order?.orderNumber || item?.orderId)}</span></div>
       <div class="row"><strong>Receipt / batch reference</strong><span>${escapeHtml(receiptNumber)}</span></div>
       <div class="row"><strong>Farm</strong><span>${escapeHtml(item?.displayFarmName || item?.farmName || item?.farmerName)}</span></div>
+      <div class="row"><strong>Deliver to</strong><span>${escapeHtml(customerName)}</span></div>
+      <div class="row"><strong>Delivery phone</strong><span>${escapeHtml(customerPhone)}</span></div>
+      <div class="row"><strong>Delivery address</strong><span>${escapeHtml(addressText || "Check customer order details")}</span></div>
       <div class="row"><strong>Received quantity</strong><span>${escapeHtml(receivedQuantity)} ${escapeHtml(item?.unit || "kg")}</span></div>
       <div class="row"><strong>Usable quantity for packing</strong><span>${escapeHtml(usableQuantity)} ${escapeHtml(item?.unit || "kg")}</span></div></div>
       <h2>Products to pack for this order</h2><table><thead><tr><th>Product</th><th>Order quantity</th></tr></thead><tbody>${receiptLines.map((line: any) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)}</td></tr>`).join("")}</tbody></table>
@@ -669,7 +677,7 @@ export default function WarehouseIncomingPage() {
           <DialogHeader><DialogTitle>Receive All Bulk Stock — {bulkFarmItems[0]?.displayFarmName || "Farm"}</DialogTitle><DialogDescription>Enter actual measured weight and select quality result for every shipment, just like individual Receive Stock. Passed stock can continue to Store; failed stock is held for farm follow-up. Weight mismatches remain on hold.</DialogDescription></DialogHeader>
           <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-sm"><div><p className="text-muted-foreground">Orders</p><p className="text-lg font-bold">{bulkFarmItems.length}</p></div><div><p className="text-muted-foreground">Declared total</p><p className="text-lg font-bold">{bulkFarmItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0).toLocaleString()} kg</p></div><div><p className="text-muted-foreground">Measured total</p><p className="text-lg font-bold">{bulkFarmItems.reduce((sum, item) => sum + Number(bulkMeasuredQuantities[item.id] || 0), 0).toLocaleString()} kg</p></div></div>
           <form className="space-y-4" onSubmit={handleBulkReceive}>
-            <div className="space-y-3">{bulkFarmItems.map((item) => <div key={item.id} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_150px] sm:items-center"><div><p className="font-semibold">{item.displayProductName || getProductDisplayName(item)}</p><p className="text-sm text-muted-foreground">Order {item.displayOrderNumber || "reference unavailable"} · Farmer declared: {item.quantity} {item.unit || "kg"}</p><p className={cn("mt-1 text-sm font-medium", Math.abs(Number(bulkMeasuredQuantities[item.id] || 0) - Number(item.quantity || 0)) > 0.001 ? "text-red-600" : "text-emerald-700")}>Difference: {(Number(bulkMeasuredQuantities[item.id] || 0) - Number(item.quantity || 0)).toFixed(2)} kg</p></div><div><label className="text-sm font-medium">Actual measured kg</label><Input type="number" min="0.01" step="0.01" value={bulkMeasuredQuantities[item.id] ?? ""} onChange={(e) => setBulkMeasuredQuantities((current) => ({ ...current, [item.id]: e.target.value }))} required /></div><div><label className="text-sm font-medium">Quality inspection</label><Select value={bulkQualityChecks[item.id] || "passed"} onValueChange={(value) => setBulkQualityChecks((current) => ({ ...current, [item.id]: value as "passed" | "failed" }))}><SelectTrigger><SelectValue placeholder="Select result" /></SelectTrigger><SelectContent><SelectItem value="passed">Passed — safe to store</SelectItem><SelectItem value="failed">Failed — damaged / reject</SelectItem></SelectContent></Select></div></div>)}</div>
+            <div className="space-y-3">{bulkFarmItems.map((item) => <div key={item.id} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_150px] sm:items-center"><div><p className="font-semibold">{item.displayProductName || getProductDisplayName(item)}</p><p className="text-sm text-muted-foreground">Order {item.displayOrderNumber || "reference unavailable"} · Farmer declared: {item.quantity} {item.unit || "kg"}</p><p className={cn("mt-1 text-sm font-medium", Math.abs(Number(bulkMeasuredQuantities[item.id] || 0) - Number(item.quantity || 0)) > 0.001 ? "text-red-600" : "text-emerald-700")}>Difference: {(Number(bulkMeasuredQuantities[item.id] || 0) - Number(item.quantity || 0)).toFixed(2)} kg</p></div><div><label className="text-sm font-medium">Actual measured kg</label><Input type="number" min="0.01" step="0.01" value={bulkMeasuredQuantities[item.id] ?? ""} onChange={(e) => setBulkMeasuredQuantities((current) => ({ ...current, [item.id]: e.target.value }))} required /></div><div><label className="text-sm font-medium">Quality inspection</label><Select value={bulkQualityChecks[item.id] || "passed"} onValueChange={(value) => setBulkQualityChecks((current) => ({ ...current, [item.id]: value as "passed" | "pending" | "failed" }))}><SelectTrigger><SelectValue placeholder="Select result" /></SelectTrigger><SelectContent><SelectItem value="passed">Passed — safe to store</SelectItem><SelectItem value="pending">Pending — hold for review</SelectItem><SelectItem value="failed">Failed — damaged / reject</SelectItem></SelectContent></Select></div></div>)}</div>
             <div><label className="text-sm font-medium">Notes / discrepancy details</label><Input value={bulkReceiveNotes} onChange={(e) => setBulkReceiveNotes(e.target.value)} placeholder="Required if any measured weight differs" /></div>
             <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowBulkReceiveDialog(false)}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Saving receipts..." : "Confirm All Receipts"}</Button></div>
           </form>
