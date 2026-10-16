@@ -61,15 +61,23 @@ export default function WarehouseQualityInspectionPage() {
     const payload = root?.data?.incoming ?? root?.incoming ?? root?.data?.items ?? root?.items ?? root?.data?.results ?? root?.results ?? [];
     const rows = Array.isArray(payload) ? payload : [];
     return rows.filter((item: any) => {
-      const status = String(item.status || "").toLowerCase();
-      const quality = String(item.qualityCheck || item.quality_check || "pending").toLowerCase();
-      const mode = String(item.sourceMode || "").toLowerCase();
-      const fulfillment = String(item.fulfillmentMethod || "").toLowerCase();
+      const status = String(item.status || "").trim().toLowerCase();
+      const quality = String(item.qualityCheck || item.quality_check || "pending").trim().toLowerCase();
+      const mode = String(item.sourceMode || "").trim().toLowerCase();
+      const fulfillment = String(item.fulfillmentMethod || "").trim().toLowerCase();
       const receivedOrWaiting = ["received", "quality_check"].includes(status);
-      const isFarmerPacked = mode === "farmer_fulfillment_transfer"
-        || item.packingRequired === false
-        || fulfillment === "farmer_fulfillment_transfer";
-      return receivedOrWaiting && !["passed", "failed"].includes(quality) && !isFarmerPacked;
+      const qualityPending = ["", "pending", "quality_check", "not_checked"].includes(quality);
+      // Strictly include only explicitly identified Warehouse Fulfillment stock.
+      // Do not treat unknown/legacy orders as warehouse fulfillment by default.
+      const isWarehouseFulfillment =
+        fulfillment === "warehouse"
+        || ["warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(mode)
+        || item.packingRequired === true;
+      const isFarmerFulfillment =
+        fulfillment === "farmer"
+        || ["farmer_fulfillment", "farmer_fulfillment_transfer"].includes(mode)
+        || item.packingRequired === false;
+      return receivedOrWaiting && qualityPending && isWarehouseFulfillment && !isFarmerFulfillment;
     });
   }, [incomingQuery.data]);
 
@@ -172,7 +180,7 @@ export default function WarehouseQualityInspectionPage() {
       <Card className="border-amber-200">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-amber-600" />Incoming Stock — Pending Quality Recheck</CardTitle>
-          <p className="text-sm text-muted-foreground">Shipments recorded as Pending during receiving appear here. Recheck them and save the final result; approved stock can then continue to Store.</p>
+          <p className="text-sm text-muted-foreground">Only Warehouse Fulfillment orders awaiting quality inspection appear here. Farmer Fulfillment and unrelated orders are excluded. Recheck pending shipments and save the final result; approved stock can then continue to Store.</p>
         </CardHeader>
         <CardContent className="space-y-3">
           {incomingQuery.isLoading && <p className="text-sm text-muted-foreground">Loading pending incoming receipts…</p>}
