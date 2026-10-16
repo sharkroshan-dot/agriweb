@@ -342,39 +342,44 @@ export default function WarehouseIncomingPage() {
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[char] as string));
     const order = item?.order || {};
-    const address = item?.deliveryAddress || item?.shippingAddress || order?.deliveryAddress || order?.shippingAddress || order?.address || {};
-    const addressText = typeof address === "string" ? address : [address?.addressLine1, address?.addressLine2, address?.street, address?.city, address?.district, address?.state, address?.zipCode, address?.postalCode].filter(Boolean).join(", ");
-    const customerName = item?.customerName || order?.customerName || order?.customer?.name || item?.customer?.name || "Customer";
-    const customerPhone = item?.customerPhone || order?.customerPhone || order?.customer?.phone || item?.customer?.phone || order?.phone || "Not available";
-    const lines = Array.isArray(item?.orderItems) ? item.orderItems
-      : Array.isArray(order?.items) ? order.items
-      : Array.isArray(item?.items) ? item.items
-      : [];
-    const receiptLines = lines.length ? lines.map((line: any) => ({
-      name: line.productName || line.name || line.product?.name || line.productId || "Product",
-      quantity: line.quantity ?? line.quantityRequired ?? line.orderedQuantity ?? "—",
-      unit: line.unit || "kg",
-    })) : [{
-      name: item?.displayProductName || item?.productName || item?.product?.name || item?.productId || "Product",
-      quantity: item?.orderQuantity ?? item?.quantityRequired ?? receivedQuantity,
-      unit: item?.unit || "kg",
-    }];
-    const receiptNumber = item?.receiptNumber || item?.batchNumber || item?.id || "—";
-    win.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>Warehouse Packing Receipt</title>
-      <style>body{font-family:Arial,sans-serif;color:#111;padding:28px;max-width:760px;margin:auto}h1{margin-bottom:4px;font-size:24px}.muted{color:#555;font-size:12px}.panel{border:1px solid #777;padding:14px;margin-top:16px}.row{display:flex;justify-content:space-between;gap:20px;padding:10px 4px;border-bottom:1px solid #ddd}.row:last-child{border-bottom:0}.notice{margin-top:18px;padding:12px;background:#f3f4f6;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{text-align:left;border-bottom:1px solid #ccc;padding:10px}th:last-child,td:last-child{text-align:right}.sign{display:flex;justify-content:space-between;margin-top:42px;font-size:12px}</style></head><body>
-      <h1>AGRICONNECT</h1><div class="muted">WAREHOUSE RECEIPT · PACKING TEAM COPY</div>
-      <div class="panel"><div class="row"><strong>Order number</strong><span>${escapeHtml(item?.displayOrderNumber || item?.orderNumber || order?.orderNumber || item?.orderId)}</span></div>
-      <div class="row"><strong>Receipt / batch reference</strong><span>${escapeHtml(receiptNumber)}</span></div>
-      <div class="row"><strong>Farm</strong><span>${escapeHtml(item?.displayFarmName || item?.farmName || item?.farmerName)}</span></div>
-      <div class="row"><strong>Deliver to</strong><span>${escapeHtml(customerName)}</span></div>
-      <div class="row"><strong>Delivery phone</strong><span>${escapeHtml(customerPhone)}</span></div>
-      <div class="row"><strong>Delivery address</strong><span>${escapeHtml(addressText || "Check customer order details")}</span></div>
-      <div class="row"><strong>Received quantity</strong><span>${escapeHtml(receivedQuantity)} ${escapeHtml(item?.unit || "kg")}</span></div>
-      <div class="row"><strong>Usable quantity for packing</strong><span>${escapeHtml(usableQuantity)} ${escapeHtml(item?.unit || "kg")}</span></div></div>
-      <h2>Products to pack for this order</h2><table><thead><tr><th>Product</th><th>Order quantity</th></tr></thead><tbody>${receiptLines.map((line: any) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.quantity)} ${escapeHtml(line.unit)}</td></tr>`).join("")}</tbody></table>
-      <div class="notice"><strong>Packing instruction:</strong> Match this receipt to the order and pack the product quantities listed above. Record actual packed quantities and report shortages before verification. Do not use the total received bulk quantity as the quantity for every order.</div>
-      <div class="sign"><span>Packed by: __________________</span><span>Checked by: __________________</span></div>
-      <script>window.onload=()=>window.print();</script></body></html>`);
+    const address = item?.deliveryAddress || item?.shippingAddress || order?.deliveryAddress || order?.shippingAddress || order?.address || item?.customer?.address || order?.customer?.address || {};
+    const addressValue = (keys: string[]) => {
+      if (!address || typeof address !== "object") return "";
+      for (const key of keys) {
+        const value = address[key];
+        if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
+      }
+      return "";
+    };
+    const addressParts = typeof address === "string" ? [address] : [
+      addressValue(["addressLine1", "line1", "streetAddress", "street"]),
+      addressValue(["addressLine2", "line2", "landmark", "area", "locality", "village"]),
+      addressValue(["district", "districtName"]),
+      addressValue(["city", "town", "cityName"]),
+      addressValue(["state", "stateName", "province"]),
+      addressValue(["pinCode", "pincode", "postalCode", "zipCode", "zip"]),
+    ].filter(Boolean);
+    const addressText = addressParts.join(", ");
+    const customerName = item?.customerName || item?.customer?.name || order?.customerName || order?.customer?.name || [order?.customer?.firstName, order?.customer?.lastName].filter(Boolean).join(" ") || "Customer details unavailable";
+    const customerPhone = item?.customerPhone || item?.customer?.phone || order?.customerPhone || order?.customer?.phone || order?.phone || "Phone not available";
+    const receiptNumber = item?.receiptNumber || item?.receipt?.receiptNumber || item?.id || "Receipt number unavailable";
+    const orderNumber = item?.orderNumber || item?.receipt?.orderNumber || order?.orderNumber || (item?.orderId ? String(item.orderId) : "Order number unavailable");
+    const receiptDateTime = item?.receivedAt || item?.receivedDate || item?.receipt?.receivedAt;
+    const warehouseName = item?.warehouseName || item?.receipt?.warehouseName || item?.warehouse?.name || "Warehouse details unavailable";
+    const farmName = item?.displayFarmName || item?.farmName || item?.farmerName || item?.receipt?.farmName || "Farm details unavailable";
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>AgriConnect Delivery Receipt</title>
+      <style>body{font-family:Arial,sans-serif;color:#111;padding:28px;max-width:760px;margin:auto}h1{margin-bottom:4px;font-size:24px}.muted{color:#555;font-size:12px}.panel{border:1px solid #777;padding:14px;margin-top:16px}.row{display:flex;justify-content:space-between;gap:20px;padding:12px 4px;border-bottom:1px solid #ddd}.row:last-child{border-bottom:0}.label{font-weight:700;min-width:190px}.value{text-align:right;overflow-wrap:anywhere}</style></head><body>
+      <h1>AGRICONNECT</h1><div class="muted">WAREHOUSE RECEIPT</div>
+      <div class="panel">
+      <div class="row"><span class="label">Receipt number</span><span class="value">${escapeHtml(receiptNumber)}</span></div>
+      <div class="row"><span class="label">Order ID / order number</span><span class="value">${escapeHtml(orderNumber)}${item?.orderId ? " / " + escapeHtml(item.orderId) : ""}</span></div>
+      <div class="row"><span class="label">Receipt date and time</span><span class="value">${escapeHtml(receiptDateTime ? new Date(receiptDateTime).toLocaleString() : "Date/time unavailable")}</span></div>
+      <div class="row"><span class="label">Warehouse name</span><span class="value">${escapeHtml(warehouseName)}</span></div>
+      <div class="row"><span class="label">Farm / farmer name</span><span class="value">${escapeHtml(farmName)}</span></div>
+      <div class="row"><span class="label">Customer name</span><span class="value">${escapeHtml(customerName)}</span></div>
+      <div class="row"><span class="label">Customer phone number</span><span class="value">${escapeHtml(customerPhone)}</span></div>
+      <div class="row"><span class="label">Complete delivery address</span><span class="value">${escapeHtml(addressText || "Delivery address unavailable")}</span></div>
+      </div><script>window.onload=()=>window.print();</script></body></html>`);
     win.document.close();
   };
 
