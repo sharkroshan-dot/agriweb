@@ -53,15 +53,22 @@ export default function WarehouseQualityInspectionPage() {
   });
 
   const incomingQualityQueue: any[] = useMemo(() => {
-    const payload = incomingQuery.data?.data?.incoming ?? incomingQuery.data?.incoming ?? [];
-    const rows = Array.isArray(payload) ? payload : (payload?.items ?? payload?.results ?? []);
+    // The API client may expose either the axios response or its unwrapped data.
+    // Accept both response shapes so the recheck list doesn't silently appear empty.
+    const response = incomingQuery.data;
+    const root = response?.data ?? response;
+    const payload = root?.data?.incoming ?? root?.incoming ?? root?.data?.items ?? root?.items ?? root?.data?.results ?? root?.results ?? [];
+    const rows = Array.isArray(payload) ? payload : [];
     return rows.filter((item: any) => {
       const status = String(item.status || "").toLowerCase();
-      const quality = String(item.qualityCheck || item.quality_check || "").toLowerCase();
+      const quality = String(item.qualityCheck || item.quality_check || "pending").toLowerCase();
       const mode = String(item.sourceMode || "").toLowerCase();
       const fulfillment = String(item.fulfillmentMethod || "").toLowerCase();
-      return status === "received" && !["passed", "failed"].includes(quality)
-        && mode !== "farmer_fulfillment_transfer" && fulfillment !== "farmer";
+      const receivedOrWaiting = ["received", "quality_check"].includes(status);
+      const isFarmerPacked = mode === "farmer_fulfillment_transfer"
+        || item.packingRequired === false
+        || fulfillment === "farmer_fulfillment_transfer";
+      return receivedOrWaiting && !["passed", "failed"].includes(quality) && !isFarmerPacked;
     });
   }, [incomingQuery.data]);
 
