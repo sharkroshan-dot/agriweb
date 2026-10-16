@@ -489,7 +489,13 @@ class WarehouseService:
         incoming = await incoming_stock_repository.get_by_id(incoming_id)
         if not incoming or str(incoming.get("warehouseId")) != str(warehouse_id):
             return None
-        if str(incoming.get("status")) != "received" or str(incoming.get("qualityCheck")) != "passed":
+        incoming_status = str(incoming.get("status") or "").strip().lower()
+        quality_check = str(incoming.get("qualityCheck") or incoming.get("quality_check") or "").strip().lower()
+        if incoming_status != "received":
+            logger.warning("Cannot store incoming %s: status is %s, expected received", incoming_id, incoming_status or "missing")
+            return None
+        if quality_check != "passed":
+            logger.warning("Cannot store incoming %s: qualityCheck is %s, expected passed", incoming_id, quality_check or "missing")
             return None
         if incoming.get("inventoryPostedAt"):
             return await incoming_stock_repository.get_by_id(incoming_id)
@@ -498,7 +504,9 @@ class WarehouseService:
         # warehouse inventory. This keeps Receive and Store auditable and
         # prevents double-counting if the operator retries the action.
         usable = float(incoming.get("usableQuantity") or 0)
-        if usable <= 0:
+        received_quantity = float(incoming.get("quantityReceived") if incoming.get("quantityReceived") is not None else incoming.get("quantity") or 0)
+        if usable <= 0 or usable > received_quantity + 1e-9:
+            logger.warning("Cannot store incoming %s: usable quantity %s, received quantity %s", incoming_id, usable, received_quantity)
             return None
         warehouse = await warehouse_repository.get_by_id(warehouse_id)
         if not warehouse:
