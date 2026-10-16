@@ -452,7 +452,7 @@ export default function WarehouseIncomingPage() {
           const pendingCount = Math.max(0, farmItems.length - receivedCount);
           const receivedQuantityTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantityReceived ?? ((row.status === "received" || row.status === "stored") ? row.quantity : 0) ?? 0), 0);
           const declaredTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
-          const eligibleToReceive = farmItems.filter((row: any) => ["scheduled", "in_transit"].includes(row.status) && (!isFarmerPackedIncoming(row) || Boolean(row.arrivedWarehouseAt)));
+          const eligibleToReceive = farmItems.filter((row: any) => ["scheduled", "in_transit", "ready_for_pickup"].includes(String(row.status || "").toLowerCase()) && Boolean(row.arrivedWarehouseAt || row.warehouseArrivalConfirmed || String(row.collectionStatus || "").toLowerCase() === "arrived_warehouse"));
           const canConfirmAllPackets = packedFarmerGroup && eligibleToReceive.length > 0;
           const canReceiveAllBulk = !packedFarmerGroup && eligibleToReceive.length > 0;
           const allPackedOrdersReceived = packedFarmerGroup && farmItems.every((row: any) => row.status === "received" || row.status === "stored");
@@ -473,7 +473,7 @@ export default function WarehouseIncomingPage() {
             let succeeded = 0;
             try {
               for (const row of eligibleToReceive) {
-                if (!row.id || !["scheduled", "in_transit"].includes(row.status) || (isFarmerPackedIncoming(row) && !row.arrivedWarehouseAt)) continue;
+                if (!row.id || !["scheduled", "in_transit", "ready_for_pickup"].includes(String(row.status || "").toLowerCase()) || !(row.arrivedWarehouseAt || row.warehouseArrivalConfirmed || String(row.collectionStatus || "").toLowerCase() === "arrived_warehouse")) continue;
                 await api.put(`/warehouse/me/incoming/${row.id}/receive`, undefined, { params: { quantity: Number(row.quantity || 0), usableQuantity: Number(row.quantity || 0), quality_check: "passed", notes: "Bulk packet receipt confirmed by warehouse staff after physical count." } });
                 succeeded++;
               }
@@ -487,7 +487,7 @@ export default function WarehouseIncomingPage() {
           return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />Continue Farm Orders to {farmContinueLabel}</Button>}{canReceiveAllBulk && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />Receive All Bulk Stock</Button>}</div></div><div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4"><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total orders</p><p className="mt-1 text-2xl font-semibold">{farmItems.length}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{packedFarmerGroup ? "Packed packets" : "Farmer-declared weight"}</p><p className="mt-1 text-2xl font-semibold">{packedFarmerGroup ? farmItems.length : declaredTotal.toLocaleString() + " kg"}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Received</p><p className="mt-1 text-2xl font-semibold">{receivedCount}</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? "packets received" : receivedQuantityTotal.toLocaleString() + " kg recorded"}</p></div><div className="rounded-lg border bg-white p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remaining</p><p className="mt-1 text-2xl font-semibold">{pendingCount}</p><p className="text-xs text-muted-foreground">{packedFarmerGroup ? "packets to receive" : Math.max(0, declaredTotal - receivedQuantityTotal).toLocaleString() + " kg to reconcile"}</p></div></div></div><div className="space-y-3 p-3 sm:p-4">{farmItems.map((item: any) => {
           const productName = item.displayProductName || getProductDisplayName(item);
           const isPackedFarmerTransfer = isFarmerPackedIncoming(item);
-          const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt);
+          const hasPhysicallyArrived = Boolean(item.arrivedWarehouseAt || item.warehouseArrivalConfirmed || String(item.collectionStatus || "").toLowerCase() === "arrived_warehouse");
           const receivedQuantity = Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? 0);
           const expectedQuantity = Number(item.quantity ?? 0);
           const receiptComplete = ["received", "stored", "rejected"].includes(String(item.status || "").toLowerCase()) ||
@@ -495,9 +495,9 @@ export default function WarehouseIncomingPage() {
           // Once the receipt is complete or quality has been approved, never
           // show Receive Stock again. Show the next outstanding workflow action.
           const canReceiveStock = ["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status || "").toLowerCase()) &&
+            hasPhysicallyArrived &&
             !receiptComplete &&
-            String(item.qualityCheck || "").toLowerCase() !== "passed" &&
-            (!isFarmerPackedIncoming(item) || hasPhysicallyArrived);
+            String(item.qualityCheck || "").toLowerCase() !== "passed";
           // Ordinary packed farmer orders always continue to Farmer Fulfillment Transfers.
           // Only records explicitly linked to a multi-source consolidation go to Consolidation.
           // A packed farmer-fulfillment order is always routed by the transfer
