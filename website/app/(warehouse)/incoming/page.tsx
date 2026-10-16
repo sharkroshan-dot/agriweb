@@ -284,9 +284,10 @@ export default function WarehouseIncomingPage() {
         const measured = Number(bulkMeasuredQuantities[item.id]);
         const mismatch = Math.abs(measured - Number(item.quantity || 0)) > 0.001;
         const qualityCheck = mismatch ? "pending" : (bulkQualityChecks[item.id] || "pending");
-        await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: measured, usableQuantity: measured, quality_check: qualityCheck, notes: bulkReceiveNotes.trim() || undefined } });
+        const receiveResponse = await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: measured, usableQuantity: measured, quality_check: qualityCheck, notes: bulkReceiveNotes.trim() || undefined } });
         succeeded++;
-        if (qualityCheck === "passed" && !mismatch) printIncomingPackingReceipt(item, measured, measured);
+        const savedIncoming = receiveResponse?.data?.data || receiveResponse?.data || item;
+        if (qualityCheck === "passed" && !mismatch) printIncomingPackingReceipt({ ...item, ...savedIncoming }, measured, measured);
       }
       toast.success("Received " + succeeded + " shipment(s). Passed stock can continue to Store; failed stock is held for farm follow-up; weight discrepancies remain on hold.");
       setShowBulkReceiveDialog(false); await refetch();
@@ -399,7 +400,7 @@ export default function WarehouseIncomingPage() {
 
     try {
       setIsSaving(true);
-      await api.put(`/warehouse/me/incoming/${selectedIncoming.id}/receive`, undefined, {
+      const receiveResponse = await api.put(`/warehouse/me/incoming/${selectedIncoming.id}/receive`, undefined, {
         params: {
           quantity: Number(receiveForm.quantity),
           usableQuantity: Number(receiveForm.usableQuantity),
@@ -407,8 +408,9 @@ export default function WarehouseIncomingPage() {
           notes: receiveForm.notes.trim() || undefined,
         },
       });
+      const savedIncoming = receiveResponse?.data?.data || receiveResponse?.data || selectedIncoming;
       if (!isFarmerPacked && !quantityMismatch && receiveForm.qualityCheck === "passed") {
-        printIncomingPackingReceipt(selectedIncoming, actualQuantity, Number(receiveForm.usableQuantity));
+        printIncomingPackingReceipt({ ...selectedIncoming, ...savedIncoming }, actualQuantity, Number(receiveForm.usableQuantity));
       }
       if (isFarmerPacked) {
         toast.success("Packed farmer order received. Continue to Farmer Fulfillment Transfers / Consolidation.");
