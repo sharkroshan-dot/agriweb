@@ -707,17 +707,25 @@ class WarehouseService:
         if not order or str(order.get("fulfillmentMethod") or "") != "warehouse":
             return None
 
-        incoming = await incoming_stock_repository.find_many({
+        incoming_rows = await incoming_stock_repository.find_many({
             "orderId": ObjectId(order_id),
             "warehouseId": ObjectId(warehouse_id),
-            "packingRequired": True,
             "deletedAt": None,
         }, skip=0, limit=1000)
+        # Older shipment records may lack packingRequired even though their
+        # linked order explicitly uses warehouse fulfillment. Include those
+        # rows, but never farmer-packed transfers, and only count stock that
+        # has completed the Store step.
+        incoming = [
+            row for row in incoming_rows
+            if str(row.get("status") or "").lower() == "stored"
+            and str(row.get("qualityCheck") or row.get("quality_check") or "").lower() == "passed"
+            and str(row.get("sourceMode") or "").lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
+            and row.get("packingRequired") is not False
+        ]
 
         usable_by_key: Dict[tuple, float] = {}
         for row in incoming:
-            if str(row.get("qualityCheck") or "") != "passed":
-                continue
             key = (str(row.get("productId")), str(row.get("variantId") or ""))
             usable = float(
                 row.get("usableQuantity")
