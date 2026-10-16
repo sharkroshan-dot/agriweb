@@ -142,6 +142,7 @@ export default function WarehouseIncomingPage() {
   const [bulkStoreItems, setBulkStoreItems] = useState<any[]>([]);
   const [bulkStoreForm, setBulkStoreForm] = useState({ storageLocation: "", storageType: "ambient", usableQuantities: {} as Record<string, string> });
   const [showBulkStoreDialog, setShowBulkStoreDialog] = useState(false);
+  const [bulkStoreErrors, setBulkStoreErrors] = useState<string[]>([]);
   const [showTrackDialog, setShowTrackDialog] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [incomingForm, setIncomingForm] = useState(emptyIncomingForm);
@@ -455,6 +456,7 @@ export default function WarehouseIncomingPage() {
     const eligible = items.filter((item) => !isFarmerPackedIncoming(item) && isReceiptQualityPassed(item) && String(item.status || "").toLowerCase() !== "stored");
     if (!eligible.length) { toast("No quality-approved shipments are waiting to be stored."); return; }
     setBulkStoreItems(eligible);
+    setBulkStoreErrors([]);
     setBulkStoreForm({
       storageLocation: "",
       storageType: "ambient",
@@ -485,13 +487,20 @@ export default function WarehouseIncomingPage() {
             storageType: bulkStoreForm.storageType,
           });
           stored++;
-        } catch {
-          failures.push(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment");
+        } catch (error: any) {
+          const detail = error?.response?.data?.detail || error?.message || "Storage request failed";
+          failures.push((item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment") + ": " + detail);
         }
       }
       if (stored) toast.success("Stored " + stored + " approved shipment(s). Continue to Order Packing.");
-      if (failures.length) toast.error(failures.length + " shipment(s) could not be stored: " + failures.join(", "));
-      setShowBulkStoreDialog(false);
+      if (failures.length) {
+        toast.error(failures.length + " shipment(s) could not be stored. Review the errors below and correct the affected orders.");
+        setBulkStoreItems((current) => current.filter((item) => failures.some((failure) => failure.startsWith(String(item.displayOrderNumber || item.displayProductName || item.id || "Unknown shipment") + ":"))));
+        setBulkStoreErrors(failures);
+      } else {
+        setShowBulkStoreDialog(false);
+        setBulkStoreErrors([]);
+      }
       await refetch();
     } finally { setIsSaving(false); }
   };
@@ -779,6 +788,7 @@ export default function WarehouseIncomingPage() {
         <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Continue to Store — All Approved Orders</DialogTitle><DialogDescription>Review farm totals and each order before storing. Each order keeps its own received and usable quantity.</DialogDescription></DialogHeader>
           <form className="space-y-4" onSubmit={handleBulkStoreIncoming}>
+            {bulkStoreErrors.length > 0 && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800"><p className="font-semibold">Some orders could not be stored</p><ul className="mt-2 list-disc pl-5">{bulkStoreErrors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
             <div className="rounded-lg border bg-slate-50 p-4">
               <p className="font-semibold">{bulkStoreItems[0]?.displayFarmName || getFarmDisplayName(bulkStoreItems[0] || {})}</p>
               <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
