@@ -441,6 +441,8 @@ export default function WarehouseIncomingPage() {
 
   const openQualityDialog = (item: any) => { setSelectedIncoming(item); setQualityNotes(""); setShowQualityDialog(true); };
 
+  const isReceiptQualityPassed = (row: any) => { const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase(); if (qc === "failed") return false; if (qc === "passed") return true; const status = String(row.status || "").toLowerCase(); const declared = Number(row.quantity || 0); const actual = Number(row.quantityReceived ?? row.receivedQuantity ?? row.actualQuantityReceived ?? 0); return ["received", "quality_check", "stored"].includes(status) && declared > 0 && actual >= declared - 0.001; };
+
   const openStoreDialog = (item: any) => {
     setSelectedIncoming(item);
     const received = Number(item?.quantityReceived ?? item?.receivedQuantity ?? item?.actualQuantityReceived ?? item?.quantity ?? 0);
@@ -642,7 +644,6 @@ export default function WarehouseIncomingPage() {
           const packedFarmerGroup = farmItems.every((row: any) => isFarmerPackedIncoming(row));
           const expectedTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
           const receivedCount = farmItems.filter((row: any) => ["received", "quality_check", "stored", "rejected"].includes(String(row.status || "").toLowerCase()) || Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt)).length;
-          const isReceiptQualityPassed = (row: any) => { const qc = String(row.qualityCheck || row.quality_check || "").toLowerCase(); if (qc === "failed") return false; if (qc === "passed") return true; const status = String(row.status || "").toLowerCase(); const declared = Number(row.quantity || 0); const actual = Number(row.quantityReceived ?? row.receivedQuantity ?? row.actualQuantityReceived ?? 0); return ["received", "quality_check", "stored"].includes(status) && declared > 0 && actual >= declared - 0.001; };
           const passedBulkItems = farmItems.filter((row: any) => !isFarmerPackedIncoming(row) && ["received", "quality_check"].includes(String(row.status || "").toLowerCase()) && isReceiptQualityPassed(row));
           const storedBulkItems = farmItems.filter((row: any) => !isFarmerPackedIncoming(row) && String(row.status || "").toLowerCase() === "stored");
           const pendingCount = Math.max(0, farmItems.length - receivedCount);
