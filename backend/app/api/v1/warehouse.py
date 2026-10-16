@@ -5767,6 +5767,21 @@ async def update_incoming_quality(
     if data.qualityCheck == "failed":
         update["status"] = "rejected"
         update["qualityRejectedAt"] = datetime.utcnow()
+    elif data.qualityCheck == "passed":
+        update["qualityPassedAt"] = datetime.utcnow()
+    # Keep the permanent receipt snapshot aligned with the latest quality decision
+    # while retaining its original receipt number and receipt timestamp.
+    existing_receipt = incoming.get("receipt") if isinstance(incoming.get("receipt"), dict) else {}
+    receipt_update = dict(existing_receipt)
+    receipt_update.update({
+        "qualityResult": data.qualityCheck,
+        "qualityNotes": data.notes,
+        "usableQuantity": float(data.usableQuantity) if data.usableQuantity is not None else float(incoming.get("usableQuantity") or incoming.get("quantityReceived") or incoming.get("quantity") or 0),
+        "rejectedQuantity": max(0.0, float(incoming.get("quantityReceived") or incoming.get("quantity") or 0) - (float(data.usableQuantity) if data.usableQuantity is not None else float(incoming.get("usableQuantity") or incoming.get("quantityReceived") or incoming.get("quantity") or 0))),
+        "qualityRecheckedAt": datetime.utcnow(),
+        "qualityRecheckedBy": str(current_user.get("_id") or ""),
+    })
+    update["receipt"] = receipt_update
     updated = await incoming_stock_repository.update({"_id": ObjectId(incoming_id)}, update)
     if not updated:
         raise HTTPException(status_code=400, detail="Unable to update incoming quality result")
