@@ -786,30 +786,34 @@ export default function WarehouseIncomingPage() {
       </Dialog>
 
       <Dialog open={showBulkStoreDialog} onOpenChange={setShowBulkStoreDialog}>
-        <DialogContent className="max-w-4xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Continue to Store — All Approved Orders</DialogTitle><DialogDescription>Review farm totals and each order before storing. Each order keeps its own received and usable quantity.</DialogDescription></DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Continue to Store — Farm Orders</DialogTitle>
+            <DialogDescription>Review the order count, total quantity, and order IDs for this farm before continuing.</DialogDescription>
+          </DialogHeader>
           <form className="space-y-4" onSubmit={handleBulkStoreIncoming}>
-            {bulkStoreErrors.length > 0 && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800"><p className="font-semibold">Some orders could not be stored</p><ul className="mt-2 list-disc pl-5">{bulkStoreErrors.map((error) => <li key={error}>{error}</li>)}</ul></div>}
-            <div className="rounded-lg border bg-slate-50 p-4">
+            <div className="rounded-lg border p-4">
               <p className="font-semibold">{bulkStoreItems[0]?.displayFarmName || getFarmDisplayName(bulkStoreItems[0] || {})}</p>
-              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <div><p className="text-xs text-muted-foreground">Approved orders</p><p className="text-xl font-semibold">{bulkStoreItems.length}</p></div>
-                <div><p className="text-xs text-muted-foreground">Received total</p><p className="text-xl font-semibold">{bulkStoreItems.reduce((sum, item) => sum + Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0), 0).toLocaleString()} kg</p></div>
-                <div><p className="text-xs text-muted-foreground">Usable total</p><p className="text-xl font-semibold">{bulkStoreItems.reduce((sum, item) => sum + Number(bulkStoreForm.usableQuantities[item.id] || 0), 0).toLocaleString()} kg</p></div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div><p className="text-xs text-muted-foreground">Total orders</p><p className="text-xl font-semibold">{bulkStoreItems.length}</p></div>
+                <div><p className="text-xs text-muted-foreground">Total quantity</p><p className="text-xl font-semibold">{bulkStoreItems.reduce((sum, item) => sum + Number(bulkStoreForm.usableQuantities[item.id] || item.quantityReceived || item.receivedQuantity || item.actualQuantityReceived || item.quantity || 0), 0).toLocaleString()} kg</p></div>
               </div>
             </div>
-            {bulkStoreItems.map((item) => {
-              const order = item.order || {};
-              const address = item.deliveryAddress || item.shippingAddress || order.deliveryAddress || order.shippingAddress || order.address || {};
-              const addressText = typeof address === "string" ? address : [address.addressLine1, address.addressLine2, address.street, address.city, address.district, address.state, address.zipCode, address.postalCode].filter(Boolean).join(", ");
-              return <div key={item.id} className="rounded-lg border p-3 space-y-2">
-                <div className="flex flex-wrap justify-between gap-2"><div><p className="font-semibold">{item.displayProductName || getProductDisplayName(item)}</p><p className="text-sm text-muted-foreground">Order {item.displayOrderNumber || item.orderNumber || order.orderNumber || "reference unavailable"}</p></div><Badge variant="outline">Quality passed</Badge></div>
-                <div className="grid gap-2 text-sm sm:grid-cols-2"><p>Customer: {item.customerName || order.customerName || order.customer?.name || item.customer?.name || "Not available"}</p><p>Phone: {item.customerPhone || order.customerPhone || order.customer?.phone || item.customer?.phone || order.phone || "Not available"}</p><p className="sm:col-span-2">Delivery address: {addressText || "Not available in incoming shipment data"}</p><p>Received: {item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0} {item.unit || "kg"}</p></div>
-                <div><label className="text-sm font-medium">Usable quantity for this order ({item.unit || "kg"})</label><Input type="number" min="0.01" max={Number(item.quantityReceived ?? item.receivedQuantity ?? item.actualQuantityReceived ?? item.quantity ?? 0)} step="0.01" value={bulkStoreForm.usableQuantities[item.id] ?? ""} onChange={(e) => setBulkStoreForm((current) => ({ ...current, usableQuantities: { ...current.usableQuantities, [item.id]: e.target.value } }))} required /></div>
-              </div>;
-            })}
-            <div className="grid gap-3 sm:grid-cols-2"><div><label className="text-sm font-medium">Storage location / bin (applies to all orders)</label><Input placeholder="e.g. Rack A · Bin 04" value={bulkStoreForm.storageLocation} onChange={(e) => setBulkStoreForm((current) => ({ ...current, storageLocation: e.target.value }))} required /></div><div><label className="text-sm font-medium">Storage condition</label><Select value={bulkStoreForm.storageType} onValueChange={(value) => setBulkStoreForm((current) => ({ ...current, storageType: value }))}><SelectTrigger><SelectValue placeholder="Choose storage condition" /></SelectTrigger><SelectContent><SelectItem value="ambient">Ambient / General</SelectItem><SelectItem value="cold">Cold Storage</SelectItem><SelectItem value="refrigerated">Refrigerated</SelectItem><SelectItem value="frozen">Frozen</SelectItem><SelectItem value="dry">Dry Storage</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div></div>
-            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowBulkStoreDialog(false)} disabled={isSaving}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Storing..." : "Confirm Store All (" + bulkStoreItems.length + ")"}</Button></div>
+            <div className="space-y-2">
+              <p className="font-medium">Orders included</p>
+              {bulkStoreItems.map((item) => {
+                const order = item.order || {};
+                return <div key={item.id} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                  <div><p className="font-medium">{item.displayOrderNumber || item.orderNumber || order.orderNumber || item.orderId || item.id || "Order ID unavailable"}</p><p className="text-sm text-muted-foreground">{item.displayProductName || getProductDisplayName(item)}</p></div>
+                  <p className="whitespace-nowrap text-sm font-semibold">{bulkStoreForm.usableQuantities[item.id] || item.quantityReceived || item.receivedQuantity || item.actualQuantityReceived || item.quantity || 0} {item.unit || "kg"}</p>
+                </div>;
+              })}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><label className="text-sm font-medium">Storage location / bin</label><Input placeholder="e.g. Rack A · Bin 04" value={bulkStoreForm.storageLocation} onChange={(e) => setBulkStoreForm((current) => ({ ...current, storageLocation: e.target.value }))} required /></div>
+              <div><label className="text-sm font-medium">Storage condition</label><Select value={bulkStoreForm.storageType} onValueChange={(value) => setBulkStoreForm((current) => ({ ...current, storageType: value }))}><SelectTrigger><SelectValue placeholder="Choose storage condition" /></SelectTrigger><SelectContent><SelectItem value="ambient">Ambient / General</SelectItem><SelectItem value="cold">Cold Storage</SelectItem><SelectItem value="refrigerated">Refrigerated</SelectItem><SelectItem value="frozen">Frozen</SelectItem><SelectItem value="dry">Dry Storage</SelectItem><SelectItem value="other">Other</SelectItem></SelectContent></Select></div>
+            </div>
+            <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setShowBulkStoreDialog(false)} disabled={isSaving}>Cancel</Button><Button type="submit" disabled={isSaving}>{isSaving ? "Storing..." : "Continue to Store (" + bulkStoreItems.length + " orders)"}</Button></div>
           </form>
         </DialogContent>
       </Dialog>
