@@ -144,14 +144,16 @@ export default function WarehouseTransfersPage() {
     return [...warehouseRows, ...farmerRows];
   }, [outgoingData, farmerData]);
   const visibleOrders = useMemo(() => {
-    const rows = orderRows.filter((o: any) => {
+    const combinedOrders = [...orderRows, ...searchedOrders.map((o: any) => ({ ...o, rowId: "warehouse-search-" + (o.id || o.orderId), fulfillmentType: "warehouse", displayOrderId: o.orderNumber || o.orderId, displayStatus: o.status || "pending", displayName: o.productName || "Warehouse fulfillment order", displayQuantity: o.quantity ?? "—", sourceName: o.sourceWarehouseName || "Source warehouse", destinationName: o.destinationWarehouseName || o.destinationDistrict || o.deliveryDistrict || "Customer delivery", currentStage: o.warehouseFulfillmentStage || o.status || "pending", updated: o.updatedAt }))];
+    const uniqueOrders = Array.from(new Map(combinedOrders.map((o: any) => [String(o.rowId), o])).values());
+    const rows = uniqueOrders.filter((o: any) => {
       if (orderSection !== "all" && o.fulfillmentType !== orderSection) return false;
       if (statusFilter !== "all" && String(o.displayStatus).toLowerCase() !== statusFilter) return false;
       const q = search.toLowerCase().trim();
       return !q || [o.displayOrderId, o.displayName, o.productId, o.sourceName, o.destinationName, o.currentStage, o.displayStatus].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
     });
     return rows;
-  }, [orderRows, orderSection, statusFilter, search]);
+  }, [orderRows, searchedOrders, orderSection, statusFilter, search]);
   const filtered = useMemo(() => transfers.filter((t: any) => {
     const q = search.toLowerCase();
     return !q || [t.id, t.productName, t.productId, t.reason, t.batchNumber].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
@@ -183,8 +185,8 @@ export default function WarehouseTransfersPage() {
     }
   };
 
-  const searchOrderHistory = async () => {
-    const q = orderSearch.trim();
+  const searchOrderHistory = async (query = search) => {
+    const q = query.trim();
     if (q.length < 2) { toast.error("Enter at least 2 characters of an order number or ID."); return; }
     setSearchingOrders(true);
     try {
@@ -245,10 +247,9 @@ export default function WarehouseTransfersPage() {
         <Card><CardContent className="p-4 text-center"><p className="text-2xl font-bold text-yellow-600">{pending}</p><p className="text-xs text-muted-foreground">Pending</p></CardContent></Card>
       </div>
       <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search transfers..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" /></div>
+        <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search orders or transfers by order number, ID, product, source or destination…" value={search} onChange={(e) => { setSearch(e.target.value); if (e.target.value.trim().length < 2) setSearchedOrders([]); }} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchOrderHistory(search); } }} className="pl-9" /></div>
         <div className="flex gap-2 overflow-x-auto">{["all","pending","in_transit","completed","cancelled"].map((s) => <Button key={s} variant={statusFilter === s ? "default" : "outline"} size="sm" onClick={() => setStatusFilter(s)}>{s === "in_transit" ? "In Transit" : s[0].toUpperCase()+s.slice(1)}</Button>)}</div>
       </div>
-      <Card><CardContent className="p-4"><div className="space-y-2"><h2 className="font-semibold">Search All Warehouse Orders</h2><p className="text-sm text-muted-foreground">Search the warehouse order history by order number or order ID, including orders beyond the 100 displayed in the list.</p><div className="flex flex-col gap-2 sm:flex-row"><Input placeholder="Enter order number or ID…" value={orderSearch} onChange={e=>setOrderSearch(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();void searchOrderHistory();}}}/><Button onClick={searchOrderHistory} disabled={searchingOrders}>{searchingOrders?"Searching…":"Search Order History"}</Button></div>{searchedOrders.length>0&&<div className="space-y-2 pt-2">{searchedOrders.map((o:any)=><div key={o.id||o.orderId} className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-medium">{o.orderNumber||o.orderId}</p><p className="text-sm text-muted-foreground">{o.productName||"Warehouse fulfillment order"} · Quantity: {o.quantity??"—"}</p><p className="text-xs text-muted-foreground">Status: {humanizeValue(o.status,"status")}</p></div><Button variant="outline" size="sm" onClick={()=>viewOrderDetails({...o,rowId:"warehouse-search-"+(o.id||o.orderId),fulfillmentType:"warehouse",displayOrderId:o.orderNumber||o.orderId,displayStatus:o.status,displayName:o.productName,displayQuantity:o.quantity,currentStage:o.warehouseFulfillmentStage||o.status})}>View Full Details</Button></div>)}</div>}</div></CardContent></Card>
       <div className="grid gap-3 sm:grid-cols-3">
         {[{key:"all",title:"All Orders",count:orderRows.length,desc:"Warehouse and farmer fulfillment"},{key:"warehouse",title:"Warehouse Fulfillment Orders",count:orderRows.filter((o:any)=>o.fulfillmentType==="warehouse").length,desc:"Orders packed and dispatched by warehouse"},{key:"farmer",title:"Farmer Fulfillment Orders",count:orderRows.filter((o:any)=>o.fulfillmentType==="farmer").length,desc:"Farmer-packed orders and warehouse transfer stages"}].map((s:any)=><button type="button" key={s.key} onClick={()=>setOrderSection(s.key)} className={"rounded-lg border p-4 text-left transition-colors "+(orderSection===s.key?"border-primary bg-primary/5 shadow-sm":"bg-card hover:bg-muted/40")}><div className="flex items-center justify-between gap-2"><span className="font-semibold">{s.title}</span><Badge variant={orderSection===s.key?"default":"outline"}>{s.count}</Badge></div><p className="mt-2 text-xs text-muted-foreground">{s.desc}</p></button>)}
       </div>
