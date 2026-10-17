@@ -12,6 +12,7 @@ from app.repositories.order_repository import order_repository
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.services.delivery_job_service import build_job_document
 from app.core.security import Security
+from app.services.order_service import geocode_address
 
 router = APIRouter()
 
@@ -27,8 +28,6 @@ class LocalHubCreate(BaseModel):
     state: str = Field(..., min_length=2, max_length=100)
     address: str = Field(..., min_length=5, max_length=500)
     capacity: float = Field(..., gt=0)
-    latitude: float = Field(..., ge=-90, le=90)
-    longitude: float = Field(..., ge=-180, le=180)
     managerName: str = Field(..., min_length=2, max_length=120)
     username: str = Field(..., min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: EmailStr
@@ -67,6 +66,28 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
     username = payload.username.strip().lower()
     if await users.find_one({"$or": [{"email": email}, {"username": username}], "deletedAt": None}):
         raise HTTPException(status_code=409, detail="Email or username is already registered")
+    # Resolve coordinates from the supplied street address before creating either
+    # account or hub records. GeoJSON uses [longitude, latitude] order.
+    location = await geocode_address({
+        "address_line1": payload.address.strip(),
+        "address_line2": "",
+        "city": payload.district.strip(),
+        "state": payload.state.strip(),
+        "zip_code": "",
+        "country": "India",
+    })
+    if not location or not isinstance(location.get("coordinates"), (list, tuple)) or len(location["coordinates"]) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not locate this address. Check the full address, district and state, then try again.",
+        )
+    try:
+        longitude, latitude = float(location["coordinates"][0]), float(location["coordinates"][1])
+    except (TypeError, ValueError, IndexError):
+        raise HTTPException(status_code=422, detail="The address did not resolve to valid map coordinates")
+    if not (-180 <= longitude <= 180 and -90 <= latitude <= 90):
+        raise HTTPException(status_code=422, detail="The address resolved to invalid map coordinates")
+
     now = datetime.utcnow()
     temporary_password = secrets.token_urlsafe(12)
     user_doc = {
@@ -101,7 +122,10 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
         "state": payload.state.strip(),
         "address": {"address": payload.address.strip(), "city": payload.district.strip(), "state": payload.state.strip()},
         "capacity": float(payload.capacity),
-        "location": {"type": "Point", "coordinates": [float(payload.longitude), float(payload.latitude)]},
+        "location": {"type": "Point", "coordinates": [longitude, latitude]},
+        "geocodedAddress": payload.address.strip(),
+        "geocodedAt": now,
+        "geocodingSource": location.get("source", "address-geocoding"),
         "status": "active",
         "createdBy": ObjectId(str(current_user["_id"])),
         "createdAt": now,
