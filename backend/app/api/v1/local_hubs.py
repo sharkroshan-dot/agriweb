@@ -22,6 +22,8 @@ class LocalHubCreate(BaseModel):
     state: str = Field(..., min_length=2, max_length=100)
     address: str = Field(..., min_length=5, max_length=500)
     capacity: float = Field(..., gt=0)
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
     managerName: str = Field(..., min_length=2, max_length=120)
     username: str = Field(..., min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9_.-]+$")
     email: EmailStr
@@ -48,7 +50,7 @@ def _hub_id(user):
     return facility_id
 
 
-@router.post("/me/local-hubs")
+@router.post("/warehouse/me/local-hubs")
 async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
         raise HTTPException(status_code=403, detail="Only a warehouse manager can create a local hub")
@@ -94,6 +96,7 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
         "state": payload.state.strip(),
         "address": {"address": payload.address.strip(), "city": payload.district.strip(), "state": payload.state.strip()},
         "capacity": float(payload.capacity),
+        "location": {"type": "Point", "coordinates": [float(payload.longitude), float(payload.latitude)]},
         "status": "active",
         "createdBy": ObjectId(str(current_user["_id"])),
         "createdAt": now,
@@ -110,7 +113,7 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
     }
 
 
-@router.get("/me/local-hubs")
+@router.get("/warehouse/me/local-hubs")
 async def list_local_hubs(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
         raise HTTPException(status_code=403, detail="Only warehouse managers can manage local hubs")
@@ -201,7 +204,10 @@ async def publish_hub_order(order_id: str, current_user: dict = Depends(get_curr
     order_for_job["nearbyFulfillmentLocation"] = {"name": hub.get("name"), "address": hub.get("address"), "coordinates": ((hub.get("location") or {}).get("coordinates") or [])}
     order_for_job["deliveryPickupLocation"] = {"name": hub.get("name"), "address": hub.get("address"), "coordinates": ((hub.get("location") or {}).get("coordinates") or [])}
     order_for_job["orderStatus"] = "dispatched"
-    farm = {"name": hub.get("name") or "Local Hub", "address": hub.get("address") or "", "lat": 0, "lng": 0}
+    hub_coords = ((hub.get("location") or {}).get("coordinates") or [])
+    if len(hub_coords) < 2:
+        raise HTTPException(status_code=409, detail="Configure the local hub map coordinates before publishing delivery jobs")
+    farm = {"name": hub.get("name") or "Local Hub", "address": hub.get("address") or "", "lat": float(hub_coords[1]), "lng": float(hub_coords[0])}
     job = build_job_document(order_for_job, farm, float(order.get("routeDistanceKm") or 0))
     job["jobType"] = "customer_delivery"
     job["localHubId"] = ObjectId(hub_id)
