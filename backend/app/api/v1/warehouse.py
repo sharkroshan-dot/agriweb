@@ -79,6 +79,11 @@ class WarehouseIncomingStoreRequest(BaseModel):
 
 
 class WarehouseDeliveryRouteRequest(BaseModel):
+    """Route a warehouse-fulfilled shipment using the shared 15 km default threshold.
+
+    Farmer-packed orders are intentionally handled by the dedicated
+    farmer-fulfillment transfer endpoints instead of the normal outgoing route.
+    """
     route: str = Field(..., pattern="^(nearby|long_distance)$")
     radius: int = Field(15, ge=1, le=200)
 
