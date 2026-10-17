@@ -32,6 +32,9 @@ export default function WarehouseOutgoingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [activeSection, setActiveSection] = useState<RouteKey>("nearby");
+  const [selectedHubByOrder, setSelectedHubByOrder] = useState<Record<string, string>>({});
+  const hubsQuery = useQuery({ queryKey: ["warehouse-local-hubs-dispatch"], queryFn: () => api.get("/warehouse/me/local-hubs"), retry: 1 });
+  const localHubs = hubsQuery.data?.data?.hubs || hubsQuery.data?.hubs || [];
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["warehouseOutgoing", statusFilter],
     queryFn: () => api.get("/warehouse/me/outgoing", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 100 } }),
@@ -65,7 +68,14 @@ export default function WarehouseOutgoingPage() {
           succeeded += 1;
           continue;
         }
-        const route = section === "nearby" ? "nearby" : "long_distance";
+        if (section === "same_district") {
+          const hub = localHubs.find((candidate: any) => String(candidate.district || "").toLowerCase() === String(item.destinationDistrict || "").toLowerCase()) || localHubs[0];
+          if (!hub?.id) throw new Error("Create a local hub for this district before processing this section.");
+          await api.post(`/warehouse/me/local-hubs/${hub.id}/orders/${item.orderId}/dispatch`, {});
+          succeeded += 1;
+          continue;
+        }
+        const route = "nearby";
         await api.post("/warehouse/me/outgoing/" + item.id + "/delivery-route", { route, radius: item.nearbyThresholdKm ?? 15 });
         await api.put("/warehouse/me/outgoing/" + item.id + "/status", undefined, { params: { status: "dispatched" } });
         await api.post("/warehouse/me/outgoing/" + item.id + "/delivery-route", { route, radius: item.nearbyThresholdKm ?? 15 });
@@ -85,7 +95,16 @@ export default function WarehouseOutgoingPage() {
       const audit = auditResponse?.data || auditResponse;
       if (!audit?.readyForDispatch) throw new Error("Packing verification is incomplete. Verify packed quantities before dispatch.");
 
-      if (category === "nearby" || category === "same_district") {
+      if (category === "same_district") {
+        const selectedHubId = selectedHubByOrder[String(item.id)] || selectedHubByOrder[String(item.orderId)];
+        const hub = localHubs.find((candidate: any) => String(candidate.id) === String(selectedHubId)) || localHubs.find((candidate: any) => String(candidate.district || "").toLowerCase() === String(item.destinationDistrict || "").toLowerCase()) || localHubs[0];
+        if (!hub?.id) throw new Error("Create a local hub first, then select it for this shipment.");
+        await api.post(`/warehouse/me/local-hubs/${hub.id}/orders/${item.orderId}/dispatch`, {});
+        toast.success(`Order dispatched to ${hub.name}. The hub manager must confirm receipt before publishing it to delivery partners.`);
+        await refetch();
+        return;
+      }
+      if (category === "nearby") {
         // Existing warehouse routing supports direct delivery or a controlled
         // local-hub handoff. The long-distance route keeps partner assignment
         // gated until the hub confirms receipt.
@@ -154,7 +173,7 @@ export default function WarehouseOutgoingPage() {
       </div>
       <div className="flex min-w-[220px] flex-col gap-2 lg:items-end">
         {activeSection === "nearby" && ["pending","packed"].includes(String(item.status)) && <Button disabled={!routeReady(item)} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Verify & Dispatch to Partner</Button>}
-        {activeSection === "same_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Local hub transfer</p><p className="mt-1 text-xs text-muted-foreground">Dispatch the sealed shipment to the hub, confirm physical receipt, then assign final-mile delivery.</p><Button className="mt-3 w-full" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status))} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Start Local Hub Transfer</Button></div>}
+        {activeSection === "same_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Local hub transfer</p><p className="mt-1 text-xs text-muted-foreground">Choose the destination hub. Its manager must confirm receipt before the order is published to delivery partners.</p><select className="mt-3 w-full rounded-md border bg-background p-2 text-sm" value={selectedHubByOrder[String(item.id)] || selectedHubByOrder[String(item.orderId)] || ""} onChange={(e) => setSelectedHubByOrder((current) => ({ ...current, [String(item.id)]: e.target.value }))}><option value="">Select local hub…</option>{localHubs.map((hub: any) => <option key={hub.id} value={hub.id}>{hub.name} — {hub.district}</option>)}</select><Button className="mt-3 w-full" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status)) || !localHubs.length} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Dispatch to Local Hub</Button></div>}
         {activeSection === "inter_district" && String(item.status || "").toLowerCase() !== "dispatched" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Destination warehouse transfer</p><p className="mt-1 text-xs text-muted-foreground">Assign a destination warehouse and transfer team, then confirm receipt and continue to the local hub.</p><Button className="mt-3 w-full" variant="outline" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status || "").toLowerCase())} onClick={() => processDispatch(item)}><Warehouse className="mr-2 h-4 w-4"/>Process Destination Transfer</Button></div>}
         {activeSection === "multi_warehouse" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Consolidation required</p><p className="mt-1 text-xs text-muted-foreground">Receive all source portions before the local-hub handoff.</p><Button className="mt-3 w-full" variant="outline" onClick={() => { window.location.href = "/warehouse/consolidation"; }}><Warehouse className="mr-2 h-4 w-4"/>Open Consolidation</Button></div>}
         {activeSection === "farmer_fulfillment_transfer" && <Button variant="outline" onClick={() => { window.location.href = "/farmer-fulfillment"; }}>Open Farmer Fulfillment Transfers</Button>}
