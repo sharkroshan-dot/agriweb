@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search, RefreshCw, Clock3, AlertCircle, Send, MapPin, Warehouse, Route, Truck, PackageCheck, CheckCircle2, CircleAlert } from "lucide-react";
+import { Search, RefreshCw, Clock3, AlertCircle, Send, MapPin, Warehouse, Route, Truck, PackageCheck, CheckCircle2, AlertCircle } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -69,7 +69,7 @@ export default function WarehouseOutgoingPage() {
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <Card><CardContent className="p-4"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Total Shipments</span><PackageCheck className="h-5 w-5 text-muted-foreground"/></div><p className="mt-2 text-2xl font-bold">{outgoing.length}</p></CardContent></Card>
       <Card><CardContent className="p-4"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Ready for Dispatch</span><Send className="h-5 w-5 text-muted-foreground"/></div><p className="mt-2 text-2xl font-bold">{outgoing.filter((x: any) => ["pending","packed"].includes(String(x.status))).length}</p></CardContent></Card>
-      <Card><CardContent className="p-4"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Route Review</span><CircleAlert className="h-5 w-5 text-amber-600"/></div><p className="mt-2 text-2xl font-bold">{grouped.route_review.length + grouped.needs_location.length}</p></CardContent></Card>
+      <Card><CardContent className="p-4"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Route Review</span><AlertCircle className="h-5 w-5 text-amber-600"/></div><p className="mt-2 text-2xl font-bold">{grouped.route_review.length + grouped.needs_location.length}</p></CardContent></Card>
       <Card><CardContent className="p-4"><div className="flex items-center justify-between"><span className="text-sm text-muted-foreground">Dispatched</span><CheckCircle2 className="h-5 w-5 text-emerald-600"/></div><p className="mt-2 text-2xl font-bold">{outgoing.filter((x: any) => x.status === "dispatched").length}</p></CardContent></Card>
     </div>
 
