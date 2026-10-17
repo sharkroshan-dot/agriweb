@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle, Warehouse } from "lucide-react";
+import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle, Warehouse, Search, Clock3 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -11,7 +11,47 @@ import { Input } from "../../components/ui/input";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
+const getPackingActivityDate = (task: any): Date | null => {
+  const status = String(task?.status || "").toLowerCase();
+  const rawDate =
+    (["packed", "customer_approval_pending", "verified", "ready_for_dispatch", "dispatched"].includes(status)
+      ? task?.packingCompletedAt || task?.packedAt || task?.completedAt
+      : null) ||
+    (["packing", "partially_packed"].includes(status) ? task?.packingStartedAt || task?.startedAt : null) ||
+    task?.packingTeamAssignedAt ||
+    task?.createdAt;
+  if (!rawDate) return null;
+  const parsed = new Date(rawDate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const matchesPackingDate = (task: any, period: string): boolean => {
+  if (period === "all") return true;
+  const date = getPackingActivityDate(task);
+  if (!date) return false;
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(start);
+  if (period === "today") end.setDate(start.getDate() + 1);
+  else if (period === "yesterday") {
+    start.setDate(start.getDate() - 1);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 1);
+  } else if (period === "week") {
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 7);
+  }
+  return date >= start && date < end;
+};
+
+const isUnfinishedPackingTask = (task: any) =>
+  ["ready_for_packing", "assigned", "packing", "partially_packed"].includes(String(task?.status || "").toLowerCase());
+
 export default function WarehousePackingPage() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">("today");
+  const [showRemainingOnly, setShowRemainingOnly] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
   const [farmAssignmentMessages, setFarmAssignmentMessages] = useState<Record<string, { kind: "success" | "error" | "info"; text: string }>>({});
@@ -47,16 +87,43 @@ export default function WarehousePackingPage() {
     return { key, name: farmName || farmerName || (farmId ? "Farm " + farmId.slice(-6) : "Farm details unavailable"), farmerName, address };
   };
 
+  const filteredTasks = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return tasks.filter((task: any) => {
+      if (!matchesPackingDate(task, dateFilter)) return false;
+      if (!query) return true;
+      const farm = getFarmDetails(task);
+      const values = [
+        farm.name, farm.farmerName, farm.address, task.farmId, task.farmerId,
+        task.orderNumber, task.orderId, task.id, task.status, task.batchId,
+        task.customer?.name, task.customer?.phone,
+        ...(task.items || []).flatMap((item: any) => [item.productName, item.productId]),
+        ...(task.packingItems || []).flatMap((item: any) => [item.productName, item.productId]),
+        task.deliveryAddress?.addressLine1, task.deliveryAddress?.city,
+        task.deliveryAddress?.district, task.deliveryAddress?.state, task.deliveryAddress?.zipCode,
+      ];
+      return values.filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
+    });
+  }, [tasks, searchTerm, dateFilter]);
+
+  const visibleTasks = useMemo(
+    () => showRemainingOnly ? filteredTasks.filter(isUnfinishedPackingTask) : filteredTasks,
+    [filteredTasks, showRemainingOnly],
+  );
+
   const farmGroups = useMemo(() => {
     const groups = new Map<string, { key: string; name: string; farmerName: string; address: string; tasks: any[] }>();
-    for (const task of tasks) {
+    for (const task of visibleTasks) {
       const details = getFarmDetails(task);
       const group = groups.get(details.key) || { ...details, tasks: [] };
       group.tasks.push(task);
       groups.set(details.key, group);
     }
     return Array.from(groups.values());
-  }, [tasks]);
+  }, [visibleTasks]);
+
+  const unfinishedCount = filteredTasks.filter(isUnfinishedPackingTask).length;
+  const finishedCount = filteredTasks.length - unfinishedCount;
 
   const assignFarmTeam = async (farm: { key: string; name: string; tasks: any[] }) => {
     const teamId = (farmTeam[farm.key] || "").trim();
