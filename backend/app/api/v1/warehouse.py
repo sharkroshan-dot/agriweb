@@ -6875,10 +6875,29 @@ async def get_my_outgoing_stock(
         limit
     )
     # Enrich ordinary warehouse dispatch rows with the same distance/district
-    # classification used by Farmer Fulfillment Transfers. This is advisory only:
-    # farmer-fulfillment transfer rows remain owned by their dedicated workflow.
-    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or {}
-    source_district = str(warehouse.get("district") or warehouse.get("address", {}).get("district") or "").strip()
+    # classification used by Farmer Fulfillment Transfers. Resolve saved-address
+    # snapshots for legacy orders before deciding location data is missing.
+    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or warehouse.get("address", {}).get("location") or {}
+    warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
+    warehouse_location_data = warehouse.get("location") if isinstance(warehouse.get("location"), dict) else {}
+    source_district = str(
+        warehouse.get("district") or warehouse.get("districtName") or warehouse_address.get("district")
+        or warehouse_address.get("districtName") or warehouse_location_data.get("district")
+        or warehouse_address.get("city") or warehouse_address.get("town") or ""
+    ).strip()
+
+    def _first_location(*values):
+        for value in values:
+            if not isinstance(value, dict):
+                continue
+            # Accept common GeoJSON, lat/lng, and nested address/location shapes.
+            if distance_km(value, value) is not None:
+                return value
+            nested = value.get("location") or value.get("coordinates") or value.get("geo")
+            if isinstance(nested, dict) and distance_km(nested, nested) is not None:
+                return nested
+        return None
+
     for item in outgoing:
         order_id_for_route = str(item.get("orderId") or "")
         order_for_route = await order_repository.get_by_id(order_id_for_route) if ObjectId.is_valid(order_id_for_route) else None
@@ -6886,31 +6905,86 @@ async def get_my_outgoing_stock(
             item.update({"routeCategory": "needs_location", "routeDataComplete": False, "routeDecisionReason": "Order details are unavailable"})
             continue
         # Farmer-packed transfers must never be routed from this queue.
-        if str(order_for_route.get("fulfillmentMethod") or "").lower() == "farmer":
+        if str(order_for_route.get("fulfillmentMethod") or "").strip().lower() == "farmer":
             item.update({"routeCategory": "farmer_fulfillment_transfer", "routeDataComplete": False, "routeDecisionReason": "Continue in Farmer Fulfillment Transfers"})
             continue
-        address = order_for_route.get("deliveryAddress") or order_for_route.get("shippingAddress") or {}
-        destination_location = address.get("location") or address.get("coordinates") or {}
-        destination_district = str(address.get("district") or order_for_route.get("deliveryDistrict") or order_for_route.get("district") or "").strip()
+
+        address_value = order_for_route.get("deliveryAddress") or order_for_route.get("shippingAddress") or {}
+        address = address_value if isinstance(address_value, dict) else {}
+        shipping = order_for_route.get("shippingAddress") if isinstance(order_for_route.get("shippingAddress"), dict) else {}
+        saved_address = None
+        customer_id = str(order_for_route.get("customerId") or "")
+        address_id = str(order_for_route.get("deliveryAddressId") or order_for_route.get("shippingAddressId") or "")
+        if customer_id and ObjectId.is_valid(customer_id):
+            if address_id and ObjectId.is_valid(address_id):
+                try:
+                    saved_address = await address_repository.get_address_by_id(address_id, customer_id)
+                except Exception:
+                    saved_address = None
+            if not saved_address and not any(
+                address.get(k) or shipping.get(k) or order_for_route.get(k)
+                for k in ("district", "districtName", "district_name", "city", "town", "municipality", "deliveryDistrict", "destinationDistrict", "customerDistrict")
+            ):
+                try:
+                    saved_addresses = await address_repository.get_user_addresses(customer_id)
+                except Exception:
+                    saved_addresses = []
+                saved_address = next((a for a in saved_addresses if a.get("isDefault") or a.get("is_default")), None)
+                if not saved_address and len(saved_addresses) == 1:
+                    saved_address = saved_addresses[0]
+
+        # Keep the checkout snapshot as highest priority, then fill gaps from
+        # saved address records and legacy top-level delivery fields.
+        destination_location = _first_location(
+            address.get("location"), address.get("coordinates"), address,
+            shipping.get("location"), shipping.get("coordinates"), shipping,
+            saved_address.get("location") if saved_address else None,
+            saved_address.get("coordinates") if saved_address else None,
+            order_for_route.get("customerLocation"), order_for_route.get("deliveryLocation"),
+        )
+        destination_district = str(
+            address.get("district") or address.get("districtName") or address.get("district_name")
+            or shipping.get("district") or shipping.get("districtName") or shipping.get("district_name")
+            or (saved_address or {}).get("district") or (saved_address or {}).get("districtName")
+            or (saved_address or {}).get("district_name")
+            or order_for_route.get("deliveryDistrict") or order_for_route.get("destinationDistrict")
+            or order_for_route.get("customerDistrict") or order_for_route.get("district")
+            or address.get("city") or address.get("town") or address.get("municipality")
+            or shipping.get("city") or shipping.get("town")
+            or (saved_address or {}).get("city") or (saved_address or {}).get("town")
+            or (saved_address or {}).get("municipality") or ""
+        ).strip()
         threshold = float(order_for_route.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
         calculated_distance = distance_km(warehouse_location, destination_location) if warehouse_location and destination_location else None
         allocations = order_for_route.get("warehouseAllocations") or order_for_route.get("sourceWarehouseAllocations") or []
         source_ids = {str(x.get("warehouseId") or x.get("sourceWarehouseId")) for x in allocations if isinstance(x, dict) and (x.get("warehouseId") or x.get("sourceWarehouseId"))}
-        direct_configured = bool(order_for_route.get("directDeliveryConfigured") or order_for_route.get("directWarehouseToCustomerConfigured") or order_for_route.get("deliveryMode") in ("direct", "direct_delivery", "warehouse_to_customer"))
-        if not direct_configured and len(source_ids) <= 1:
-            direct_configured = str(order_for_route.get("logisticsMode") or "").lower() in ("warehouse_to_customer", "warehouse_to_customer_direct", "direct_delivery")
-        category = classify_farmer_fulfillment_route(calculated_distance, threshold, source_district, destination_district, direct_configured, len(source_ids) > 1)
-        # Missing route data and nearby-but-not-configured direct delivery stay in review;
-        # never let the old binary route selector guess a handoff.
+        direct_configured = bool(
+            order_for_route.get("directDeliveryConfigured")
+            or order_for_route.get("directWarehouseToCustomerConfigured")
+            or order_for_route.get("deliveryMode") in ("direct", "direct_delivery", "warehouse_to_customer")
+            or order_for_route.get("logisticsMode") in ("warehouse_to_customer", "warehouse_to_customer_direct", "direct_delivery")
+        )
+        category = classify_farmer_fulfillment_route(
+            calculated_distance, threshold, source_district, destination_district,
+            direct_configured, len(source_ids) > 1,
+        )
+        route_data_complete = category in ("nearby", "same_district", "inter_district", "multi_warehouse")
+        reason = (
+            "Customer delivery coordinates or district could not be resolved from the order snapshot or saved address"
+            if category == "needs_location"
+            else "Nearby delivery is within the threshold, but direct warehouse-to-customer delivery is not configured"
+            if category == "route_review"
+            else None
+        )
         item.update({
             "routeCategory": category,
-            "routeDataComplete": category in ("nearby", "same_district", "inter_district", "multi_warehouse"),
+            "routeDataComplete": route_data_complete,
             "routeDistanceKm": calculated_distance,
             "nearbyThresholdKm": threshold,
             "sourceDistrict": source_district or None,
             "destinationDistrict": destination_district or None,
             "directDeliveryConfigured": direct_configured,
-            "routeDecisionReason": ("Coordinates or district are missing" if category == "needs_location" else "Nearby direct delivery is not configured" if category == "route_review" else None),
+            "routeDecisionReason": reason,
         })
     for item in outgoing:
         item["id"] = str(item["_id"])
