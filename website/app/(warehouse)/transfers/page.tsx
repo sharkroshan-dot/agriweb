@@ -12,6 +12,70 @@ import { formatDate } from "../../lib/utils";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
 
+const humanizeKey = (key: string) => {
+  const labels: Record<string, string> = {
+    orderNumber: "Order Number", orderId: "Order ID", displayOrderId: "Order Number",
+    productName: "Product", productId: "Product ID", displayName: "Product",
+    quantity: "Quantity", displayQuantity: "Quantity", totalQuantity: "Total Quantity",
+    status: "Order Status", displayStatus: "Order Status", currentStage: "Current Stage",
+    warehouseFulfillmentStage: "Warehouse Fulfillment Stage", transferStatus: "Transfer Status",
+    fulfillmentMethod: "Fulfillment Type", fulfillmentType: "Fulfillment Type",
+    sourceName: "From", sourceWarehouseName: "Source Warehouse", sourceWarehouseId: "Source Warehouse ID",
+    destinationName: "To", destinationWarehouseName: "Destination Warehouse", destinationWarehouseId: "Destination Warehouse ID",
+    destinationDistrict: "Delivery District", deliveryDistrict: "Delivery District", sourceDistrict: "Source District",
+    customerName: "Customer", customerId: "Customer ID", customerPhone: "Customer Phone",
+    deliveryAddress: "Delivery Address", shippingAddress: "Shipping Address", address: "Address",
+    paymentStatus: "Payment Status", paymentMethod: "Payment Method", totalAmount: "Order Total",
+    subtotal: "Subtotal", deliveryFee: "Delivery Fee", createdAt: "Order Created", updatedAt: "Last Updated",
+    dispatchedAt: "Dispatched At", receivedAt: "Received At", deliveredAt: "Delivered At",
+    routeDistanceKm: "Route Distance", nearbyThresholdKm: "Nearby Threshold",
+    reason: "Transfer Reason", notes: "Notes", items: "Items", orderItems: "Order Items",
+    batchNumber: "Batch Number", deliveryPartnerName: "Delivery Partner", trackingNumber: "Tracking Number",
+    warehouseId: "Warehouse ID", farmerName: "Farmer", farmerId: "Farmer ID",
+  };
+  return labels[key] || key.replace(/([A-Z])/g, " $1").replace(/[_-]/g, " ").replace(/^./, s => s.toUpperCase()).trim();
+};
+const humanizeValue = (value: any, key = ""): string => {
+  if (value === null || value === undefined || value === "") return "Not provided";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    if (!value.length) return "None";
+    return value.map((item, index) => {
+      if (item && typeof item === "object") {
+        return Object.entries(item)
+          .filter(([k, v]) => !["_id", "id", "__v", "deletedAt", "createdAt", "updatedAt"].includes(k) && v !== null && v !== undefined && typeof v !== "object")
+          .map(([k, v]) => humanizeKey(k) + ": " + humanizeValue(v, k)).join(" · ");
+      }
+      return String(item);
+    }).filter(Boolean).join("\\n");
+  }
+  if (typeof value === "object") {
+    const parts = Object.entries(value)
+      .filter(([k, v]) => !["_id", "id", "__v", "deletedAt", "createdAt", "updatedAt", "password", "token"].includes(k) && v !== null && v !== undefined)
+      .map(([k, v]) => humanizeKey(k) + ": " + humanizeValue(v, k));
+    return parts.length ? parts.join(" · ") : "Details available";
+  }
+  if (typeof value === "string") {
+    const statusLabels: Record<string, string> = {
+      pending: "Pending", in_transit: "In Transit", dispatched: "Dispatched",
+      completed: "Completed", cancelled: "Cancelled", packed: "Packed",
+      ready_for_dispatch: "Ready for Dispatch", received_transfer: "Received at Warehouse",
+      quality_approved: "Quality Approved", stored: "Stored", local_hub_ready: "Received at Local Hub",
+      hub_handoff_pending: "Local Hub Transfer Pending", hub_arrived_pending_receipt: "Awaiting Local Hub Receipt",
+      warehouse: "Warehouse Fulfillment", farmer: "Farmer Fulfillment", farm_direct: "Farmer Fulfillment",
+    };
+    if (statusLabels[value.toLowerCase()]) return statusLabels[value.toLowerCase()];
+    if (/^(19|20)\\d{2}-\\d{2}-\\d{2}T/.test(value)) {
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+    }
+    return value.replace(/_/g, " ");
+  }
+  if (typeof value === "number" && /distance/i.test(key)) return value.toFixed(1) + " km";
+  if (typeof value === "number" && /amount|price|fee|subtotal|total/i.test(key)) return "₹" + value.toLocaleString("en-IN");
+  return String(value);
+};
+
 const statusConfig: Record<string, { label: string; color: string; icon: any }> = {
   completed: { label: "Completed", color: "border-green-200 bg-green-50 text-green-700", icon: CheckCircle },
   in_transit: { label: "In Transit", color: "border-blue-200 bg-blue-50 text-blue-700", icon: ArrowUpRight },
@@ -169,7 +233,7 @@ export default function WarehouseTransfersPage() {
       </div>
       {isLoading || outgoingLoading || farmerLoading ? <Card><CardContent className="p-8 text-center">Loading transfer and order details…</CardContent></Card> : visibleOrders.length === 0 ? <Card><CardContent className="p-8 text-center">No orders found in this section for the selected filters.</CardContent></Card> : <div className="space-y-3">{visibleOrders.map((o:any) => { const raw=String(o.displayStatus||"pending").toLowerCase(); const cfg=statusConfig[raw]|| (raw.includes("complete")||raw.includes("stored")||raw.includes("local_hub_ready")?statusConfig.completed:raw.includes("transit")||raw.includes("dispatched")||raw.includes("handoff")?statusConfig.in_transit:raw.includes("cancel")?statusConfig.cancelled:statusConfig.pending); const Icon=cfg.icon; return <Card key={o.rowId}><CardContent className="p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="flex min-w-0 items-start gap-3"><div className="rounded-full bg-slate-100 p-2"><ArrowLeftRight className="h-5 w-5 text-slate-600"/></div><div className="min-w-0 space-y-2"><div className="flex flex-wrap items-center gap-2"><p className="break-all font-semibold">{o.displayOrderId}</p><Badge className={cfg.color}><Icon className="mr-1 h-3 w-3"/>{String(o.displayStatus).replace(/_/g," ")}</Badge><Badge variant="outline">{o.fulfillmentType==="farmer"?"Farmer Fulfillment":"Warehouse Fulfillment"}</Badge></div><p className="text-sm">{o.displayName} · Quantity: {o.displayQuantity}</p><p className="text-sm text-muted-foreground">{o.sourceName} → {o.destinationName}</p><p className="text-xs text-muted-foreground">Current stage: <span className="font-medium text-foreground">{String(o.currentStage).replace(/_/g," ")}</span></p>{o.routeDistanceKm!=null&&<p className="text-xs text-muted-foreground">Route distance: {Number(o.routeDistanceKm).toFixed(1)} km · Threshold: {o.nearbyThresholdKm||15} km</p>}</div></div><div className="shrink-0 text-right text-sm"><p className="text-muted-foreground">{o.updated?formatDate(o.updated):"—"}</p><p className="mt-1 text-xs text-muted-foreground">Last updated</p><Button className="mt-2" variant="outline" size="sm" onClick={()=>viewOrderDetails(o)}>View Full Order Details</Button></div></div></CardContent></Card>})}</div>}
       <div className="border-t pt-4"><h2 className="mb-2 font-semibold">Stock Transfers</h2>{filtered.length===0?<p className="text-sm text-muted-foreground">No stock-to-stock transfers match the filters.</p>:<div className="space-y-2">{filtered.map((t:any)=>{const cfg=statusConfig[t.status]||statusConfig.pending;const Icon=cfg.icon;return <Card key={t.id}><CardContent className="p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{t.id}</span><Badge className={cfg.color}><Icon className="mr-1 h-3 w-3"/>{cfg.label}</Badge></div><p className="text-sm">{t.productName||t.productId} · {t.quantity}</p><p className="text-xs text-muted-foreground">{t.fromWarehouseName||t.fromWarehouseId} → {t.toWarehouseName||t.toWarehouseId}</p></div><div className="text-right text-sm"><p>{t.createdAt?formatDate(t.createdAt):"—"}</p>{t.status!=="completed"&&t.status!=="cancelled"&&t.toWarehouseId&&<Button variant="outline" size="sm" onClick={()=>complete(t.id)}>Mark Received</Button>}</div></div></CardContent></Card>})}</div>}</div>
-      <Dialog open={!!selectedOrder} onOpenChange={(open)=>{if(!open){setSelectedOrder(null);setOrderDetail(null);}}}><DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Full Order Details</DialogTitle></DialogHeader>{selectedOrder&&<div className="space-y-4"><div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{selectedOrder.displayOrderId||selectedOrder.orderNumber||selectedOrder.orderId||selectedOrder.id}</p><Badge variant="outline">{selectedOrder.fulfillmentType==="farmer"?"Farmer Fulfillment":"Warehouse Fulfillment"}</Badge><Badge>{String(selectedOrder.displayStatus||"pending").replace(/_/g," ")}</Badge></div><p className="mt-1 text-sm text-muted-foreground">Current stage: {String(selectedOrder.currentStage||"—").replace(/_/g," ")}</p></div>{detailLoading?<p className="p-4 text-center text-sm text-muted-foreground">Loading additional order details…</p>:<div className="grid gap-3 sm:grid-cols-2">{Object.entries({...selectedOrder,...(orderDetail&&typeof orderDetail==="object"?orderDetail:{})}).filter(([key,value])=>!["rowId","_id","__v","fulfillmentType","displayOrderId","displayStatus","displayName","displayQuantity","sourceName","destinationName","updated","currentStage"].includes(key)&&value!==null&&value!==undefined&&typeof value!=="function").map(([key,value])=><div key={key} className="min-w-0 rounded-md border p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{key.replace(/([A-Z])/g," $1").replace(/_/g," ")}</p><p className="mt-1 break-words text-sm">{typeof value==="object"?JSON.stringify(value,null,2):String(value)}</p></div>)}</div>}<div className="flex justify-end"><Button variant="outline" onClick={()=>{setSelectedOrder(null);setOrderDetail(null);}}>Close</Button></div></div>}</DialogContent></Dialog>
+      <Dialog open={!!selectedOrder} onOpenChange={(open)=>{if(!open){setSelectedOrder(null);setOrderDetail(null);}}}><DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>Full Order Details</DialogTitle></DialogHeader>{selectedOrder&&<div className="space-y-4"><div className="rounded-lg border p-3"><div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{selectedOrder.displayOrderId||selectedOrder.orderNumber||selectedOrder.orderId||selectedOrder.id}</p><Badge variant="outline">{selectedOrder.fulfillmentType==="farmer"?"Farmer Fulfillment":"Warehouse Fulfillment"}</Badge><Badge>{String(selectedOrder.displayStatus||"pending").replace(/_/g," ")}</Badge></div><p className="mt-1 text-sm text-muted-foreground">Current stage: {String(selectedOrder.currentStage||"—").replace(/_/g," ")}</p></div>{detailLoading?<p className="p-4 text-center text-sm text-muted-foreground">Loading additional order details…</p>:<div className="grid gap-3 sm:grid-cols-2">{Object.entries({...selectedOrder,...(orderDetail&&typeof orderDetail==="object"?orderDetail:{})}).filter(([key,value])=>!["rowId","_id","id","__v","fulfillmentType","displayOrderId","displayStatus","displayName","displayQuantity","sourceName","destinationName","updated","currentStage","password","token","deletedAt"].includes(key)&&value!==null&&value!==undefined&&typeof value!=="function"&&!key.toLowerCase().endsWith("userid")&&!key.toLowerCase().endsWith("objectid")).map(([key,value])=><div key={key} className="min-w-0 rounded-md border p-3"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{humanizeKey(key)}</p><p className="mt-1 whitespace-pre-line break-words text-sm">{humanizeValue(value,key)}</p></div>)}</div>}<div className="flex justify-end"><Button variant="outline" onClick={()=>{setSelectedOrder(null);setOrderDetail(null);}}>Close</Button></div></div>}</DialogContent></Dialog>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}><DialogContent><DialogHeader><DialogTitle>Create Transfer</DialogTitle></DialogHeader><form className="space-y-3" onSubmit={submit}><Input placeholder="Destination warehouse ID" value={form.toWarehouseId} onChange={e=>setForm({...form,toWarehouseId:e.target.value})} required/><Input placeholder="Product ID" value={form.productId} onChange={e=>setForm({...form,productId:e.target.value})} required/><Input placeholder="Variant ID (optional)" value={form.variantId} onChange={e=>setForm({...form,variantId:e.target.value})}/><Input type="number" min="1" placeholder="Quantity" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})} required/><Input placeholder="Reason" value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})} required/><Button type="submit" disabled={saving} className="w-full">{saving ? "Creating…" : "Create Transfer"}</Button></form></DialogContent></Dialog>
     </div>
   );
