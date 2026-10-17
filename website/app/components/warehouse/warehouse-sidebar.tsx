@@ -49,6 +49,13 @@ const navSections = [
     ],
   },
   {
+    title: "Local Hub Operations",
+    items: [
+      { name: "Local Hub Orders & Receiving", href: "/fulfillment", icon: PackageCheck },
+      { name: "Consolidation & Hub Handoff", href: "/warehouse/consolidation", icon: Boxes },
+    ],
+  },
+  {
     title: "Warehouse Management",
     items: [
       { name: "Cold Storage", href: "/cold-storage", icon: Snowflake },
