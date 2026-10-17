@@ -6896,13 +6896,6 @@ async def get_my_outgoing_stock(
         item["packingVerified"] = task_status in {"ready_for_dispatch", "dispatched"} or bool(task.get("verified"))
         eligible_outgoing.append(item)
     outgoing = eligible_outgoing
-    skip = (page - 1) * limit
-    outgoing, total = await WarehouseService.get_outgoing_stock(
-        str(warehouse["_id"]),
-        status,
-        skip,
-        limit
-    )
     # Enrich ordinary warehouse dispatch rows with the same distance/district
     # classification used by Farmer Fulfillment Transfers. Resolve saved-address
     # snapshots for legacy orders before deciding location data is missing.
