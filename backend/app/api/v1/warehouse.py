@@ -1145,7 +1145,14 @@ async def get_farmer_fulfillment_transfers(
         ).strip().lower()
         linked_status = str(linked_order.get("orderStatus") or linked_order.get("status") or "").lower()
         linked_logistics = str(linked_order.get("logisticsMode") or "").strip().lower()
-        is_farmer_transfer = (
+        # An explicit warehouse-fulfillment method always wins over legacy
+        # incoming-row hints. This endpoint must never pull a warehouse-packed
+        # customer order into the farmer transfer workflow just because an old
+        # receipt happens to contain pickupRouteId/packingRequired metadata.
+        is_explicit_warehouse_order = linked_method in (
+            "warehouse", "warehouse_fulfillment", "warehouse-fulfillment"
+        )
+        is_farmer_transfer = not is_explicit_warehouse_order and (
             linked_method in ("farmer", "farm_direct")
             or linked_logistics in (
                 "farmer_to_delivery_partner",
