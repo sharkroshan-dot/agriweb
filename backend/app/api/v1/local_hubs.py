@@ -16,6 +16,11 @@ from app.core.security import Security
 router = APIRouter()
 
 
+class HubPasswordChange(BaseModel):
+    currentPassword: str = Field(..., min_length=8, max_length=128)
+    newPassword: str = Field(..., min_length=8, max_length=128)
+
+
 class LocalHubCreate(BaseModel):
     name: str = Field(..., min_length=3, max_length=120)
     district: str = Field(..., min_length=2, max_length=100)
@@ -155,7 +160,7 @@ async def hub_dashboard(current_user: dict = Depends(get_current_user)):
             "published": bool(job and job.get("status") in (JOB_OPEN, "accepted", "delivered")),
             "jobStatus": (job or {}).get("status"),
         })
-    return {"success": True, "data": {"hub": _safe(hub), "orders": rows, "counts": {"incoming": sum(1 for r in rows if r["status"] in ("dispatched", "in_transit", "arrived_at_destination")), "received": sum(1 for r in rows if r["status"] in ("received", "ready_for_delivery")), "published": sum(1 for r in rows if r["published"])}}}
+    return {"success": True, "data": {"hub": _safe(hub), "mustChangePassword": bool(current_user.get("mustChangePassword")), "orders": rows, "counts": {"incoming": sum(1 for r in rows if r["status"] in ("dispatched", "in_transit", "arrived_at_destination")), "received": sum(1 for r in rows if r["status"] in ("received", "ready_for_delivery")), "published": sum(1 for r in rows if r["published"])}}}
 
 
 @router.post("/hub/me/transfers/{transfer_id}/receive")
@@ -276,3 +281,16 @@ async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: 
         "updatedAt": now,
     })
     return {"success": True, "data": {"transferId": str(inserted.inserted_id), "orderId": order_id, "hubId": hub_id, "status": "dispatched"}, "message": "Order dispatched to local hub"}
+
+
+@router.post("/hub/me/change-password")
+async def change_local_hub_password(payload: HubPasswordChange, current_user: dict = Depends(get_current_user)):
+    _hub_id(current_user)
+    if not Security.verify_password(payload.currentPassword, current_user.get("passwordHash", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if payload.currentPassword == payload.newPassword:
+        raise HTTPException(status_code=400, detail="Choose a new password different from the temporary password")
+    users = MongoDB.get_collection("users")
+    now = datetime.utcnow()
+    await users.update_one({"_id": ObjectId(str(current_user["_id"]))}, {"$set": {"passwordHash": Security.get_password_hash(payload.newPassword), "mustChangePassword": False, "passwordChangedAt": now, "updatedAt": now}})
+    return {"success": True, "message": "Password changed successfully"}
