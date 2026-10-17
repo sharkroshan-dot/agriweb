@@ -20,6 +20,8 @@ export default function LocalHubManagementPage() {
   const qc = useQueryClient();
   const [form, setForm] = useState({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", latitude: "", longitude: "", managerName: "", username: "", email: "" });
   const [createdCredentials, setCreatedCredentials] = useState<any>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const hubsQuery = useQuery({
     queryKey: ["warehouse-local-hubs"],
     queryFn: async () => unwrap(await api.get(isHubManager ? "/hub/me/dashboard" : "/warehouse/me/local-hubs")),
@@ -42,6 +44,7 @@ export default function LocalHubManagementPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); toast.success("Physical receipt confirmed"); },
     onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not confirm receipt"),
   });
+  const changePassword = useMutation({ mutationFn: () => api.post("/hub/me/change-password", { currentPassword, newPassword }), onSuccess: () => { setCurrentPassword(""); setNewPassword(""); qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); toast.success("Password changed successfully"); }, onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not change password") });
   const publish = useMutation({
     mutationFn: (id: string) => api.post(`/hub/me/orders/${id}/publish`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); toast.success("Order published to delivery partners"); },
