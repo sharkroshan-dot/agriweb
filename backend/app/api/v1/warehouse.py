@@ -7819,3 +7819,52 @@ async def dispatch_ordinary_inter_district_order(
         "transferTeamName": eligible_team.get("name") or eligible_team.get("fullName") or "Warehouse Transfer Team",
         "status": "in_transit",
     }, "message": "Destination warehouse and approved transfer team assigned; inter-district shipment dispatched."}
+
+
+@router.get("/me/transfers/order-search")
+async def search_warehouse_transfer_order(
+    q: str = Query(..., min_length=2, max_length=120),
+    current_user: dict = Depends(get_current_user),
+):
+    """Search the warehouse's complete order history, not only the first outgoing page."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can search warehouse orders")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    warehouse_refs = [ObjectId(warehouse_id), warehouse_id]
+    query = q.strip()
+    order_filter = {
+        "$and": [
+            {"$or": [{"warehouseId": {"$in": warehouse_refs}}, {"sourceWarehouseId": {"$in": warehouse_refs}}]},
+            {"$or": [
+                {"orderNumber": {"$regex": query, "$options": "i"}},
+                {"orderNo": {"$regex": query, "$options": "i"}},
+                {"_id": ObjectId(query) if ObjectId.is_valid(query) else {"$exists": False}},
+            ]},
+        ]
+    }
+    orders = await order_repository.find_many(order_filter, skip=0, limit=25, sort=[("createdAt", -1)])
+    # Include exact outgoing references where order metadata is legacy/incomplete.
+    results = []
+    for order in orders:
+        if str(order.get("fulfillmentMethod") or order.get("fulfillment_method") or "").strip().lower() not in {"warehouse", "warehouse_fulfillment", "warehouse-fulfillment"}:
+            continue
+        order_id = str(order.get("_id") or "")
+        outgoing_rows = await outgoing_stock_repository.find_many({
+            "orderId": {"$in": [ObjectId(order_id), order_id]},
+            "warehouseId": {"$in": warehouse_refs},
+            "deletedAt": None,
+        }, skip=0, limit=100)
+        result = dict(order)
+        result["id"] = order_id
+        result["orderId"] = order_id
+        result["orderNumber"] = order.get("orderNumber") or order.get("orderNo") or order_id
+        result["status"] = order.get("warehouseFulfillmentStage") or order.get("deliveryState") or order.get("orderStatus") or order.get("status") or "pending"
+        result["warehouseFulfillmentStage"] = order.get("warehouseFulfillmentStage") or result["status"]
+        result["productName"] = ", ".join(str(x.get("productName") or x.get("name") or x.get("productId") or "Product") for x in (order.get("items") or []) if isinstance(x, dict)) or "Warehouse fulfillment order"
+        result["quantity"] = sum(float(x.get("quantity") or 0) for x in (order.get("items") or []) if isinstance(x, dict))
+        result["outgoingLines"] = [{"id": str(x.get("_id") or ""), "status": x.get("status"), "quantity": x.get("quantity"), "productId": str(x.get("productId") or "")} for x in outgoing_rows]
+        results.append(_make_json_safe(result))
+    return {"success": True, "data": {"orders": results, "count": len(results), "searchQuery": query}}
