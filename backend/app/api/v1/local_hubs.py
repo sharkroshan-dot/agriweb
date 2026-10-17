@@ -194,8 +194,10 @@ async def publish_hub_order(order_id: str, current_user: dict = Depends(get_curr
     if not transfer:
         raise HTTPException(status_code=409, detail="Confirm physical receipt at this hub before publishing the order")
     existing = await delivery_job_repository.get_by_order_id(order_id)
-    if existing and existing.get("status") in (JOB_OPEN, "accepted", "delivered"):
-        return {"success": True, "data": {"jobId": str(existing["_id"]), "status": existing.get("status")}, "message": "Delivery job is already published"}
+    if existing and str(existing.get("localHubId") or "") == hub_id and existing.get("status") in (JOB_OPEN, "accepted", "delivered"):
+        return {"success": True, "data": {"jobId": str(existing["_id"]), "status": existing.get("status")}, "message": "Delivery job is already published from this hub"}
+    if existing and existing.get("status") in ("accepted", "delivered") and str(existing.get("localHubId") or "") != hub_id:
+        raise HTTPException(status_code=409, detail="This order already has a delivery partner or completed delivery from another source")
     hub = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(hub_id), "facilityType": "local_hub"})
     if not hub:
         raise HTTPException(status_code=404, detail="Local hub not found")
