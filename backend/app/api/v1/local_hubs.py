@@ -224,11 +224,11 @@ async def resend_local_hub_manager_login(hub_id: str, current_user: dict = Depen
         to=email,
         subject="Your AgriConnect Local Hub Manager Login Details",
         plain_text=(
-            f"Hello {manager.get('name') or manager.get('firstName') or 'Local Hub Manager'},\\n\\n"
-            f"Hub: {hub.get('name', 'Local Hub')}\\n"
-            f"Username: {manager['username']}\\n"
-            f"Temporary password: {temporary_password}\\n"
-            f"Login: {login_url}\\n\\n"
+            f"Hello {manager.get('name') or manager.get('firstName') or 'Local Hub Manager'},\n\n"
+            f"Hub: {hub.get('name', 'Local Hub')}\n"
+            f"Username: {manager['username']}\n"
+            f"Temporary password: {temporary_password}\n"
+            f"Login: {login_url}\n\n"
             "This is a newly generated temporary password. Choose the Warehouse role and change it immediately after signing in."
         ),
         body=(
