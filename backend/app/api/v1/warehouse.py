@@ -6355,7 +6355,8 @@ async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_
     # verified/ready for dispatch. Existing rows are reused, so retries are safe.
     for line in packing_items:
         existing = await outgoing_stock_repository.get_by_order_id(
-            order_id, str(line["productId"]), str(line.get("variantId") or "")
+            order_id, str(line["productId"]), str(line.get("variantId") or ""),
+            warehouse_id=str(warehouse["_id"]),
         )
         if not existing:
             created = await WarehouseService.create_outgoing(OutgoingStockCreate(
@@ -6828,7 +6829,8 @@ async def get_my_outgoing_stock(
                 continue
             variant_id = str(line.get("variantId") or "")
             existing = await outgoing_stock_repository.get_by_order_id(
-                order_id, product_id, variant_id
+                order_id, product_id, variant_id,
+                warehouse_id=str(warehouse["_id"]),
             )
             if existing:
                 continue
