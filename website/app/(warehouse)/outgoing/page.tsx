@@ -135,20 +135,28 @@ export default function WarehouseOutgoingPage() {
       {isLoading ? <div className="space-y-3">{[1,2,3].map((i)=><div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div> : outgoing.length === 0 ? <Card className="p-12 text-center"><ArrowUp className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No outgoing shipments</h3><p className="mt-2 text-muted-foreground">Outbound stock records will appear here once created.</p></Card> : <div className="space-y-4">{outgoing.map((item: any) => <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><h3 className="font-semibold">{item.orderId || "Dispatch Order"}</h3><Badge className={statusColors[item.status] || "bg-slate-100 text-slate-700"}>{item.status === "pending" ? "Ready for Dispatch" : item.status === "packed" ? "Packed" : item.status === "dispatched" ? "Dispatched" : item.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">Order package · {item.productName || item.productId} · {item.quantity || 0} units</p><div className="mt-2 flex flex-wrap gap-2 text-xs"><Badge variant="outline">{routeLabel(item)}</Badge><span className="text-muted-foreground">Distance: {item.routeDistanceKm == null ? "Not calculated" : `${Number(item.routeDistanceKm).toFixed(1)} km`} · Threshold: {item.nearbyThresholdKm ?? 15} km</span></div><div className="mt-3 flex flex-wrap gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1"><Truck className="h-4 w-4" />{item.deliveryPartnerId || "Unassigned"}</span><span className="flex items-center gap-1"><Clock3 className="h-4 w-4" />{item.dispatchDate ? new Date(item.dispatchDate).toLocaleString() : "Not dispatched"}</span>{item.priority === "high" && <span className="flex items-center gap-1 text-red-600"><AlertCircle className="h-4 w-4" />High priority</span>}</div></div><div className="flex flex-col items-end gap-2">
   {(item.status === "pending" || item.status === "packed") && (
     <div className="flex flex-wrap gap-2">
-      <Button
-        size="sm"
-        variant={selectedRoutes[item.id] === "nearby" ? "default" : "outline"}
-        disabled={!routeReady(item)}\n        onClick={() => chooseDeliveryRoute(item.id, "nearby")}
-      >
-        Nearby
-      </Button>
-      <Button
-        size="sm"
-        variant={selectedRoutes[item.id] === "long_distance" ? "default" : "outline"}
-        disabled={!routeReady(item)}\n        onClick={() => chooseDeliveryRoute(item.id, "long_distance")}
-      >
-        Long Distance
-      </Button>
+      <div className="rounded-md border px-3 py-2 text-xs text-muted-foreground">
+        {routeCategory(item) === "nearby" ? "Automatic decision: direct delivery (within 15 km threshold)" :
+          routeCategory(item) === "same_district" ? "Automatic decision: same-district transfer → local hub" :
+          routeCategory(item) === "inter_district" ? "Automatic decision: destination warehouse required" :
+          routeCategory(item) === "multi_warehouse" ? "Automatic decision: multi-warehouse consolidation required" :
+          routeCategory(item) === "farmer_fulfillment_transfer" ? "Use Farmer Fulfillment Transfers" :
+          "Route review required — dispatch blocked"}
+      </div>
+    </div>
+  )}
+  {(item.status === "pending" || item.status === "packed") && selectedRoutes[item.id] && routeCategory(item) === "nearby" && (
+    <Button size="sm" onClick={() => dispatchSelectedRoute(item.id)}>
+      <Send className="mr-2 h-4 w-4"/>Dispatch Complete Order via Direct Delivery
+    </Button>
+  )}
+  {["same_district", "inter_district", "multi_warehouse"].includes(routeCategory(item)) && (
+    <p className="max-w-xs text-right text-xs text-amber-700">Transfer-team assignment and physical hub/warehouse receipt are required before final-mile delivery. This route is not eligible for direct dispatch.</p>
+  )}
+  {routeCategory(item) === "farmer_fulfillment_transfer" && (
+    <p className="max-w-xs text-right text-xs text-amber-700">Continue this order in Farmer Fulfillment Transfers to prevent duplicate dispatch workflows.</p>
+  )}
+  {
     </div>
   )}
   {(item.status === "pending" || item.status === "packed") && selectedRoutes[item.id] && (
