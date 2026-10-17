@@ -6808,6 +6808,38 @@ async def get_my_outgoing_stock(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Warehouse not found"
         )
+    # Repair older verified packing tasks that reached Ready for Dispatch
+    # before their outgoing rows were created. This makes the Outgoing page
+    # resilient to partial failures during verification and is idempotent.
+    ready_tasks = await warehouse_packing_repository.get_by_warehouse(
+        str(warehouse["_id"]), status="all", limit=500
+    )
+    for task in ready_tasks:
+        task_status = str(task.get("status") or "").lower()
+        if task_status not in {"ready_for_dispatch", "dispatched"} or not task.get("verified"):
+            continue
+        order_id = str(task.get("orderId") or "")
+        if not ObjectId.is_valid(order_id):
+            continue
+        for line in task.get("packingItems") or []:
+            product_id = str(line.get("productId") or "")
+            if not ObjectId.is_valid(product_id):
+                continue
+            variant_id = str(line.get("variantId") or "")
+            existing = await outgoing_stock_repository.get_by_order_id(
+                order_id, product_id, variant_id
+            )
+            if existing:
+                continue
+            await WarehouseService.create_outgoing(OutgoingStockCreate(
+                warehouseId=str(warehouse["_id"]),
+                productId=product_id,
+                variantId=variant_id if ObjectId.is_valid(variant_id) else None,
+                orderId=order_id,
+                quantity=int(float(line.get("packedQuantity") or line.get("quantityRequired") or 0)),
+                batchNumber=line.get("batchNumber"),
+            ))
+
     skip = (page - 1) * limit
     outgoing, total = await WarehouseService.get_outgoing_stock(
         str(warehouse["_id"]),
