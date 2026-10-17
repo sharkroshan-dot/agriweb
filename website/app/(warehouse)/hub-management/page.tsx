@@ -18,7 +18,7 @@ export default function LocalHubManagementPage() {
   const { data: session } = useSession();
   const isHubManager = (session?.user as any)?.facilityType === "local_hub";
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "" });
+  const [form, setForm] = useState({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", latitude: "", longitude: "", managerName: "", username: "", email: "" });
   const [createdCredentials, setCreatedCredentials] = useState<any>(null);
   const hubsQuery = useQuery({
     queryKey: ["warehouse-local-hubs"],
@@ -28,10 +28,10 @@ export default function LocalHubManagementPage() {
     retry: 1,
   });
   const createHub = useMutation({
-    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity) })),
+    mutationFn: async () => unwrap(await api.post("/warehouse/me/local-hubs", { ...form, capacity: Number(form.capacity), latitude: Number(form.latitude), longitude: Number(form.longitude) })),
     onSuccess: (result) => {
       setCreatedCredentials(result);
-      setForm({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", managerName: "", username: "", email: "" });
+      setForm({ name: "", district: "", state: "Tamil Nadu", address: "", capacity: "5000", latitude: "", longitude: "", managerName: "", username: "", email: "" });
       qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] });
       toast.success("Local hub and manager account created");
     },
@@ -52,7 +52,7 @@ export default function LocalHubManagementPage() {
   const orders = result.orders || result.data?.orders || [];
   const hub = result.hub || result.data?.hub || {};
   const credentialData = createdCredentials?.data || createdCredentials;
-  const canCreate = Boolean(form.name.trim() && form.district.trim() && form.state.trim() && form.address.trim() && Number(form.capacity) > 0 && form.managerName.trim() && form.username.trim() && form.email.trim());
+  const canCreate = Boolean(form.name.trim() && form.district.trim() && form.state.trim() && form.address.trim() && Number(form.capacity) > 0 && form.latitude.trim() !== "" && Number(form.latitude) >= -90 && Number(form.latitude) <= 90 && form.longitude.trim() !== "" && Number(form.longitude) >= -180 && Number(form.longitude) <= 180 && form.managerName.trim() && form.username.trim() && form.email.trim());
 
   return <div className="mx-auto max-w-6xl space-y-6">
     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -73,7 +73,7 @@ export default function LocalHubManagementPage() {
           <div className="space-y-1"><label className="text-sm font-medium">Hub name</label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Coimbatore Local Hub" required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">District</label><Input value={form.district} onChange={(e) => setForm({ ...form, district: e.target.value })} required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">State</label><Input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} required /></div>
-          <div className="space-y-1"><label className="text-sm font-medium">Capacity (project units)</label><Input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} required /></div>
+          <div className="space-y-1"><label className="text-sm font-medium">Capacity (project units)</label><Input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} required /></div><div className="space-y-1"><label className="text-sm font-medium">Latitude</label><Input type="number" step="any" value={form.latitude} onChange={(e) => setForm({ ...form, latitude: e.target.value })} placeholder="e.g. 11.0168" required /></div><div className="space-y-1"><label className="text-sm font-medium">Longitude</label><Input type="number" step="any" value={form.longitude} onChange={(e) => setForm({ ...form, longitude: e.target.value })} placeholder="e.g. 76.9558" required /></div>
           <div className="space-y-1 md:col-span-2"><label className="text-sm font-medium">Full address</label><Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">Manager name</label><Input value={form.managerName} onChange={(e) => setForm({ ...form, managerName: e.target.value })} required /></div>
           <div className="space-y-1"><label className="text-sm font-medium">Username</label><Input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" required /></div>
