@@ -6828,6 +6828,13 @@ async def get_my_outgoing_stock(
         order_id = str(task.get("orderId") or "")
         if not ObjectId.is_valid(order_id):
             continue
+        order_id = str(task.get("orderId") or "")
+        order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
+        fulfillment_method = str((order or {}).get("fulfillmentMethod") or (order or {}).get("fulfillment_method") or "").strip().lower()
+        if not order or fulfillment_method not in {"warehouse", "warehouse_fulfillment", "warehouse-fulfillment"}:
+            # Ordinary Outgoing is exclusively for warehouse-fulfilled orders.
+            # Farmer Fulfillment has its own transfer workflow.
+            continue
         for line in task.get("packingItems") or []:
             product_id = str(line.get("productId") or "")
             if not ObjectId.is_valid(product_id):
@@ -6847,14 +6854,6 @@ async def get_my_outgoing_stock(
             quantity = int(float(line.get("packedQuantity") or line.get("quantityRequired") or 0))
             if quantity <= 0:
                 continue
-            order = await order_repository.get_by_id(order_id)
-            if not order:
-                continue
-            # A packing task scoped to this warehouse is the source of truth for
-            # this dispatch queue. Legacy orders may have an old/missing
-            # fulfillmentMethod or warehouseId even though the warehouse task
-            # was validly created and verified. Do not silently hide such orders
-            # from Outgoing; retain the task's warehouse ownership check above.
             await outgoing_stock_repository.create_outgoing({
                 "warehouseId": ObjectId(str(warehouse["_id"])),
                 "productId": ObjectId(product_id),
@@ -6867,6 +6866,36 @@ async def get_my_outgoing_stock(
                 "source": "verified_packing_task_reconciliation",
             })
 
+    skip = (page - 1) * limit
+    outgoing, total = await WarehouseService.get_outgoing_stock(
+        str(warehouse["_id"]),
+        status,
+        skip,
+        limit
+    )
+    # Only explicitly warehouse-fulfilled orders with a verified packing task
+    # may appear here. Farmer fulfillment belongs to its separate transfer page.
+    eligible_outgoing = []
+    for item in outgoing:
+        order_id = str(item.get("orderId") or "")
+        if not ObjectId.is_valid(order_id):
+            continue
+        order = await order_repository.get_by_id(order_id)
+        fulfillment_method = str((order or {}).get("fulfillmentMethod") or (order or {}).get("fulfillment_method") or "").strip().lower()
+        if not order or fulfillment_method not in {"warehouse", "warehouse_fulfillment", "warehouse-fulfillment"}:
+            continue
+        task_id = str(item.get("packingTaskId") or "")
+        task = await warehouse_packing_repository.get_by_id(task_id) if ObjectId.is_valid(task_id) else None
+        if not task:
+            tasks = await warehouse_packing_repository.get_by_order_all(order_id)
+            task = next((t for t in tasks if str(t.get("warehouseId") or "") == str(warehouse["_id"])), None)
+        task_status = str((task or {}).get("status") or "").strip().lower()
+        if not task or str(task.get("warehouseId") or "") != str(warehouse["_id"]) or task_status not in {"ready_for_dispatch", "dispatched"}:
+            continue
+        item["packingStatus"] = task_status
+        item["packingVerified"] = task_status in {"ready_for_dispatch", "dispatched"} or bool(task.get("verified"))
+        eligible_outgoing.append(item)
+    outgoing = eligible_outgoing
     skip = (page - 1) * limit
     outgoing, total = await WarehouseService.get_outgoing_stock(
         str(warehouse["_id"]),
