@@ -138,7 +138,7 @@ export default function LoginPage() {
     } else if (code === "Account not verified") {
       setError("Your account is not verified yet. Enter the verification code sent to your email or phone on the verification page.");
     } else {
-      setError("Incorrect email or password. Please try again.");
+      setError("Incorrect email/username or password. If login details were resent, use the newest temporary password from that email.");
     }
     setIsLoading(false);
   }
@@ -249,16 +249,16 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700" htmlFor="email">
-                Email address
+                Email address or username
               </label>
               <Input
                 id="email"
-                type="email"
+                type="text"
                 name="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
+                placeholder="Email address or username"
+                autoComplete="username"
                 list="saved-emails"
               />
               {savedEmails.length > 0 ? (
