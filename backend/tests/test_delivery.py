@@ -121,6 +121,13 @@ class DummyOrderRepository:
         order.update(update_data)
         return True
 
+    async def update_order_field(self, order_id, field, value):
+        order = self.orders.get(str(order_id))
+        if not order:
+            return False
+        order[field] = value
+        return True
+
     async def update_order_status(self, order_id, status, partner_id=None, note=None):
         order = self.orders.get(str(order_id))
         if not order:
@@ -249,6 +256,7 @@ async def test_complete_assignment_marks_delivered_and_frees_partner(dummy_repos
         "_id": "333333333333333333333333",
         "orderStatus": "in_transit",
         "customerId": "666666666666666666666666",
+        "deliveryVerificationVerifiedAt": __import__("datetime").datetime.utcnow(),
     }
     dummy_repos["assignment"].assignments["444444444444444444444444"] = {
         "_id": "444444444444444444444444",
@@ -288,6 +296,7 @@ async def test_deliver_order_validates_otp(dummy_repos):
         "_id": "333333333333333333333333",
         "orderStatus": "in_transit",
         "customerId": "666666666666666666666666",
+        "deliveryVerificationCode": "1234",
     }
     dummy_repos["assignment"].assignments["444444444444444444444444"] = {
         "_id": "444444444444444444444444",

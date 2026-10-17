@@ -10,6 +10,7 @@ import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import toast from "react-hot-toast";
+import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
 
 interface Job {
   id: string;
@@ -41,8 +42,8 @@ export default function DeliveryReassignPage() {
     retry: 1,
   });
 
-  const open: Job[] = (data?.data?.openJobs || []).map((j: any) => ({ ...j }));
-  const accepted: Job[] = (data?.data?.acceptedJobs || []).map((j: any) => ({ ...j }));
+  const open: Job[] = sortByDeliveryPriority((data?.data?.openJobs || []).map((j: any) => ({ ...j })));
+  const accepted: Job[] = sortByDeliveryPriority((data?.data?.acceptedJobs || []).map((j: any) => ({ ...j })));
 
   const assignMutation = useMutation({
     mutationFn: (jobId: string) => api.post(`/delivery/jobs/${jobId}/accept`),
@@ -79,6 +80,7 @@ export default function DeliveryReassignPage() {
           {j.distanceKm != null && <span className="text-xs text-gray-400">{j.distanceKm} km</span>}
         </div>
       </div>
+      <div className="mb-3"><DeliveryPriorityBadge delivery={j} /></div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
         {j.customerName && <span className="flex items-center gap-1"><User className="h-3.5 w-3.5 text-gray-400" /> {j.customerName}</span>}
         <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5 text-sky-500" /> {j.pickupName || "Farm"}</span>

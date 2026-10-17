@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { CalendarDays, Map, Navigation, Route as RouteIcon } from "lucide-react";
 import { cn } from "../../lib/utils";
 

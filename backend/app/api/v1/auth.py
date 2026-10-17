@@ -310,7 +310,7 @@ def _build_user_response(user: dict) -> UserResponse:
     return UserResponse(
         id=str(user["_id"]),
         email=user["email"],
-        phone=user["phone"],
+        phone=user.get("phone") or user.get("phoneNumber") or user.get("phone_number") or "",
         first_name=user.get("first_name") or user.get("firstName", ""),
         last_name=user.get("last_name") or user.get("lastName", ""),
         role=user["role"],

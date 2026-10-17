@@ -7,6 +7,8 @@ import { api } from "../../../lib/api/client";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
+import toast from "react-hot-toast";
 
 type Inspection = {
   id: string;
@@ -34,12 +36,80 @@ export default function WarehouseQualityInspectionPage() {
   const [weightKg, setWeightKg] = useState("");
   const [notes, setNotes] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [selectedIncoming, setSelectedIncoming] = useState<any>(null);
+  const [incomingQuality, setIncomingQuality] = useState<"passed" | "failed">("passed");
+  const [incomingUsableQuantity, setIncomingUsableQuantity] = useState("");
+  const [incomingQualityNotes, setIncomingQualityNotes] = useState("");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["warehouseQualityQueue"],
     queryFn: () => api.get("/quality/inspections/queue"),
     refetchInterval: 30000,
   });
+
+  const incomingQuery = useQuery({
+    queryKey: ["warehouseIncomingQualityQueue"],
+    queryFn: () => api.get("/warehouse/me/incoming", { params: { limit: 100 } }),
+    refetchInterval: 15000,
+  });
+
+  const incomingQualityQueue: any[] = useMemo(() => {
+    // The API client may expose either the axios response or its unwrapped data.
+    // Accept both response shapes so the recheck list doesn't silently appear empty.
+    const response = incomingQuery.data;
+    const root = response?.data ?? response;
+    const payload = root?.data?.incoming ?? root?.incoming ?? root?.data?.items ?? root?.items ?? root?.data?.results ?? root?.results ?? [];
+    const rows = Array.isArray(payload) ? payload : [];
+    return rows.filter((item: any) => {
+      const status = String(item.status || "").trim().toLowerCase();
+      const quality = String(item.qualityCheck || item.quality_check || "pending").trim().toLowerCase();
+      const mode = String(item.sourceMode || "").trim().toLowerCase();
+      const fulfillment = String(item.fulfillmentMethod || "").trim().toLowerCase();
+      const receivedOrWaiting = ["received", "quality_check"].includes(status);
+      const qualityPending = ["", "pending", "quality_check", "not_checked"].includes(quality);
+      // Strictly include only explicitly identified Warehouse Fulfillment stock.
+      // Do not treat unknown/legacy orders as warehouse fulfillment by default.
+      // Match the fulfillment classifier used by Incoming Stock. Only explicitly
+      // warehouse-fulfilled orders that still require warehouse packing are eligible.
+      const isFarmerFulfillment =
+        fulfillment === "farmer"
+        || ["farmer_fulfillment", "farmer_fulfillment_transfer"].includes(mode)
+        || item.packingRequired === false;
+      const isWarehouseFulfillment =
+        ["warehouse", "warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(fulfillment)
+        || ["warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(mode)
+        || (item.packingRequired === true && !isFarmerFulfillment);
+      return receivedOrWaiting && qualityPending && isWarehouseFulfillment && !isFarmerFulfillment;
+    });
+  }, [incomingQuery.data]);
+
+  const incomingQualityMutation = useMutation({
+    mutationFn: async (qualityCheck: "passed" | "failed") => {
+      if (!selectedIncoming?.id) throw new Error("Select a received shipment first");
+      return api.put(`/warehouse/me/incoming/${selectedIncoming.id}/quality`, {
+        qualityCheck,
+        usableQuantity: Number(incomingUsableQuantity || selectedIncoming.usableQuantity || selectedIncoming.quantityReceived || selectedIncoming.quantity || 0),
+        notes: incomingQualityNotes.trim() || undefined,
+      });
+    },
+    onSuccess: async (_result, qualityCheck) => {
+      setSelectedIncoming(null);
+      setIncomingQualityNotes("");
+      await queryClient.invalidateQueries({ queryKey: ["warehouseIncomingQualityQueue"] });
+      await queryClient.invalidateQueries({ queryKey: ["warehouseIncoming"] });
+      toast.success(qualityCheck === "passed" ? "Quality recheck passed. Shipment can continue to Store." : "Quality recheck failed. Shipment has been rejected and held.");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Unable to update shipment quality result");
+    },
+  });
+
+  const openIncomingRecheck = (item: any) => {
+    setSelectedIncoming(item);
+    setIncomingQuality("passed");
+    setIncomingUsableQuantity(String(item.usableQuantity ?? item.quantityReceived ?? item.quantity ?? ""));
+    setIncomingQualityNotes("");
+  };
 
   const queue: Inspection[] = useMemo(
     () => data?.data?.inspections ?? data?.inspections ?? [],
@@ -108,6 +178,51 @@ export default function WarehouseQualityInspectionPage() {
       </Card>
 
       {error && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load inspection queue.</CardContent></Card>}
+
+      <Card className="border-amber-200">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-amber-600" />Incoming Stock — Pending Quality Recheck</CardTitle>
+          <p className="text-sm text-muted-foreground">Only Warehouse Fulfillment orders awaiting quality inspection appear here. Farmer Fulfillment and unrelated orders are excluded. Recheck pending shipments and save the final result; approved stock can then continue to Store.</p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {incomingQuery.isLoading && <p className="text-sm text-muted-foreground">Loading pending incoming receipts…</p>}
+          {incomingQuery.isError && <p className="text-sm text-red-600">Could not load incoming receipt quality checks. Refresh and try again.</p>}
+          {!incomingQuery.isLoading && !incomingQuery.isError && incomingQualityQueue.length === 0 && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No incoming shipments are waiting for a quality recheck.</p>}
+          {incomingQualityQueue.map((item: any) => (
+            <div key={item.id} className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="font-semibold">{item.orderNumber || item.order?.orderNumber || item.orderId || item.id} · {item.productName || item.displayProductName || "Product"}</p>
+                <p className="mt-1 text-sm text-muted-foreground">Farm: {item.farmName || item.farmerName || "Farm details unavailable"} · Received: {item.quantityReceived ?? item.quantity ?? "—"} {item.unit || "kg"}</p>
+                <p className="mt-1 text-sm text-amber-700">Quality: Pending · {item.qualityNotes || item.notes || "Recheck required"}</p>
+              </div>
+              <Button type="button" onClick={() => openIncomingRecheck(item)}><ShieldCheck className="mr-2 h-4 w-4" />Recheck Quality</Button>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Dialog open={Boolean(selectedIncoming)} onOpenChange={(open) => { if (!open && !incomingQualityMutation.isPending) setSelectedIncoming(null); }}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Recheck Incoming Shipment Quality</DialogTitle>
+            <DialogDescription>Review the existing receipt and save the final quality result. This does not receive the shipment again.</DialogDescription>
+          </DialogHeader>
+          {selectedIncoming && <div className="space-y-4">
+            <div className="rounded-lg border p-3">
+              <p className="font-semibold">{selectedIncoming.orderNumber || selectedIncoming.orderId || selectedIncoming.id} · {selectedIncoming.productName || selectedIncoming.displayProductName || "Product"}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Farm: {selectedIncoming.farmName || selectedIncoming.farmerName || "Farm details unavailable"}</p>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div className="rounded-md bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Declared quantity</p><p className="font-semibold">{selectedIncoming.quantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
+                <div className="rounded-md bg-muted/50 p-3"><p className="text-xs text-muted-foreground">Actually received</p><p className="font-semibold">{selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? "—"} {selectedIncoming.unit || "kg"}</p></div>
+              </div>
+            </div>
+            <div><label className="text-sm font-medium">Usable quantity</label><input type="number" min="0" max={Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0)} step="0.01" value={incomingUsableQuantity} onChange={e => setIncomingUsableQuantity(e.target.value)} className="mt-1 w-full rounded-lg border bg-background p-2" /></div>
+            <div><label className="text-sm font-medium">Final quality result</label><select value={incomingQuality} onChange={e => setIncomingQuality(e.target.value as "passed" | "failed")} className="mt-1 w-full rounded-lg border bg-background p-2"><option value="passed">Passed — continue to Store</option><option value="failed">Failed — reject / hold</option></select></div>
+            <div><label className="text-sm font-medium">Recheck notes</label><textarea value={incomingQualityNotes} onChange={e => setIncomingQualityNotes(e.target.value)} placeholder="Record what was rechecked and the result" className="mt-1 min-h-20 w-full rounded-lg border bg-background p-3" required /></div>
+            <div className="flex flex-wrap justify-end gap-2"><Button type="button" variant="outline" onClick={() => setSelectedIncoming(null)} disabled={incomingQualityMutation.isPending}>Cancel</Button><Button type="button" variant={incomingQuality === "failed" ? "destructive" : "default"} onClick={() => incomingQualityMutation.mutate(incomingQuality)} disabled={incomingQualityMutation.isPending || !incomingUsableQuantity.trim() || !Number.isFinite(Number(incomingUsableQuantity)) || Number(incomingUsableQuantity) < 0 || Number(incomingUsableQuantity) > Number(selectedIncoming.quantityReceived ?? selectedIncoming.receivedQuantity ?? selectedIncoming.quantity ?? 0) || !incomingQualityNotes.trim()}>{incomingQualityMutation.isPending ? "Saving result…" : incomingQuality === "passed" ? "Save Passed Result" : "Save Failed Result"}</Button></div>
+          </div>}
+        </DialogContent>
+      </Dialog>
 
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <Card>

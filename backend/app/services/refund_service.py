@@ -29,11 +29,12 @@ AUTO_CANCEL_STATUSES = {
     OrderStatus.PENDING.value,
     OrderStatus.CONFIRMED.value,
     OrderStatus.PROCESSING.value,
-    OrderStatus.READY_FOR_PICKUP.value,
 }
 
-# Statuses where cancellation requires manual support review (refund request).
-REVIEW_CANCEL_STATUSES = {
+# No normal customer cancellation is allowed once delivery processing has
+# started. These states are blocked rather than routed to review.
+REVIEW_CANCEL_STATUSES = set()
+NON_CANCELLABLE_CANCEL_STATUSES = {
     OrderStatus.READY_FOR_DELIVERY.value,
     OrderStatus.DISPATCHED.value,
     OrderStatus.IN_TRANSIT.value,
@@ -137,6 +138,38 @@ class RefundService:
             RefundType.BULK.value,
         ):
             if order_status in AUTO_CANCEL_STATUSES:
+                # Processing is cancellable only before packing begins. Once
+                # packing has started, the order has entered fulfillment and
+                # normal customer cancellation is no longer allowed.
+                if order_status == OrderStatus.PROCESSING.value:
+                    fulfillment_stage = str(order.get("fulfillmentStage") or "").lower()
+                    warehouse_stage = str(order.get("warehouseFulfillmentStage") or "").lower()
+                    packing_started = bool(
+                        order.get("packingStarted")
+                        or order.get("packing_started")
+                        or order.get("packingStartedAt")
+                        or order.get("packing_started_at")
+                        or order.get("packingComplete")
+                        or order.get("packing_complete")
+                        or order.get("packingCompletedAt")
+                        or order.get("packing_completed_at")
+                        or fulfillment_stage in {"packed", "dispatched"}
+                        or warehouse_stage in {
+                            "packing",
+                            "packed",
+                            "ready_for_dispatch",
+                            "delivery_decision",
+                            "dispatched",
+                        }
+                    )
+                    if packing_started:
+                        return {
+                            "eligible": False,
+                            "autoApprove": False,
+                            "requiresReview": False,
+                            "reason": "Packing has started. Customer cancellation is no longer available.",
+                            "status": None,
+                        }
                 # Bulk / event orders always go through seller review even in
                 # early states: the farmer may have already sourced produce.
                 if is_bulk and refund_type == RefundType.BULK.value:
@@ -154,13 +187,13 @@ class RefundService:
                     "reason": "Order is in a cancellable state; refund is auto-approved.",
                     "status": RefundStatus.APPROVED.value,
                 }
-            if order_status in REVIEW_CANCEL_STATUSES:
+            if order_status in NON_CANCELLABLE_CANCEL_STATUSES:
                 return {
-                    "eligible": True,
+                    "eligible": False,
                     "autoApprove": False,
-                    "requiresReview": True,
-                    "reason": "Order is out for delivery; cancellation requires support review.",
-                    "status": RefundStatus.UNDER_REVIEW.value,
+                    "requiresReview": False,
+                    "reason": "This order has entered the delivery process and cannot be cancelled normally.",
+                    "status": None,
                 }
             if order_status == OrderStatus.CANCELLED.value:
                 return {

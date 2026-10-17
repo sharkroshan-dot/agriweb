@@ -47,22 +47,15 @@ export default function WarehouseDashboardPage() {
     queryFn: () => api.get(`/warehouse/me/dashboard?period=${period}`),
   });
 
-  const inventoryData = [
-    { name: "Mon", received: 45, dispatched: 30 },
-    { name: "Tue", received: 52, dispatched: 35 },
-    { name: "Wed", received: 38, dispatched: 42 },
-    { name: "Thu", received: 60, dispatched: 45 },
-    { name: "Fri", received: 48, dispatched: 38 },
-    { name: "Sat", received: 35, dispatched: 25 },
-    { name: "Sun", received: 20, dispatched: 15 },
-  ];
+  const dashboard = dashboardData?.data ?? dashboardData ?? {};
+  const warehouse = dashboard.warehouse ?? {};
+  const summary = dashboard.stockSummary ?? {};
+  const inventoryData = dashboard.inventoryFlow ?? [];
+  const categoryData = dashboard.stockByCategory ?? [];
+  const recentActivities = dashboard.recentActivities ?? [];
+  const capacityUtilization = Number(dashboard.capacityUtilization ?? 0);
+  const coldStorageUtilization = Number(dashboard.coldStorageUtilization ?? 0);
 
-  const categoryData = [
-    { name: "Vegetables", value: 45 },
-    { name: "Fruits", value: 30 },
-    { name: "Grains", value: 15 },
-    { name: "Dairy", value: 10 },
-  ];
 
   if (isLoading) {
     return (
@@ -78,7 +71,7 @@ export default function WarehouseDashboardPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Warehouse Dashboard</h1>
-          <p className="text-muted-foreground">Delhi Central Warehouse • 75% capacity used</p>
+          <p className="text-muted-foreground">{warehouse.name || "Warehouse"} • {capacityUtilization}% capacity used</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="selection-control flex rounded-lg border">
@@ -92,12 +85,12 @@ export default function WarehouseDashboardPage() {
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {[
-          { title: "Total Items", value: "1,245", change: "+12.5%", icon: Package, color: "text-blue-600" },
-          { title: "Stock Value", value: "₹25,00,000", change: "+8.2%", icon: Warehouse, color: "text-green-600" },
-          { title: "Incoming Today", value: "5", change: "+3", icon: ArrowDown, color: "text-purple-600" },
-          { title: "Outgoing Today", value: "10", change: "+7", icon: ArrowUp, color: "text-orange-600" },
+          { title: "Total Stock Items", value: String(summary.totalItems ?? 0), change: "", icon: Package, color: "text-blue-600" },
+          { title: "Stock Value", value: `₹${Number(summary.totalValue ?? 0).toLocaleString("en-IN")}`, change: "", icon: Warehouse, color: "text-green-600" },
+          { title: "Incoming Today", value: String(dashboard.incomingToday ?? 0), change: "", icon: ArrowDown, color: "text-purple-600" },
+          { title: "Outgoing Today", value: String(dashboard.outgoingToday ?? 0), change: "", icon: ArrowUp, color: "text-orange-600" },
         ].map((stat, index) => (
-          <Card key={index}><CardContent className="p-6"><div className="flex items-center justify-between"><div className="space-y-1"><p className="text-sm text-muted-foreground">{stat.title}</p><p className="text-2xl font-bold">{stat.value}</p></div><div className={cn("rounded-full p-2 bg-muted", stat.color)}><stat.icon className="h-5 w-5" /></div></div><div className="mt-2 text-sm text-muted-foreground">{stat.change} from last {period}</div></CardContent></Card>
+          <Card key={index}><CardContent className="p-6"><div className="flex items-center justify-between"><div className="space-y-1"><p className="text-sm text-muted-foreground">{stat.title}</p><p className="text-2xl font-bold">{stat.value}</p></div><div className={cn("rounded-full p-2 bg-muted", stat.color)}><stat.icon className="h-5 w-5" /></div></div>{stat.change && <div className="mt-2 text-sm text-muted-foreground">{stat.change}</div>}</CardContent></Card>
         ))}
       </div>
 
@@ -124,7 +117,7 @@ export default function WarehouseDashboardPage() {
           <CardContent>
             <div className="space-y-6">
               {[{label:'General Storage', value:'15,000 / 20,000 sq ft', percent:75},{label:'Cold Storage', value:'500 / 1,000 sq ft', percent:50},{label:'Frozen Storage', value:'200 / 500 sq ft', percent:40}].map((item,index)=><div key={index}><div className="flex justify-between text-sm"><span>{item.label}</span><span className="font-medium">{item.value}</span></div><Progress value={item.percent} className="mt-2" /><div className="mt-1 text-xs text-muted-foreground">{item.percent}% utilized</div></div>)}
-              <div className="pt-4 border-t"><div className="flex justify-between text-sm font-medium"><span>Overall Utilization</span><span className="text-primary">68%</span></div></div>
+              <div className="pt-4 border-t"><div className="flex justify-between text-sm font-medium"><span>Overall Utilization</span><span className="text-primary">{capacityUtilization}%</span></div></div>
             </div>
           </CardContent>
         </Card>

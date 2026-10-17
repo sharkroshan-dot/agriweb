@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { PrefetchLink as Link } from "./prefetch-link";
 import { useEffect, useState } from "react";
 import { ArrowRight, CheckCircle2, Circle, Clock3, Ban, Workflow } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -60,9 +60,12 @@ export function WorkflowGuide({ role }: { role: Role }) {
   const { data, isLoading } = useQuery({
     queryKey: ["myWorkflow", role],
     queryFn: () => api.get("/workflow/me"),
-    staleTime: 15_000,
-    refetchInterval: 30_000,
-    retry: 1,
+    // This panel is shared by every role page; refresh infrequently so it
+    // does not compete with the page's own API requests during navigation.
+    staleTime: 90_000,
+    refetchInterval: 120_000,
+    refetchOnWindowFocus: false,
+    retry: 0,
   });
 
   const resolved = data?.data?.data;

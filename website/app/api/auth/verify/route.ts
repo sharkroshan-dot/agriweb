@@ -21,35 +21,33 @@ function normalizePhone(phone: unknown) {
 }
 
 function extractErrorMessage(payload: unknown, status: number) {
-  if (typeof payload === "string" && payload.trim()) {
-    return payload;
-  }
+  if (typeof payload === "string" && payload.trim()) return payload.trim();
 
   if (payload && typeof payload === "object") {
-    const anyPayload = payload as Record<string, unknown>;
-    if (typeof anyPayload.message === "string" && anyPayload.message.trim()) {
-      return anyPayload.message;
-    }
-    if (Array.isArray(anyPayload.detail)) {
-      const details = anyPayload.detail
-        .map((item) => {
+    const data = payload as Record<string, unknown>;
+    for (const key of ["message", "detail", "error_description"]) {
+      const value = data[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (Array.isArray(value)) {
+        const messages = value.map((item) => {
           if (typeof item === "string") return item;
-          if (item && typeof item === "object" && typeof (item as Record<string, unknown>).msg === "string") {
-            return String((item as Record<string, unknown>).msg);
+          if (item && typeof item === "object") {
+            const entry = item as Record<string, unknown>;
+            return typeof entry.msg === "string" ? entry.msg : null;
           }
           return null;
-        })
-        .filter(Boolean);
-      if (details.length > 0) {
-        return details.join(", ");
+        }).filter((item): item is string => Boolean(item));
+        if (messages.length) return messages.join("; ");
       }
     }
-    if (typeof anyPayload.detail === "string" && anyPayload.detail.trim()) {
-      return anyPayload.detail;
+
+    if (data.error && typeof data.error === "object") {
+      const nested = data.error as Record<string, unknown>;
+      if (typeof nested.message === "string" && nested.message.trim()) return nested.message.trim();
     }
   }
 
-  return `Verification failed with status ${status}`;
+  return `Verification was rejected by the server (HTTP ${status}). Please request a new code and try again.`;
 }
 
 export async function POST(request: Request) {
