@@ -222,3 +222,55 @@ async def publish_hub_order(order_id: str, current_user: dict = Depends(get_curr
     await order_repository.update({"_id": ObjectId(order_id)}, {"orderStatus": "dispatched", "transferStatus": "published_to_delivery_partners", "deliveryPickupLocation": order_for_job["deliveryPickupLocation"], "nearbyFulfillmentLocationId": ObjectId(hub_id), "updatedAt": now})
     await transfers.update_one({"_id": transfer["_id"]}, {"$set": {"status": "ready_for_delivery", "deliveryJobId": ObjectId(job_id), "publishedAt": now, "updatedAt": now}})
     return {"success": True, "data": {"jobId": job_id, "status": JOB_OPEN}, "message": "Order published to the delivery-partner marketplace"}
+
+
+@router.post("/warehouse/me/local-hubs/{hub_id}/orders/{order_id}/dispatch")
+async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: dict = Depends(get_current_user)):
+    """Dispatch an order from the manager's warehouse to one of its local hubs."""
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only a warehouse manager can dispatch orders to a local hub")
+    if not ObjectId.is_valid(hub_id) or not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid hub or order id")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Source warehouse not found")
+    hubs = MongoDB.get_collection("warehouses")
+    hub = await hubs.find_one({"_id": ObjectId(hub_id), "parentWarehouseId": parent["_id"], "facilityType": "local_hub", "status": "active", "deletedAt": None})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Active local hub was not found under this warehouse")
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") not in (str(parent["_id"]), ""):
+        raise HTTPException(status_code=403, detail="This order is not assigned to your source warehouse")
+    status_value = str(order.get("orderStatus") or "").lower()
+    if status_value not in ("packed", "ready_for_delivery", "ready_for_pickup", "dispatched"):
+        raise HTTPException(status_code=409, detail=f"Order must be packed before dispatch (current status: {status_value or 'unknown'})")
+    transfers = MongoDB.get_collection("warehouse_order_transfers")
+    existing = await transfers.find_one({"orderId": {"$in": [ObjectId(order_id), order_id]}, "destinationWarehouseId": {"$in": [ObjectId(hub_id), hub_id]}, "deletedAt": None, "status": {"$in": ["dispatched", "in_transit", "arrived_at_destination", "received", "ready_for_delivery"]}})
+    if existing:
+        raise HTTPException(status_code=409, detail="This order already has an active transfer to this hub")
+    now = datetime.utcnow()
+    transfer_doc = {
+        "orderId": ObjectId(order_id),
+        "orderNumber": order.get("orderNumber"),
+        "sourceWarehouseId": parent["_id"],
+        "destinationWarehouseId": ObjectId(hub_id),
+        "destinationFacilityType": "local_hub",
+        "status": "dispatched",
+        "dispatchedAt": now,
+        "dispatchedBy": ObjectId(str(current_user["_id"])),
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    }
+    inserted = await transfers.insert_one(transfer_doc)
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "orderStatus": "dispatched",
+        "transferStatus": "dispatched_to_local_hub",
+        "sourceWarehouseId": parent["_id"],
+        "destinationWarehouseId": ObjectId(hub_id),
+        "nearbyFulfillmentLocationId": ObjectId(hub_id),
+        "updatedAt": now,
+    })
+    return {"success": True, "data": {"transferId": str(inserted.inserted_id), "orderId": order_id, "hubId": hub_id, "status": "dispatched"}, "message": "Order dispatched to local hub"}
