@@ -95,7 +95,6 @@ class AuthService:
         return user
     
     @staticmethod
-    @staticmethod
     async def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
         """Authenticate by email, username, or phone, including local hub manager accounts."""
         identifier = (username or "").strip()
