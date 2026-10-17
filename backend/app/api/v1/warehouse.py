@@ -7660,3 +7660,162 @@ async def assign_farmer_fulfillment_local_hub_pickup_team(
         "status": refreshed.get("status"), "deliveryPartnerId": profile_id,
         "deliveryPartnerName": membership.get("name") or membership.get("fullName") or "Pickup Team",
     }, "message": "Pickup team assigned to local-hub transfer"}
+
+
+@router.post("/me/outgoing/{outgoing_id}/inter-district-dispatch")
+async def dispatch_ordinary_inter_district_order(
+    outgoing_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Assign a real destination warehouse and approved transfer team before dispatching a warehouse order."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can dispatch warehouse transfers")
+    if not ObjectId.is_valid(outgoing_id):
+        raise HTTPException(status_code=400, detail="Invalid outgoing shipment ID")
+
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    warehouse_id = str(warehouse["_id"])
+    outgoing = await outgoing_stock_repository.get_by_id(outgoing_id)
+    if not outgoing or str(outgoing.get("warehouseId")) != warehouse_id:
+        raise HTTPException(status_code=404, detail="Outgoing shipment not found")
+    order_id = str(outgoing.get("orderId") or "")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Outgoing shipment is not linked to a valid customer order")
+    order = await order_repository.get_by_id(order_id)
+    if not order or str(order.get("warehouseId") or "") != warehouse_id:
+        raise HTTPException(status_code=404, detail="Customer order is not assigned to this source warehouse")
+    if str(order.get("fulfillmentMethod") or "").strip().lower() not in {"warehouse", "warehouse_fulfillment", "warehouse-fulfillment"}:
+        raise HTTPException(status_code=409, detail="This order is not an ordinary warehouse-fulfilled order")
+
+    address_value = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+    address = address_value if isinstance(address_value, dict) else {}
+    shipping = order.get("shippingAddress") if isinstance(order.get("shippingAddress"), dict) else {}
+    destination_district = str(
+        address.get("district") or address.get("districtName") or address.get("district_name")
+        or shipping.get("district") or shipping.get("districtName") or shipping.get("district_name")
+        or order.get("deliveryDistrict") or order.get("destinationDistrict")
+        or order.get("customerDistrict") or ""
+    ).strip()
+    if not destination_district:
+        raise HTTPException(status_code=409, detail="Customer delivery district is missing. Complete the delivery address before dispatch.")
+
+    all_outgoing = await outgoing_stock_repository.find_many({
+        "orderId": ObjectId(order_id), "warehouseId": ObjectId(warehouse_id), "deletedAt": None
+    }, skip=0, limit=1000)
+    if not all_outgoing:
+        raise HTTPException(status_code=409, detail="No outgoing shipment lines exist for this order.")
+    if any(float(row.get("quantity") or 0) <= 0 for row in all_outgoing):
+        raise HTTPException(status_code=409, detail="One or more shipment lines have an invalid quantity.")
+    if any(str(row.get("status") or "pending") not in {"pending", "packed", "dispatched"} for row in all_outgoing):
+        raise HTTPException(status_code=409, detail="Every shipment line must be packed and ready for dispatch.")
+
+    required_capacity = sum(float(row.get("quantity") or 0) for row in all_outgoing)
+    destination = await warehouse_for_district(
+        destination_district,
+        required_capacity=required_capacity,
+        exclude_warehouse_id=warehouse_id,
+    )
+    if not destination or destination.get("_districtFallback"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"No eligible active warehouse explicitly serving {destination_district} was found with sufficient capacity. Check its district/service area and available capacity.",
+        )
+    destination_id = str(destination.get("_id") or "")
+    if not ObjectId.is_valid(destination_id) or destination_id == warehouse_id:
+        raise HTTPException(status_code=409, detail="A valid destination warehouse in the delivery district could not be resolved.")
+
+    teams = await warehouse_pickup_team_repository.get_approved_members(warehouse_id)
+    eligible_team = None
+    for member in teams:
+        partner_id = str(member.get("deliveryPartnerId") or "")
+        user_id = str(member.get("userId") or member.get("deliveryPartnerUserId") or "")
+        capacity = float(member.get("capacity") or member.get("vehicleCapacity") or 0)
+        if ObjectId.is_valid(partner_id) and ObjectId.is_valid(user_id) and capacity >= required_capacity:
+            eligible_team = member
+            break
+    if not eligible_team:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Destination warehouse {destination.get('name') or destination.get('warehouseName') or destination_id} was found, but no approved source-warehouse transfer team has valid accounts and enough capacity for {required_capacity:g} units. Approve/configure a suitable team, then retry.",
+        )
+
+    now = datetime.utcnow()
+    transfers = MongoDB.get_collection("warehouse_order_transfers")
+    existing = await transfers.find_one({"orderId": ObjectId(order_id), "deletedAt": None})
+    if existing and str(existing.get("status") or "") in {"in_transit", "received", "assigned"}:
+        if str(existing.get("destinationWarehouseId") or "") != destination_id:
+            raise HTTPException(status_code=409, detail="A transfer for this order already exists with a different destination. Resolve the existing transfer before retrying.")
+        transfer = existing
+    else:
+        transfer_doc = {
+            "orderId": ObjectId(order_id),
+            "orderNumber": order.get("orderNumber"),
+            "sourceWarehouseId": ObjectId(warehouse_id),
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationDistrict": destination_district,
+            "transferTeamId": ObjectId(str(eligible_team.get("deliveryPartnerId"))),
+            "transferTeamUserId": ObjectId(str(eligible_team.get("userId") or eligible_team.get("deliveryPartnerUserId"))),
+            "transferTeamName": eligible_team.get("name") or eligible_team.get("fullName") or "Warehouse Transfer Team",
+            "quantity": required_capacity,
+            "status": "assigned",
+            "createdBy": ObjectId(str(current_user["_id"])),
+            "assignedAt": now,
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        }
+        transfer_id = await transfers.insert_one(transfer_doc)
+        transfer = {**transfer_doc, "_id": transfer_id.inserted_id}
+
+    # Persist the route on every line before invoking the existing order-level dispatch guard.
+    for row in all_outgoing:
+        if str(row.get("status") or "") != "dispatched":
+            await outgoing_stock_repository.update({"_id": row["_id"]}, {
+                "deliveryPartnerRoute": "long_distance",
+                "deliveryRouteRadiusKm": 15,
+                "deliveryRouteSelectedAt": now,
+                "updatedAt": now,
+            })
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "destinationWarehouseId": ObjectId(destination_id),
+        "destinationDistrict": destination_district,
+        "warehouseTransferId": transfer["_id"],
+        "warehouseTransferTeamId": ObjectId(str(eligible_team.get("deliveryPartnerId"))),
+        "warehouseFulfillmentStage": "delivery_decision",
+        "deliveryPartnerRoute": "long_distance",
+        "updatedAt": now,
+    })
+
+    refreshed_rows = await outgoing_stock_repository.find_many({
+        "orderId": ObjectId(order_id), "warehouseId": ObjectId(warehouse_id), "deletedAt": None
+    }, skip=0, limit=1000)
+    for row in refreshed_rows:
+        if str(row.get("status") or "pending") == "dispatched":
+            continue
+        updated = await WarehouseService.update_outgoing_status(
+            str(row["_id"]), "dispatched", warehouse_id,
+            {"notes": f"Inter-district transfer assigned to {destination.get('name') or destination.get('warehouseName') or destination_id}; transfer team assigned."},
+        )
+        if not updated:
+            raise HTTPException(status_code=409, detail="Destination and team were assigned, but warehouse dispatch could not be completed. Refresh the order and inspect its packing/route status before retrying.")
+    await transfers.update_one({"_id": transfer["_id"]}, {"$set": {"status": "in_transit", "dispatchedAt": now, "updatedAt": now}})
+    await order_repository.append_tracking_event(
+        order_id, "warehouse_inter_district_dispatched",
+        "Inter-district warehouse transfer dispatched",
+        f"Shipment dispatched from source warehouse to {destination.get('name') or destination.get('warehouseName') or destination_id} in {destination_district}.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"transferId": str(transfer["_id"]), "destinationWarehouseId": destination_id, "destinationDistrict": destination_district, "transferTeamId": str(eligible_team.get("deliveryPartnerId"))},
+    )
+    return {"success": True, "data": {
+        "orderId": order_id,
+        "transferId": str(transfer["_id"]),
+        "sourceWarehouseId": warehouse_id,
+        "destinationWarehouseId": destination_id,
+        "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or "Destination Warehouse",
+        "destinationDistrict": destination_district,
+        "transferTeamId": str(eligible_team.get("deliveryPartnerId")),
+        "transferTeamName": eligible_team.get("name") or eligible_team.get("fullName") or "Warehouse Transfer Team",
+        "status": "in_transit",
+    }, "message": "Destination warehouse and approved transfer team assigned; inter-district shipment dispatched."}
