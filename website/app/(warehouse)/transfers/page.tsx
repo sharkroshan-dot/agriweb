@@ -103,7 +103,7 @@ export default function WarehouseTransfersPage() {
 
   const { data: outgoingData, isLoading: outgoingLoading, refetch: refetchOutgoing } = useQuery({
     queryKey: ["warehouseTransferOrders", statusFilter],
-    queryFn: () => api.get("/warehouse/me/outgoing", { params: { status: statusFilter === "all" ? undefined : statusFilter, limit: 200 } }),
+    queryFn: () => api.get("/warehouse/me/outgoing", { params: { status: statusFilter === "all" ? undefined : statusFilter, limit: 100 } }),
     refetchInterval: 20000,
   });
   const { data: farmerData, isLoading: farmerLoading, refetch: refetchFarmer } = useQuery({
