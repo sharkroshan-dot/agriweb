@@ -118,12 +118,25 @@ class AuthService:
                 continue
             seen.add(key)
 
-            user = await user_repository.get_by_email(candidate) if "@" in key else None
-            if not user:
+            user = None
+            if "@" in key:
+                user = await user_repository.get_by_email(key)
+            else:
+                # Local hub manager accounts use the shared warehouse role and
+                # have a username as well as an email. Historically this path
+                # only checked phone numbers, so username login always failed.
                 try:
-                    user = await user_repository.get_by_phone(candidate)
+                    user = await user_repository.find_one({
+                        "username": key,
+                        "deletedAt": None,
+                    })
                 except Exception:
                     user = None
+                if not user:
+                    try:
+                        user = await user_repository.get_by_phone(candidate)
+                    except Exception:
+                        user = None
 
             if user and Security.verify_password(password, user.get("passwordHash", "")):
                 return user
