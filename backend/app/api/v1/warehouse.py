@@ -6816,7 +6816,8 @@ async def get_my_outgoing_stock(
     )
     for task in ready_tasks:
         task_status = str(task.get("status") or "").lower()
-        if task_status not in {"ready_for_dispatch", "dispatched"} or not task.get("verified"):
+        # The persisted stage is authoritative; older ready tasks may not have verified=true.
+        if task_status not in {"ready_for_dispatch", "dispatched"}:
             continue
         order_id = str(task.get("orderId") or "")
         if not ObjectId.is_valid(order_id):
