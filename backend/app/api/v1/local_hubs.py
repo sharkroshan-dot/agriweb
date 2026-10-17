@@ -191,6 +191,75 @@ async def list_local_hubs(current_user: dict = Depends(get_current_user)):
     return {"success": True, "data": {"hubs": output}}
 
 
+@router.post("/warehouse/me/local-hubs/{hub_id}/resend-login")
+async def resend_local_hub_manager_login(hub_id: str, current_user: dict = Depends(get_current_user)):
+    """Generate a fresh temporary password and email it to this hub's registered manager."""
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only a warehouse manager can resend local hub login details")
+    if not ObjectId.is_valid(hub_id):
+        raise HTTPException(status_code=400, detail="Invalid local hub id")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent warehouse was not found for this manager")
+    hubs = MongoDB.get_collection("warehouses")
+    hub = await hubs.find_one({"_id": ObjectId(hub_id), "parentWarehouseId": parent["_id"], "facilityType": "local_hub", "deletedAt": None})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Local hub was not found under your warehouse")
+    users = MongoDB.get_collection("users")
+    manager_id = hub.get("managerId")
+    manager = await users.find_one({"_id": manager_id, "deletedAt": None})
+    if not manager or not manager.get("email") or not manager.get("username"):
+        raise HTTPException(status_code=409, detail="This local hub has no valid registered manager email or username")
+    temporary_password = secrets.token_urlsafe(12)
+    previous_hash = manager.get("passwordHash")
+    previous_change_flag = manager.get("mustChangePassword", False)
+    now = datetime.utcnow()
+    await users.update_one(
+        {"_id": manager["_id"]},
+        {"$set": {"passwordHash": Security.get_password_hash(temporary_password), "mustChangePassword": True, "updatedAt": now}},
+    )
+    email = str(manager["email"]).strip().lower()
+    login_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')}/login"
+    email_sent = await NotificationService.send_email(
+        to=email,
+        subject="Your AgriConnect Local Hub Manager Login Details",
+        plain_text=(
+            f"Hello {manager.get('name') or manager.get('firstName') or 'Local Hub Manager'},\\n\\n"
+            f"Hub: {hub.get('name', 'Local Hub')}\\n"
+            f"Username: {manager['username']}\\n"
+            f"Temporary password: {temporary_password}\\n"
+            f"Login: {login_url}\\n\\n"
+            "This is a newly generated temporary password. Choose the Warehouse role and change it immediately after signing in."
+        ),
+        body=(
+            f"<h2>AgriConnect Local Hub Login</h2>"
+            f"<p>Your login details for <strong>{hub.get('name', 'Local Hub')}</strong> have been reset.</p>"
+            f"<p><strong>Username:</strong> {manager['username']}<br>"
+            f"<strong>Temporary password:</strong> {temporary_password}</p>"
+            f"<p><a href=\"{login_url}\">Sign in to AgriConnect</a></p>"
+            "<p>Choose the <strong>Warehouse</strong> role and change this temporary password immediately after signing in.</p>"
+        ),
+    )
+    if not email_sent:
+        rollback = {"updatedAt": now}
+        if previous_hash is not None:
+            rollback["passwordHash"] = previous_hash
+        if previous_change_flag is not None:
+            rollback["mustChangePassword"] = previous_change_flag
+        else:
+            rollback["mustChangePassword"] = False
+        await users.update_one({"_id": manager["_id"]}, {"$set": rollback})
+        raise HTTPException(
+            status_code=503,
+            detail="Could not email login details. Check SMTP_USER and SMTP_PASSWORD in the backend .env and verify SMTP access, then retry. The manager's previous password remains unchanged.",
+        )
+    return {
+        "success": True,
+        "data": {"hubId": hub_id, "email": email, "username": manager["username"], "emailSent": True},
+        "message": f"New temporary login details were emailed to {email}. The manager must change the password after signing in.",
+    }
+
+
 @router.get("/hub/me/dashboard")
 async def hub_dashboard(current_user: dict = Depends(get_current_user)):
     hub_id = _hub_id(current_user)
