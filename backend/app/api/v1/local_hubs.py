@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 import secrets
+import os
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, EmailStr
@@ -137,7 +138,7 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
     inserted = await hubs.insert_one(hub_doc)
     await users.update_one({"_id": ObjectId(manager_id)}, {"$set": {"facilityId": str(inserted.inserted_id), "warehouseId": str(inserted.inserted_id), "updatedAt": now}})
     hub_name = hub_doc["name"]
-    login_url = "http://localhost:3000/login"
+    login_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')}/login"
     email_sent = await NotificationService.send_email(
         to=email,
         subject="Your AgriConnect Local Hub Manager Login",
