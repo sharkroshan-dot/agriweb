@@ -6871,6 +6871,11 @@ async def get_my_outgoing_stock(
     )
     for item in outgoing:
         item["id"] = str(item["_id"])
+    # MongoDB documents contain ObjectId values in _id/orderId/productId and
+    # optional references. Convert every nested value before FastAPI serializes
+    # the response; otherwise this endpoint can raise a 500, which browsers
+    # misleadingly report as a CORS failure because the error response is lost.
+    outgoing = [_make_json_safe(item) for item in outgoing]
     return {
         "success": True,
         "data": {
