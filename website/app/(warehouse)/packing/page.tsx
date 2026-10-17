@@ -271,6 +271,28 @@ export default function WarehousePackingPage() {
         <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
         <div className="flex flex-wrap items-center gap-2"><Button onClick={verifyAllPackedTasks} disabled={!tasks.some((task: any) => task.status === "packed")}><ShieldCheck className="mr-2 h-4 w-4"/>Verify All Packed</Button><Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button><Button asChild variant="outline"><Link href="/outgoing">Continue to Dispatch</Link></Button></div>
       </div>
+      <Card className="border-slate-200"><CardContent className="space-y-4 p-4">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <button type="button" onClick={() => setShowRemainingOnly(false)} className={"rounded-lg border p-3 text-left transition " + (!showRemainingOnly ? "border-emerald-600 bg-emerald-50" : "border-slate-200 bg-white hover:bg-slate-50")}>
+            <p className="text-sm text-muted-foreground">Matching orders</p><p className="mt-1 text-2xl font-bold">{filteredTasks.length}</p>
+          </button>
+          <button type="button" onClick={() => setShowRemainingOnly(true)} className={"rounded-lg border p-3 text-left transition " + (showRemainingOnly ? "border-amber-500 bg-amber-50" : "border-slate-200 bg-white hover:bg-slate-50")}>
+            <p className="text-sm text-muted-foreground">Remaining — not finished</p><p className="mt-1 text-2xl font-bold">{unfinishedCount}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Ready for Packing · Assigned · Packing · Partially Packed</p>
+          </button>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <p className="text-sm text-muted-foreground">Finished / awaiting next step</p><p className="mt-1 text-2xl font-bold">{finishedCount}</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 lg:flex-row">
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/><Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search farm, farmer, order number, product, customer, address, or status…" className="pl-9"/></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1 text-sm text-muted-foreground"><Clock3 className="h-4 w-4"/>Date:</span>
+            {([{value:"today",label:"Today"},{value:"yesterday",label:"Yesterday"},{value:"week",label:"This Week"},{value:"all",label:"All Time"}] as const).map((option) => <Button key={option.value} type="button" size="sm" variant={dateFilter === option.value ? "default" : "outline"} onClick={() => setDateFilter(option.value)}>{option.label}</Button>)}
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">Showing {visibleTasks.length} order(s) · {dateFilter === "today" ? "Today" : dateFilter === "yesterday" ? "Yesterday" : dateFilter === "week" ? "This Week (Monday-start)" : "All Time"}{showRemainingOnly ? " · Remaining orders only" : ""}</p>
+      </CardContent></Card>
       {shortages.length > 0 && (
         <Card className="border-red-200 bg-red-50/70">
           <CardContent className="p-5">
@@ -298,8 +320,8 @@ export default function WarehousePackingPage() {
         </Card>
       )}
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
-      {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && tasks.length === 0 ? (
-        <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No packing tasks</h3><p className="mt-2 text-sm text-muted-foreground">Received warehouse-fulfillment products will appear here.</p></Card>
+      {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
+        <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{showRemainingOnly ? "No remaining orders in this date range" : searchTerm.trim() ? "No orders match your search" : "No packing tasks in this date range"}</h3><p className="mt-2 text-sm text-muted-foreground">{showRemainingOnly ? "All matching orders have finished packing or are waiting for customer approval/verification." : "Try another date range or search term, or choose All Time to see older orders."}</p></Card>
       ) : <div className="space-y-6">{farmGroups.map((farm) => (
         <section key={farm.key} className="space-y-3">
           <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
