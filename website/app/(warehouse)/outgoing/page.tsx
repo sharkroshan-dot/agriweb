@@ -45,6 +45,33 @@ export default function WarehouseOutgoingPage() {
   const grouped = useMemo(() => Object.fromEntries(ROUTES.map((r) => [r.key, outgoing.filter((item: any) => categoryOf(item) === r.key)])) as Record<RouteKey, any[]>, [outgoing]);
   const readyCount = outgoing.filter((item: any) => ["pending", "packed"].includes(String(item.status)) && routeReady(item)).length;
 
+  const processSection = async (section: RouteKey) => {
+    const rows = grouped[section] || [];
+    if (!rows.length) { toast("There are no orders in this section to process."); return; }
+    if (section === "farmer_fulfillment_transfer") { window.location.href = "/farmer-fulfillment"; return; }
+    if (section === "route_review" || section === "needs_location") { toast.error("These orders require route/location correction before dispatch. No orders were dispatched."); return; }
+    if (section === "multi_warehouse") { window.location.href = "/warehouse/consolidation"; return; }
+    const eligible = rows.filter((item: any) => ["pending", "packed"].includes(String(item.status)) && routeReady(item));
+    if (!eligible.length) { toast.error("No eligible ready-to-dispatch orders in this section."); return; }
+    let succeeded = 0; const failed: string[] = [];
+    for (const item of eligible) {
+      try {
+        if (!item.orderId) throw new Error("Missing customer order");
+        const response = await api.get("/warehouse/me/orders/" + item.orderId + "/fulfillment-check");
+        const audit = response?.data || response;
+        if (!audit?.readyForDispatch) throw new Error("Packing not verified");
+        if (section === "inter_district") throw new Error("Destination warehouse transfer actions are not yet available for ordinary warehouse orders");
+        const route = section === "nearby" ? "nearby" : "long_distance";
+        await api.post("/warehouse/me/outgoing/" + item.id + "/delivery-route", { route, radius: item.nearbyThresholdKm ?? 15 });
+        await api.put("/warehouse/me/outgoing/" + item.id + "/status", undefined, { params: { status: "dispatched" } });
+        await api.post("/warehouse/me/outgoing/" + item.id + "/delivery-route", { route, radius: item.nearbyThresholdKm ?? 15 });
+        succeeded += 1;
+      } catch (e: any) { failed.push(String(item.orderNumber || item.orderId || item.id) + (e?.message ? ": " + e.message : "")); }
+    }
+    if (succeeded) toast.success("Processed " + succeeded + " order(s) in " + (ROUTES.find((r) => r.key === section)?.title || section) + ".");
+    if (failed.length) toast.error(failed.length + " order(s) could not be processed. " + failed.slice(0, 2).join("; "));
+    await refetch();
+  };
   const processDispatch = async (item: any) => {
     const category = categoryOf(item);
     try {
@@ -102,7 +129,7 @@ export default function WarehouseOutgoingPage() {
       </button>)}
     </div>
 
-    <div className="flex items-start gap-3"><div className="rounded-lg bg-muted p-2"><Warehouse className="h-5 w-5"/></div><div><h2 className="text-xl font-semibold">{ROUTES.find((r) => r.key === activeSection)?.title}</h2><p className="mt-1 text-sm text-muted-foreground">{ROUTES.find((r) => r.key === activeSection)?.next}</p></div></div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-start gap-3"><div className="rounded-lg bg-muted p-2"><Warehouse className="h-5 w-5"/></div><div><h2 className="text-xl font-semibold">{ROUTES.find((r) => r.key === activeSection)?.title}</h2><p className="mt-1 text-sm text-muted-foreground">{ROUTES.find((r) => r.key === activeSection)?.next}</p><p className="mt-1 text-xs text-muted-foreground">{grouped[activeSection].length} order(s) · {grouped[activeSection].filter((item: any) => ["pending","packed"].includes(String(item.status))).length} awaiting dispatch</p></div></div><Button onClick={() => processSection(activeSection)} disabled={isLoading || grouped[activeSection].length === 0} className="shrink-0"><Send className="mr-2 h-4 w-4"/>{activeSection === "route_review" || activeSection === "needs_location" ? "Review Section Orders" : activeSection === "farmer_fulfillment_transfer" ? "Open Transfer Workflow" : activeSection === "multi_warehouse" ? "Process Consolidation Orders" : "Process All " + (ROUTES.find((r) => r.key === activeSection)?.title || "Orders")}</Button></div>
 
     {isLoading ? <div className="space-y-3">{[1,2,3].map((n) => <div key={n} className="h-28 animate-pulse rounded-lg bg-muted"/>)}</div> : grouped[activeSection].length === 0 ? <Card><CardContent className="p-10 text-center"><MapPin className="mx-auto h-10 w-10 text-muted-foreground"/><h3 className="mt-3 font-semibold">No shipments in this section</h3><p className="mt-1 text-sm text-muted-foreground">Shipments appear here after the relevant packing, location, and routing prerequisites are satisfied.</p></CardContent></Card> : <div className="space-y-3">{grouped[activeSection].map((item: any) => <Card key={item.id}><CardContent className="space-y-4 p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0 flex-1">
