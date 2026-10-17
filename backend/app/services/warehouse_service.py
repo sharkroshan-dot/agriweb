@@ -783,15 +783,30 @@ class WarehouseService:
         has_packable_stock = total_available > 1e-9
 
         if existing:
+            # A packing-task GET/reconciliation must never move an order back
+            # to an earlier workflow stage. Preserve any stage already reached
+            # by the warehouse operator; only initialize legacy/unstarted tasks.
+            existing_status = str(existing.get("status") or "ready_for_packing").lower()
+            progressed_statuses = {
+                "assigned",
+                "packing",
+                "partially_packed",
+                "packed",
+                "customer_approval_pending",
+                "verified",
+                "ready_for_dispatch",
+                "dispatched",
+            }
+            if existing_status in progressed_statuses:
+                next_status = existing_status
+            else:
+                next_status = "packed" if total_packed + 1e-9 >= total_required else "ready_for_packing"
+
             task_updates = {
                 "packingItems": packing_items,
                 "quantityRequired": total_required,
                 "packedQuantity": total_packed,
-                "status": (
-                    "ready_for_packing"
-                    if has_packable_stock and total_packed + 1e-9 < total_required
-                    else ("packed" if total_packed + 1e-9 >= total_required else "ready_for_packing")
-                ),
+                "status": next_status,
             }
             await warehouse_packing_repository.update_task(str(existing["_id"]), task_updates)
             task = await warehouse_packing_repository.get_by_id(str(existing["_id"]))
@@ -812,8 +827,23 @@ class WarehouseService:
             })
             task = await warehouse_packing_repository.get_by_id(str(task_id)) if task_id else None
 
-        stage = "ready_for_packing"
-        await order_repository.update({"_id": ObjectId(order_id)}, {
+        # Keep the order-level stage aligned with the saved packing task.
+        # This function is also called while reading the packing page, so it
+        # must not reset a started/packed order to ready_for_packing.
+        saved_status = str((task or {}).get("status") or "ready_for_packing").lower()
+        stage_by_status = {
+            "ready_for_packing": "ready_for_packing",
+            "assigned": "packing_team_assigned",
+            "packing": "packing",
+            "partially_packed": "packing",
+            "packed": "packed",
+            "customer_approval_pending": "shortage_pending",
+            "verified": "ready_for_dispatch",
+            "ready_for_dispatch": "ready_for_dispatch",
+            "dispatched": "dispatched",
+        }
+        stage = stage_by_status.get(saved_status, str(order.get("warehouseFulfillmentStage") or "ready_for_packing"))
+        order_update = {
             "warehouseFulfillmentStage": stage,
             "packingReadiness": {
                 "complete": not has_shortage,
@@ -825,9 +855,13 @@ class WarehouseService:
                 "totalPacked": total_packed,
             },
             "packingTaskId": task.get("_id") if task else None,
-            "shortageResolutionRequired": has_shortage,
             "updatedAt": datetime.utcnow(),
-        })
+        }
+        # Do not clear an existing shortage decision when the task is merely
+        # reconciled/read. Only packing completion or customer resolution owns it.
+        if saved_status not in ("customer_approval_pending", "shortage_pending"):
+            order_update["shortageResolutionRequired"] = has_shortage
+        await order_repository.update({"_id": ObjectId(order_id)}, order_update)
         return task
     @staticmethod
     async def get_incoming_stock(
