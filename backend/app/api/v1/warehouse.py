@@ -6843,11 +6843,11 @@ async def get_my_outgoing_stock(
             order = await order_repository.get_by_id(order_id)
             if not order:
                 continue
-            transfer_only = str(order.get("logisticsMode") or "") == "farmer_to_warehouse_to_local_hub_to_delivery_partner"
-            if str(order.get("fulfillmentMethod") or "farmer") != "warehouse" and not transfer_only:
-                continue
-            if str(order.get("warehouseId") or "") != str(warehouse["_id"]):
-                continue
+            # A packing task scoped to this warehouse is the source of truth for
+            # this dispatch queue. Legacy orders may have an old/missing
+            # fulfillmentMethod or warehouseId even though the warehouse task
+            # was validly created and verified. Do not silently hide such orders
+            # from Outgoing; retain the task's warehouse ownership check above.
             await outgoing_stock_repository.create_outgoing({
                 "warehouseId": ObjectId(str(warehouse["_id"])),
                 "productId": ObjectId(product_id),
