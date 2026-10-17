@@ -52,6 +52,7 @@ export default function WarehousePackingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">("today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
+  const [verifyingAll, setVerifyingAll] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
   const [farmAssignmentMessages, setFarmAssignmentMessages] = useState<Record<string, { kind: "success" | "error" | "info"; text: string }>>({});
@@ -230,25 +231,36 @@ export default function WarehousePackingPage() {
   };
 
   const verifyAllPackedTasks = async () => {
-    const eligible = tasks.filter((task: any) => task.status === "packed");
+    if (verifyingAll) return;
+    const eligible = tasks.filter((task: any) => String(task.status || "").toLowerCase() === "packed");
     if (!eligible.length) {
-      toast("No fully packed orders are waiting for verification.");
+      toast("No fully packed orders are waiting for verification. Finish packing each order first.");
       return;
     }
+    setVerifyingAll(true);
     let verified = 0;
     const failed: string[] = [];
-    for (const task of eligible) {
-      try {
-        await api.put(`/warehouse/me/packing-tasks/${task.id}/verify`, { verified: true });
-        verified += 1;
-      } catch {
-        failed.push(task.orderNumber || task.orderId || task.id);
+    try {
+      for (const task of eligible) {
+        try {
+          await api.put(`/warehouse/me/packing-tasks/${task.id}/verify`, { verified: true });
+          verified += 1;
+        } catch (error: any) {
+          const detail = error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Verification failed";
+          failed.push(`Order #${task.orderNumber || String(task.orderId || task.id).slice(-8)}: ${String(detail)}`);
+        }
       }
+      await Promise.all([refetch(), refetchShortages()]);
+      if (verified) toast.success(`Verified ${verified} of ${eligible.length} packed order(s). They are ready for dispatch.`);
+      if (failed.length) {
+        toast.error(failed.slice(0, 2).join(" · ") + (failed.length > 2 ? ` · and ${failed.length - 2} more order(s) failed` : ""), { duration: 8000 });
+      }
+      if (!verified && failed.length) {
+        setShowRemainingOnly(false);
+      }
+    } finally {
+      setVerifyingAll(false);
     }
-    if (verified) toast.success(`Verified ${verified} order(s). Ready orders can continue to dispatch.`);
-    if (failed.length) toast.error(`${failed.length} order(s) need review. Check quantities, shortages, and dispatch records.`);
-    await refetch();
-    await refetchShortages();
   };
 
   return (
@@ -269,7 +281,7 @@ export default function WarehousePackingPage() {
       </div>
       <div className="flex items-center justify-between">
         <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
-        <div className="flex flex-wrap items-center gap-2"><Button onClick={verifyAllPackedTasks} disabled={!tasks.some((task: any) => task.status === "packed")}><ShieldCheck className="mr-2 h-4 w-4"/>Verify All Packed</Button><Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button><Button asChild variant="outline"><Link href="/outgoing">Continue to Dispatch</Link></Button></div>
+        <div className="flex flex-wrap items-center gap-2"><Button type="button" onClick={verifyAllPackedTasks} disabled={verifyingAll || !tasks.some((task: any) => String(task.status || "").toLowerCase() === "packed")}>{verifyingAll ? <RefreshCw className="mr-2 h-4 w-4 animate-spin"/> : <ShieldCheck className="mr-2 h-4 w-4"/>}{verifyingAll ? "Verifying Orders…" : "Verify All Packed"}</Button><Button type="button" variant="outline" size="icon" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button><Button type="button" variant="outline" onClick={() => { window.location.assign("/outgoing"); }}><PackageCheck className="mr-2 h-4 w-4"/>Continue to Dispatch</Button></div>
       </div>
       <Card className="border-slate-200"><CardContent className="space-y-4 p-4">
         <div className="grid gap-3 sm:grid-cols-3">
