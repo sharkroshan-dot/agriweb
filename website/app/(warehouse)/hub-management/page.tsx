@@ -39,6 +39,15 @@ export default function LocalHubManagementPage() {
     },
     onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not create local hub"),
   });
+  const resendLogin = useMutation({
+    mutationFn: (id: string) => api.post(`/warehouse/me/local-hubs/${id}/resend-login`, {}),
+    onSuccess: (response: any) => {
+      const data = unwrap(response);
+      toast.success(data?.message || "New temporary login details emailed to the manager");
+      qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] });
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not email login details. Check backend SMTP settings."),
+  });
   const receive = useMutation({
     mutationFn: (id: string) => api.post(`/hub/me/transfers/${id}/receive`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); toast.success("Physical receipt confirmed"); },
@@ -87,7 +96,7 @@ export default function LocalHubManagementPage() {
       </CardContent></Card>
       {credentialData?.temporaryPassword && <Card className="border-emerald-300"><CardHeader><CardTitle className="flex items-center gap-2"><CheckCircle2 className="h-5 w-5 text-emerald-700" />Hub Created Successfully</CardTitle><CardDescription>{credentialData.emailSent ? `Login credentials were emailed to ${credentialData.manager?.email}.` : "The credential email was not sent. Check SMTP settings and securely share the temporary password below."} Ask the manager to change the password after signing in.</CardDescription></CardHeader><CardContent className="space-y-3"><div className="rounded-lg bg-muted p-3 text-sm"><p><strong>Hub:</strong> {credentialData.hub?.name}</p><p><strong>Username:</strong> {credentialData.manager?.username}</p><p><strong>Sign-in email:</strong> {credentialData.manager?.email}</p><p className="mt-2 break-all"><strong>Temporary password:</strong> {credentialData.temporaryPassword}</p></div><Button variant="outline" onClick={() => { const c = credentialData; navigator.clipboard.writeText(`Hub: ${c.hub?.name}\nUsername: ${c.manager?.username}\nEmail: ${c.manager?.email}\nTemporary password: ${c.temporaryPassword}`); toast.success("Temporary credentials copied"); }}><Copy className="mr-2 h-4 w-4" />Copy credentials</Button></CardContent></Card>}
       <Card><CardHeader><CardTitle>Managed Local Hubs</CardTitle><CardDescription>Hubs created under your warehouse.</CardDescription></CardHeader><CardContent>
-        {hubsQuery.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading local hubs…</p> : hubs.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No local hubs created yet.</p> : <div className="space-y-3">{hubs.map((item: any) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-semibold">{item.name}</p><p className="text-sm text-muted-foreground">{item.district}, {item.state}</p><p className="mt-1 text-xs text-muted-foreground">Manager: {item.manager?.name || "—"} · {item.manager?.email || "No email"}</p></div><Badge variant="outline">{readableStatus(item.status)}</Badge></div>)}</div>}
+        {hubsQuery.isLoading ? <p className="py-6 text-sm text-muted-foreground">Loading local hubs…</p> : hubs.length === 0 ? <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No local hubs created yet.</p> : <div className="space-y-3">{hubs.map((item: any) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4"><div><p className="font-semibold">{item.name}</p><p className="text-sm text-muted-foreground">{item.district}, {item.state}</p><p className="mt-1 text-xs text-muted-foreground">Manager: {item.manager?.name || "—"} · {item.manager?.email || "No email"}</p></div><div className="flex items-center gap-2"><Badge variant="outline">{readableStatus(item.status)}</Badge><Button size="sm" variant="outline" disabled={resendLogin.isPending || !item.manager?.email || !item.manager?.username} onClick={() => { if (window.confirm(`Generate a new temporary password and email it to ${item.manager?.email}? The manager current password will be replaced only if the email is sent successfully.`)) resendLogin.mutate(String(item.id || item._id)); }}><RefreshCw className="mr-2 h-4 w-4" />{resendLogin.isPending ? "Sending…" : "Resend Login Details"}</Button></div></div>)}</div>}
       </CardContent></Card>
     </>}
   </div>;
