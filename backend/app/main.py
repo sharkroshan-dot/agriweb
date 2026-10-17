@@ -322,3 +322,5 @@ if __name__ == "__main__":
     )
 
 app.include_router(settlements.router, prefix="/api/v1/settlements", tags=["Settlements"])
+from app.api.v1 import local_hubs
+app.include_router(local_hubs.router, prefix="/api/v1", tags=["Local Hubs"])
