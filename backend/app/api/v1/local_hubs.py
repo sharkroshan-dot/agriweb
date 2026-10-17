@@ -13,6 +13,7 @@ from app.repositories.delivery_job_repository import delivery_job_repository, JO
 from app.services.delivery_job_service import build_job_document
 from app.core.security import Security
 from app.services.order_service import geocode_address
+from app.services.notification_service import NotificationService
 
 router = APIRouter()
 
@@ -135,10 +136,40 @@ async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends
     hubs = MongoDB.get_collection("warehouses")
     inserted = await hubs.insert_one(hub_doc)
     await users.update_one({"_id": ObjectId(manager_id)}, {"$set": {"facilityId": str(inserted.inserted_id), "warehouseId": str(inserted.inserted_id), "updatedAt": now}})
+    hub_name = hub_doc["name"]
+    login_url = "http://localhost:3000/login"
+    email_sent = await NotificationService.send_email(
+        to=email,
+        subject="Your AgriConnect Local Hub Manager Login",
+        plain_text=(
+            f"Hello {payload.managerName.strip()},\n\n"
+            f"Your manager account for {hub_name} has been created.\n"
+            f"Username: {username}\n"
+            f"Temporary password: {temporary_password}\n"
+            f"Login: {login_url}\n\n"
+            "Sign in using the Warehouse role and change your temporary password immediately."
+        ),
+        body=(
+            f"<h2>Welcome to AgriConnect</h2>"
+            f"<p>Hello {payload.managerName.strip()}, your manager account for <strong>{hub_name}</strong> has been created.</p>"
+            f"<p><strong>Username:</strong> {username}<br><strong>Temporary password:</strong> {temporary_password}</p>"
+            f"<p><a href=\"{login_url}\">Sign in to AgriConnect</a></p>"
+            "<p>Choose the <strong>Warehouse</strong> role and change your temporary password immediately after signing in.</p>"
+        ),
+    )
     return {
         "success": True,
-        "data": {"hub": {"id": str(inserted.inserted_id), "name": hub_doc["name"], "district": hub_doc["district"], "state": hub_doc["state"], "status": "active"}, "manager": {"id": manager_id, "username": username, "email": email, "mustChangePassword": True}, "temporaryPassword": temporary_password},
-        "message": "Local hub and manager account created. Copy the temporary password now; it will not be shown again."
+        "data": {
+            "hub": {"id": str(inserted.inserted_id), "name": hub_name, "district": hub_doc["district"], "state": hub_doc["state"], "status": "active"},
+            "manager": {"id": manager_id, "username": username, "email": email, "mustChangePassword": True},
+            "temporaryPassword": temporary_password,
+            "emailSent": email_sent,
+        },
+        "message": (
+            "Local hub and manager account created. Login credentials were emailed to the registered address."
+            if email_sent else
+            "Local hub and manager account created, but the email could not be sent. Check SMTP configuration and securely copy the temporary password now."
+        )
     }
 
 
