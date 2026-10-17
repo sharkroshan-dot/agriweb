@@ -6921,10 +6921,10 @@ async def get_my_outgoing_stock(
                     saved_address = await address_repository.get_address_by_id(address_id, customer_id)
                 except Exception:
                     saved_address = None
-            if not saved_address and not any(
-                address.get(k) or shipping.get(k) or order_for_route.get(k)
-                for k in ("district", "districtName", "district_name", "city", "town", "municipality", "deliveryDistrict", "destinationDistrict", "customerDistrict")
-            ):
+            # The order snapshot may contain a city/district but still omit
+            # coordinates. Resolve a saved address whenever the explicit ID did
+            # not resolve; do not skip lookup just because partial text exists.
+            if not saved_address:
                 try:
                     saved_addresses = await address_repository.get_user_addresses(customer_id)
                 except Exception:
