@@ -21,6 +21,9 @@ export default function WarehouseOutgoingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedRoutes, setSelectedRoutes] = useState<Record<string, "nearby" | "long_distance">>({});
+  const routeCategory = (item: any) => String(item?.routeCategory || item?.farmerFulfillmentRouteType || item?.warehouseRouteCategory || "needs_location");
+  const routeLabel = (item: any) => ({ nearby: "Nearby delivery", same_district: "Same-district → Local Hub", inter_district: "Inter-district → Destination Warehouse", multi_warehouse: "Multi-warehouse consolidation", route_review: "Route review required", needs_location: "Needs location data" } as Record<string,string>)[routeCategory(item)] || "Needs location data";
+  const routeReady = (item: any) => ["nearby", "same_district", "inter_district", "multi_warehouse"].includes(routeCategory(item)) && item?.routeDataComplete !== false && item?.routeDistanceKm != null;
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["warehouseOutgoing", statusFilter],
     queryFn: () => api.get("/warehouse/me/outgoing", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 100 } }),
@@ -60,10 +63,10 @@ export default function WarehouseOutgoingPage() {
 
   const dispatchAllRoutedReadyOrders = async () => {
     const eligible = outgoing.filter((item: any) =>
-      ["pending", "packed"].includes(String(item.status)) && Boolean(selectedRoutes[item.id])
+      ["pending", "packed"].includes(String(item.status)) && routeReady(item) && Boolean(selectedRoutes[item.id])
     );
     if (!eligible.length) {
-      toast("No ready shipments with a selected delivery route. Choose Nearby or Long Distance for each shipment first.");
+      toast("No ready shipments have a complete automatic route decision. Resolve missing location/district data in Route Review before dispatch.");
       return;
     }
     let completed = 0;
@@ -91,13 +94,14 @@ export default function WarehouseOutgoingPage() {
   const dispatchSelectedRoute = async (id: string) => {
     const route = selectedRoutes[id];
     if (!route) {
-      toast.error("Choose Nearby or Long Distance before dispatching.");
+      toast.error("Dispatch remains blocked until automatic route classification is complete.");
       return;
     }
     try {
       const outgoingRow = allOutgoing.find((x: any) => x.id === id);
       const orderId = outgoingRow?.orderId;
       if (!orderId) throw new Error("This shipment is not linked to a customer order.");
+      if (!routeReady(outgoingRow)) throw new Error("Route review required: missing or incomplete location/district data. This order has not been dispatched.");
       const auditResponse = await api.get(`/warehouse/me/orders/${orderId}/fulfillment-check`);
       const audit = auditResponse?.data || auditResponse;
       if (!audit?.readyForDispatch) {
@@ -123,25 +127,25 @@ export default function WarehouseOutgoingPage() {
         <div><h1 className="text-3xl font-bold">Outgoing & Delivery Decision</h1><p className="text-muted-foreground">Ready for Dispatch → apply the 15 km route threshold → dispatch through the appropriate delivery workflow.</p></div>\n        <Button onClick={dispatchAllRoutedReadyOrders} disabled={!outgoing.some((item: any) => ["pending", "packed"].includes(String(item.status)) && Boolean(selectedRoutes[item.id]))}><Send className="mr-2 h-4 w-4"/>Dispatch All Routed Ready Orders</Button>
         <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
       </div>
-      <Card className="border-amber-100 bg-amber-50/60"><CardContent className="flex gap-3 p-4"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"/><div className="text-sm text-amber-950"><p className="font-semibold">Delivery decision happens after warehouse packing is verified.</p><p className="mt-1 text-xs leading-5 text-amber-900">Use the same 15 km routing threshold as Farmer Fulfillment Transfers. Nearby orders use direct delivery when configured; long-distance orders require a local-hub handoff. Orders requiring destination-warehouse transfer must continue in Farmer Fulfillment Transfers. Dispatch remains blocked until the route and order readiness are confirmed.</p></div></CardContent></Card>
+      <Card className="border-amber-100 bg-amber-50/60"><CardContent className="flex gap-3 p-4"><MapPin className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"/><div className="text-sm text-amber-950"><p className="font-semibold">Delivery decision happens after warehouse packing is verified.</p><p className="mt-1 text-xs leading-5 text-amber-900">Routes use the Farmer Fulfillment Transfers rules: 15 km default, then Nearby, Same-District → Local Hub, or Inter-District → Destination Warehouse. Missing coordinates/districts stay in Route Review and cannot be dispatched. Farmer-fulfillment orders remain in their dedicated transfer workflow.</p></div></CardContent></Card>
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input placeholder="Search dispatch orders..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9" /></div>
         <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-[180px]"><SelectValue placeholder="Filter status" /></SelectTrigger><SelectContent><SelectItem value="all">All Status</SelectItem><SelectItem value="pending">Ready for Dispatch</SelectItem><SelectItem value="packed">Packed</SelectItem><SelectItem value="dispatched">Dispatched</SelectItem></SelectContent></Select>
       </div>
-      {isLoading ? <div className="space-y-3">{[1,2,3].map((i)=><div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div> : outgoing.length === 0 ? <Card className="p-12 text-center"><ArrowUp className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No outgoing shipments</h3><p className="mt-2 text-muted-foreground">Outbound stock records will appear here once created.</p></Card> : <div className="space-y-4">{outgoing.map((item: any) => <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><h3 className="font-semibold">{item.orderId || "Dispatch Order"}</h3><Badge className={statusColors[item.status] || "bg-slate-100 text-slate-700"}>{item.status === "pending" ? "Ready for Dispatch" : item.status === "packed" ? "Packed" : item.status === "dispatched" ? "Dispatched" : item.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">Order package · {item.productName || item.productId} · {item.quantity || 0} units</p><div className="mt-3 flex flex-wrap gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1"><Truck className="h-4 w-4" />{item.deliveryPartnerId || "Unassigned"}</span><span className="flex items-center gap-1"><Clock3 className="h-4 w-4" />{item.dispatchDate ? new Date(item.dispatchDate).toLocaleString() : "Not dispatched"}</span>{item.priority === "high" && <span className="flex items-center gap-1 text-red-600"><AlertCircle className="h-4 w-4" />High priority</span>}</div></div><div className="flex flex-col items-end gap-2">
+      {isLoading ? <div className="space-y-3">{[1,2,3].map((i)=><div key={i} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div> : outgoing.length === 0 ? <Card className="p-12 text-center"><ArrowUp className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No outgoing shipments</h3><p className="mt-2 text-muted-foreground">Outbound stock records will appear here once created.</p></Card> : <div className="space-y-4">{outgoing.map((item: any) => <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex items-center gap-3"><h3 className="font-semibold">{item.orderId || "Dispatch Order"}</h3><Badge className={statusColors[item.status] || "bg-slate-100 text-slate-700"}>{item.status === "pending" ? "Ready for Dispatch" : item.status === "packed" ? "Packed" : item.status === "dispatched" ? "Dispatched" : item.status}</Badge></div><p className="mt-2 text-sm text-muted-foreground">Order package · {item.productName || item.productId} · {item.quantity || 0} units</p><div className="mt-2 flex flex-wrap gap-2 text-xs"><Badge variant="outline">{routeLabel(item)}</Badge><span className="text-muted-foreground">Distance: {item.routeDistanceKm == null ? "Not calculated" : `${Number(item.routeDistanceKm).toFixed(1)} km`} · Threshold: {item.nearbyThresholdKm ?? 15} km</span></div><div className="mt-3 flex flex-wrap gap-3 text-sm text-muted-foreground"><span className="flex items-center gap-1"><Truck className="h-4 w-4" />{item.deliveryPartnerId || "Unassigned"}</span><span className="flex items-center gap-1"><Clock3 className="h-4 w-4" />{item.dispatchDate ? new Date(item.dispatchDate).toLocaleString() : "Not dispatched"}</span>{item.priority === "high" && <span className="flex items-center gap-1 text-red-600"><AlertCircle className="h-4 w-4" />High priority</span>}</div></div><div className="flex flex-col items-end gap-2">
   {(item.status === "pending" || item.status === "packed") && (
     <div className="flex flex-wrap gap-2">
       <Button
         size="sm"
         variant={selectedRoutes[item.id] === "nearby" ? "default" : "outline"}
-        onClick={() => chooseDeliveryRoute(item.id, "nearby")}
+        disabled={!routeReady(item)}\n        onClick={() => chooseDeliveryRoute(item.id, "nearby")}
       >
         Nearby
       </Button>
       <Button
         size="sm"
         variant={selectedRoutes[item.id] === "long_distance" ? "default" : "outline"}
-        onClick={() => chooseDeliveryRoute(item.id, "long_distance")}
+        disabled={!routeReady(item)}\n        onClick={() => chooseDeliveryRoute(item.id, "long_distance")}
       >
         Long Distance
       </Button>
