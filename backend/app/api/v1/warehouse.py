@@ -6832,14 +6832,33 @@ async def get_my_outgoing_stock(
             )
             if existing:
                 continue
-            await WarehouseService.create_outgoing(OutgoingStockCreate(
-                warehouseId=str(warehouse["_id"]),
-                productId=product_id,
-                variantId=variant_id if ObjectId.is_valid(variant_id) else None,
-                orderId=order_id,
-                quantity=int(float(line.get("packedQuantity") or line.get("quantityRequired") or 0)),
-                batchNumber=line.get("batchNumber"),
-            ))
+            # The stock is already packed and verified at this point. Do not
+            # route this through create_outgoing(), which reserves inventory
+            # again and can reject a valid packed order when the warehouse
+            # stock ledger was already decremented during receiving/packing.
+            # Create the missing dispatch record idempotently instead.
+            quantity = int(float(line.get("packedQuantity") or line.get("quantityRequired") or 0))
+            if quantity <= 0:
+                continue
+            order = await order_repository.get_by_id(order_id)
+            if not order:
+                continue
+            transfer_only = str(order.get("logisticsMode") or "") == "farmer_to_warehouse_to_local_hub_to_delivery_partner"
+            if str(order.get("fulfillmentMethod") or "farmer") != "warehouse" and not transfer_only:
+                continue
+            if str(order.get("warehouseId") or "") != str(warehouse["_id"]):
+                continue
+            await outgoing_stock_repository.create_outgoing({
+                "warehouseId": ObjectId(str(warehouse["_id"])),
+                "productId": ObjectId(product_id),
+                "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else None,
+                "orderId": ObjectId(order_id),
+                "quantity": quantity,
+                "batchNumber": line.get("batchNumber"),
+                "packingTaskId": task.get("_id"),
+                "packageId": task.get("packageId"),
+                "source": "verified_packing_task_reconciliation",
+            })
 
     skip = (page - 1) * limit
     outgoing, total = await WarehouseService.get_outgoing_stock(
