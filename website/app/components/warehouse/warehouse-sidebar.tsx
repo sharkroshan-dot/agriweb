@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
 import {
   LayoutDashboard, Package, PackageCheck, ArrowDown, ArrowUp, Truck, Warehouse,
@@ -70,6 +71,13 @@ const navSections = [
 
 export function WarehouseSidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const isLocalHubManager = (session?.user as any)?.facilityType === "local_hub";
+  const visibleSections = isLocalHubManager ? [{ title: "Local Hub Operations", items: [
+    { name: "Hub Dashboard & Incoming Orders", href: "/hub-management", icon: LayoutDashboard },
+  ] }] : [{ title: "Local Hub Management", items: [
+    { name: "Manage Local Hubs", href: "/hub-management", icon: Warehouse },
+  ] }, ...navSections.filter((section) => section.title !== "Local Hub Operations")];
   const dashboardQuery = useQuery({
     queryKey: ["warehouseSidebarDashboard"],
     queryFn: () => api.get("/warehouse/me/dashboard"),
@@ -108,7 +116,7 @@ export function WarehouseSidebar() {
         </div>
 
         <nav aria-label="Warehouse navigation" className="space-y-5">
-          {navSections.map((section) => (
+          {visibleSections.map((section) => (
             <section key={section.title} aria-label={section.title}>
               <div className="mb-2 px-2">
                 <h2 className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{section.title}</h2>
