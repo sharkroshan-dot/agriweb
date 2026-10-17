@@ -286,11 +286,12 @@ async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: 
 @router.post("/hub/me/change-password")
 async def change_local_hub_password(payload: HubPasswordChange, current_user: dict = Depends(get_current_user)):
     _hub_id(current_user)
-    if not Security.verify_password(payload.currentPassword, current_user.get("passwordHash", "")):
+    users = MongoDB.get_collection("users")
+    stored_user = await users.find_one({"_id": ObjectId(str(current_user["_id"])), "deletedAt": None})
+    if not stored_user or not Security.verify_password(payload.currentPassword, stored_user.get("passwordHash", "")):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if payload.currentPassword == payload.newPassword:
         raise HTTPException(status_code=400, detail="Choose a new password different from the temporary password")
-    users = MongoDB.get_collection("users")
     now = datetime.utcnow()
     await users.update_one({"_id": ObjectId(str(current_user["_id"]))}, {"$set": {"passwordHash": Security.get_password_hash(payload.newPassword), "mustChangePassword": False, "passwordChangedAt": now, "updatedAt": now}})
     return {"success": True, "message": "Password changed successfully"}
