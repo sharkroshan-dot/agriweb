@@ -194,7 +194,7 @@ async authorize(credentials) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
-        token.facilityType = (user as any).facilityType || null;
+        (token as any).facilityType = (user as any).facilityType || null;
         token.picture = user.image;
         token.accessToken = (user as any).accessToken;
         token.refreshToken = (user as any).refreshToken;
@@ -218,7 +218,7 @@ async authorize(credentials) {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as AppRole;
-        (session.user as any).facilityType = token.facilityType as string | null;
+        (session.user as any).facilityType = (token as any).facilityType as string | null;
         session.user.image = token.picture as string;
       }
       (session as any).accessToken = token.accessToken;
