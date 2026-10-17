@@ -156,15 +156,6 @@ export default function WarehouseOutgoingPage() {
   {routeCategory(item) === "farmer_fulfillment_transfer" && (
     <p className="max-w-xs text-right text-xs text-amber-700">Continue this order in Farmer Fulfillment Transfers to prevent duplicate dispatch workflows.</p>
   )}
-  {
-    </div>
-  )}
-  {(item.status === "pending" || item.status === "packed") && selectedRoutes[item.id] && (
-    <Button size="sm" onClick={() => dispatchSelectedRoute(item.id)}>
-      <Send className="mr-2 h-4 w-4"/>
-      Dispatch Complete Order via {selectedRoutes[item.id] === "nearby" ? "Direct Delivery" : "Local Hub"}
-    </Button>
-  )}
   {item.status === "dispatched" && (
     <Badge variant="success">
       Delivery route active: {item.deliveryPartnerRoute === "long_distance" ? "Long Distance → Local Hub" : "Nearby → Delivery Partner"}
