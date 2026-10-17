@@ -45,19 +45,38 @@ export default function WarehouseOutgoingPage() {
   const grouped = useMemo(() => Object.fromEntries(ROUTES.map((r) => [r.key, outgoing.filter((item: any) => categoryOf(item) === r.key)])) as Record<RouteKey, any[]>, [outgoing]);
   const readyCount = outgoing.filter((item: any) => ["pending", "packed"].includes(String(item.status)) && routeReady(item)).length;
 
-  const dispatchNearby = async (item: any) => {
+  const processDispatch = async (item: any) => {
+    const category = categoryOf(item);
     try {
-      if (categoryOf(item) !== "nearby" || !routeReady(item)) throw new Error("Only orders automatically classified as Nearby with complete route data can use direct dispatch.");
+      if (!routeReady(item)) throw new Error("Route review required. Add complete location and district data before dispatch.");
       if (!item.orderId) throw new Error("This shipment is not linked to a customer order.");
       const auditResponse = await api.get(`/warehouse/me/orders/${item.orderId}/fulfillment-check`);
       const audit = auditResponse?.data || auditResponse;
-      if (!audit?.readyForDispatch) throw new Error("Packing verification is incomplete. Complete and verify all packed quantities first.");
-      await api.post(`/warehouse/me/outgoing/${item.id}/delivery-route`, { route: "nearby", radius: item.nearbyThresholdKm ?? 15 });
-      await api.put(`/warehouse/me/outgoing/${item.id}/status`, undefined, { params: { status: "dispatched" } });
-      await api.post(`/warehouse/me/outgoing/${item.id}/delivery-route`, { route: "nearby", radius: item.nearbyThresholdKm ?? 15 });
-      toast.success("Nearby shipment dispatched; delivery workflow activated.");
-      await refetch();
-    } catch (e: any) { toast.error(e?.message || "Could not dispatch shipment"); }
+      if (!audit?.readyForDispatch) throw new Error("Packing verification is incomplete. Verify packed quantities before dispatch.");
+
+      if (category === "nearby" || category === "same_district") {
+        // Existing warehouse routing supports direct delivery or a controlled
+        // local-hub handoff. The long-distance route keeps partner assignment
+        // gated until the hub confirms receipt.
+        const route = category === "nearby" ? "nearby" : "long_distance";
+        await api.post(`/warehouse/me/outgoing/${item.id}/delivery-route`, { route, radius: item.nearbyThresholdKm ?? 15 });
+        await api.put(`/warehouse/me/outgoing/${item.id}/status`, undefined, { params: { status: "dispatched" } });
+        await api.post(`/warehouse/me/outgoing/${item.id}/delivery-route`, { route, radius: item.nearbyThresholdKm ?? 15 });
+        toast.success(category === "nearby"
+          ? "Shipment dispatched to the direct-delivery workflow."
+          : "Shipment dispatched into the local-hub handoff workflow. Confirm hub receipt before final-mile assignment.");
+        await refetch();
+        return;
+      }
+      if (category === "inter_district") {
+        throw new Error("Inter-district dispatch requires destination-warehouse assignment and transfer-team handoff. This action is not yet available for ordinary warehouse orders; do not dispatch using a guessed route.");
+      }
+      if (category === "multi_warehouse") {
+        window.location.href = "/warehouse/consolidation";
+        return;
+      }
+      throw new Error("This shipment must be resolved in Route Review before dispatch.");
+    } catch (e: any) { toast.error(e?.message || "Could not process shipment"); }
   };
 
   return <div className="space-y-6">
@@ -99,10 +118,10 @@ export default function WarehouseOutgoingPage() {
         {!routeReady(item) && <div className="mt-3 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><AlertCircle className="h-4 w-4 shrink-0"/><span>{item.routeDecisionReason || "Route data is incomplete. Add valid source/customer coordinates and district data before dispatch."} Dispatch is blocked.</span></div>}
       </div>
       <div className="flex min-w-[220px] flex-col gap-2 lg:items-end">
-        {activeSection === "nearby" && ["pending","packed"].includes(String(item.status)) && <Button disabled={!routeReady(item)} onClick={() => dispatchNearby(item)}><Send className="mr-2 h-4 w-4"/>Verify & Dispatch to Partner</Button>}
-        {activeSection === "same_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Local hub transfer</p><p className="mt-1 text-xs text-muted-foreground">Transfer-team assignment and hub receipt must complete before final-mile assignment.</p><Badge className="mt-2" variant="outline">Transfer workflow required</Badge></div>}
-        {activeSection === "inter_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Destination warehouse transfer</p><p className="mt-1 text-xs text-muted-foreground">Destination assignment, transfer-team dispatch, destination receipt, and hub handoff are required.</p><Badge className="mt-2" variant="outline">Transfer workflow required</Badge></div>}
-        {activeSection === "multi_warehouse" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Consolidation required</p><p className="mt-1 text-xs text-muted-foreground">Receive all source portions before the local-hub handoff.</p><Badge className="mt-2" variant="outline">Consolidation required</Badge></div>}
+        {activeSection === "nearby" && ["pending","packed"].includes(String(item.status)) && <Button disabled={!routeReady(item)} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Verify & Dispatch to Partner</Button>}
+        {activeSection === "same_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Local hub transfer</p><p className="mt-1 text-xs text-muted-foreground">Dispatch the sealed shipment to the hub, confirm physical receipt, then assign final-mile delivery.</p><Button className="mt-3 w-full" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status))} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Start Local Hub Transfer</Button></div>}
+        {activeSection === "inter_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Destination warehouse transfer</p><p className="mt-1 text-xs text-muted-foreground">Assign a destination warehouse and transfer team, then confirm receipt and continue to the local hub.</p><Button className="mt-3 w-full" variant="outline" disabled={!routeReady(item)} onClick={() => processDispatch(item)}><Warehouse className="mr-2 h-4 w-4"/>Process Destination Transfer</Button></div>}
+        {activeSection === "multi_warehouse" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Consolidation required</p><p className="mt-1 text-xs text-muted-foreground">Receive all source portions before the local-hub handoff.</p><Button className="mt-3 w-full" variant="outline" onClick={() => { window.location.href = "/warehouse/consolidation"; }}><Warehouse className="mr-2 h-4 w-4"/>Open Consolidation</Button></div>}
         {activeSection === "farmer_fulfillment_transfer" && <Button variant="outline" onClick={() => { window.location.href = "/farmer-fulfillment"; }}>Open Farmer Fulfillment Transfers</Button>}
         {item.status === "dispatched" && <Badge className="bg-emerald-100 text-emerald-800"><Truck className="mr-1 h-3 w-3"/>Dispatched</Badge>}
       </div></div>
