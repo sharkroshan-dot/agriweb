@@ -6877,7 +6877,7 @@ async def get_my_outgoing_stock(
     # Enrich ordinary warehouse dispatch rows with the same distance/district
     # classification used by Farmer Fulfillment Transfers. Resolve saved-address
     # snapshots for legacy orders before deciding location data is missing.
-    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or warehouse.get("address", {}).get("location") or {}
+    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or (warehouse.get("address", {}).get("location") if isinstance(warehouse.get("address"), dict) else None) or {}
     warehouse_address = warehouse.get("address") if isinstance(warehouse.get("address"), dict) else {}
     warehouse_location_data = warehouse.get("location") if isinstance(warehouse.get("location"), dict) else {}
     source_district = str(
@@ -6888,14 +6888,27 @@ async def get_my_outgoing_stock(
 
     def _first_location(*values):
         for value in values:
+            if isinstance(value, (list, tuple)) and len(value) >= 2:
+                try:
+                    # GeoJSON coordinate arrays use [longitude, latitude].
+                    candidate = {"coordinates": list(value)}
+                    if distance_km(candidate, candidate) is not None:
+                        return candidate
+                except (TypeError, ValueError):
+                    pass
+                continue
             if not isinstance(value, dict):
                 continue
-            # Accept common GeoJSON, lat/lng, and nested address/location shapes.
+            # Accept GeoJSON, lat/lng, nested location objects, and common
+            # legacy forms where coordinates are stored directly on address.
             if distance_km(value, value) is not None:
                 return value
-            nested = value.get("location") or value.get("coordinates") or value.get("geo")
-            if isinstance(nested, dict) and distance_km(nested, nested) is not None:
-                return nested
+            for key in ("location", "coordinates", "geo", "geoLocation", "geo_location", "position", "addressLocation"):
+                nested = value.get(key)
+                if isinstance(nested, (list, tuple)) and len(nested) >= 2:
+                    nested = {"coordinates": list(nested)}
+                if isinstance(nested, dict) and distance_km(nested, nested) is not None:
+                    return nested
         return None
 
     for item in outgoing:
@@ -6936,8 +6949,8 @@ async def get_my_outgoing_stock(
         # Keep the checkout snapshot as highest priority, then fill gaps from
         # saved address records and legacy top-level delivery fields.
         destination_location = _first_location(
-            address.get("location"), address.get("coordinates"), address,
-            shipping.get("location"), shipping.get("coordinates"), shipping,
+            address.get("location"), address.get("coordinates"), address.get("geoLocation"), address.get("geo_location"), address.get("position"), address,
+            shipping.get("location"), shipping.get("coordinates"), shipping.get("geoLocation"), shipping.get("geo_location"), shipping,
             saved_address.get("location") if saved_address else None,
             saved_address.get("coordinates") if saved_address else None,
             order_for_route.get("customerLocation"), order_for_route.get("deliveryLocation"),
