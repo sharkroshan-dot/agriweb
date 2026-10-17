@@ -6126,7 +6126,7 @@ async def assign_packing_team(task_id: str, data: PackingTeamAssignment, current
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     task = await warehouse_packing_repository.get_by_id(task_id)
     if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
-    await warehouse_packing_repository.update_task(task_id, {"packingTeamId": data.packingTeamId, "status": "assigned"})
+    await warehouse_packing_repository.update_task(task_id, {"packingTeamId": data.packingTeamId, "status": "assigned", "packingTeamAssignedAt": datetime.utcnow()})
     from app.repositories.order_repository import order_repository
     await order_repository.update(
         {"_id": ObjectId(str(task["orderId"]))},
@@ -6142,7 +6142,7 @@ async def start_packing_task(task_id: str, current_user: dict = Depends(get_curr
     task = await warehouse_packing_repository.get_by_id(task_id)
     if not warehouse or not task or str(task.get("warehouseId")) != str(warehouse["_id"]): raise HTTPException(status_code=404, detail="Packing task not found")
     if task.get("status") not in ("ready_for_packing","assigned"): raise HTTPException(status_code=400, detail="Task is not ready to start packing")
-    await warehouse_packing_repository.update_task(task_id, {"status":"packing"})
+    await warehouse_packing_repository.update_task(task_id, {"status":"packing", "packingStartedAt": datetime.utcnow()})
     from app.repositories.order_repository import order_repository
     await order_repository.update(
         {"_id": ObjectId(str(task["orderId"]))},
@@ -6204,6 +6204,8 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
             "packingItems": packing_items,
             "packageId": data.packageId or f"PKG-{str(task['_id'])[-8:]}",
             "packingNotes": data.notes,
+            "packingCompletedAt": datetime.utcnow(),
+            "packedAt": datetime.utcnow(),
             "status": packed_status,
             "packingAttemptComplete": True,
             "shortageDetectedAfterPacking": any_shortage,
@@ -6372,6 +6374,7 @@ async def verify_packing_task(task_id: str, data: PackingVerifyRequest, current_
 
     await warehouse_packing_repository.update_task(task_id, {
         "verified": True,
+        "verifiedAt": datetime.utcnow(),
         "verificationNotes": data.notes,
         "status": "ready_for_dispatch",
         "packingItems": [{**item, "verified": True} for item in packing_items],
