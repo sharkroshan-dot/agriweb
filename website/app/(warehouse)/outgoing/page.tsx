@@ -60,7 +60,11 @@ export default function WarehouseOutgoingPage() {
         const response = await api.get("/warehouse/me/orders/" + item.orderId + "/fulfillment-check");
         const audit = response?.data || response;
         if (!audit?.readyForDispatch) throw new Error("Packing not verified");
-        if (section === "inter_district") throw new Error("Destination warehouse transfer actions are not yet available for ordinary warehouse orders");
+        if (section === "inter_district") {
+          await api.post("/warehouse/me/outgoing/" + item.id + "/inter-district-dispatch");
+          succeeded += 1;
+          continue;
+        }
         const route = section === "nearby" ? "nearby" : "long_distance";
         await api.post("/warehouse/me/outgoing/" + item.id + "/delivery-route", { route, radius: item.nearbyThresholdKm ?? 15 });
         await api.put("/warehouse/me/outgoing/" + item.id + "/status", undefined, { params: { status: "dispatched" } });
@@ -96,7 +100,11 @@ export default function WarehouseOutgoingPage() {
         return;
       }
       if (category === "inter_district") {
-        throw new Error("Inter-district dispatch requires destination-warehouse assignment and transfer-team handoff. This action is not yet available for ordinary warehouse orders; do not dispatch using a guessed route.");
+        const result = await api.post(`/warehouse/me/outgoing/${item.id}/inter-district-dispatch`);
+        const transfer = result?.data?.data || result?.data || {};
+        toast.success(`Dispatched to ${transfer.destinationWarehouseName || "destination warehouse"} in ${transfer.destinationDistrict || item.destinationDistrict}. Transfer team: ${transfer.transferTeamName || "assigned"}. Confirm physical receipt at the destination warehouse to continue to the local hub.`);
+        await refetch();
+        return;
       }
       if (category === "multi_warehouse") {
         window.location.href = "/warehouse/consolidation";
