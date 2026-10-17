@@ -6874,6 +6874,44 @@ async def get_my_outgoing_stock(
         skip,
         limit
     )
+    # Enrich ordinary warehouse dispatch rows with the same distance/district
+    # classification used by Farmer Fulfillment Transfers. This is advisory only:
+    # farmer-fulfillment transfer rows remain owned by their dedicated workflow.
+    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or {}
+    source_district = str(warehouse.get("district") or warehouse.get("address", {}).get("district") or "").strip()
+    for item in outgoing:
+        order_id_for_route = str(item.get("orderId") or "")
+        order_for_route = await order_repository.get_by_id(order_id_for_route) if ObjectId.is_valid(order_id_for_route) else None
+        if not order_for_route:
+            item.update({"routeCategory": "needs_location", "routeDataComplete": False, "routeDecisionReason": "Order details are unavailable"})
+            continue
+        # Farmer-packed transfers must never be routed from this queue.
+        if str(order_for_route.get("fulfillmentMethod") or "").lower() == "farmer":
+            item.update({"routeCategory": "farmer_fulfillment_transfer", "routeDataComplete": False, "routeDecisionReason": "Continue in Farmer Fulfillment Transfers"})
+            continue
+        address = order_for_route.get("deliveryAddress") or order_for_route.get("shippingAddress") or {}
+        destination_location = address.get("location") or address.get("coordinates") or {}
+        destination_district = str(address.get("district") or order_for_route.get("deliveryDistrict") or order_for_route.get("district") or "").strip()
+        threshold = float(order_for_route.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+        calculated_distance = distance_km(warehouse_location, destination_location) if warehouse_location and destination_location else None
+        allocations = order_for_route.get("warehouseAllocations") or order_for_route.get("sourceWarehouseAllocations") or []
+        source_ids = {str(x.get("warehouseId") or x.get("sourceWarehouseId")) for x in allocations if isinstance(x, dict) and (x.get("warehouseId") or x.get("sourceWarehouseId"))}
+        direct_configured = bool(order_for_route.get("directDeliveryConfigured") or order_for_route.get("directWarehouseToCustomerConfigured") or order_for_route.get("deliveryMode") in ("direct", "direct_delivery", "warehouse_to_customer"))
+        if not direct_configured and len(source_ids) <= 1:
+            direct_configured = str(order_for_route.get("logisticsMode") or "").lower() in ("warehouse_to_customer", "warehouse_to_customer_direct", "direct_delivery")
+        category = classify_farmer_fulfillment_route(calculated_distance, threshold, source_district, destination_district, direct_configured, len(source_ids) > 1)
+        # Missing route data and nearby-but-not-configured direct delivery stay in review;
+        # never let the old binary route selector guess a handoff.
+        item.update({
+            "routeCategory": category,
+            "routeDataComplete": category in ("nearby", "same_district", "inter_district", "multi_warehouse"),
+            "routeDistanceKm": calculated_distance,
+            "nearbyThresholdKm": threshold,
+            "sourceDistrict": source_district or None,
+            "destinationDistrict": destination_district or None,
+            "directDeliveryConfigured": direct_configured,
+            "routeDecisionReason": ("Coordinates or district are missing" if category == "needs_location" else "Nearby direct delivery is not configured" if category == "route_review" else None),
+        })
     for item in outgoing:
         item["id"] = str(item["_id"])
     # MongoDB documents contain ObjectId values in _id/orderId/productId and
