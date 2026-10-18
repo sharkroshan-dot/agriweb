@@ -404,14 +404,7 @@ export default function FarmerFulfillmentTransfersPage() {
             </div>
           </div>
           <div className="p-4 sm:p-5">
-            {section.key==="inter_district"&&<div className="mb-4">
-              <div className="grid grid-cols-1 gap-2 rounded-xl bg-slate-50 p-2 sm:grid-cols-2" role="tablist" aria-label="Inter-district transfer stages">
-                <button type="button" role="tab" aria-selected={activeInterDistrictSection==="outbound"} onClick={()=>setActiveInterDistrictSection("outbound")} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${activeInterDistrictSection==="outbound"?"border-emerald-700 bg-emerald-700 text-white shadow-sm":"border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}>
-                  <Truck className="h-4 w-4"/><span>Send to Destination Warehouse</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeInterDistrictSection==="outbound"?"bg-white/20 text-white":"bg-emerald-100 text-emerald-700"}`}>{isLoading?"—":interDistrictOutboundOrders.length}</span>
-                </button>
 
-              </div>
-            </div>}
           </div>
         </section>;
       })}
