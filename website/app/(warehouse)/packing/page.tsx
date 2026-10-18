@@ -289,7 +289,7 @@ export default function WarehousePackingPage() {
       const rows = items.map((i: any) => "<tr><td>" + esc(i.productName || i.name || "Product") + "</td><td style='text-align:right;font-weight:bold'>" + esc(i.packedQuantity ?? i.actualPackedQuantity ?? i.quantity ?? i.quantityRequired ?? "—") + " " + esc(i.unit || "kg") + "</td></tr>").join("");
       const payment = String(t.paymentMethod || order.paymentMethod || order.payment?.method || "Unknown").toUpperCase();
       const amount = Number(t.totalAmount ?? t.total ?? order.totalAmount ?? order.total ?? 0);
-      const paymentStatus = String(t.paymentStatus || order.paymentStatus || order.payment?.status || (payment === "COD" ? "PAYABLE ON DELIVERY" : "VERIFY PAYMENT STATUS")).replace(/_/g, " ").toUpperCase();
+      const paymentStatus = String(t.paymentStatus || order.paymentStatus || order.payment?.status || "").replace(/_/g, " ").toUpperCase();
       const qr = printQrRef.current?.querySelector("svg")?.outerHTML || "";
       const win = window.open("", "_blank", "width=720,height=900");
       if (!win) { toast.error("Please allow pop-ups to print the package label"); setPrintLabelData(null); return; }
@@ -298,7 +298,7 @@ export default function WarehousePackingPage() {
       <div class="grid"><div class="cell"><div class="heading">SOURCE FARM</div><div class="value">${esc(t.farmName || t.sourceFarmName || t.farmerName || order.farmName || "Not specified")}</div></div><div class="cell"><div class="heading">WAREHOUSE</div><div class="value">${esc(t.warehouseName || t.warehouse?.name || "Not specified")}</div></div></div>
       <div class="heading">DELIVER TO</div><div class="value"><b>${esc(customer)}</b></div><div class="value">${esc(phone)}</div><div class="value">${esc(addressText || "Delivery address unavailable")}</div>
       <div class="heading">PACKED ITEMS · ACTUAL QUANTITY</div><table>${rows || "<tr><td>Item details unavailable</td><td>—</td></tr>"}</table>
-      <div class="heading">PAYMENT</div><div class="value">${esc(payment)} · ${esc(paymentStatus)}</div><div class="value">${payment === "COD" ? "Amount to collect: ₹" + amount.toFixed(2) : "Order total: ₹" + amount.toFixed(2)}</div>
+      <div class="heading">PAYMENT</div><div class="value">${payment === "COD" ? "CASH ON DELIVERY · Amount to collect: ₹" + amount.toFixed(2) : "No cash collection on delivery" + (paymentStatus ? " · " + paymentStatus : "")}</div>
       <div class="qr">${qr}<div class="muted"><b>DELIVERY PARTNER ONLY · POD WORKSPACE</b></div><div class="muted">Sign in as the assigned delivery partner to access this order and submit proof of delivery.</div></div></main><script>window.onload=()=>window.print();</script></body></html>`);
       win.document.close();
       setPrintLabelData(null);
