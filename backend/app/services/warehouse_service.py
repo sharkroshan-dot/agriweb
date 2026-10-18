@@ -778,10 +778,10 @@ class WarehouseService:
                 "productName": item.get("productName") or "Product",
                 "quantityRequired": required,
                 "quantityAvailable": available,
-                "quantityShort": short,
+                "quantityShort": (short if bool((existing or {}).get("packingAttemptComplete")) or str((existing or {}).get("status") or "").lower() in {"customer_approval_pending", "packed", "verified", "ready_for_dispatch", "dispatched"} else 0.0),
                 "packedQuantity": packed,
                 "unit": item.get("unit") or "kg",
-                "verified": bool(old.get("verified")) if short <= 1e-9 else False,
+                "verified": bool(old.get("verified")) if (short <= 1e-9 or bool((existing or {}).get("packingAttemptComplete"))) else False,
             })
             if short > 1e-9:
                 shortages.append({
