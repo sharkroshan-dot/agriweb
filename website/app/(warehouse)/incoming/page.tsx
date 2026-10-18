@@ -282,15 +282,14 @@ export default function WarehouseIncomingPage() {
     setIsSaving(true); let succeeded = 0;
     try {
       for (const item of bulkFarmItems) {
-        const receiveResponse = await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: Number(item.quantity || 0), usableQuantity: Number(item.quantity || 0), quality_check: bulkQualityResult, notes: [bulkReceiveNotes.trim(), `Bulk shipment receipt: declared ${declaredTotal} kg; measured ${measuredTotal} kg; overall quality ${bulkQualityResult}. Per-order quantities are labels/packing references and were not individually weighed at receipt.`].filter(Boolean).join(" | ") } });
+        await api.put("/warehouse/me/incoming/" + item.id + "/receive-bulk-reference", undefined, { params: { declaredTotal, measuredTotal, quality_check: bulkQualityResult, notes: [bulkReceiveNotes.trim(), `Bulk lot: ${bulkFarmItems.length} order label references; declared total ${declaredTotal} kg; measured total ${measuredTotal} kg; overall quality ${bulkQualityResult}. Per-order quantities are not weighed at receipt and must be allocated during Order Packing.`].filter(Boolean).join(" | ") } });
         succeeded++;
-        const savedIncoming = receiveResponse?.data?.data || receiveResponse?.data || item;
-        // Print all order labels together after the farm receipt is saved.
+        // Each row is marked as a packing reference for this accepted bulk lot.
       }
-      toast.success(`Recorded bulk receipt for ${succeeded} order labels. Overall quality: ${bulkQualityResult}. Total measured: ${measuredTotal} kg. Individual order weighing belongs in Order Packing.`);
+      toast.success(`Bulk receipt saved for ${succeeded} order references. Overall quality: ${bulkQualityResult}. Total measured: ${measuredTotal} kg. Individual order weighing belongs in Order Packing.`);
       setShowBulkReceiveDialog(false); setBulkMeasuredTotal(""); setBulkQualityResult("passed"); await refetch();
     } catch (error: any) {
-      toast.error("Processed " + succeeded + " of " + bulkFarmItems.length + " label records. Refresh and review remaining records before retrying."); await refetch();
+      const detail = error?.response?.data?.detail || error?.message || "Unknown error"; toast.error(`Bulk receipt saved for ${succeeded} of ${bulkFarmItems.length} order references. Error: ${detail}. Refresh to review the records before retrying.`); await refetch();
     } finally { setIsSaving(false); }
   };
   const handleScheduleIncoming = async (event: FormEvent<HTMLFormElement>) => {
