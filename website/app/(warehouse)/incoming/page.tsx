@@ -438,7 +438,8 @@ export default function WarehouseIncomingPage() {
       const number = humanIdFallback(order.orderNumber || item.orderNumber || item.displayOrderNumber || item.orderId, "");
       const packageId = item.packageId || item.labelId || (item.id || item._id || item.orderId ? "PKG-" + String(item.id || item._id || item.orderId).slice(-8) : "");
       const payment = String(item.paymentMethod || order.paymentMethod || order.payment?.method || "").toUpperCase();
-      const rawAmount = item.totalAmount ?? item.total ?? order.totalAmount ?? order.total;\n      const amount = Number(rawAmount);
+      const rawAmount = item.totalAmount ?? item.total ?? order.totalAmount ?? order.total;
+      const amount = Number(rawAmount);
       const paymentStatus = String(item.paymentStatus || order.paymentStatus || order.payment?.status || "").replace(/_/g, " ").toUpperCase();
       const qr = document.querySelector('[data-farm-label-qr="' + index + '"] svg')?.outerHTML || "";
       const qty = item.quantity ?? item.allocatedQuantity ?? item.orderQuantity;
