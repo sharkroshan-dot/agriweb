@@ -471,28 +471,29 @@ export default function FarmerPackingPage() {
         )}
 
         <div className="hidden print:block">
-          <div className="mx-auto max-w-md border-2 border-slate-900 p-5 text-black">
-            <div className="text-center"><p className="text-xl font-bold">AGRICONNECT</p><p className="text-xs">FARM DELIVERY</p></div>
-            <div className="my-3 border-t border-slate-900" />
-            <p className="text-xs font-bold">ORDER</p>
-            <p className="text-sm font-bold">{selectedOrder?.orderNumber || ""}</p>
-            <p className="mt-3 text-xs font-bold">CUSTOMER</p>
-            <p className="text-sm">{selectedOrder?.customerName || selectedOrder?.customer?.name || "Customer"}</p>
-            <p className="text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone || ""}</p>
-            <p className="mt-3 text-xs font-bold">DELIVER TO</p>
-            <p className="text-sm leading-5">{selectedOrder ? formatAddress(selectedOrder) : ""}</p>
-            <p className="mt-3 text-xs font-bold">PAYMENT</p>
-            <p className="text-sm">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `COD ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "PAID ONLINE"}</p>
-            <p className="mt-3 text-xs font-bold">ITEMS</p>
-            {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <p key={index} className="text-sm">{item.productName || "Product"} — {item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</p>)}
-            <div className="mt-5 flex justify-center">
-              <QRCodeSVG
-                value={selectedOrder ? String(selectedOrder.orderNumber || selectedOrder.id || selectedOrder._id || "") : ""}
-                size={96}
-                level="M"
-              />
+          <div className="mx-auto max-w-md border-2 border-black p-4 text-black" style={{ fontFamily: "Arial, sans-serif" }}>
+            <div className="text-center"><p className="text-xl font-extrabold">AGRICONNECT</p><p className="text-[10px]">FARM-TO-HOME · DELIVERY LABEL</p></div>
+            <div className="my-3 border-t border-black" />
+            <p className="text-[10px] font-bold">ORDER NUMBER</p>
+            <p className="text-base font-extrabold">{selectedOrder?.orderNumber || selectedOrder?.id || selectedOrder?._id || "Order number unavailable"}</p>
+            <p className="text-[9px] text-gray-600">Package / Label ID: PKG-{String(selectedOrder?.id || selectedOrder?._id || selectedOrder?.orderNumber || "").slice(-8)} · Printed: {new Date().toLocaleString()}</p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="border border-gray-400 p-2"><p className="text-[10px] font-bold">SOURCE FARM</p><p className="break-words text-xs">{selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name || "Farmer fulfillment"}</p></div>
+              <div className="border border-gray-400 p-2"><p className="text-[10px] font-bold">WAREHOUSE</p><p className="break-words text-xs">Not applicable — farmer fulfilled</p></div>
             </div>
-            <p className="mt-2 text-center text-[10px]">Scan order ID: {selectedOrder?.orderNumber || ""}</p>
+            <p className="mt-3 text-[10px] font-bold">DELIVER TO</p>
+            <p className="break-words text-xs font-semibold">{selectedOrder?.customerName || selectedOrder?.customer?.name || "Customer details unavailable"}</p>
+            <p className="break-words text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone || "Phone unavailable"}</p>
+            <p className="break-words text-xs leading-5">{selectedOrder ? formatAddress(selectedOrder) : "Delivery address unavailable"}</p>
+            <p className="mt-3 text-[10px] font-bold">PACKED ITEMS · ACTUAL QUANTITY</p>
+            {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 border-b border-gray-200 py-1 text-xs"><span className="break-words">{item.productName || item.name || "Product"}</span><b className="shrink-0">{item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</b></div>)}
+            <p className="mt-3 text-[10px] font-bold">PAYMENT</p>
+            <p className="text-xs">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `CASH ON DELIVERY · Amount to collect: ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "No cash collection on delivery"}</p>
+            <div className="mt-4 flex justify-center">
+              <QRCodeSVG value={typeof window !== "undefined" && selectedOrder ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(selectedOrder.id || selectedOrder._id || selectedOrder.orderNumber || "")) : ""} size={112} level="M" />
+            </div>
+            <p className="mt-2 text-center text-[9px] font-bold">DELIVERY PARTNER ONLY · POD WORKSPACE</p>
+            <p className="text-center text-[9px]">Sign in as the assigned delivery partner to access this order and submit proof of delivery.</p>
           </div>
         </div>
       </div>
