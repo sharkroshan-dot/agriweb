@@ -432,25 +432,25 @@ export default function WarehouseIncomingPage() {
         address.village, address.district, address.city, address.state,
         address.pinCode || address.pincode || address.postalCode || address.zipCode,
       ].filter(Boolean).join(", ");
-      const customer = item.customerName || order.customerName || order.customer?.name || item.customer?.name || "Customer details unavailable";
-      const phone = item.customerPhone || order.customerPhone || order.customer?.phone || item.customer?.phone || "Phone unavailable";
-      const product = item.displayProductName || getProductDisplayName(item);
-      const number = humanIdFallback(order.orderNumber || item.orderNumber || item.displayOrderNumber || item.orderId, "Order number unavailable");
-      const packageId = item.packageId || item.labelId || ("PKG-" + String(item.id || item._id || item.orderId || number).slice(-8));
+      const customer = item.customerName || order.customerName || order.customer?.name || item.customer?.name || "";
+      const phone = item.customerPhone || order.customerPhone || order.customer?.phone || item.customer?.phone || "";
+      const product = item.displayProductName || item.productName || item.product?.name || "";
+      const number = humanIdFallback(order.orderNumber || item.orderNumber || item.displayOrderNumber || item.orderId, "");
+      const packageId = item.packageId || item.labelId || (item.id || item._id || item.orderId ? "PKG-" + String(item.id || item._id || item.orderId).slice(-8) : "");
       const payment = String(item.paymentMethod || order.paymentMethod || order.payment?.method || "").toUpperCase();
-      const amount = Number(item.totalAmount ?? item.total ?? order.totalAmount ?? order.total ?? 0);
+      const rawAmount = item.totalAmount ?? item.total ?? order.totalAmount ?? order.total;\n      const amount = Number(rawAmount);
       const paymentStatus = String(item.paymentStatus || order.paymentStatus || order.payment?.status || "").replace(/_/g, " ").toUpperCase();
       const qr = document.querySelector('[data-farm-label-qr="' + index + '"] svg')?.outerHTML || "";
-      const qty = item.quantity ?? item.allocatedQuantity ?? item.orderQuantity ?? "—";
-      const unit = item.unit || item.product?.unit || "kg";
-      const farm = item.displayFarmName || getFarmDisplayName(item);
-      const warehouse = item.warehouseName || item.warehouse?.name || "Receiving warehouse";
+      const qty = item.quantity ?? item.allocatedQuantity ?? item.orderQuantity;
+      const unit = item.unit || item.product?.unit || "";
+      const farm = item.displayFarmName || item.farmName || item.farmerName || item.pickupLocation?.farmName || item.pickupLocation?.name || "";
+      const warehouse = item.warehouseName || item.warehouse?.name || "";
       return "<main class='label'><div class='brand'>AGRICONNECT</div><div class='subtitle'>FARM-TO-HOME · DELIVERY LABEL</div><div class='rule'></div>" +
-        "<div class='heading'>ORDER NUMBER</div><div class='order'>" + esc(number) + "</div><div class='muted'>Package / Label ID: " + esc(packageId) + " · Printed: " + esc(new Date().toLocaleString()) + "</div>" +
-        "<div class='grid'><div class='cell'><div class='heading'>SOURCE FARM</div><div class='value'>" + esc(farm) + "</div></div><div class='cell'><div class='heading'>WAREHOUSE</div><div class='value'>" + esc(warehouse) + "</div></div></div>" +
-        "<div class='heading'>DELIVER TO</div><div class='value'><b>" + esc(customer) + "</b></div><div class='value'>" + esc(phone) + "</div><div class='value'>" + esc(addressText || "Delivery address unavailable") + "</div>" +
-        "<div class='heading'>PRODUCT / PACKING REFERENCE</div><table><tr><td>" + esc(product) + "</td><td style='text-align:right;font-weight:bold'>" + esc(qty) + " " + esc(unit) + "</td></tr></table><div class='muted'>Quantity shown is the incoming order allocation, not the final packed quantity. Final packed quantity is confirmed in Order Packing.</div>" +
-        "<div class='heading'>PAYMENT</div><div class='value'>" + (payment === "COD" ? "CASH ON DELIVERY · Amount to collect: ₹" + amount.toFixed(2) : "No cash collection on delivery" + (paymentStatus ? " · " + esc(paymentStatus) : "")) + "</div>" +
+        (number ? "<div class='heading'>ORDER NUMBER</div><div class='order'>" + esc(number) + "</div>" : "") + (packageId ? "<div class='muted'>Package / Label ID: " + esc(packageId) + "</div>" : "") + "<div class='muted'>Printed: " + esc(new Date().toLocaleString()) + "</div>" +
+        (farm || warehouse ? "<div class='grid'>" + (farm ? "<div class='cell'><div class='heading'>SOURCE FARM</div><div class='value'>" + esc(farm) + "</div></div>" : "") + (warehouse ? "<div class='cell'><div class='heading'>WAREHOUSE</div><div class='value'>" + esc(warehouse) + "</div></div>" : "") + "</div>" : "") +
+        (customer || phone || addressText ? "<div class='heading'>DELIVER TO</div>" + (customer ? "<div class='value'><b>" + esc(customer) + "</b></div>" : "") + (phone ? "<div class='value'>" + esc(phone) + "</div>" : "") + (addressText ? "<div class='value'>" + esc(addressText) + "</div>" : "") : "") +
+        (product || qty !== undefined && qty !== null ? "<div class='heading'>PRODUCT / PACKING REFERENCE</div><table><tr><td>" + esc(product) + "</td><td style='text-align:right;font-weight:bold'>" + esc(qty ?? "") + (unit ? " " + esc(unit) : "") + "</td></tr></table><div class='muted'>Incoming allocation; final packed quantity is confirmed in Order Packing.</div>" : "") +
+        (payment === "COD" && Number.isFinite(amount) && rawAmount !== undefined && rawAmount !== null ? "<div class='heading'>PAYMENT</div><div class='value'>COD · Payable on delivery</div><div class='value'>₹" + amount.toFixed(2) + "</div>" : paymentStatus ? "<div class='heading'>PAYMENT</div><div class='value'>" + esc(paymentStatus) + "</div>" : "") +
         "<div class='qr'>" + qr + "<div class='muted'><b>DELIVERY PARTNER ONLY · POD WORKSPACE</b></div><div class='muted'>Sign in as the assigned delivery partner to access this order and submit proof of delivery.</div></div></main>";
     }).join("");
     win.document.open();
