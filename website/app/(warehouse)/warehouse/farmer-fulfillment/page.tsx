@@ -371,7 +371,7 @@ export default function FarmerFulfillmentTransfersPage() {
       </CardContent>
     </Card>
     <section className="space-y-4" aria-label="Farmer fulfillment route sections">
-      <div className="grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 md:grid-cols-3 xl:grid-cols-5" role="tablist" aria-label="Fulfillment route categories">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5" role="tablist" aria-label="Fulfillment route categories">
         {routeSections.map((section:any)=>{
           const SectionIcon=section.icon;
           const selected=activeRouteSection===section.key;
@@ -383,21 +383,21 @@ export default function FarmerFulfillmentTransfersPage() {
             aria-selected={selected}
             aria-controls={`fulfillment-panel-${section.key}`}
             onClick={()=>setActiveRouteSection(section.key)}
-            className={`flex min-h-12 min-w-0 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition ${selected?"bg-emerald-600 text-white shadow-sm":"bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"}`}
+            className={`flex min-h-[58px] min-w-0 items-center gap-3 rounded-xl border px-4 py-3 text-left text-sm font-medium transition ${selected?"border-emerald-700 bg-emerald-700 text-white shadow-sm":"border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}
           >
             <SectionIcon className="h-4 w-4 shrink-0"/>
-            <span className="truncate">{section.title}</span>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${selected?"bg-white/20 text-white":"bg-emerald-100 text-emerald-700"}`}>{isLoading?"—":routeCounts[section.key]}</span>
+            <span className="min-w-0 flex-1 whitespace-normal leading-5">{section.title}</span>
+            <span className={`inline-flex min-w-8 justify-center rounded-full px-2.5 py-1 text-xs font-bold tabular-nums ${selected?"bg-white/20 text-white":"bg-slate-100 text-slate-700"}`}>{isLoading?"—":routeCounts[section.key]}</span>
           </button>;
         })}
       </div>
       {routeSections.filter((section:any)=>section.key===activeRouteSection).map((section:any)=>{
         const SectionIcon=section.icon;
-        return <section key={section.key} id={`fulfillment-panel-${section.key}`} role="tabpanel" aria-labelledby={`fulfillment-tab-${section.key}`} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b p-5 sm:flex-row sm:items-center sm:justify-between">
+        return <section key={section.key} id={`fulfillment-panel-${section.key}`} role="tabpanel" aria-labelledby={`fulfillment-tab-${section.key}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100"><SectionIcon className="h-5 w-5 text-emerald-700"/></span>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50"><SectionIcon className="h-5 w-5 text-emerald-700"/></span>
                 <div className="min-w-0"><h2 className="text-lg font-bold leading-6 text-slate-900">{section.title}</h2><p className="mt-1 text-sm leading-5 text-muted-foreground">{section.subtitle}</p></div>
               </div>
               <span className="inline-flex h-9 min-w-9 shrink-0 items-center justify-center self-start rounded-full bg-emerald-50 px-3 text-sm font-bold tabular-nums text-emerald-800">{isLoading?"—":routeCounts[section.key]}</span>
@@ -405,8 +405,8 @@ export default function FarmerFulfillmentTransfersPage() {
           </div>
           <div className="p-4 sm:p-5">
             {section.key==="inter_district"&&<div className="mb-4">
-              <div className="grid grid-cols-1 gap-1 rounded-xl bg-slate-100 p-1 sm:grid-cols-2" role="tablist" aria-label="Inter-district transfer stages">
-                <button type="button" role="tab" aria-selected={activeInterDistrictSection==="outbound"} onClick={()=>setActiveInterDistrictSection("outbound")} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${activeInterDistrictSection==="outbound"?"bg-emerald-600 text-white shadow-sm":"bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"}`}>
+              <div className="grid grid-cols-1 gap-2 rounded-xl bg-slate-50 p-2 sm:grid-cols-2" role="tablist" aria-label="Inter-district transfer stages">
+                <button type="button" role="tab" aria-selected={activeInterDistrictSection==="outbound"} onClick={()=>setActiveInterDistrictSection("outbound")} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold transition ${activeInterDistrictSection==="outbound"?"border-emerald-700 bg-emerald-700 text-white shadow-sm":"border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}`}>
                   <Truck className="h-4 w-4"/><span>Send to Destination Warehouse</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeInterDistrictSection==="outbound"?"bg-white/20 text-white":"bg-emerald-100 text-emerald-700"}`}>{isLoading?"—":interDistrictOutboundOrders.length}</span>
                 </button>
 
