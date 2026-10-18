@@ -288,7 +288,8 @@ export default function WarehousePackingPage() {
       const items = (t.packingItems?.length ? t.packingItems : t.items || []);
       const rows = items.filter((i: any) => i.productName || i.name || i.packedQuantity != null || i.actualPackedQuantity != null || i.quantity != null || i.quantityRequired != null).map((i: any) => "<tr><td>" + esc(i.productName || i.name || "") + "</td><td style='text-align:right;font-weight:bold'>" + esc(i.packedQuantity ?? i.actualPackedQuantity ?? i.quantity ?? i.quantityRequired ?? "") + (i.unit ? " " + esc(i.unit) : "") + "</td></tr>").join("");
       const payment = String(t.paymentMethod || order.paymentMethod || order.payment?.method || "").toUpperCase();
-      const rawAmount = t.totalAmount ?? t.total ?? order.totalAmount ?? order.total;\n      const amount = Number(rawAmount);
+      const rawAmount = t.totalAmount ?? t.total ?? order.totalAmount ?? order.total;
+      const amount = Number(rawAmount);
       const paymentStatus = String(t.paymentStatus || order.paymentStatus || order.payment?.status || "").replace(/_/g, " ").toUpperCase();
       const qr = printQrRef.current?.querySelector("svg")?.outerHTML || "";
       const win = window.open("", "_blank", "width=720,height=900");
