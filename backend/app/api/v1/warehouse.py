@@ -6281,11 +6281,12 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
         requested[key] = max(0.0, float(item.packedQuantity))
 
     if not requested:
-        # Backward-compatible clients pack the currently available quantity.
+        # Inventory availability is only a planning estimate. If a legacy client
+        # omits actual quantities, default to the ordered quantities; do not
+        # create a shortage from the bulk-stock ledger before physical packing.
         for line in packing_items:
             key = (str(line.get("productId")), str(line.get("variantId") or ""))
-            available = float(line.get("quantityAvailable") or 0)
-            requested[key] = available
+            requested[key] = float(line.get("quantityRequired") or 0)
 
     any_shortage = False
     for line in packing_items:
@@ -6304,7 +6305,9 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
 
     packed_total = sum(float(x.get("packedQuantity") or 0) for x in packing_items)
     all_packed = all(float(x.get("packedQuantity") or 0) + 1e-9 >= float(x.get("quantityRequired") or 0) for x in packing_items)
-    packed_status = "packed" if all_packed else "partially_packed"
+    # A final shortage is a completed packing result that must wait for the
+    # customer decision; it must not remain an active packing task or dispatch.
+    packed_status = "packed" if all_packed else "customer_approval_pending"
 
     await warehouse_packing_repository.update_task(
         task_id,
@@ -6939,7 +6942,18 @@ async def get_my_outgoing_stock(
             # Ordinary Outgoing is exclusively for warehouse-fulfilled orders.
             # Farmer Fulfillment has its own transfer workflow.
             continue
-        for line in task.get("packingItems") or []:
+        # Never repair/create outgoing rows for an order whose final physical
+        # packing result is short or whose customer shortage decision is pending.
+        if bool(order.get("shortageResolutionRequired")) or str(order.get("warehouseFulfillmentStage") or "").lower() == "shortage_pending":
+            continue
+        task_lines = task.get("packingItems") or []
+        if not task_lines or any(
+            float(line.get("packedQuantity") or 0) + 1e-9 < float(line.get("quantityRequired") or 0)
+            or float(line.get("quantityShort") or 0) > 1e-9
+            for line in task_lines
+        ):
+            continue
+        for line in task_lines:
             product_id = str(line.get("productId") or "")
             if not ObjectId.is_valid(product_id):
                 continue
@@ -6988,6 +7002,8 @@ async def get_my_outgoing_stock(
         fulfillment_method = str((order or {}).get("fulfillmentMethod") or (order or {}).get("fulfillment_method") or "").strip().lower()
         if not order or fulfillment_method not in {"warehouse", "warehouse_fulfillment", "warehouse-fulfillment"}:
             continue
+        if bool(order.get("shortageResolutionRequired")) or str(order.get("warehouseFulfillmentStage") or "").lower() == "shortage_pending":
+            continue
         task_id = str(item.get("packingTaskId") or "")
         task = await warehouse_packing_repository.get_by_id(task_id) if ObjectId.is_valid(task_id) else None
         if not task:
@@ -6995,6 +7011,13 @@ async def get_my_outgoing_stock(
             task = next((t for t in tasks if str(t.get("warehouseId") or "") == str(warehouse["_id"])), None)
         task_status = str((task or {}).get("status") or "").strip().lower()
         if not task or str(task.get("warehouseId") or "") != str(warehouse["_id"]) or task_status not in {"ready_for_dispatch", "dispatched"}:
+            continue
+        task_lines = task.get("packingItems") or []
+        if not task_lines or any(
+            float(line.get("packedQuantity") or 0) + 1e-9 < float(line.get("quantityRequired") or 0)
+            or float(line.get("quantityShort") or 0) > 1e-9
+            for line in task_lines
+        ):
             continue
         item["packingStatus"] = task_status
         item["packingVerified"] = task_status in {"ready_for_dispatch", "dispatched"} or bool(task.get("verified"))
