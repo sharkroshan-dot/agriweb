@@ -6065,10 +6065,35 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
         raise HTTPException(status_code=403, detail="Only warehouse managers can access packing tasks")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     if not warehouse: raise HTTPException(status_code=404, detail="Warehouse not found")
-    # Self-heal legacy warehouse orders that were stored before the packing task
-    # was created (or whose old incoming rows lacked packingRequired=True).
-    # The packing service itself validates warehouse fulfillment and usable stock.
+    # Reconcile legacy bulk receipts whose UI still says "In Transit" even
+    # though a persisted receipt proves physical arrival and the quality gate passed.
+    # Never infer receipt from notes alone: require receipt timestamp/snapshot plus QC.
     try:
+        candidate_rows = await incoming_stock_repository.find_many({
+            "warehouseId": {"$in": [warehouse["_id"], str(warehouse["_id"])]},
+            "status": {"$in": ["in_transit", "in transit", "received", "stored"]},
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        for row in candidate_rows:
+            if str(row.get("status") or "").strip().lower() not in ("in_transit", "in transit"):
+                continue
+            if str(row.get("sourceMode") or "").strip().lower() in ("farmer_fulfillment", "farmer_fulfillment_transfer"):
+                continue
+            receipt = row.get("receipt") if isinstance(row.get("receipt"), dict) else {}
+            physically_received = bool(
+                row.get("receivedAt") or row.get("receivedDate")
+                or row.get("bulkShipmentReceivedAt") or receipt.get("receivedAt")
+            )
+            quality = str(
+                row.get("qualityCheck") or row.get("quality_check")
+                or receipt.get("qualityResult") or ""
+            ).strip().lower()
+            if physically_received and quality == "passed":
+                await incoming_stock_repository.update({"_id": row["_id"]}, {
+                    "status": "received",
+                    "qualityCheck": "passed",
+                    "updatedAt": datetime.utcnow(),
+                })
         stored_rows = await incoming_stock_repository.find_many({
             "warehouseId": {"$in": [warehouse["_id"], str(warehouse["_id"])]},
             "status": {"$in": ["received", "stored"]},
