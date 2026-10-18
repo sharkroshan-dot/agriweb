@@ -704,7 +704,7 @@ class WarehouseService:
         from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
 
         order = await order_repository.get_by_id(order_id)
-        if not order or str(order.get("fulfillmentMethod") or "").strip().lower() not in ("warehouse", "warehouse_fulfillment", "warehouse fulfillment"):
+        if not order:
             return None
 
         incoming_rows = await incoming_stock_repository.find_many({
@@ -722,9 +722,12 @@ class WarehouseService:
             row for row in incoming_rows
             if str(row.get("status") or "").lower() in ("received", "stored")
             and str(row.get("qualityCheck") or row.get("quality_check") or "").lower() == "passed"
-            and str(row.get("sourceMode") or "").lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
+            and str(row.get("sourceMode") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
+            and str(row.get("fulfillmentType") or "").strip().lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer", "farmer packed")
             and row.get("packingRequired") is not False
         ]
+        # A linked, quality-passed warehouse incoming row is the source of truth
+        # for packing. Legacy orders may have missing fulfillment-method values.
 
         usable_by_key: Dict[tuple, float] = {}
         for row in incoming:
