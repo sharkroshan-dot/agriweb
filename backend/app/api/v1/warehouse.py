@@ -6085,7 +6085,8 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
             if not ObjectId.is_valid(order_id):
                 continue
             order = await order_repository.get_by_id(order_id)
-            if not order or str(order.get("fulfillmentMethod") or "").lower() != "warehouse":
+            fulfillment_method = str((order or {}).get("fulfillmentMethod") or "").strip().lower()
+            if not order or fulfillment_method not in ("warehouse", "warehouse_fulfillment", "warehouse fulfillment"):
                 continue
             await WarehouseService.ensure_order_packing_task(order_id, str(warehouse["_id"]))
     except Exception:
