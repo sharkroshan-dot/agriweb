@@ -156,6 +156,7 @@ export default function WarehouseIncomingPage() {
   const [bulkQualityResult, setBulkQualityResult] = useState<"passed" | "pending" | "failed">("passed");
   const [bulkReceiveNotes, setBulkReceiveNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [transferActionBusy, setTransferActionBusy] = useState<string | null>(null);
 
   const { data: incomingData, isLoading, refetch } = useQuery({
     queryKey: ["warehouseIncoming", statusFilter, dateFilter],
@@ -180,10 +181,22 @@ export default function WarehouseIncomingPage() {
     const rows: any[] = Array.isArray(raw) ? raw : [];
     return rows.filter((row: any) => {
       const role = String(row.currentWarehouseRole || "").toLowerCase();
-      const status = String(row.transferStatus || row.status || "").toLowerCase();
-      return role === "destination" && (row.physicalReceiptConfirmed === true || ["destination_warehouse_received", "destination_warehouse_received_confirmed", "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready"].includes(status));
+      return role === "destination";
     });
   }, [transferPayload]);
+  const handleInboundTransferAction = async (order: any, action: "receive" | "hub") => {
+    const id = String(order.id || order.orderId || order._id || "");
+    if (!id) { toast.error("Transfer is missing its order identifier."); return; }
+    const key = id + ":" + action;
+    try {
+      setTransferActionBusy(key);
+      const endpoint = action === "receive" ? "receive-at-destination" : "handoff-local-hub";
+      await api.post("/warehouse/me/farmer-fulfillment/" + id + "/" + endpoint);
+      toast.success(action === "receive" ? "Destination warehouse receipt confirmed." : "Order sent to the local hub.");
+      await refetch();
+    } catch (error: any) { toast.error(error?.message || (action === "receive" ? "Could not confirm destination receipt." : "Could not send order to local hub.")); }
+    finally { setTransferActionBusy(null); }
+  };
   const incomingTypeCounts = useMemo(() => {
     const rawIncoming = incomingData?.data?.incoming;
     const items: any[] = Array.isArray(rawIncoming)
@@ -689,7 +702,7 @@ export default function WarehouseIncomingPage() {
 
       {fulfillmentFilter === "received_warehouse" ? (
         <div className="space-y-3">
-          {isLoadingTransfers ? <Card className="p-8 text-center">Loading received warehouse transfers…</Card> : receivedWarehouseOrders.length === 0 ? <Card className="p-10 text-center"><Warehouse className="mx-auto h-10 w-10 text-muted-foreground" /><h3 className="mt-3 font-semibold">No orders received from another warehouse</h3><p className="mt-1 text-sm text-muted-foreground">Confirmed destination-warehouse receipts appear here. These orders are already packed, so they should continue to the local hub and final-mile delivery without bulk receiving or repacking.</p><Button asChild variant="outline" className="mt-4"><Link href="/warehouse/farmer-fulfillment">Open Farmer Fulfillment Transfers</Link></Button></Card> : receivedWarehouseOrders.map((order: any) => <Card key={String(order.id || order.orderId || order._id || order.orderNumber)}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{order.orderNumber || order.displayOrderNumber || "Order number unavailable"}</p><p className="text-sm text-muted-foreground">{order.productName || (Array.isArray(order.items) ? order.items.map((item: any) => item.productName || item.name).filter(Boolean).join(", ") : "") || "Packed customer order"}</p><p className="mt-1 text-xs text-muted-foreground">Already packed · {String(order.transferStatus || order.status || "received").replace(/_/g, " ")}</p></div><Button asChild><Link href="/warehouse/farmer-fulfillment">Continue Fulfillment</Link></Button></CardContent></Card>)}
+          {isLoadingTransfers ? <Card className="p-8 text-center">Loading received warehouse transfers…</Card> : receivedWarehouseOrders.length === 0 ? <Card className="p-10 text-center"><Warehouse className="mx-auto h-10 w-10 text-muted-foreground" /><h3 className="mt-3 font-semibold">No orders received from another warehouse</h3><p className="mt-1 text-sm text-muted-foreground">Confirmed destination-warehouse receipts appear here. These orders are already packed, so they should continue to the local hub and final-mile delivery without bulk receiving or repacking.</p><Button asChild variant="outline" className="mt-4"><Link href="/warehouse/farmer-fulfillment">Open Farmer Fulfillment Transfers</Link></Button></Card> : receivedWarehouseOrders.map((order: any) => <Card key={String(order.id || order.orderId || order._id || order.orderNumber)}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{order.orderNumber || order.displayOrderNumber || "Order number unavailable"}</p><p className="text-sm text-muted-foreground">{order.productName || (Array.isArray(order.items) ? order.items.map((item: any) => item.productName || item.name).filter(Boolean).join(", ") : "") || "Packed customer order"}</p><p className="mt-1 text-xs text-muted-foreground">Already packed · {String(order.transferStatus || order.status || "received").replace(/_/g, " ")}</p></div>{String(order.transferStatus || order.status || "").toLowerCase() === "destination_warehouse_arrived_pending_receipt" ? <Button onClick={() => handleInboundTransferAction(order, "receive")} disabled={transferActionBusy === String(order.id || order.orderId || order._id) + ":receive"}><CheckCircle className="mr-2 h-4 w-4"/>{transferActionBusy === String(order.id || order.orderId || order._id) + ":receive" ? "Confirming…" : "Confirm Destination Receipt"}</Button> : String(order.transferStatus || order.status || "").toLowerCase() === "destination_warehouse_received" ? <Button onClick={() => handleInboundTransferAction(order, "hub")} disabled={transferActionBusy === String(order.id || order.orderId || order._id) + ":hub"}><ArrowRight className="mr-2 h-4 w-4"/>{transferActionBusy === String(order.id || order.orderId || order._id) + ":hub" ? "Sending…" : "Send to Local Hub"}</Button> : <Button asChild variant="outline"><Link href="/warehouse/farmer-fulfillment">Open Transfer Details</Link></Button>}</CardContent></Card>)}
         </div>
       ) : incomingList.length === 0 ? (
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
