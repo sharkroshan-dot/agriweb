@@ -6085,9 +6085,10 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
             if not ObjectId.is_valid(order_id):
                 continue
             order = await order_repository.get_by_id(order_id)
-            fulfillment_method = str((order or {}).get("fulfillmentMethod") or "").strip().lower()
-            if not order or fulfillment_method not in ("warehouse", "warehouse_fulfillment", "warehouse fulfillment"):
+            if not order:
                 continue
+            # The eligible incoming-stock row is authoritative for legacy warehouse
+            # fulfillment records; older customer orders may lack fulfillmentMethod.
             await WarehouseService.ensure_order_packing_task(order_id, str(warehouse["_id"]))
     except Exception:
         logger.exception("Failed to reconcile stored warehouse orders into packing tasks")
