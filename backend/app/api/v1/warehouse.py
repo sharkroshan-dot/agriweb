@@ -7420,12 +7420,38 @@ async def get_my_shortages(
         raise HTTPException(status_code=404, detail="Warehouse not found")
     from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
     cases = await warehouse_shortage_repository.get_by_warehouse(str(warehouse["_id"]), status_filter)
+    enriched_cases = []
     for case in cases:
+        order_id = str(case.get("orderId") or "")
+        product_id = str(case.get("productId") or "")
+        order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
+        product = await product_repository.get_by_id(product_id) if ObjectId.is_valid(product_id) else None
+        required = float(case.get("requiredQuantity") or 0)
+        available = float(case.get("availableQuantity") or 0)
         case["id"] = str(case["_id"])
-        for key in ("orderId", "warehouseId", "productId", "variantId"):
+        case["orderNumber"] = (order or {}).get("orderNumber") or order_id[-8:]
+        case["productName"] = (
+            case.get("productName")
+            or (product or {}).get("name")
+            or next(
+                (str(item.get("productName") or item.get("name") or "")
+                 for item in ((order or {}).get("items") or [])
+                 if str(item.get("productId")) == product_id
+                 and str(item.get("variantId") or "") == str(case.get("variantId") or "")),
+                ""
+            )
+            or "Product"
+        )
+        case["requiredQuantity"] = required
+        case["availableQuantity"] = available
+        case["shortageQuantity"] = max(0.0, required - available)
+        case.setdefault("unit", "kg")
+        for key in ("orderId", "warehouseId", "productId", "variantId", "substituteProductId", "substituteVariantId", "customerApprovedBy"):
             if case.get(key) is not None:
                 case[key] = str(case[key])
-    return {"success": True, "data": {"shortages": cases}}
+        case.pop("_id", None)
+        enriched_cases.append(case)
+    return {"success": True, "data": {"shortages": enriched_cases}}
 
 
 @router.get("/me/cold-storage", response_model=dict)
