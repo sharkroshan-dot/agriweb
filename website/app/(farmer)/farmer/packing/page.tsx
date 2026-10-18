@@ -478,13 +478,13 @@ export default function FarmerPackingPage() {
             <p className="text-base font-extrabold">{selectedOrder?.orderNumber || selectedOrder?.id || selectedOrder?._id || "Order number unavailable"}</p>
             <p className="text-[9px] text-gray-600">Package / Label ID: PKG-{String(selectedOrder?.id || selectedOrder?._id || selectedOrder?.orderNumber || "").slice(-8)} · Printed: {new Date().toLocaleString()}</p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <div className="border border-gray-400 p-2"><p className="text-[10px] font-bold">SOURCE FARM</p><p className="break-words text-xs">{selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name || "Farmer fulfillment"}</p></div>
-              <div className="border border-gray-400 p-2"><p className="text-[10px] font-bold">WAREHOUSE</p><p className="break-words text-xs">Not applicable — farmer fulfilled</p></div>
+              {(selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name) && <div className="border border-gray-400 p-2"><p className="text-[10px] font-bold">SOURCE FARM</p><p className="break-words text-xs">{selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name}</p></div>}
+              
             </div>
             <p className="mt-3 text-[10px] font-bold">DELIVER TO</p>
-            <p className="break-words text-xs font-semibold">{selectedOrder?.customerName || selectedOrder?.customer?.name || "Customer details unavailable"}</p>
-            <p className="break-words text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone || "Phone unavailable"}</p>
-            <p className="break-words text-xs leading-5">{selectedOrder ? formatAddress(selectedOrder) : "Delivery address unavailable"}</p>
+            {(selectedOrder?.customerName || selectedOrder?.customer?.name) && <p className="break-words text-xs font-semibold">{selectedOrder?.customerName || selectedOrder?.customer?.name}</p>}
+            {(selectedOrder?.customerPhone || selectedOrder?.customer?.phone) && <p className="break-words text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone}</p>}
+            {selectedOrder && formatAddress(selectedOrder) && <p className="break-words text-xs leading-5">{formatAddress(selectedOrder)}</p>}
             <p className="mt-3 text-[10px] font-bold">PACKED ITEMS · ACTUAL QUANTITY</p>
             {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 border-b border-gray-200 py-1 text-xs"><span className="break-words">{item.productName || item.name || "Product"}</span><b className="shrink-0">{item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</b></div>)}
             <p className="mt-3 text-[10px] font-bold">PAYMENT</p>
