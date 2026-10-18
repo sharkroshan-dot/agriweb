@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle, Warehouse, Search, Clock3 } from "lucide-react";
+import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, Info, AlertTriangle, Warehouse, Search, Clock3 } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
@@ -56,7 +56,6 @@ export default function WarehousePackingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedFarm ? "all" : "today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
-  const [verifyingAll, setVerifyingAll] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
   const [assigningFarm, setAssigningFarm] = useState<string | null>(null);
   const [farmAssignmentMessages, setFarmAssignmentMessages] = useState<Record<string, { kind: "success" | "error" | "info"; text: string }>>({});
@@ -263,7 +262,7 @@ export default function WarehousePackingPage() {
         }
         toast.success("Packing finished. Physical shortage recorded; customer approval is required before dispatch.");
       } else {
-        toast.success("Packing finished with all required quantities. Verify this order to move it to Outgoing / Dispatch.");
+        toast.success("Packing quantities checked. The order is verified and ready for dispatch.");
       }
       await Promise.all([refetch(), refetchShortages()]);
     } catch (error: any) { toast.error(error?.response?.data?.detail || error?.message || "Could not finish packing this order."); }
@@ -278,39 +277,6 @@ export default function WarehousePackingPage() {
     win.document.close();
   };
 
-  const verifyAllPackedTasks = async () => {
-    if (verifyingAll) return;
-    const eligible = tasks.filter((task: any) => String(task.status || "").toLowerCase() === "packed");
-    if (!eligible.length) {
-      toast("No fully packed orders are waiting for verification. Finish packing each order first.");
-      return;
-    }
-    setVerifyingAll(true);
-    let verified = 0;
-    const failed: string[] = [];
-    try {
-      for (const task of eligible) {
-        try {
-          await api.put(`/warehouse/me/packing-tasks/${task.id}/verify`, { verified: true });
-          verified += 1;
-        } catch (error: any) {
-          const detail = error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Verification failed";
-          failed.push(`Order #${task.orderNumber || String(task.orderId || task.id).slice(-8)}: ${String(detail)}`);
-        }
-      }
-      await Promise.all([refetch(), refetchShortages()]);
-      if (verified) toast.success(`Verified ${verified} of ${eligible.length} packed order(s). They are ready for dispatch.`);
-      if (failed.length) {
-        toast.error(failed.slice(0, 2).join(" · ") + (failed.length > 2 ? ` · and ${failed.length - 2} more order(s) failed` : ""), { duration: 8000 });
-      }
-      if (!verified && failed.length) {
-        setShowRemainingOnly(false);
-      }
-    } finally {
-      setVerifyingAll(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
@@ -323,13 +289,13 @@ export default function WarehousePackingPage() {
         <Card className="border-blue-200 bg-blue-50/60"><CardContent className="p-4">
           <div className="flex items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-sm font-bold text-white">4</span><h2 className="font-semibold text-blue-950">Verify &amp; Dispatch</h2></div>
           <p className="mt-2 text-sm text-blue-900">When every item is fully packed, click Verify Packed Order. Successful verification creates dispatch records and changes the order to Ready for Dispatch.</p>
-          <p className="mt-2 text-xs text-blue-800">Waiting for verification: {tasks.filter((t:any)=>t.status==="packed").length} · Ready for dispatch: {tasks.filter((t:any)=>t.status==="ready_for_dispatch").length}</p>
+          <p className="mt-2 text-xs text-blue-800">Finish Order checks actual quantities and automatically prepares complete orders for dispatch. Shortage orders wait for the customer decision.</p>
           <Button className="mt-3" variant="outline" size="sm" onClick={()=>{window.location.href="/outgoing";}}>Open Dispatch</Button>
         </CardContent></Card>
       </div>
       <div className="flex items-center justify-between">
         <div><h1 className="text-3xl font-bold">Order Packing</h1><p className="text-muted-foreground">Pack each customer order separately after warehouse receiving.</p></div>
-        <div className="flex flex-wrap items-center gap-2"><Button type="button" onClick={verifyAllPackedTasks} disabled={verifyingAll || !tasks.some((task: any) => String(task.status || "").toLowerCase() === "packed")}>{verifyingAll ? <RefreshCw className="mr-2 h-4 w-4 animate-spin"/> : <ShieldCheck className="mr-2 h-4 w-4"/>}{verifyingAll ? "Verifying Orders…" : "Verify All Packed"}</Button><Button type="button" variant="outline" onClick={() => { window.location.assign("/outgoing"); }}><PackageCheck className="mr-2 h-4 w-4"/>Continue to Dispatch</Button><Button type="button" variant="outline" size="icon" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button></div>
+        <div className="flex flex-wrap items-center gap-2"><Button type="button" variant="outline" onClick={() => { window.location.assign("/outgoing"); }}><PackageCheck className="mr-2 h-4 w-4"/>Open Outgoing / Dispatch</Button><Button type="button" variant="outline" size="icon" onClick={() => { void Promise.all([refetch(), refetchShortages()]); }} aria-label="Refresh packing tasks"><RefreshCw className="h-4 w-4"/></Button></div>
       </div>
       <Card className="border-slate-200"><CardContent className="space-y-4 p-4">
         <div className="grid gap-3 sm:grid-cols-3">
@@ -465,14 +431,14 @@ export default function WarehousePackingPage() {
               <p className="mt-3 text-xs text-muted-foreground">Delivery: {t.deliveryAddress ? [t.deliveryAddress.addressLine1, t.deliveryAddress.city, t.deliveryAddress.state, t.deliveryAddress.zipCode].filter(Boolean).join(", ") : "Address not available"}</p>
             </div>
             <div className="border-t bg-slate-50/70 p-4 sm:p-5 lg:w-[320px] lg:border-l lg:border-t-0">
-              <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p><p className="mt-1 text-sm font-semibold text-slate-900">{["ready_for_packing","assigned"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : ["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : t.status === "packed" ? "Verify packed order" : t.status === "customer_approval_pending" ? "Waiting for customer decision" : t.status === "ready_for_dispatch" ? "Continue to dispatch" : "Review order status"}</p><p className="mt-1 text-xs text-muted-foreground">Process this order independently. Its saved stage is retained when you return to this page.</p></div>
+              <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3"><p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next action</p><p className="mt-1 text-sm font-semibold text-slate-900">{["ready_for_packing","assigned"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : ["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status||"").toLowerCase()) ? "Check quantities, then finish packing" : t.status === "packed" ? "Packing completed — refresh order status" : t.status === "customer_approval_pending" ? "Waiting for customer decision" : t.status === "ready_for_dispatch" ? "Continue to dispatch" : "Review order status"}</p><p className="mt-1 text-xs text-muted-foreground">Process this order independently. Its saved stage is retained when you return to this page.</p></div>
               <div className="space-y-2">
               
               {["ready_for_packing","assigned","packing","partially_packed"].includes(String(t.status || "").toLowerCase()) && <Button size="sm" onClick={() => finishPackingTask(t)}><PackageCheck className="mr-2 h-4 w-4"/>Finish Order</Button>}
-              {t.status === "customer_approval_pending" && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-semibold">Waiting for customer decision</p><p className="mt-1">The customer must accept the available quantity or cancel the order. You cannot finish, verify, or dispatch this order until the customer responds.</p></div>}
-              {t.status === "packed" && <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 p-3"><div className="mr-2"><p className="text-sm font-semibold text-blue-950">Next process: Verify packed order</p><p className="text-xs text-blue-800">Check the recorded quantities and confirm this order before dispatch.</p></div><Button size="sm" onClick={()=>run(`/warehouse/me/packing-tasks/${t.id}/verify`,{verified:true})}><ShieldCheck className="mr-2 h-4 w-4"/>Verify & Continue</Button></div>}
+              {t.status === "customer_approval_pending" && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-semibold">Waiting for customer decision</p><p className="mt-1">The customer must accept the available quantity or cancel the order. Dispatch remains blocked until the customer responds and the final quantities are checked.</p></div>}
+              {t.status === "packed" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><p className="font-semibold">Packing quantities checked during Finish Order</p><p className="mt-1">No separate verification action is needed. Refresh the page if the order status has not updated.</p></div>}
               {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" className="h-9 px-4 text-sm" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
-              {t.status === "ready_for_dispatch" && <div className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Verified · Ready for Dispatch</Badge><Button size="sm" onClick={() => { window.location.href = "/outgoing"; }}><PackageCheck className="mr-2 h-4 w-4"/>Next: Continue to Dispatch</Button></div>}
+              {t.status === "ready_for_dispatch" && <div className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Checked · Ready for Dispatch</Badge><Button size="sm" onClick={() => { window.location.href = "/outgoing"; }}><PackageCheck className="mr-2 h-4 w-4"/>Next: Continue to Dispatch</Button></div>}
               </div>
             </div>
           </div>
