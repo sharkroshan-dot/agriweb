@@ -276,7 +276,7 @@ async def hub_dashboard(current_user: dict = Depends(get_current_user)):
         rows.append({
             "transferId": str(transfer["_id"]),
             "orderId": order_id,
-            "orderNumber": (order or {}).get("orderNumber") or transfer.get("orderNumber") or order_id,
+            "orderNumber": (order or {}).get("orderNumber") or (order or {}).get("orderNo") or transfer.get("orderNumber") or transfer.get("orderNo") or "Order number unavailable",
             "status": transfer.get("status", "dispatched"),
             "orderStatus": (order or {}).get("orderStatus"),
             "productSummary": ", ".join(str((item.get("productName") or item.get("name") or "Produce")) for item in ((order or {}).get("items") or [])[:3]) or "Order items",
@@ -385,7 +385,7 @@ async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: 
     now = datetime.utcnow()
     transfer_doc = {
         "orderId": ObjectId(order_id),
-        "orderNumber": order.get("orderNumber"),
+        "orderNumber": order.get("orderNumber") or order.get("orderNo") or order.get("displayOrderNumber"),
         "sourceWarehouseId": parent["_id"],
         "destinationWarehouseId": ObjectId(hub_id),
         "destinationFacilityType": "local_hub",
