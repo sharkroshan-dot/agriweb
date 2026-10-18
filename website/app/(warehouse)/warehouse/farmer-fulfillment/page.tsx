@@ -167,10 +167,7 @@ export default function FarmerFulfillmentTransfersPage() {
     needs_location:routeOrders.needs_location.length,
   };
   const interDistrictOutboundOrders=routeOrders.inter_district.filter((order:any)=>order.currentWarehouseRole==="source");
-  const interDistrictInboundOrders=routeOrders.inter_district.filter((order:any)=>order.currentWarehouseRole==="destination");
-  const activeInterDistrictOrders=activeInterDistrictSection==="outbound"
-    ?interDistrictOutboundOrders
-    :interDistrictInboundOrders;
+  const activeInterDistrictOrders=interDistrictOutboundOrders;
   const activeRouteOrders=activeRouteSection==="inter_district"
     ?activeInterDistrictOrders
     :routeOrders[activeRouteSection]||[];
@@ -412,9 +409,7 @@ export default function FarmerFulfillmentTransfersPage() {
                 <button type="button" role="tab" aria-selected={activeInterDistrictSection==="outbound"} onClick={()=>setActiveInterDistrictSection("outbound")} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${activeInterDistrictSection==="outbound"?"bg-emerald-600 text-white shadow-sm":"bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"}`}>
                   <Truck className="h-4 w-4"/><span>Send to Destination Warehouse</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeInterDistrictSection==="outbound"?"bg-white/20 text-white":"bg-emerald-100 text-emerald-700"}`}>{isLoading?"—":interDistrictOutboundOrders.length}</span>
                 </button>
-                <button type="button" role="tab" aria-selected={activeInterDistrictSection==="inbound"} onClick={()=>setActiveInterDistrictSection("inbound")} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${activeInterDistrictSection==="inbound"?"bg-emerald-600 text-white shadow-sm":"bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"}`}>
-                  <Warehouse className="h-4 w-4"/><span>Received from Other Warehouse</span><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${activeInterDistrictSection==="inbound"?"bg-white/20 text-white":"bg-emerald-100 text-emerald-700"}`}>{isLoading?"—":interDistrictInboundOrders.length}</span>
-                </button>
+
               </div>
             </div>}
           </div>
