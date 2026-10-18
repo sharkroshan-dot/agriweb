@@ -54,7 +54,7 @@ export default function WarehousePackingPage() {
   const requestedOrderId = searchParams.get("orderId") || "";
   const requestedFarm = searchParams.get("farm") || "";
   const [searchTerm, setSearchTerm] = useState("");
-  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">("today");
+  const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedFarm ? "all" : "today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
   const [verifyingAll, setVerifyingAll] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
