@@ -704,7 +704,7 @@ class WarehouseService:
         from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
 
         order = await order_repository.get_by_id(order_id)
-        if not order or str(order.get("fulfillmentMethod") or "") != "warehouse":
+        if not order or str(order.get("fulfillmentMethod") or "").strip().lower() not in ("warehouse", "warehouse_fulfillment", "warehouse fulfillment"):
             return None
 
         incoming_rows = await incoming_stock_repository.find_many({
@@ -812,12 +812,13 @@ class WarehouseService:
             task = await warehouse_packing_repository.get_by_id(str(existing["_id"]))
         else:
             first = packing_items[0] if packing_items else {}
+            farmer_ref = str(order.get("farmerId") or order.get("farmer_id") or "")
             task_id = await warehouse_packing_repository.create_task({
                 "warehouseId": ObjectId(warehouse_id),
                 "orderId": ObjectId(order_id),
-                "farmerId": ObjectId(str(order.get("farmerId"))),
-                "productId": ObjectId(first["productId"]) if first.get("productId") else None,
-                "variantId": ObjectId(first["variantId"]) if first.get("variantId") else None,
+                "farmerId": ObjectId(farmer_ref) if ObjectId.is_valid(farmer_ref) else None,
+                "productId": ObjectId(str(first["productId"])) if ObjectId.is_valid(str(first.get("productId") or "")) else None,
+                "variantId": ObjectId(str(first["variantId"])) if ObjectId.is_valid(str(first.get("variantId") or "")) else None,
                 "quantityRequired": total_required,
                 "packedQuantity": total_packed,
                 "packingItems": packing_items,
