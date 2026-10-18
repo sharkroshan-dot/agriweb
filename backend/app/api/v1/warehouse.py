@@ -5530,6 +5530,17 @@ async def get_my_incoming_stock(
                         safe_item["sourceMode"] = "farmer_fulfillment_transfer" if chosen_method == "farmer" else "warehouse_fulfillment_bulk"
                         safe_item["packingRequired"] = chosen_method == "warehouse"
                     safe_item["orderNumber"] = order.get("orderNumber") or f"Order #{order_id[-6:].upper()}"
+                    # Packing labels must use the canonical customer order address, not only the incoming-stock snapshot.
+                    delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or order.get("address")
+                    if not delivery_address and order.get("deliveryAddressId") and order.get("customerId"):
+                        try:
+                            saved_addresses = await UserService.get_addresses(str(order.get("customerId")))
+                            delivery_address = next((address for address in (saved_addresses or []) if str(address.get("_id") or address.get("id") or "") == str(order.get("deliveryAddressId"))), None)
+                        except Exception:
+                            logger.exception("Could not hydrate saved delivery address for order %s", order_id)
+                    if delivery_address:
+                        safe_item["deliveryAddress"] = make_json_safe(delivery_address)
+                    safe_item["customerId"] = str(order.get("customerId") or safe_item.get("customerId") or "")
                     safe_item["customerName"] = safe_item.get("customerName") or " ".join(filter(None, [
                         (order.get("customer") or {}).get("firstName") if isinstance(order.get("customer"), dict) else None,
                         (order.get("customer") or {}).get("lastName") if isinstance(order.get("customer"), dict) else None,
