@@ -6070,7 +6070,7 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
     # The packing service itself validates warehouse fulfillment and usable stock.
     try:
         stored_rows = await incoming_stock_repository.find_many({
-            "warehouseId": warehouse["_id"],
+            "warehouseId": {"$in": [warehouse["_id"], str(warehouse["_id"])]},
             "status": {"$in": ["received", "stored"]},
             "deletedAt": None,
         }, skip=0, limit=1000)
