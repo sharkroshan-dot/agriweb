@@ -264,8 +264,8 @@ export default function WarehouseIncomingPage() {
 
   const openBulkReceiveDialog = (items: any[]) => {
     setBulkFarmItems(items);
-    setBulkMeasuredQuantities(Object.fromEntries(items.map((item) => [item.id, String(item.quantity ?? "")])));
-    setBulkQualityChecks(Object.fromEntries(items.map((item) => [item.id, "passed" as const])));
+    setBulkMeasuredTotal(String(items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || ""));
+    setBulkQualityResult("passed");
     setBulkReceiveNotes("");
     setShowBulkReceiveDialog(true);
   };
