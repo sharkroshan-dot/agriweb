@@ -152,8 +152,8 @@ export default function WarehouseIncomingPage() {
   const [qualityNotes, setQualityNotes] = useState("");
   const [showBulkReceiveDialog, setShowBulkReceiveDialog] = useState(false);
   const [bulkFarmItems, setBulkFarmItems] = useState<any[]>([]);
-  const [bulkMeasuredQuantities, setBulkMeasuredQuantities] = useState<Record<string, string>>({});
-  const [bulkQualityChecks, setBulkQualityChecks] = useState<Record<string, "passed" | "pending" | "failed">>({});
+  const [bulkMeasuredTotal, setBulkMeasuredTotal] = useState("");
+  const [bulkQualityResult, setBulkQualityResult] = useState<"passed" | "pending" | "failed">("passed");
   const [bulkReceiveNotes, setBulkReceiveNotes] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -273,26 +273,24 @@ export default function WarehouseIncomingPage() {
   const handleBulkReceive = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!bulkFarmItems.length) return;
-    const invalid = bulkFarmItems.find((item) => !Number.isFinite(Number(bulkMeasuredQuantities[item.id])) || Number(bulkMeasuredQuantities[item.id]) <= 0);
-    if (invalid) { toast.error("Enter a valid measured quantity for every order before confirming."); return; }
-    const mismatches = bulkFarmItems.filter((item) => Math.abs(Number(bulkMeasuredQuantities[item.id]) - Number(item.quantity || 0)) > 0.001);
-    if (mismatches.length && !bulkReceiveNotes.trim()) { toast.error("Add a note explaining the weight difference before saving."); return; }
-    if (mismatches.length && !window.confirm(String(mismatches.length) + " order(s) have a weight difference. they will remain on hold. Continue?")) return;
+    const declaredTotal = bulkFarmItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const measuredTotal = Number(bulkMeasuredTotal);
+    if (!Number.isFinite(measuredTotal) || measuredTotal <= 0) { toast.error("Enter the actual total weight received for this bulk shipment."); return; }
+    const mismatch = Math.abs(measuredTotal - declaredTotal) > 0.001;
+    if (mismatch && !bulkReceiveNotes.trim()) { toast.error("Add a note explaining the bulk weight difference before saving."); return; }
+    if (mismatch && !window.confirm("The bulk measured weight differs from the declared total. Record the shipment-level discrepancy and continue?")) return;
     setIsSaving(true); let succeeded = 0;
     try {
       for (const item of bulkFarmItems) {
-        const measured = Number(bulkMeasuredQuantities[item.id]);
-        const mismatch = Math.abs(measured - Number(item.quantity || 0)) > 0.001;
-        const qualityCheck = mismatch ? "pending" : (bulkQualityChecks[item.id] || "pending");
-        const receiveResponse = await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: measured, usableQuantity: measured, quality_check: qualityCheck, notes: bulkReceiveNotes.trim() || undefined } });
+        const receiveResponse = await api.put("/warehouse/me/incoming/" + item.id + "/receive", undefined, { params: { quantity: Number(item.quantity || 0), usableQuantity: Number(item.quantity || 0), quality_check: bulkQualityResult, notes: [bulkReceiveNotes.trim(), `Bulk shipment receipt: declared ${declaredTotal} kg; measured ${measuredTotal} kg; overall quality ${bulkQualityResult}. Per-order quantities are labels/packing references and were not individually weighed at receipt.`].filter(Boolean).join(" | ") } });
         succeeded++;
         const savedIncoming = receiveResponse?.data?.data || receiveResponse?.data || item;
-        if (qualityCheck === "passed" && !mismatch) printIncomingPackingReceipt({ ...item, ...savedIncoming }, measured, measured);
+        if (bulkQualityResult === "passed" && !mismatch) printIncomingPackingReceipt({ ...item, ...savedIncoming }, Number(item.quantity || 0), Number(item.quantity || 0));
       }
-      toast.success("Received " + succeeded + " shipment(s). Passed stock can continue to Store; failed stock is held for farm follow-up; weight discrepancies remain on hold.");
-      setShowBulkReceiveDialog(false); await refetch();
+      toast.success(`Recorded bulk receipt for ${succeeded} order labels. Overall quality: ${bulkQualityResult}. Total measured: ${measuredTotal} kg. Individual order weighing belongs in Order Packing.`);
+      setShowBulkReceiveDialog(false); setBulkMeasuredTotal(""); setBulkQualityResult("passed"); await refetch();
     } catch (error: any) {
-      toast.error("Processed " + succeeded + " of " + bulkFarmItems.length + ". Refresh and review remaining shipments before retrying."); await refetch();
+      toast.error("Processed " + succeeded + " of " + bulkFarmItems.length + " label records. Refresh and review remaining records before retrying."); await refetch();
     } finally { setIsSaving(false); }
   };
   const handleScheduleIncoming = async (event: FormEvent<HTMLFormElement>) => {
