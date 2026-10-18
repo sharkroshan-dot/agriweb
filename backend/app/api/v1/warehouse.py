@@ -5541,6 +5541,16 @@ async def get_my_incoming_stock(
                     if delivery_address:
                         safe_item["deliveryAddress"] = make_json_safe(delivery_address)
                     safe_item["customerId"] = str(order.get("customerId") or safe_item.get("customerId") or "")
+                    customer_doc = None
+                    customer_ref = str(order.get("customerId") or "")
+                    if customer_ref and ObjectId.is_valid(customer_ref):
+                        try:
+                            customer_doc = await UserService.get_user_by_id(customer_ref)
+                        except Exception:
+                            logger.exception("Could not hydrate customer details for order %s", order_id)
+                    if customer_doc:
+                        safe_item["customerName"] = " ".join(filter(None, [customer_doc.get("firstName"), customer_doc.get("lastName")])).strip() or customer_doc.get("name") or safe_item.get("customerName") or "Customer details unavailable"
+                        safe_item["customerPhone"] = customer_doc.get("phone") or customer_doc.get("phoneNumber") or safe_item.get("customerPhone")
                     safe_item["customerName"] = safe_item.get("customerName") or " ".join(filter(None, [
                         (order.get("customer") or {}).get("firstName") if isinstance(order.get("customer"), dict) else None,
                         (order.get("customer") or {}).get("lastName") if isinstance(order.get("customer"), dict) else None,
