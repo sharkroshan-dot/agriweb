@@ -708,9 +708,11 @@ class WarehouseService:
             return None
 
         incoming_rows = await incoming_stock_repository.find_many({
-            "orderId": ObjectId(order_id),
-            "warehouseId": ObjectId(warehouse_id),
-            "deletedAt": None,
+            "$and": [
+                {"orderId": {"$in": [ObjectId(order_id), order_id]}},
+                {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+                {"deletedAt": None},
+            ]
         }, skip=0, limit=1000)
         # Older shipment records may lack packingRequired even though their
         # linked order explicitly uses warehouse fulfillment. Include those
