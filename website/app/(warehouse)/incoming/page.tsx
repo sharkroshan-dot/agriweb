@@ -133,7 +133,7 @@ export default function WarehouseIncomingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
-  const [fulfillmentFilter, setFulfillmentFilter] = useState<"all" | "farmer" | "warehouse">("all");
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<"received_warehouse" | "farmer" | "warehouse">("received_warehouse");
   const [showScheduleDialog, setShowScheduleDialog] = useState(false);
   const [showReceiveDialog, setShowReceiveDialog] = useState(false);
   const [showQualityDialog, setShowQualityDialog] = useState(false);
@@ -170,6 +170,20 @@ export default function WarehouseIncomingPage() {
     refetchOnWindowFocus: true,
   });
 
+  const { data: transferPayload, isLoading: isLoadingTransfers } = useQuery({
+    queryKey: ["incomingStockInterDistrictTransfers"],
+    queryFn: () => api.get("/warehouse/me/farmer-fulfillment-transfers"),
+    refetchInterval: 15000,
+  });
+  const receivedWarehouseOrders = useMemo(() => {
+    const raw = transferPayload?.data?.transfers ?? transferPayload?.transfers ?? [];
+    const rows: any[] = Array.isArray(raw) ? raw : [];
+    return rows.filter((row: any) => {
+      const role = String(row.currentWarehouseRole || "").toLowerCase();
+      const status = String(row.transferStatus || row.status || "").toLowerCase();
+      return role === "destination" && (row.physicalReceiptConfirmed === true || ["destination_warehouse_received", "destination_warehouse_received_confirmed", "hub_handoff_pending", "hub_arrived_pending_receipt", "local_hub_ready"].includes(status));
+    });
+  }, [transferPayload]);
   const incomingTypeCounts = useMemo(() => {
     const rawIncoming = incomingData?.data?.incoming;
     const items: any[] = Array.isArray(rawIncoming)
@@ -180,11 +194,11 @@ export default function WarehouseIncomingPage() {
           ? rawIncoming.results
           : [];
     return {
-      all: items.length,
+      received_warehouse: receivedWarehouseOrders.length,
       farmer: items.filter((item: any) => isFarmerPackedIncoming(item)).length,
       warehouse: items.filter((item: any) => !isFarmerPackedIncoming(item)).length,
     };
-  }, [incomingData]);
+  }, [incomingData, receivedWarehouseOrders]);
 
   const incomingList = useMemo(() => {
     const rawIncoming = incomingData?.data?.incoming;
@@ -205,6 +219,7 @@ export default function WarehouseIncomingPage() {
         displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber, "Order reference unavailable"),
       }))
       .filter((item: any) => {
+        if (fulfillmentFilter === "received_warehouse") return false;
         if (fulfillmentFilter === "farmer") return isFarmerPackedIncoming(item);
         if (fulfillmentFilter === "warehouse") return !isFarmerPackedIncoming(item);
         return true;
@@ -634,7 +649,7 @@ export default function WarehouseIncomingPage() {
 
       <div className="grid gap-3 sm:grid-cols-3" role="tablist" aria-label="Incoming stock fulfillment type">
         {([
-          { key: "all", label: "All", description: "Every incoming shipment", count: incomingTypeCounts.all },
+          { key: "received_warehouse", label: "Received from Other Warehouse", description: "Already-packed inter-district orders", count: incomingTypeCounts.received_warehouse },
           { key: "farmer", label: "Farmer Fulfillment", description: "Packed farmer orders", count: incomingTypeCounts.farmer },
           { key: "warehouse", label: "Warehouse Fulfillment", description: "Bulk stock for inventory", count: incomingTypeCounts.warehouse },
         ] as const).map((tab) => (
@@ -672,7 +687,11 @@ export default function WarehouseIncomingPage() {
         </div>
       </div>
 
-      {incomingList.length === 0 ? (
+      {fulfillmentFilter === "received_warehouse" ? (
+        <div className="space-y-3">
+          {isLoadingTransfers ? <Card className="p-8 text-center">Loading received warehouse transfers…</Card> : receivedWarehouseOrders.length === 0 ? <Card className="p-10 text-center"><Warehouse className="mx-auto h-10 w-10 text-muted-foreground" /><h3 className="mt-3 font-semibold">No orders received from another warehouse</h3><p className="mt-1 text-sm text-muted-foreground">Confirmed destination-warehouse receipts appear here. These orders are already packed, so they should continue to the local hub and final-mile delivery without bulk receiving or repacking.</p><Button asChild variant="outline" className="mt-4"><Link href="/warehouse/farmer-fulfillment">Open Farmer Fulfillment Transfers</Link></Button></Card> : receivedWarehouseOrders.map((order: any) => <Card key={String(order.id || order.orderId || order._id || order.orderNumber)}><CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold">{order.orderNumber || order.displayOrderNumber || "Order number unavailable"}</p><p className="text-sm text-muted-foreground">{order.productName || (Array.isArray(order.items) ? order.items.map((item: any) => item.productName || item.name).filter(Boolean).join(", ") : "") || "Packed customer order"}</p><p className="mt-1 text-xs text-muted-foreground">Already packed · {String(order.transferStatus || order.status || "received").replace(/_/g, " ")}</p></div><Button asChild><Link href="/warehouse/farmer-fulfillment">Continue Fulfillment</Link></Button></CardContent></Card>)}
+        </div>
+      ) : incomingList.length === 0 ? (
         <Card className="p-12 text-center"><ArrowDown className="mx-auto h-12 w-12 text-muted-foreground" /><h3 className="mt-4 text-lg font-semibold">No incoming shipments</h3><p className="mt-2 text-muted-foreground">{statusFilter !== "all" ? `No ${statusLabels[statusFilter] || statusFilter} shipments` : "Shipments appear here after their farm pickup reaches the warehouse."}</p></Card>
       ) : (
         <div className="space-y-6">{Array.from(incomingList.reduce((groups: Map<string, any[]>, item: any) => { const key = getFarmGroupKey(item); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(item); return groups; }, new Map<string, any[]>()).entries()).map(([farmKey, farmItems]) => {
