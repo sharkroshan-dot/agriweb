@@ -6330,12 +6330,50 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
         raise HTTPException(status_code=404, detail="Order not found")
 
     if all_packed:
+        # Finish Order is the single physical quantity check and packing
+        # verification action. When every actual quantity matches the final
+        # order quantities, create/reuse outgoing rows and mark the order ready
+        # for dispatch immediately; no second verification click is required.
+        order_id = str(task["orderId"])
+        for line in packing_items:
+            existing = await outgoing_stock_repository.get_by_order_id(
+                order_id, str(line["productId"]), str(line.get("variantId") or ""),
+                warehouse_id=str(warehouse["_id"]),
+            )
+            if not existing:
+                created = await WarehouseService.create_outgoing(OutgoingStockCreate(
+                    warehouseId=str(warehouse["_id"]),
+                    productId=str(line["productId"]),
+                    variantId=str(line.get("variantId")) if line.get("variantId") else None,
+                    orderId=order_id,
+                    quantity=int(float(line.get("packedQuantity") or 0)),
+                    batchNumber=line.get("batchNumber"),
+                ))
+                if not created:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Could not create dispatch record for {line.get('productName') or line.get('productId')}",
+                    )
+        await warehouse_packing_repository.update_task(task_id, {
+            "status": "ready_for_dispatch",
+            "verified": True,
+            "verifiedAt": datetime.utcnow(),
+            "packingItems": [{**line, "verified": True} for line in packing_items],
+        })
         await order_repository.update(
-            {"_id": ObjectId(str(task["orderId"]))},
-            {"warehouseFulfillmentStage": "packed", "packingComplete": True, "updatedAt": datetime.utcnow()},
+            {"_id": ObjectId(order_id)},
+            {
+                "warehouseFulfillmentStage": "ready_for_dispatch",
+                "packingComplete": True,
+                "packingVerified": True,
+                "packingTaskId": task["_id"],
+                "shortageResolutionRequired": False,
+                "shortageResolved": True,
+                "updatedAt": datetime.utcnow(),
+            },
         )
-        event = ("packing_completed", "Order packing completed",
-                 "All customer-order quantities were physically packed. Final shortage check found no shortage.")
+        event = ("packing_completed_verified", "Packing completed and checked",
+                 "Actual packed quantities were checked during Finish Order. All quantities match the final order; dispatch records are ready.")
     else:
         # Final shortage is now known from the physical pack result.
         # Create/update shortage cases only now; do not use an inventory
