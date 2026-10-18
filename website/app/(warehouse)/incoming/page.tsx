@@ -389,13 +389,19 @@ export default function WarehouseIncomingPage() {
     const farm = items[0]?.displayFarmName || getFarmDisplayName(items[0]);
     const labels = items.map((item) => {
       const order = item.order || {};
-      const address = item.deliveryAddress || item.shippingAddress || order.deliveryAddress || order.shippingAddress || order.address || {};
-      const addressText = typeof address === "string" ? address : [address.addressLine1, address.addressLine2, address.street, address.city, address.district, address.state, address.pinCode || address.pincode || address.postalCode].filter(Boolean).join(", ");
+      const address = item.deliveryAddress || item.shippingAddress || order.deliveryAddress || order.shippingAddress || order.address || item.customer?.address || order.customer?.address || {};
+      const addressText = typeof address === "string" ? address : [
+        address.formattedAddress, address.fullAddress, address.addressLine1, address.addressLine2,
+        address.line1, address.line2, address.streetAddress, address.street, address.village,
+        address.locality, address.area, address.city, address.district, address.state,
+        address.pinCode || address.pincode || address.postalCode || address.zipCode,
+        typeof address.location === "string" ? address.location : ""
+      ].filter(Boolean).join(", ");
       const customer = item.customerName || order.customerName || order.customer?.name || item.customer?.name || "Customer details unavailable";
       const phone = item.customerPhone || order.customerPhone || order.customer?.phone || item.customer?.phone || "Phone unavailable";
       const product = item.displayProductName || getProductDisplayName(item);
       const number = item.displayOrderNumber || item.orderNumber || order.orderNumber || item.orderId || item.id;
-      return "<section class='label'><h2>AGRICONNECT — ORDER PACKING LABEL</h2><p><b>Farm:</b> " + esc(farm) + "</p><p><b>Order:</b> " + esc(number) + "</p><p><b>Product:</b> " + esc(product) + "</p><p><b>Quantity to pack:</b> " + esc(item.quantity) + " " + esc(item.unit || "kg") + "</p><p><b>Customer:</b> " + esc(customer) + "</p><p><b>Phone:</b> " + esc(phone) + "</p><p><b>Delivery address:</b> " + esc(addressText || "Not available") + "</p><p class='note'>Verify allocated quantity and attach this label to the finished order.</p></section>";
+      return "<section class='label'><h2>AGRICONNECT — ORDER PACKING LABEL</h2><p><b>Farm:</b> " + esc(farm) + "</p><p><b>Order:</b> " + esc(number) + "</p><p><b>Order ID:</b> " + esc(item.orderId || order._id || item.id) + "</p><p><b>Product:</b> " + esc(product) + "</p><p><b>Quantity to pack:</b> " + esc(item.quantity) + " " + esc(item.unit || "kg") + "</p><p><b>Customer:</b> " + esc(customer) + "</p><p><b>Phone:</b> " + esc(phone) + "</p><p><b>Delivery address:</b> " + esc(addressText || "Not available") + "</p><p class='note'>Verify allocated quantity and attach this label to the finished order.</p></section>";
     }).join("");
     win.document.write("<!doctype html><html><head><meta charset='utf-8'/><title>Farm Packing Labels</title><style>body{font-family:Arial,sans-serif;color:#111;margin:20px}.label{border:2px solid #222;padding:18px;margin:0 0 20px;break-inside:avoid;page-break-after:always}.label:last-child{page-break-after:auto}h2{font-size:17px;margin-top:0}p{font-size:14px;margin:9px 0}.note{border-top:1px solid #aaa;padding-top:10px;font-size:12px}@media print{body{margin:0}.label{margin:0;border:1px solid #222;min-height:90vh}}</style></head><body>" + labels + "<script>window.onload=function(){window.print();}</script></body></html>");
     win.document.close();
