@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -11,6 +11,7 @@ import { Badge } from "../../components/ui/badge";
 import { Input } from "../../components/ui/input";
 import { api } from "../../lib/api/client";
 import toast from "react-hot-toast";
+import { QRCodeSVG } from "qrcode.react";
 
 const getPackingActivityDate = (task: any): Date | null => {
   const status = String(task?.status || "").toLowerCase();
@@ -54,6 +55,8 @@ export default function WarehousePackingPage() {
   const requestedOrderId = searchParams.get("orderId") || "";
   const requestedFarm = searchParams.get("farm") || "";
   const [searchTerm, setSearchTerm] = useState("");
+  const [printLabelData, setPrintLabelData] = useState<any | null>(null);
+  const printQrRef = useRef<HTMLDivElement | null>(null);
   const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">(requestedOrderId || requestedFarm ? "all" : "today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
   const [farmTeam, setFarmTeam] = useState<Record<string,string>>({});
@@ -267,18 +270,45 @@ export default function WarehousePackingPage() {
       await Promise.all([refetch(), refetchShortages()]);
     } catch (error: any) { toast.error(error?.response?.data?.detail || error?.message || "Could not finish packing this order."); }
   };
-  const printLabel = (t: any) => {
-    const address = t.deliveryAddress || {};
-    const items = t.items || [];
-    const addressText = [address.addressLine1, address.addressLine2, address.city, address.state, address.zipCode].filter(Boolean).join(", ");
-    const win = window.open("", "_blank", "width=720,height=900");
-    if (!win) { toast.error("Please allow pop-ups to print the package label"); return; }
-    win.document.write(`<!doctype html><html><head><title>Package ${t.packageId || ""}</title><style>body{font-family:Arial,sans-serif;padding:32px;max-width:680px;margin:auto}h1{font-size:24px;margin-bottom:4px}.muted{color:#64748b;font-size:12px}.box{border:2px solid #111;padding:20px;margin-top:18px}.row{display:flex;justify-content:space-between;border-bottom:1px solid #ddd;padding:8px 0}.address{line-height:1.6}.qr{margin:24px auto;border:2px dashed #111;width:150px;height:150px;display:flex;align-items:center;justify-content:center;font-size:12px;text-align:center}</style></head><body><h1>AGRICONNECT</h1><div class="muted">DELIVERY PACKAGE</div><div class="box"><strong>Order:</strong> ${t.orderNumber || t.orderId}<br/><strong>Package:</strong> ${t.packageId || "—"}<h3>Customer</h3><div>${t.customer?.name || "Customer"}</div><h3>Products</h3>${items.map((i:any)=>"<div class=\"row\"><span>"+i.productName+"</span><strong>"+i.quantity+" "+(i.unit || "kg")+"</strong></div>").join("")}<h3>Delivery Address</h3><div class="address">${addressText || "Address not available"}</div><div class="qr">SCAN PACKAGE<br/>${t.packageId || "PACKAGE"}</div></div><script>window.onload=()=>window.print();</script></body></html>`);
-    win.document.close();
-  };
+  const printLabel = (t: any) => setPrintLabelData(t);
+
+  useEffect(() => {
+    if (!printLabelData) return;
+    const timer = window.setTimeout(() => {
+      const t = printLabelData;
+      const esc = (v: unknown) => String(v ?? "—").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c] as string));
+      const order = t.order || {};
+      const orderId = String(t.orderId || order.id || order._id || "");
+      const orderNumber = t.orderNumber || order.orderNumber || orderId || "Order number unavailable";
+      const packageId = t.packageId || t.labelId || ("PKG-" + String(t.id || t._id || orderNumber).slice(-8));
+      const customer = t.customer?.name || t.customerName || order.customer?.name || order.customerName || "Customer details unavailable";
+      const phone = t.customer?.phone || t.customerPhone || order.customer?.phone || order.customerPhone || "Phone unavailable";
+      const address = t.deliveryAddress || t.shippingAddress || order.deliveryAddress || order.shippingAddress || order.address || t.customer?.address || order.customer?.address || {};
+      const addressText = typeof address === "string" ? address : [address.formattedAddress,address.fullAddress,address.addressLine1,address.addressLine2,address.line1,address.line2,address.streetAddress,address.street,address.area,address.locality,address.village,address.district,address.city,address.state,address.pinCode || address.pincode || address.postalCode || address.zipCode].filter(Boolean).join(", ");
+      const items = (t.packingItems?.length ? t.packingItems : t.items || []);
+      const rows = items.map((i: any) => "<tr><td>" + esc(i.productName || i.name || "Product") + "</td><td style='text-align:right;font-weight:bold'>" + esc(i.packedQuantity ?? i.actualPackedQuantity ?? i.quantity ?? i.quantityRequired ?? "—") + " " + esc(i.unit || "kg") + "</td></tr>").join("");
+      const payment = String(t.paymentMethod || order.paymentMethod || order.payment?.method || "Unknown").toUpperCase();
+      const amount = Number(t.totalAmount ?? t.total ?? order.totalAmount ?? order.total ?? 0);
+      const paymentStatus = String(t.paymentStatus || order.paymentStatus || order.payment?.status || (payment === "COD" ? "PAYABLE ON DELIVERY" : "VERIFY PAYMENT STATUS")).replace(/_/g, " ").toUpperCase();
+      const qr = printQrRef.current?.querySelector("svg")?.outerHTML || "";
+      const win = window.open("", "_blank", "width=720,height=900");
+      if (!win) { toast.error("Please allow pop-ups to print the package label"); setPrintLabelData(null); return; }
+      win.document.write(`<!doctype html><html><head><meta charset="utf-8"/><title>AgriConnect Delivery Label ${esc(orderNumber)}</title><style>*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#111;padding:16px;margin:0}.label{max-width:420px;margin:auto;border:2px solid #111;padding:16px}.brand{text-align:center;font-size:22px;font-weight:800}.subtitle{text-align:center;font-size:10px}.rule{border-top:1px solid #111;margin:10px 0}.heading{font-size:10px;font-weight:800;letter-spacing:.5px;margin:10px 0 4px}.value{font-size:12px;line-height:1.45;overflow-wrap:anywhere}.order{font-size:16px;font-weight:800}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cell{border:1px solid #aaa;padding:7px}.muted{font-size:9px;color:#444}table{width:100%;border-collapse:collapse;font-size:11px}td{padding:6px 2px;border-bottom:1px solid #ddd}.qr{text-align:center;margin-top:12px}.qr svg{width:112px;height:112px}@media print{body{padding:0}.label{max-width:none;width:100%}}</style></head><body><main class="label"><div class="brand">AGRICONNECT</div><div class="subtitle">FARM-TO-HOME · DELIVERY LABEL</div><div class="rule"></div>
+      <div class="heading">ORDER NUMBER</div><div class="order">${esc(orderNumber)}</div><div class="muted">Package / Label ID: ${esc(packageId)} · Printed: ${esc(new Date().toLocaleString())}</div>
+      <div class="grid"><div class="cell"><div class="heading">SOURCE FARM</div><div class="value">${esc(t.farmName || t.sourceFarmName || t.farmerName || order.farmName || "Not specified")}</div></div><div class="cell"><div class="heading">WAREHOUSE</div><div class="value">${esc(t.warehouseName || t.warehouse?.name || "Not specified")}</div></div></div>
+      <div class="heading">DELIVER TO</div><div class="value"><b>${esc(customer)}</b></div><div class="value">${esc(phone)}</div><div class="value">${esc(addressText || "Delivery address unavailable")}</div>
+      <div class="heading">PACKED ITEMS · ACTUAL QUANTITY</div><table>${rows || "<tr><td>Item details unavailable</td><td>—</td></tr>"}</table>
+      <div class="heading">PAYMENT</div><div class="value">${esc(payment)} · ${esc(paymentStatus)}</div><div class="value">${payment === "COD" ? "Amount to collect: ₹" + amount.toFixed(2) : "Order total: ₹" + amount.toFixed(2)}</div>
+      <div class="qr">${qr}<div class="muted"><b>DELIVERY PARTNER ONLY · POD WORKSPACE</b></div><div class="muted">Sign in as the assigned delivery partner to access this order and submit proof of delivery.</div></div></main><script>window.onload=()=>window.print();</script></body></html>`);
+      win.document.close();
+      setPrintLabelData(null);
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [printLabelData]);
 
   return (
-    <div className="space-y-6">
+    {printLabelData && <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}><div ref={printQrRef}><QRCodeSVG value={typeof window !== "undefined" ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(printLabelData.orderId || printLabelData.order?.id || printLabelData.order?._id || printLabelData.orderNumber || "")) : ""} size={160} level="M" /></div></div>}
+      <div className="space-y-6">
       <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
       <div className="grid gap-3 md:grid-cols-2">
         <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4">
