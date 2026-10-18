@@ -226,6 +226,19 @@ export default function FarmerPackingPage() {
     try {
       const response = await api.post("/orders/" + orderId + "/farmer-delivery-label");
       const labelOrder = response?.data || response;
+      const addressText = labelOrder?.deliveryAddress || labelOrder?.shippingAddress || labelOrder?.address || labelOrder?.customer?.address || labelOrder?.customerAddress;
+      const addressReady = typeof addressText === "string" ? Boolean(addressText.trim()) : Boolean(addressText && typeof addressText === "object" && Object.values(addressText).some((value) => value != null && String(value).trim()));
+      const items = Array.isArray(labelOrder?.items) ? labelOrder.items : [];
+      const missing = [];
+      if (!(labelOrder?.orderNumber || labelOrder?.id || labelOrder?._id)) missing.push("order number");
+      if (!(labelOrder?.customerName || labelOrder?.customer?.name)) missing.push("customer name");
+      if (!(labelOrder?.customerPhone || labelOrder?.customer?.phone)) missing.push("customer phone");
+      if (!addressReady) missing.push("delivery address");
+      if (!items.length || items.some((item: any) => !(item.productName || item.name) || (item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity) == null)) missing.push("product names/packed quantities");
+      if (missing.length) {
+        toast.error("Cannot print an incomplete delivery label. Missing: " + missing.join(", ") + ". Update the order details first.");
+        return;
+      }
       setSelectedOrder(labelOrder);
       window.setTimeout(() => window.print(), 50);
     } catch (error: any) {
