@@ -704,7 +704,8 @@ class WarehouseService:
         from app.repositories.warehouse_shortage_repository import warehouse_shortage_repository
 
         order = await order_repository.get_by_id(order_id)
-        if not order:
+        fulfillment_method = str((order or {}).get("fulfillmentMethod") or "").strip().lower()
+        if not order or fulfillment_method not in ("warehouse", "warehouse_fulfillment", "warehouse fulfillment"):
             return None
 
         incoming_rows = await incoming_stock_repository.find_many({
