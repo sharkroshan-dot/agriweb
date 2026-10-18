@@ -413,6 +413,28 @@ export default function WarehouseIncomingPage() {
 
   const printFarmPackingLabels = (items: any[]) => {
     if (!items.length) { toast.error("No received order labels are available for this farm."); return; }
+    const missing = items.flatMap((item) => {
+      const order = item.order || {};
+      const address = item.deliveryAddress || item.shippingAddress || order.deliveryAddress || order.shippingAddress || order.address || item.customer?.address || order.customer?.address || {};
+      const addressText = typeof address === "string" ? address.trim() : [address.formattedAddress, address.fullAddress, address.addressLine1, address.addressLine2, address.line1, address.line2, address.streetAddress, address.street, address.area, address.locality, address.village, address.district, address.city, address.state, address.pinCode || address.pincode || address.postalCode || address.zipCode].filter(Boolean).join(", ");
+      const orderNumber = order.orderNumber || item.orderNumber || item.displayOrderNumber || item.orderId;
+      const customer = item.customerName || order.customerName || order.customer?.name || item.customer?.name;
+      const phone = item.customerPhone || order.customerPhone || order.customer?.phone || item.customer?.phone;
+      const product = item.displayProductName || item.productName || item.product?.name || item.productId;
+      const quantity = item.quantity ?? item.allocatedQuantity ?? item.orderQuantity;
+      const gaps = [];
+      if (!orderNumber || /^[a-f0-9]{24}$/i.test(String(orderNumber))) gaps.push("order number");
+      if (!customer) gaps.push("customer name");
+      if (!phone) gaps.push("customer phone");
+      if (!addressText) gaps.push("delivery address");
+      if (!product || /^[a-f0-9]{24}$/i.test(String(product))) gaps.push("product name");
+      if (quantity == null || quantity === "") gaps.push("quantity");
+      return gaps.length ? [String(orderNumber || item.id || item._id || "Order") + ": " + gaps.join(", ")] : [];
+    });
+    if (missing.length) {
+      toast.error("Cannot print incomplete delivery labels. Complete order details first: " + missing.slice(0, 3).join(" · ") + (missing.length > 3 ? " · and " + (missing.length - 3) + " more" : ""));
+      return;
+    }
     const win = window.open("", "_blank", "width=900,height=900");
     if (!win) { toast.error("Allow pop-ups to print farm packing labels."); return; }
     farmLabelPrintWindowRef.current = win;
