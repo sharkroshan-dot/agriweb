@@ -6071,7 +6071,7 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
     try:
         stored_rows = await incoming_stock_repository.find_many({
             "warehouseId": warehouse["_id"],
-            "status": "stored",
+            "status": {"$in": ["received", "stored"]},
             "deletedAt": None,
         }, skip=0, limit=1000)
         order_ids = {
