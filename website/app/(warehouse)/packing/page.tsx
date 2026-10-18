@@ -307,6 +307,7 @@ export default function WarehousePackingPage() {
   }, [printLabelData]);
 
   return (
+    <>
     {printLabelData && <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}><div ref={printQrRef}><QRCodeSVG value={typeof window !== "undefined" ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(printLabelData.orderId || printLabelData.order?.id || printLabelData.order?._id || printLabelData.orderNumber || "")) : ""} size={160} level="M" /></div></div>}
       <div className="space-y-6">
       <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
@@ -477,5 +478,6 @@ export default function WarehousePackingPage() {
         </section>
       ))}</div>}
     </div>
+    </>
   );
 }
