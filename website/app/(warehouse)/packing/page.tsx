@@ -250,7 +250,7 @@ export default function WarehousePackingPage() {
       const response = await api.put("/warehouse/me/packing-tasks/" + t.id + "/complete", { items, packedQuantity: items.reduce((sum: number, item: any) => sum + Number(item.packedQuantity || 0), 0), packageId: t.packageId || undefined });
       const root = response?.data?.data ?? response?.data ?? response;
       const shortageFlag = Boolean(root?.shortageDetectedAfterPacking || root?.shortageResolutionRequired || items.some((item: any) => { const line = (t.packingItems || []).find((x: any) => String(x.productId) === String(item.productId) && String(x.variantId || "") === String(item.variantId || "")); return Number(item.packedQuantity) < Number(line?.quantityRequired || 0); }));
-      setTaskStatusOverrides((current) => ({ ...current, [t.id]: shortageFlag ? "customer_approval_pending" : "packed" }));
+      setTaskStatusOverrides((current) => ({ ...current, [t.id]: shortageFlag ? "customer_approval_pending" : "ready_for_dispatch" }));
       if (shortageFlag) {
         await refetchShortages();
         const refreshed = await api.get("/warehouse/me/shortages", { params: { status: "all" } });
@@ -260,7 +260,7 @@ export default function WarehousePackingPage() {
         for (const shortage of cases.filter((s: any) => String(s.orderId) === orderKey && !["resolved", "cancelled", "customer_approval_pending"].includes(String(s.status || "").toLowerCase()))) {
           await api.put("/warehouse/me/shortages/" + shortage.id + "/resolution", { resolutionType: "customer_approval_pending", approvedQuantity: shortage.availableQuantity, notes: "Customer must choose whether to accept the available quantity or cancel the order. Warehouse cannot cancel it on the customer\u0027s behalf." });
         }
-        toast.success("Packing finished. Physical shortage recorded; customer approval is required before dispatch.");
+        toast.success("Physical shortage recorded. Customer approval is required before dispatch.");
       } else {
         toast.success("Packing quantities checked. The order is verified and ready for dispatch.");
       }
