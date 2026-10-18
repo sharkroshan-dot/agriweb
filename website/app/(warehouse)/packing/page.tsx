@@ -270,23 +270,7 @@ export default function WarehousePackingPage() {
       await Promise.all([refetch(), refetchShortages()]);
     } catch (error: any) { toast.error(error?.response?.data?.detail || error?.message || "Could not finish packing this order."); }
   };
-  const printLabel = (t: any) => {
-    const order = t?.order || {};
-    const address = t?.deliveryAddress || t?.shippingAddress || order?.deliveryAddress || order?.shippingAddress || order?.address || t?.customer?.address || order?.customer?.address;
-    const addressText = typeof address === "string" ? address.trim() : address && typeof address === "object" ? [address.formattedAddress, address.fullAddress, address.addressLine1, address.addressLine2, address.line1, address.line2, address.streetAddress, address.street, address.area, address.locality, address.village, address.district, address.city, address.state, address.pinCode || address.pincode || address.postalCode || address.zipCode].filter(Boolean).join(", ") : "";
-    const items = t?.packingItems?.length ? t.packingItems : t?.items || [];
-    const orderNumber = t?.orderNumber || order?.orderNumber || t?.orderId || order?.id || order?._id;
-    const customer = t?.customer?.name || t?.customerName || order?.customer?.name || order?.customerName;
-    const phone = t?.customer?.phone || t?.customerPhone || order?.customer?.phone || order?.customerPhone;
-    const missing = [];
-    if (!orderNumber || /^[a-f0-9]{24}$/i.test(String(orderNumber))) missing.push("order number");
-    if (!customer) missing.push("customer name");
-    if (!phone) missing.push("customer phone");
-    if (!addressText) missing.push("delivery address");
-    if (!items.length || items.some((item: any) => !(item.productName || item.name) || (item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity ?? item.quantityRequired) == null)) missing.push("packed product names/quantities");
-    if (missing.length) { toast.error("Cannot print an incomplete delivery label. Missing: " + missing.join(", ") + ". Update the order details first."); return; }
-    setPrintLabelData(t);
-  };
+  const printLabel = (t: any) => setPrintLabelData(t);
 
   useEffect(() => {
     if (!printLabelData) return;
