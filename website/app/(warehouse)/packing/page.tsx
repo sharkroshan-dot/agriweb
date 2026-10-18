@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { PackageCheck, RefreshCw, Users, Play, CheckCircle2, ShieldCheck, Info, AlertTriangle, Warehouse, Search, Clock3 } from "lucide-react";
@@ -49,6 +50,9 @@ const isUnfinishedPackingTask = (task: any) =>
   ["ready_for_packing", "assigned", "packing", "partially_packed"].includes(String(task?.status || "").toLowerCase());
 
 export default function WarehousePackingPage() {
+  const searchParams = useSearchParams();
+  const requestedOrderId = searchParams.get("orderId") || "";
+  const requestedFarm = searchParams.get("farm") || "";
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState<"today" | "yesterday" | "week" | "all">("today");
   const [showRemainingOnly, setShowRemainingOnly] = useState(false);
@@ -92,6 +96,16 @@ export default function WarehousePackingPage() {
     const query = searchTerm.trim().toLowerCase();
     return tasks.filter((task: any) => {
       if (!matchesPackingDate(task, dateFilter)) return false;
+      if (requestedOrderId) {
+        const taskOrderIds = [task.orderId, task.order?._id, task.orderNumber, task.orderNo, task.id].filter(Boolean).map(String);
+        if (!taskOrderIds.includes(requestedOrderId)) return false;
+      }
+      if (requestedFarm) {
+        const target = requestedFarm.includes(":") ? requestedFarm.slice(requestedFarm.indexOf(":") + 1).toLowerCase() : requestedFarm.toLowerCase();
+        const farm = getFarmDetails(task);
+        const farmValues = [farm.key, task.farmId, task.sourceFarmId, task.farmName, task.sourceFarmName, task.farmerName].filter(Boolean).map((value: any) => String(value).toLowerCase());
+        if (!farmValues.some((value: string) => value === requestedFarm.toLowerCase() || value === target || value.endsWith(":" + target))) return false;
+      }
       if (!query) return true;
       const farm = getFarmDetails(task);
       const values = [
@@ -105,7 +119,7 @@ export default function WarehousePackingPage() {
       ];
       return values.filter(Boolean).some((value) => String(value).toLowerCase().includes(query));
     });
-  }, [tasks, searchTerm, dateFilter]);
+  }, [tasks, searchTerm, dateFilter, requestedOrderId, requestedFarm]);
 
   const visibleTasks = useMemo(
     () => showRemainingOnly ? filteredTasks.filter(isUnfinishedPackingTask) : filteredTasks,
