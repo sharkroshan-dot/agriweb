@@ -5601,6 +5601,54 @@ async def schedule_incoming(
     incoming["id"] = str(incoming["_id"])
     return incoming
 
+@router.put("/me/incoming/{incoming_id}/receive-bulk-reference")
+async def receive_bulk_stock_reference(
+    incoming_id: str,
+    declared_total: float = Query(..., ge=0, alias="declaredTotal"),
+    measured_total: float = Query(..., gt=0, alias="measuredTotal"),
+    quality_check: str = Query(..., pattern="^(pending|passed|failed)$"),
+    notes: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Receive a farm bulk lot once while marking its order rows as packing references.
+
+    Per-order quantities are not weighed during this operation. The measured bulk
+    weight and overall QC are stored as lot-level metadata on each linked row.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can receive stock")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    incoming = await incoming_stock_repository.get_by_id(incoming_id)
+    if not incoming or str(incoming.get("warehouseId")) != str(warehouse["_id"]):
+        raise HTTPException(status_code=404, detail="Incoming stock record was not found in this warehouse")
+    if str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer":
+        raise HTTPException(status_code=409, detail="Farmer Fulfillment orders must use individual Receive Order")
+    if str(incoming.get("status") or "").lower() in ("received", "stored", "rejected"):
+        return {"success": True, "data": {"id": incoming_id, "status": incoming.get("status"), "alreadyReceived": True}}
+    now = datetime.utcnow()
+    status_value = "rejected" if quality_check == "failed" else ("quality_check" if quality_check == "pending" else "received")
+    lot_note = (notes or "").strip()
+    lot_note = (lot_note + " | " if lot_note else "") + f"Bulk lot receipt: declared total {declared_total} kg; measured total {measured_total} kg; overall quality {quality_check}. Per-order quantity is a packing reference and is allocated during Order Packing."
+    await incoming_stock_repository.update(
+        {"_id": incoming["_id"]},
+        {
+            "status": status_value,
+            "qualityCheck": quality_check,
+            "bulkShipmentDeclaredTotal": declared_total,
+            "bulkShipmentMeasuredTotal": measured_total,
+            "bulkShipmentReceivedAt": now,
+            "receivedAt": now,
+            "receivedDate": now,
+            "qualityNotes": lot_note,
+            "notes": lot_note,
+            "updatedAt": now,
+        },
+    )
+    updated = await incoming_stock_repository.get_by_id(incoming_id)
+    return {"success": True, "data": {"id": incoming_id, "status": status_value, "bulkShipmentMeasuredTotal": measured_total, "record": updated}}
+
 @router.put("/me/incoming/{incoming_id}/receive")
 async def receive_incoming_stock(
     incoming_id: str,
