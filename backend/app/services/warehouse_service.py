@@ -718,7 +718,7 @@ class WarehouseService:
         # has completed the Store step.
         incoming = [
             row for row in incoming_rows
-            if str(row.get("status") or "").lower() == "stored"
+            if str(row.get("status") or "").lower() in ("received", "stored")
             and str(row.get("qualityCheck") or row.get("quality_check") or "").lower() == "passed"
             and str(row.get("sourceMode") or "").lower() not in ("farmer_fulfillment", "farmer_fulfillment_transfer")
             and row.get("packingRequired") is not False
@@ -730,7 +730,7 @@ class WarehouseService:
             usable = float(
                 row.get("usableQuantity")
                 if row.get("usableQuantity") is not None
-                else row.get("quantityReceived") or 0
+                else row.get("quantityReceived") or row.get("quantity") or 0
             )
             usable_by_key[key] = usable_by_key.get(key, 0.0) + max(0.0, usable)
 
