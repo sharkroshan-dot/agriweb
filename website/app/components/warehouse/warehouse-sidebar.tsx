@@ -1,6 +1,6 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { PrefetchLink as Link } from "../shared/prefetch-link";
 import {
@@ -71,6 +71,7 @@ const navSections = [
 
 export function WarehouseSidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { data: session } = useSession();
   const isLocalHubManager = (session?.user as any)?.facilityType === "local_hub";
   const visibleSections = isLocalHubManager ? [
@@ -127,7 +128,7 @@ export function WarehouseSidebar() {
               </div>
               <div className="space-y-1">
                 {section.items.map((item) => {
-                  const currentSearch = typeof window !== "undefined" ? window.location.search : ""; const isActive = pathname === item.href.split("?")[0] && (item.href.includes("?view=incoming") ? currentSearch.includes("view=incoming") : item.href.includes("?view=delivery") ? currentSearch.includes("view=delivery") : !currentSearch.includes("view=incoming") && !currentSearch.includes("view=delivery"));
+                  const view = searchParams.get("view"); const expectedView = item.href.includes("?view=") ? item.href.split("?view=")[1] : null; const isActive = pathname === item.href.split("?")[0] && (expectedView ? view === expectedView : view !== "incoming" && view !== "delivery");
                   return (
                     <Link
                       key={item.name}
