@@ -62,7 +62,7 @@ export default function FarmerFulfillmentWarehousePage() {
     needs_location: "Needs location / route review",
   };
   const routeDescriptions: Record<string, string> = {
-    nearby: "Within the configured distance threshold. Assign a final delivery partner for direct source-warehouse-to-customer delivery when eligible.",
+    nearby: "Within 15 km by default: publish direct to an eligible delivery partner, choose a local hub, or bypass distance for urgent direct delivery.",
     same_district: "Beyond the nearby threshold, with matching source and destination districts. Plan the sealed transfer to the local hub and assign a pickup team.",
     inter_district: "Beyond the nearby threshold and in a different district. Dispatch to the destination warehouse first, then continue to the local hub.",
     multi_warehouse: "Receive each allocated sealed portion at its assigned source warehouse, transfer portions to the consolidation warehouse, then send the complete order to the local hub for one final delivery job.",
@@ -89,7 +89,7 @@ export default function FarmerFulfillmentWarehousePage() {
     needs_location:transfers.filter((o:any)=>needsLocationData(o)),
   };
   const routeSectionMeta=[
-    {key:"nearby" as const,label:"Nearby Delivery",description:"Within 15 km by default; direct delivery is available only when explicitly configured."},
+    {key:"nearby" as const,label:"Nearby Delivery",description:"Within 15 km by default; choose direct delivery or a local hub. Urgent orders can go directly from the warehouse."},
     {key:"same_district" as const,label:"Same-District Warehouse Fulfillment",description:"Beyond the nearby threshold, same district: create a sealed transfer to the local hub."},
     {key:"inter_district" as const,label:"Inter-District Warehouse Fulfillment",description:"Different district: destination warehouse, transfer team, destination receipt, then local hub."},
     {key:"route_review" as const,label:"Route Review Required",description:"Orders waiting for warehouse assignment or physical receipt before route planning."},
@@ -391,7 +391,7 @@ export default function FarmerFulfillmentWarehousePage() {
                   <p className="text-xs font-medium text-muted-foreground">NEXT STEP</p>
                   <p className="mt-1 text-sm font-semibold">{nextAction}</p>
                 </div>
-                {routeCategory==="nearby" && <div className={o.directDeliveryConfigured?"rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800":"rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"}>Distance: {o.routeDistanceKm==null?"Not calculated":Number(o.routeDistanceKm).toFixed(1)+" km"} · Threshold: {o.nearbyThresholdKm??15} km. {o.directDeliveryConfigured?"Direct warehouse-to-customer delivery is configured.":"Nearby distance alone does not authorize direct delivery. Configure this order for direct warehouse-to-customer delivery or use the appropriate hub/warehouse route."}</div>}
+                {routeCategory==="nearby" && <div className={o.directDeliveryConfigured?"rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800":"rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900"}>Distance: {o.routeDistanceKm==null?"Not calculated":Number(o.routeDistanceKm).toFixed(1)+" km"} · Threshold: {o.nearbyThresholdKm??15} km. {o.directDeliveryConfigured?"Direct warehouse-to-customer delivery is configured.":"Choose Publish Direct Delivery for nearby orders, Use Local Hub Instead to send through a hub, or Urgent · Deliver Directly to bypass the nearby-distance limit."}</div>}
                 {routeNeedsReview && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">Route dispatch is blocked: coordinates or district details are missing. Correct the farm/customer location and refresh before selecting a route.</div>}
                 <div className="flex flex-wrap gap-2">
                   {!multi && !interDistrict && routeCategory==="nearby" && <>
