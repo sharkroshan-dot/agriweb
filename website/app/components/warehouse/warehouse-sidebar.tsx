@@ -127,7 +127,7 @@ export function WarehouseSidebar() {
               </div>
               <div className="space-y-1">
                 {section.items.map((item) => {
-                  const isActive = pathname === item.href.split("?")[0] && (item.href.includes("?view=incoming") ? (typeof window !== "undefined" && window.location.search.includes("view=incoming")) : !(typeof window !== "undefined" && window.location.search.includes("view=incoming")));
+                  const currentSearch = typeof window !== "undefined" ? window.location.search : ""; const isActive = pathname === item.href.split("?")[0] && (item.href.includes("?view=incoming") ? currentSearch.includes("view=incoming") : item.href.includes("?view=delivery") ? currentSearch.includes("view=delivery") : !currentSearch.includes("view=incoming") && !currentSearch.includes("view=delivery"));
                   return (
                     <Link
                       key={item.name}
