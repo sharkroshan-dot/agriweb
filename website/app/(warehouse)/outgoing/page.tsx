@@ -50,6 +50,44 @@ const isVerifiedActiveHub = (hub: any) => {
   const state = normalizePlace(hub?.verificationStatus || hub?.approvalStatus || hub?.status);
   return !["pending", "pending_verification", "rejected", "inactive", "disabled", "unverified"].includes(state);
 };
+const addressSearchText = (value: any) => {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object") return "";
+  return [value.addressLine1, value.addressLine2, value.address, value.street, value.locality, value.area, value.village, value.taluk, value.talukName, value.subDistrict, value.tehsil, value.city, value.town, value.district, value.districtName, value.state, value.stateName, value.postalCode, value.pincode, value.country].filter(Boolean).join(", ");
+};
+const geocodeAddress = async (value: any): Promise<[number, number] | null> => {
+  const existing = locationPoint(value);
+  if (existing) return existing;
+  const query = addressSearchText(value);
+  if (!query || query.length < 5) return null;
+  try {
+    const response = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=in&q=" + encodeURIComponent(query), { headers: { Accept: "application/json" } });
+    if (!response.ok) return null;
+    const results = await response.json();
+    if (!Array.isArray(results) || !results[0]) return null;
+    const lat = Number(results[0].lat); const lng = Number(results[0].lon);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+  } catch { return null; }
+};
+const chooseLocalHubForOrder = async (item: any, hubs: any[]) => {
+  const destination = item?.deliveryAddress || item?.shippingAddress || item?.customerAddress || item?.destinationAddress || {};
+  const customerPoint = locationPoint(destination) || locationPoint(item?.deliveryLocation) || locationPoint(item?.customerLocation) || await geocodeAddress(destination);
+  const resolvedHubs = await Promise.all((hubs || []).map(async (hub) => {
+    if (locationPoint(hub?.location) || locationPoint(hub?.coordinates) || locationPoint(hub?.address)) return hub;
+    const point = await geocodeAddress(hub?.address || {
+      addressLine1: hub?.addressLine1, addressLine2: hub?.addressLine2, locality: hub?.locality,
+      taluk: hub?.taluk || hub?.talukName, city: hub?.city, district: hub?.district || hub?.districtName,
+      state: hub?.state || hub?.stateName, pincode: hub?.pincode || hub?.postalCode, country: "India",
+    });
+    return point ? { ...hub, location: { latitude: point[0], longitude: point[1] } } : hub;
+  }));
+  const resolvedItem = customerPoint ? {
+    ...item,
+    deliveryLocation: { latitude: customerPoint[0], longitude: customerPoint[1] },
+    deliveryAddress: { ...(typeof destination === "object" ? destination : {}), location: { latitude: customerPoint[0], longitude: customerPoint[1] } },
+  } : item;
+  return chooseLocalHub(resolvedItem, resolvedHubs);
+};
 const chooseLocalHub = (item: any, hubs: any[]) => {
   const eligible = (hubs || []).filter((hub) => hub?.id && isVerifiedActiveHub(hub));
   if (!eligible.length) return null;
@@ -113,7 +151,7 @@ export default function WarehouseOutgoingPage() {
           continue;
         }
         if (section === "same_district") {
-          const hub = chooseLocalHub(item, localHubs);
+          const hub = await chooseLocalHubForOrder(item, localHubs);
           if (!hub?.id) throw new Error("No verified active local hub matches the customer's taluk/district or has usable location data. Verify the local hub and customer delivery address before dispatch.");
           await api.post(`/warehouse/me/local-hubs/${hub.id}/orders/${item.orderId}/dispatch`, {});
           succeeded += 1;
@@ -140,7 +178,7 @@ export default function WarehouseOutgoingPage() {
       if (!audit?.readyForDispatch) throw new Error("Packing verification is incomplete. Verify packed quantities before dispatch.");
 
       if (category === "same_district") {
-        const hub = chooseLocalHub(item, localHubs);
+        const hub = await chooseLocalHubForOrder(item, localHubs);
         if (!hub?.id) throw new Error("No verified active local hub matches the customer's taluk/district or has usable location data. Verify the local hub and customer delivery address before dispatch.");
         await api.post(`/warehouse/me/local-hubs/${hub.id}/orders/${item.orderId}/dispatch`, {});
         toast.success(`Order dispatched to ${hub.name}. The hub manager must confirm receipt before publishing it to delivery partners.`);
