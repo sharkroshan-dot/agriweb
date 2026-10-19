@@ -375,9 +375,30 @@ async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: 
         raise HTTPException(status_code=404, detail="Order not found")
     if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") not in (str(parent["_id"]), ""):
         raise HTTPException(status_code=403, detail="This order is not assigned to your source warehouse")
-    status_value = str(order.get("orderStatus") or "").lower()
-    if status_value not in ("packed", "ready_for_delivery", "ready_for_pickup", "dispatched"):
-        raise HTTPException(status_code=409, detail=f"Order must be packed before dispatch (current status: {status_value or 'unknown'})")
+    status_value = str(order.get("orderStatus") or "").strip().lower()
+    packing_stage = str(order.get("warehouseFulfillmentStage") or "").strip().lower()
+    # The customer order can legitimately remain "processing" after warehouse
+    # packing is finished. Use the authoritative packing verification fields
+    # rather than relying on orderStatus alone.
+    verified_packing = (
+        order.get("packingComplete") is True
+        and order.get("packingVerified") is True
+        and packing_stage in ("ready_for_dispatch", "delivery_decision", "dispatched")
+        and not bool(order.get("shortageResolutionRequired"))
+        and packing_stage != "shortage_pending"
+    )
+    if status_value not in ("packed", "ready_for_delivery", "ready_for_pickup", "dispatched") and not verified_packing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"Order must be packed before dispatch (current order status: {status_value or 'unknown'}).",
+                "packingComplete": bool(order.get("packingComplete")),
+                "packingVerified": bool(order.get("packingVerified")),
+                "warehouseFulfillmentStage": packing_stage or "not_set",
+                "shortageResolutionRequired": bool(order.get("shortageResolutionRequired")),
+                "action": "Finish packing and resolve any shortage before dispatch."
+            },
+        )
     transfers = MongoDB.get_collection("warehouse_order_transfers")
     existing = await transfers.find_one({"orderId": {"$in": [ObjectId(order_id), order_id]}, "destinationWarehouseId": {"$in": [ObjectId(hub_id), hub_id]}, "deletedAt": None, "status": {"$in": ["dispatched", "in_transit", "arrived_at_destination", "received", "ready_for_delivery"]}})
     if existing:
