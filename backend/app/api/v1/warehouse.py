@@ -1293,8 +1293,24 @@ async def get_my_warehouse_stock(
         limit,
         status
     )
-    for item in stock:
-        item["id"] = str(item["_id"])
+    def serialize_stock_value(value):
+        # Stock rows can contain ObjectIds in nested references as well as _id.
+        # Convert all of them before FastAPI/Pydantic serializes the response.
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, dict):
+            serialized = {}
+            for key, nested_value in value.items():
+                if key == "_id":
+                    serialized["id"] = str(nested_value) if nested_value is not None else None
+                else:
+                    serialized[key] = serialize_stock_value(nested_value)
+            return serialized
+        if isinstance(value, (list, tuple)):
+            return [serialize_stock_value(item) for item in value]
+        return value
+
+    stock = [serialize_stock_value(item) for item in stock]
     return {
         "success": True,
         "data": {
