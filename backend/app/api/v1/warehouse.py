@@ -27,7 +27,7 @@ from app.schemas.warehouse import (
 from app.services.warehouse_service import WarehouseService
 from app.services.user_service import UserService
 from app.services.logistics_routing_service import apply_partner_route, allocate_farmer_fulfillment_warehouses, classify_farmer_fulfillment_route, distance_km, nearest_local_hub, warehouse_for_district
-from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, JOB_DEFAULT_EXPIRY_MINUTES
+from app.services.delivery_job_service import build_job_document, build_warehouse_pickup_job, eligible_partners_for_job, job_weight_kg, passes_vehicle_type, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
 from app.repositories.warehouse_packing_repository import warehouse_packing_repository
 from app.schemas.warehouse_packing import PackingTeamAssignment, PackingCompleteRequest, PackingVerifyRequest
@@ -3561,9 +3561,18 @@ async def assign_farmer_fulfillment_destination_pickup_team(
     if str(leg.get("status") or "") not in ("awaiting_team_assignment", "assigned"):
         raise HTTPException(status_code=409, detail="The transfer has already started or arrived")
     required_capacity = float(leg.get("quantity") or 0)
-    team_capacity = float(member.get("capacity") or member.get("vehicleCapacity") or 0)
+    vehicle_profile = await delivery_repository.get_by_id(profile_id)
+    vehicle_data = {**(vehicle_profile or {}), **member}
+    team_capacity = float(
+        member.get("capacity") or member.get("vehicleCapacity")
+        or (vehicle_profile or {}).get("capacity") or 0
+    )
     if required_capacity <= 0:
         raise HTTPException(status_code=400, detail="Transfer quantity is missing; cannot validate vehicle capacity")
+    if not passes_vehicle_type(vehicle_data, required_capacity):
+        raise HTTPException(status_code=400, detail="The assigned vehicle type is missing or cannot carry this shipment quantity")
+    if team_capacity <= 0:
+        raise HTTPException(status_code=400, detail="Set a positive vehicle capacity before assigning this transfer")
     if team_capacity < required_capacity:
         raise HTTPException(status_code=400, detail=f"Selected vehicle capacity ({team_capacity:g} kg) is below the shipment quantity ({required_capacity:g} kg)")
     if leg.get("assignedDeliveryPartnerId") and str(leg.get("assignedDeliveryPartnerId")) != profile_id:
