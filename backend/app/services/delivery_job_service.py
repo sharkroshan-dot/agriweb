@@ -153,7 +153,7 @@ async def partner_commitment(partner_id: str) -> Tuple[int, float]:
 VEHICLE_TYPE_CAPACITY_KG = {
     "bike": 25.0, "scooter": 25.0,
     "auto": 150.0, "three_wheeler": 150.0, "e_rickshaw": 150.0,
-    "tata_ace": 750.0, "ace": 750.0,
+    "tata_ace": 750.0, "ace": 750.0, "tempo": 750.0,
     "mini_truck": 1000.0, "mini-truck": 1000.0,
     "van": 500.0, "car": 100.0, "truck": 2000.0,
 }
