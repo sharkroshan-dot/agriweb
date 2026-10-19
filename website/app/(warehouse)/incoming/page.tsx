@@ -445,15 +445,15 @@ export default function WarehouseIncomingPage() {
       const qty = item.quantity ?? item.allocatedQuantity ?? item.orderQuantity;
       const unit = item.unit || item.product?.unit || "";
       const farm = item.displayFarmName || item.farmName || item.farmerName || item.pickupLocation?.farmName || item.pickupLocation?.name || "";
-      const warehouse = item.warehouseName || item.warehouse?.name || "If applicable";
+      const warehouse = "";
       const farmAddress = item.pickupLocation?.address || item.farmAddress || item.pickupLocation?.city || "";
       const warehouseAddress = item.warehouseAddress || item.warehouse?.address || "";
       return "<main class='label'><div class='brand'>AGRICONNECT</div><div class='subtitle'>FARM-TO-HOME · DELIVERY LABEL</div><div class='rule'></div>" +
         (number ? "<div class='heading'>ORDER NUMBER</div><div class='order'>" + esc(number) + "</div>" : "") + (packageId ? "<div class='muted'>Package ID: " + esc(packageId) + " · " : "") + "Printed: " + esc(new Date().toLocaleString()) + "</div>" +
-        "<div class='grid'><div class='origin'><div class='heading'>SOURCE FARM</div><div class='value'>" + esc(farm) + "</div>" + (farmAddress ? "<div class='muted'>" + esc(farmAddress) + "</div>" : "") + "</div><div class='origin'><div class='heading'>WAREHOUSE</div><div class='value'>" + esc(warehouse) + "</div>" + (warehouseAddress ? "<div class='muted'>" + esc(warehouseAddress) + "</div>" : "") + "</div></div>" +
+        "<div class='heading'>SOURCE FARM</div><div class='value'>" + esc(farm) + "</div>" + (farmAddress ? "<div class='muted'>" + esc(farmAddress) + "</div>" : "") +
         "<div class='heading'>DELIVER TO</div>" + (customer ? "<div class='value'><b>" + esc(customer) + "</b></div>" : "") + (phone ? "<div class='value'>Phone: " + esc(phone) + "</div>" : "") + "<div class='value'>Address: " + esc(addressText || "Delivery address unavailable") + "</div>" +
         (product || qty !== undefined && qty !== null ? "<div class='heading'>PACKED ITEMS · ACTUAL QUANTITY</div><table><tr><td><div class='item-name'>" + esc(product) + "</div><div class='muted'>Fresh produce</div></td><td class='qty'>" + esc(qty ?? "") + (unit ? " " + esc(unit) : "") + "</td></tr></table><div class='muted'>Incoming allocation; final packed quantity is confirmed in Order Packing.</div>" : "") +
-        (payment === "COD" && Number.isFinite(amount) && rawAmount !== undefined && rawAmount !== null ? "<div class='heading'>PAYMENT</div><div class='value'>COD · Payable on delivery</div><div class='value'><b>₹" + amount.toFixed(2) + "</b></div>" : paymentStatus ? "<div class='heading'>PAYMENT</div><div class='value'>" + esc(paymentStatus) + "</div>" : "") +
+        ("<div class='heading'>PAYMENT</div>" + (payment === "COD" ? "<div class='value'>COD · Payable on delivery</div>" + (Number.isFinite(amount) && rawAmount !== undefined && rawAmount !== null ? "<div class='value'><b>₹" + amount.toFixed(2) + "</b></div>" : "") : "<div class='value'>" + esc(payment || "Payment method unavailable") + (paymentStatus ? " · " + esc(paymentStatus) : "") + "</div>")) +
         "<div class='qr'>" + qr + "<div class='muted'><b>DELIVERY PARTNER QR</b></div><div class='muted'>Scan to open the delivery workspace. Login and assignment authorization are required to access delivery actions and POD.</div><div class='muted' style='margin-top:8px'>Verify the order reference before handover.</div></div></main>";
     }).join("");
     win.document.open();
