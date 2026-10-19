@@ -131,7 +131,8 @@ async def available_partners_near(
             "userId": str(p.get("userId") or ""),
             "name": await _partner_display_name(p),
             "rating": round(float(p.get("rating", 0) or 0), 1),
-            "capacity": float(p["capacity"]) if p.get("capacity") is not None else None,
+            "capacity": float(p.get("capacity") or p.get("vehicleCapacity")) if (p.get("capacity") is not None or p.get("vehicleCapacity") is not None) else None,
+            "vehicleType": p.get("vehicleType") or ((p.get("vehicle") or {}).get("type") if isinstance(p.get("vehicle"), dict) else None),
             "distanceKm": dist,
             "isAvailable": bool(p.get("isAvailable")),
             "status": p.get("status", "offline"),
@@ -166,10 +167,13 @@ def passes_vehicle_type(partner: dict, job_weight: float) -> bool:
     return limit is not None and float(job_weight or 0) <= limit + 1e-9
 
 def passes_capacity(partner: dict, committed_weight: float, job_weight: float) -> bool:
-    cap = partner.get("capacity")
+    cap = partner.get("capacity", partner.get("vehicleCapacity"))
     if cap is None:
-        return True
-    return float(cap) - committed_weight >= job_weight - 1e-9
+        return False
+    try:
+        return float(cap) - committed_weight >= job_weight - 1e-9
+    except (TypeError, ValueError):
+        return False
 
 
 
