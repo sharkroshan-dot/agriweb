@@ -418,15 +418,41 @@ async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: 
         "deletedAt": None,
     }
     inserted = await transfers.insert_one(transfer_doc)
+    hub_name = hub.get("name") or hub.get("warehouseName") or hub.get("hubName") or "Local hub"
     await order_repository.update({"_id": ObjectId(order_id)}, {
         "orderStatus": "dispatched",
         "transferStatus": "dispatched_to_local_hub",
+        "warehouseFulfillmentStage": "dispatched",
         "sourceWarehouseId": parent["_id"],
         "destinationWarehouseId": ObjectId(hub_id),
         "nearbyFulfillmentLocationId": ObjectId(hub_id),
+        "localHubId": ObjectId(hub_id),
+        "localHubName": hub_name,
         "updatedAt": now,
     })
-    return {"success": True, "data": {"transferId": str(inserted.inserted_id), "orderId": order_id, "hubId": hub_id, "status": "dispatched"}, "message": "Order dispatched to local hub"}
+    # Keep Outgoing / Dispatch in sync with the order and the created transfer.
+    # The shipment is now dispatched from the warehouse, but is still awaiting
+    # physical receipt by the local-hub manager.
+    outgoing_collection = MongoDB.get_collection("outgoing_stock")
+    await outgoing_collection.update_many(
+        {
+            "orderId": {"$in": [ObjectId(order_id), order_id]},
+            "warehouseId": {"$in": [parent["_id"], str(parent["_id"])]},
+            "deletedAt": None,
+        },
+        {"$set": {
+            "status": "dispatched",
+            "transferStatus": "dispatched_to_local_hub",
+            "destinationWarehouseId": ObjectId(hub_id),
+            "destinationFacilityType": "local_hub",
+            "localHubId": ObjectId(hub_id),
+            "localHubName": hub_name,
+            "localHubTransferId": inserted.inserted_id,
+            "dispatchedAt": now,
+            "updatedAt": now,
+        }},
+    )
+    return {"success": True, "data": {"transferId": str(inserted.inserted_id), "orderId": order_id, "hubId": hub_id, "hubName": hub_name, "status": "dispatched", "transferStatus": "dispatched_to_local_hub"}, "message": f"Order dispatched to {hub_name}. Waiting for local-hub receipt."}
 
 
 @router.post("/hub/me/change-password")
