@@ -38,6 +38,7 @@ const STAGES: Record<string,string> = {
 export default function FarmerFulfillmentWarehousePage() {
   const [selectedTeams,setSelectedTeams]=useState<Record<string,string>>({});
   const [assigningOrder,setAssigningOrder]=useState<string|null>(null);
+  const [routingOrder,setRoutingOrder]=useState<string|null>(null);
   const [selectedRouteOrders,setSelectedRouteOrders]=useState<Record<string,boolean>>({});
   const [planningRoute,setPlanningRoute]=useState(false);
   const [activeRouteSection,setActiveRouteSection]=useState<"nearby"|"same_district"|"inter_district"|"route_review"|"needs_location">("nearby");
@@ -195,6 +196,15 @@ export default function FarmerFulfillmentWarehousePage() {
   const receiveDestination=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-destination`);toast.success("Destination warehouse receipt confirmed");await refreshAll();}
     catch(e:any){toast.error(e?.message||"Destination receipt failed");}
+  };
+  const chooseDeliveryRoute=async(id:string,route:"direct"|"local_hub",urgent=false)=>{
+    try{
+      setRoutingOrder(id);
+      await api.post(`/warehouse/me/farmer-fulfillment/${id}/choose-delivery-route`,undefined,{params:{route,urgent}});
+      toast.success(route==="direct"?(urgent?"Urgent direct delivery published":"Direct warehouse delivery published"):"Local-hub route created");
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Delivery route selection failed");}
+    finally{setRoutingOrder(null);}
   };
   const handoffHub=async(id:string)=>{
     try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/handoff-local-hub`);toast.success("Complete order handed to local hub");await refreshAll();}
@@ -388,6 +398,11 @@ export default function FarmerFulfillmentWarehousePage() {
                     {incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify</Button>)}
                     {incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store / Hold Packed Shipment</Button>)}
                     {transferStatus!=="local_hub_ready" && <div className="flex flex-wrap items-center gap-2"><select className="h-9 rounded-md border bg-white px-2 text-sm" value={selectedTeams[o.id]||""} onChange={e=>setSelectedTeams(v=>({...v,[o.id]:e.target.value}))}><option value="">Select approved final delivery partner</option>{pickupTeams.map((t:any)=><option key={t.deliveryPartnerId||t.id} value={t.deliveryPartnerId||t.id}>{t.name||t.fullName||t.partnerName||"Delivery partner"} · {t.vehicleType||"Vehicle"} · capacity {t.capacity??t.vehicleCapacity??"N/A"}</option>)}</select><Button size="sm" disabled={!selectedTeams[o.id]||assigningOrder===o.id||!receiptComplete||routeNeedsReview||!o.directDeliveryConfigured} onClick={async()=>{try{setAssigningOrder(o.id);await api.put(`/warehouse/me/farmer-fulfillment/${o.id}/assign-nearby-delivery-partner`,undefined,{params:{deliveryPartnerId:selectedTeams[o.id]}});toast.success("Final delivery partner assigned and delivery job created");await refreshAll();}catch(e:any){toast.error(e?.message||"Partner assignment failed");}finally{setAssigningOrder(null);}}}>{assigningOrder===o.id?"Assigning…":"Assign Final Delivery Partner"}</Button></div>}
+                    <div className="flex flex-wrap gap-2 border-t pt-3">
+                      <Button size="sm" disabled={!receiptComplete||routeNeedsReview||routingOrder===o.id||["direct_delivery_pending","hub_handoff_pending","local_hub_ready"].includes(transferStatus)} onClick={()=>chooseDeliveryRoute(o.id,"direct",false)}>{routingOrder===o.id?"Publishing…":"Publish Direct Delivery"}</Button>
+                      <Button size="sm" variant="destructive" disabled={!receiptComplete||routeNeedsReview||routingOrder===o.id||["direct_delivery_pending","hub_handoff_pending","local_hub_ready"].includes(transferStatus)} onClick={()=>chooseDeliveryRoute(o.id,"direct",true)}>Urgent · Deliver Directly</Button>
+                      <Button size="sm" variant="outline" disabled={!receiptComplete||routeNeedsReview||routingOrder===o.id||["hub_handoff_pending","local_hub_ready"].includes(transferStatus)} onClick={()=>chooseDeliveryRoute(o.id,"local_hub",false)}>Use Local Hub Instead</Button>
+                    </div>
                     {o.deliveryPartnerId && <Badge variant="success">Final partner assigned · {o.deliveryPartnerId}</Badge>}
                   </>}
                   {!multi && !interDistrict && routeCategory==="same_district" && <>
