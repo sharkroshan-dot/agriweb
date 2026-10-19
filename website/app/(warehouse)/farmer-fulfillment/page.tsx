@@ -369,6 +369,7 @@ export default function FarmerFulfillmentWarehousePage() {
                 ["received","stored"].includes(x.status) && Number(x.receivedQuantity || 0) + 1e-9 >= Number(x.expectedQuantity || 0)
               );
               const storedComplete = incomingRows.length > 0 && incomingRows.every((x:any) => x.status === "stored");
+              const qualityComplete = incomingRows.length > 0 && incomingRows.every((x:any) => ["passed","pass","approved","accepted"].includes(String(x.qualityCheck || x.qualityStatus || "").toLowerCase()));
               const routeCategory=String(o.routeCategory||"needs_location");
               const routeNeedsReview=routeCategory==="needs_location" || !o.routeDataComplete;
               const sourceRole = o.currentWarehouseRole === "source" || (o.sourceWarehouseId && o.sourceWarehouseId === o.warehouseId);
@@ -432,7 +433,7 @@ export default function FarmerFulfillmentWarehousePage() {
                     </div>}
                     {sourceRole && incomingRows.filter((x:any)=>["pending","scheduled","in_transit","ready_for_pickup"].includes(x.status)).map((x:any)=><Button key={x.id} size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}><PackageCheck className="mr-2 h-4 w-4"/>Receive + Verify Portion</Button>)}
                     {sourceRole && incomingRows.filter((x:any)=>x.status === "received").map((x:any)=><Button key={x.id} size="sm" variant="outline" onClick={()=>store(x.id)}>Store Packed Portion</Button>)}
-                    {con?.canDispatchToConsolidation && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)} disabled={!storedComplete || Boolean(con?.sourceTransfer?.dispatched)}><Truck className="mr-2 h-4 w-4"/>Dispatch Portion to Consolidation</Button>}
+                    {con?.canDispatchToConsolidation && <Button size="sm" variant="outline" onClick={()=>dispatchConsolidation(o.id)} disabled={!receiptComplete || !qualityComplete || Boolean(con?.sourceTransfer?.dispatched)}><Truck className="mr-2 h-4 w-4"/>Dispatch Portion to Consolidation</Button>}
                     {consolidationRole && <Button size="sm" variant="outline" onClick={()=>receiveConsolidation(o.id)} disabled={!Number(con?.inTransitLegCount||0) || Boolean(con?.allConsolidationLegsReceived)}><Warehouse className="mr-2 h-4 w-4"/>Receive Portions at Consolidation</Button>}
                     {consolidationRole && <Button size="sm" onClick={()=>completeConsolidation(o.id)} disabled={!con?.allWarehousesReceived || !con?.allConsolidationLegsReceived || ["consolidated","hub_handoff_pending","local_hub_ready"].includes(conStatus)}><CheckCircle2 className="mr-2 h-4 w-4"/>Complete Consolidation</Button>}
                     {consolidationRole && <Button size="sm" variant="outline" onClick={()=>chooseDeliveryRoute(o.id,"local_hub",false)} disabled={conStatus !== "consolidated"||routingOrder===o.id||["direct_delivery_pending","local_hub_ready"].includes(transferStatus)}><Route className="mr-2 h-4 w-4"/>Option B · Send Complete Order to Local Hub</Button>}
