@@ -27,12 +27,56 @@ const categoryOf = (item: any): RouteKey => {
 };
 const routeReady = (item: any) => ["nearby", "same_district", "inter_district", "multi_warehouse"].includes(categoryOf(item)) && item?.routeDataComplete !== false && item?.routeDistanceKm != null;
 const statusLabel = (status: string) => status === "pending" ? "Ready for Dispatch" : status === "packed" ? "Packed" : status === "dispatched" ? "Dispatched" : status || "Unknown";
+const normalizePlace = (value: any) => String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+const locationPoint = (value: any): [number, number] | null => {
+  if (!value || typeof value !== "object") return null;
+  const nested = value.location || value.coordinates || value.geoLocation || value.geo_location || value.position || value;
+  if (Array.isArray(nested) && nested.length >= 2) {
+    const a = Number(nested[0]); const b = Number(nested[1]);
+    if (Number.isFinite(a) && Number.isFinite(b)) return Math.abs(a) > 90 ? [b, a] : [a, b];
+  }
+  const lat = Number(nested.latitude ?? nested.lat);
+  const lng = Number(nested.longitude ?? nested.lng ?? nested.lon);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
+};
+const distanceKm = (a: [number, number], b: [number, number]) => {
+  const rad = (n: number) => n * Math.PI / 180;
+  const dLat = rad(b[0] - a[0]); const dLng = rad(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[0])) * Math.cos(rad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+};
+const isVerifiedActiveHub = (hub: any) => {
+  if (hub?.isActive === false || hub?.active === false || hub?.isVerified === false || hub?.verified === false) return false;
+  const state = normalizePlace(hub?.verificationStatus || hub?.approvalStatus || hub?.status);
+  return !["pending", "pending_verification", "rejected", "inactive", "disabled", "unverified"].includes(state);
+};
+const chooseLocalHub = (item: any, hubs: any[]) => {
+  const eligible = (hubs || []).filter((hub) => hub?.id && isVerifiedActiveHub(hub));
+  if (!eligible.length) return null;
+  const destination = item?.deliveryAddress || item?.shippingAddress || item?.customerAddress || item?.destinationAddress || {};
+  const destinationDistrict = normalizePlace(item?.destinationDistrict || destination?.district || destination?.districtName);
+  const destinationTaluk = normalizePlace(item?.destinationTaluk || item?.deliveryTaluk || item?.destinationSubDistrict || destination?.taluk || destination?.talukName || destination?.subDistrict || destination?.tehsil);
+  const customerPoint = locationPoint(destination) || locationPoint(item?.deliveryLocation) || locationPoint(item?.customerLocation);
+  const scored = eligible.map((hub) => {
+    const hubDistrict = normalizePlace(hub?.district || hub?.districtName || hub?.address?.district || hub?.address?.districtName);
+    const hubTaluk = normalizePlace(hub?.taluk || hub?.talukName || hub?.subDistrict || hub?.tehsil || hub?.address?.taluk || hub?.address?.talukName || hub?.address?.subDistrict || hub?.address?.tehsil);
+    const hubPoint = locationPoint(hub?.location) || locationPoint(hub?.coordinates) || locationPoint(hub?.address);
+    const distance = customerPoint && hubPoint ? distanceKm(customerPoint, hubPoint) : null;
+    const talukMatch = Boolean(destinationTaluk && hubTaluk && destinationTaluk === hubTaluk);
+    const districtMatch = Boolean(destinationDistrict && hubDistrict && destinationDistrict === hubDistrict);
+    // Taluk match takes precedence, then same district, then nearest by coordinates.
+    const score = (talukMatch ? 100000 : 0) + (districtMatch ? 10000 : 0) + (distance == null ? 0 : Math.max(0, 1000 - distance));
+    return { hub, score, distance, talukMatch, districtMatch };
+  }).sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best || (!best.talukMatch && !best.districtMatch && best.distance == null)) return null;
+  return best.hub;
+};
 
 export default function WarehouseOutgoingPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [activeSection, setActiveSection] = useState<RouteKey>("nearby");
-  const [selectedHubByOrder, setSelectedHubByOrder] = useState<Record<string, string>>({});
   const hubsQuery = useQuery({ queryKey: ["warehouse-local-hubs-dispatch"], queryFn: () => api.get("/warehouse/me/local-hubs"), retry: 1 });
   const localHubs = hubsQuery.data?.data?.hubs || hubsQuery.data?.hubs || [];
   const { data, isLoading, refetch, isFetching } = useQuery({
@@ -69,8 +113,8 @@ export default function WarehouseOutgoingPage() {
           continue;
         }
         if (section === "same_district") {
-          const hub = localHubs.find((candidate: any) => String(candidate.district || "").toLowerCase() === String(item.destinationDistrict || "").toLowerCase()) || localHubs[0];
-          if (!hub?.id) throw new Error("Create a local hub for this district before processing this section.");
+          const hub = chooseLocalHub(item, localHubs);
+          if (!hub?.id) throw new Error("No verified active local hub matches the customer's taluk/district or has usable location data. Verify the local hub and customer delivery address before dispatch.");
           await api.post(`/warehouse/me/local-hubs/${hub.id}/orders/${item.orderId}/dispatch`, {});
           succeeded += 1;
           continue;
@@ -96,9 +140,8 @@ export default function WarehouseOutgoingPage() {
       if (!audit?.readyForDispatch) throw new Error("Packing verification is incomplete. Verify packed quantities before dispatch.");
 
       if (category === "same_district") {
-        const selectedHubId = selectedHubByOrder[String(item.id)] || selectedHubByOrder[String(item.orderId)];
-        const hub = localHubs.find((candidate: any) => String(candidate.id) === String(selectedHubId)) || localHubs.find((candidate: any) => String(candidate.district || "").toLowerCase() === String(item.destinationDistrict || "").toLowerCase()) || localHubs[0];
-        if (!hub?.id) throw new Error("Create a local hub first, then select it for this shipment.");
+        const hub = chooseLocalHub(item, localHubs);
+        if (!hub?.id) throw new Error("No verified active local hub matches the customer's taluk/district or has usable location data. Verify the local hub and customer delivery address before dispatch.");
         await api.post(`/warehouse/me/local-hubs/${hub.id}/orders/${item.orderId}/dispatch`, {});
         toast.success(`Order dispatched to ${hub.name}. The hub manager must confirm receipt before publishing it to delivery partners.`);
         await refetch();
@@ -173,7 +216,7 @@ export default function WarehouseOutgoingPage() {
       </div>
       <div className="flex min-w-[220px] flex-col gap-2 lg:items-end">
         {activeSection === "nearby" && ["pending","packed"].includes(String(item.status)) && <Button disabled={!routeReady(item)} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Verify & Dispatch to Partner</Button>}
-        {activeSection === "same_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Local hub transfer</p><p className="mt-1 text-xs text-muted-foreground">Choose the destination hub. Its manager must confirm receipt before the order is published to delivery partners.</p><select className="mt-3 w-full rounded-md border bg-background p-2 text-sm" value={selectedHubByOrder[String(item.id)] || selectedHubByOrder[String(item.orderId)] || ""} onChange={(e) => setSelectedHubByOrder((current) => ({ ...current, [String(item.id)]: e.target.value }))}><option value="">Select local hub…</option>{localHubs.map((hub: any) => <option key={hub.id} value={hub.id}>{hub.name} — {hub.district}</option>)}</select><Button className="mt-3 w-full" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status)) || !localHubs.length} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Dispatch to Local Hub</Button></div>}
+        {activeSection === "same_district" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Automatic local-hub assignment</p><p className="mt-1 text-xs text-muted-foreground">The system selects an active verified hub using the customer's taluk and district first, then the nearest hub when valid coordinates are available. The hub manager confirms receipt before final-mile delivery.</p><Button className="mt-3 w-full" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status)) || hubsQuery.isLoading} onClick={() => processDispatch(item)}><Send className="mr-2 h-4 w-4"/>Assign Hub & Dispatch</Button></div>}
         {activeSection === "inter_district" && String(item.status || "").toLowerCase() !== "dispatched" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Destination warehouse transfer</p><p className="mt-1 text-xs text-muted-foreground">Assign a destination warehouse and transfer team, then confirm receipt and continue to the local hub.</p><Button className="mt-3 w-full" variant="outline" disabled={!routeReady(item) || !["pending","packed"].includes(String(item.status || "").toLowerCase())} onClick={() => processDispatch(item)}><Warehouse className="mr-2 h-4 w-4"/>Process Destination Transfer</Button></div>}
         {activeSection === "multi_warehouse" && <div className="rounded-md border p-3 text-sm"><p className="font-semibold">Consolidation required</p><p className="mt-1 text-xs text-muted-foreground">Receive all source portions before the local-hub handoff.</p><Button className="mt-3 w-full" variant="outline" onClick={() => { window.location.href = "/warehouse/consolidation"; }}><Warehouse className="mr-2 h-4 w-4"/>Open Consolidation</Button></div>}
         {activeSection === "farmer_fulfillment_transfer" && <Button variant="outline" onClick={() => { window.location.href = "/farmer-fulfillment"; }}>Open Farmer Fulfillment Transfers</Button>}
