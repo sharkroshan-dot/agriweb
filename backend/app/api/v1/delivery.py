@@ -45,8 +45,6 @@ from app.services.delivery_job_service import (
     eligible_partners_for_job,
     JOB_DEFAULT_EXPIRY_MINUTES,
     passes_vehicle_type,
-    passes_capacity,
-    partner_commitment,
 )
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
