@@ -57,6 +57,43 @@ export default function LocalHubManagementPage() {
     onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not confirm receipt"),
   });
   const changePassword = useMutation({ mutationFn: () => api.post("/hub/me/change-password", { currentPassword, newPassword }), onSuccess: () => { setCurrentPassword(""); setNewPassword(""); qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); toast.success("Password changed successfully"); }, onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not change password") });
+  const bulkProcess = useMutation({
+    mutationFn: async () => {
+      const pendingReceipt = orders.filter((order: any) => !["received", "ready_for_delivery"].includes(String(order.status || "").toLowerCase()));
+      const pendingPublish = orders.filter((order: any) => ["received", "ready_for_delivery"].includes(String(order.status || "").toLowerCase()) && !order.published);
+      const failed: string[] = [];
+      let receivedCount = 0;
+      let publishedCount = 0;
+      // Receive first; publish only after the API confirms receipt.
+      for (const order of pendingReceipt) {
+        try {
+          await api.post(`/hub/me/transfers/${order.transferId}/receive`, {});
+          receivedCount += 1;
+        } catch (error: any) {
+          failed.push(`${order.orderNumber || order.transferId}: ${error?.response?.data?.detail || error?.message || "receipt failed"}`);
+        }
+      }
+      // Refresh server state before publishing so only confirmed receipts are published.
+      const refreshed: any = unwrap(await api.get("/hub/me/dashboard"));
+      const refreshedOrders = refreshed.orders || refreshed.data?.orders || [];
+      const publishable = refreshedOrders.filter((order: any) => ["received", "ready_for_delivery"].includes(String(order.status || "").toLowerCase()) && !order.published);
+      for (const order of publishable) {
+        try {
+          await api.post(`/hub/me/orders/${order.orderId}/publish`, {});
+          publishedCount += 1;
+        } catch (error: any) {
+          failed.push(`${order.orderNumber || order.orderId}: ${error?.response?.data?.detail || error?.message || "publish failed"}`);
+        }
+      }
+      return { receivedCount, publishedCount, failed };
+    },
+    onSuccess: (result: any) => {
+      qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] });
+      if (result.failed.length) toast.error(`Processed with ${result.failed.length} issue(s). Check the order cards and retry.`);
+      else toast.success(`Completed: ${result.receivedCount} shipment(s) received and ${result.publishedCount} order(s) published for delivery.`);
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.detail || error?.message || "Could not process incoming orders"),
+  });
   const publish = useMutation({
     mutationFn: (id: string) => api.post(`/hub/me/orders/${id}/publish`, {}),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["warehouse-local-hubs"] }); toast.success("Order published to delivery partners"); },
@@ -84,6 +121,7 @@ export default function LocalHubManagementPage() {
         </div>
       </>}
       {!result.mustChangePassword && isIncomingView && <Card className="rounded-xl shadow-sm"><CardHeader className="border-b bg-muted/20 pb-4"><CardTitle>Shipment processing</CardTitle><CardDescription>Follow these steps for every order arriving from the warehouse.</CardDescription><div className="grid gap-2 pt-2 sm:grid-cols-3"><div className="flex items-center gap-2 rounded-lg border bg-background p-3"><div className="rounded-full bg-amber-100 p-1.5 text-amber-800"><PackageCheck className="h-4 w-4"/></div><div><p className="text-xs font-semibold">1. Receive shipment</p><p className="text-xs text-muted-foreground">Confirm physical arrival</p></div></div><div className="flex items-center gap-2 rounded-lg border bg-background p-3"><div className="rounded-full bg-blue-100 p-1.5 text-blue-800"><ClipboardCheck className="h-4 w-4"/></div><div><p className="text-xs font-semibold">2. Check receipt status</p><p className="text-xs text-muted-foreground">Only after goods arrive</p></div></div><div className="flex items-center gap-2 rounded-lg border bg-background p-3"><div className="rounded-full bg-emerald-100 p-1.5 text-emerald-800"><Truck className="h-4 w-4"/></div><div><p className="text-xs font-semibold">3. Publish for delivery</p><p className="text-xs text-muted-foreground">After receipt is confirmed</p></div></div></div></CardHeader><CardContent className="p-4 sm:p-5">
+          {orders.length > 0 && <div className="mb-4 flex flex-col gap-3 rounded-lg border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold">Bulk order processing</p><p className="text-xs leading-5 text-muted-foreground">Confirm receipt for pending shipments, then publish every successfully received, unpublished order for delivery.</p></div><Button onClick={() => bulkProcess.mutate()} disabled={bulkProcess.isPending || hubsQuery.isLoading} className="shrink-0">{bulkProcess.isPending ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin"/>Processing all orders…</> : <><Truck className="mr-2 h-4 w-4"/>Process all orders</>}</Button></div>}
           {hubsQuery.isLoading ? <div className="space-y-3">{[1,2].map((n) => <div key={n} className="h-36 animate-pulse rounded-xl bg-muted"/>)}</div> : orders.length === 0 ? <div className="rounded-xl border border-dashed p-10 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted"><PackageCheck className="h-6 w-6 text-muted-foreground"/></div><p className="mt-3 font-semibold">No incoming shipments</p><p className="mx-auto mt-1 max-w-md text-sm leading-6 text-muted-foreground">When the warehouse dispatches an order to this hub, it will appear here. Refresh to check for new transfers.</p><Button className="mt-4" variant="outline" onClick={() => hubsQuery.refetch()} disabled={hubsQuery.isFetching}><RefreshCw className={"mr-2 h-4 w-4 " + (hubsQuery.isFetching ? "animate-spin" : "")}/>Refresh shipments</Button></div> : <div className="space-y-4">{orders.map((order: any) => {
             const transferStatus = String(order.status || "").toLowerCase();
             const receivedStatus = ["received", "ready_for_delivery"].includes(transferStatus);
