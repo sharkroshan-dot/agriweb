@@ -2980,7 +2980,7 @@ async def assign_farmer_fulfillment_destination_warehouse(
     order_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Choose an active, capacity-checked destination warehouse for an inter-district packed order."""
+    """Choose the active warehouse serving the customer district; capacity is not a routing gate for immediate handoff."""
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can assign a destination warehouse")
     if not ObjectId.is_valid(order_id):
@@ -3284,15 +3284,14 @@ async def assign_farmer_fulfillment_destination_warehouse(
             },
             "message": "A destination warehouse is already assigned.",
         }
-    required_capacity = sum(float(item.get("quantity") or 0) for item in (order.get("items") or []))
-    if required_capacity <= 0:
-        raise HTTPException(status_code=409, detail="The order has no positive quantity for destination capacity validation")
-
+    # Farmer-packed products are handed over for immediate onward delivery.
+    # Choose the destination by customer district, not inventory/storage capacity.
+    required_capacity = 0.0
     destination = await warehouse_for_district(
         customer_district,
-        required_capacity=required_capacity,
+        required_capacity=0.0,
         exclude_warehouse_id=source_id,
-        allow_capacity_override=True,
+        allow_capacity_override=False,
     )
     if not destination:
         raise HTTPException(
@@ -3312,13 +3311,10 @@ async def assign_farmer_fulfillment_destination_warehouse(
         or ""
     ).strip()
     regional_fallback = bool(destination.get("_districtFallback"))
-    capacity_override_required = bool(destination.get("_capacityOverride"))
+    # Capacity is intentionally not checked for immediate Farmer Fulfillment transfers.
+    capacity_override_required = False
     available_capacity = destination.get("_availableCapacity")
-    capacity_message = (
-        f"Capacity override required: {destination.get('name') or destination.get('warehouseName') or 'Selected warehouse'} has {float(available_capacity or 0):g} available capacity but this order requires {required_capacity:g}. Confirm the warehouse can physically receive this sealed shipment before dispatch."
-        if capacity_override_required
-        else ""
-    )
+    capacity_message = ""
     now = datetime.utcnow()
     destination_name = destination.get("name") or destination.get("warehouseName") or "Destination Warehouse"
     destination_location = destination.get("location") or destination.get("coordinates")
@@ -3397,10 +3393,8 @@ async def assign_farmer_fulfillment_destination_warehouse(
         "destination_warehouse_assigned",
         "Destination warehouse assigned",
         (
-            f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was assigned with a capacity override; manager confirmation is required before dispatch."
-            if capacity_override_required
-            else f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected with available capacity."
-            + (" as a regional fallback because no eligible warehouse serves the customer district." if regional_fallback else " using the customer delivery district.")
+            f"{destination.get('name') or destination.get('warehouseName') or 'Destination Warehouse'} was selected from the customer delivery district"
+            + (" as a regional fallback because no active warehouse serves that district." if regional_fallback else " for immediate handoff and onward delivery.")
         ),
         actor_id=str(current_user["_id"]),
         actor_role="warehouse",
@@ -3429,12 +3423,9 @@ async def assign_farmer_fulfillment_destination_warehouse(
             "alreadyAssigned": False,
         },
         "message": (
-            capacity_message
-            or (
-                "A regional destination warehouse with sufficient capacity was assigned. Confirm the destination with operations before dispatch."
-                if regional_fallback
-                else "Destination warehouse assigned from the customer delivery district. Confirm the transfer manifest before dispatch."
-            )
+            "A regional destination warehouse was assigned from the customer delivery district for immediate handoff."
+            if regional_fallback
+            else "Destination warehouse assigned from the customer delivery district. Proceed with transfer-team assignment and dispatch."
         ),
     }
 
@@ -3464,51 +3455,7 @@ async def dispatch_farmer_fulfillment_to_destination(
         raise HTTPException(status_code=400, detail="A different destination warehouse must be assigned before dispatch")
     if warehouse_id != source_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this order")
-    capacity_override_required = bool(order.get("destinationWarehouseCapacityOverrideRequired"))
-    if capacity_override_required:
-        if not capacityOverrideConfirmed:
-            raise HTTPException(
-                status_code=409,
-                detail="The selected destination is below its configured capacity. Confirm that it can physically receive this sealed shipment before dispatch.",
-            )
-    incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
-    def _complete_transfer_receipt(row: dict) -> bool:
-        receipt_status = str(row.get("status") or "").strip().lower()
-        received = next(
-            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty") if row.get(key) is not None),
-            None,
-        )
-        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
-        if received is None:
-            received = expected if receipt_status in ("received", "stored") else 0
-        try:
-            return receipt_status in ("received", "stored") and float(received or 0) + 1e-9 >= expected
-        except (TypeError, ValueError):
-            return False
-    if not incoming or any(not _complete_transfer_receipt(row) for row in incoming):
-        raise HTTPException(status_code=400, detail="Physically receive the complete farmer-packed shipment before dispatch")
-    if capacity_override_required:
-        confirmed_at = datetime.utcnow()
-        await order_repository.update({"_id": ObjectId(order_id)}, {
-            "destinationWarehouseCapacityOverrideRequired": False,
-            "destinationWarehouseCapacityOverrideConfirmed": True,
-            "destinationWarehouseCapacityOverrideConfirmedAt": confirmed_at,
-            "destinationWarehouseCapacityOverrideConfirmedBy": ObjectId(str(current_user["_id"])),
-            "updatedAt": confirmed_at,
-        })
-        await order_repository.append_tracking_event(
-            order_id,
-            "destination_warehouse_capacity_override_confirmed",
-            "Destination capacity override confirmed",
-            "The warehouse manager confirmed that the destination can physically receive the sealed shipment.",
-            actor_id=str(current_user["_id"]),
-            actor_role="warehouse",
-            metadata={
-                "destinationWarehouseId": destination_id,
-                "availableCapacity": order.get("destinationWarehouseAvailableCapacity"),
-                "requiredCapacity": order.get("destinationWarehouseRequiredCapacity"),
-            },
-        )
+    # No capacity confirmation is required for immediate Farmer Fulfillment handoff.
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
     leg = await legs.find_one({
         "orderId": ObjectId(order_id),
