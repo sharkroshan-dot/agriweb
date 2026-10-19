@@ -185,7 +185,7 @@ export default function FarmerFulfillmentWarehousePage() {
   const assignDestinationWarehouse=async(id:string)=>{
     try{
       await api.post(`/warehouse/me/farmer-fulfillment/${id}/assign-destination-warehouse`);
-      toast.success("Destination warehouse assigned using customer location and available capacity");
+      toast.success("Destination warehouse assigned using the customer delivery district; warehouse capacity does not block immediate Farmer Fulfillment");
       await refreshAll();
     }catch(e:any){toast.error(e?.message||"Destination warehouse assignment failed");}
   };
