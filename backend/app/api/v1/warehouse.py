@@ -4184,6 +4184,9 @@ async def choose_farmer_fulfillment_delivery_route(
     if not warehouse or not order:
         raise HTTPException(status_code=404, detail="Order or warehouse not found")
 
+    order_status = str(order.get("orderStatus") or order.get("status") or "").strip().lower()
+    if order_status in ("cancelled", "canceled", "refunded", "delivered", "completed"):
+        raise HTTPException(status_code=409, detail="Cancelled or completed orders cannot be published for delivery")
     mode = str(order.get("logisticsMode") or "")
     allowed_modes = (
         "farmer_to_delivery_partner",
@@ -4250,7 +4253,9 @@ async def choose_farmer_fulfillment_delivery_route(
 
     existing = await delivery_job_repository.get_by_order_id(order_id)
     if existing:
-        return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}, "message": "An existing delivery job was reused; no duplicate job was created."}
+        if str(existing.get("jobType") or "") != "farmer_fulfillment_direct_warehouse_delivery":
+            raise HTTPException(status_code=409, detail="This order already has a delivery job for another route. Cancel or resolve that job before switching routes.")
+        return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}, "message": "The existing direct warehouse delivery job was reused; no duplicate job was created."}
 
     pickup_coords = None
     if isinstance(warehouse_location, dict):
@@ -4279,6 +4284,8 @@ async def choose_farmer_fulfillment_delivery_route(
 
     weight = job_weight_kg(patched_order)
     eligible = await eligible_partners_for_job(float(pickup_coords[1]), float(pickup_coords[0]), weight, job_type="customer_delivery")
+    if not eligible:
+        raise HTTPException(status_code=409, detail="No verified, available delivery partner with a suitable vehicle and enough remaining capacity is currently eligible. Use the local hub or retry when a partner is available.")
     job_doc = build_job_document(
         patched_order,
         {"name": pickup_name, "address": pickup_address, "lat": float(pickup_coords[1]), "lng": float(pickup_coords[0])},
@@ -4306,6 +4313,7 @@ async def choose_farmer_fulfillment_delivery_route(
         "warehouseDeliveryUrgent": bool(urgent),
         "transferStatus": "direct_delivery_pending",
         "warehouseFulfillmentStage": "direct_delivery_pending",
+        "orderStatus": "ready_for_delivery",
         "deliveryPickupLocation": patched_order["deliveryPickupLocation"],
         "deliveryPartnerJobId": ObjectId(str(job_id)),
         "partnerAssignmentOpen": True,
