@@ -5530,6 +5530,13 @@ async def get_my_incoming_stock(
                         safe_item["sourceMode"] = "farmer_fulfillment_transfer" if chosen_method == "farmer" else "warehouse_fulfillment_bulk"
                         safe_item["packingRequired"] = chosen_method == "warehouse"
                     safe_item["orderNumber"] = order.get("orderNumber") or f"Order #{order_id[-6:].upper()}"
+                    # Include canonical payment details from the customer order so
+                    # incoming-stock labels never guess or default every order to online.
+                    for payment_key in ("paymentMethod", "payment_method", "paymentMode", "paymentType", "paymentStatus", "payment_status", "totalAmount", "grandTotal", "payableAmount", "total", "cashOnDelivery"):
+                        if order.get(payment_key) is not None:
+                            safe_item[payment_key] = make_json_safe(order.get(payment_key))
+                    if isinstance(order.get("payment"), dict):
+                        safe_item["payment"] = make_json_safe(order["payment"])
                     # Packing labels must use the canonical customer order address, not only the incoming-stock snapshot.
                     delivery_address = order.get("deliveryAddress") or order.get("shippingAddress") or order.get("address")
                     if not delivery_address and order.get("deliveryAddressId") and order.get("customerId"):
