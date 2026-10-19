@@ -490,7 +490,7 @@ export default function FarmerPackingPage() {
             <p className="mb-1 mt-[9px] border-t border-gray-200 pt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">PAYMENT</p>
             <p className="text-[9px]">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `CASH ON DELIVERY · Amount to collect: ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "No cash collection on delivery"}</p>
             <div className="mt-[10px] flex justify-center border-t border-gray-300 pt-2">
-              <QRCodeSVG value={typeof window !== "undefined" && selectedOrder ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(selectedOrder.id || selectedOrder._id || selectedOrder.orderNumber || "")) : ""} size={64} level="M" />
+              <QRCodeSVG value={typeof window !== "undefined" && selectedOrder ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(selectedOrder.id || selectedOrder._id || selectedOrder.orderNumber || "")) : ""} size={40} level="M" />
             </div>
             <p className="text-center text-[6.5px] font-bold">DELIVERY PARTNER QR</p>
             <p className="text-center text-[6.5px] leading-[1.4]">Scan to open the delivery workspace. Login and assignment management authorization are required to access delivery actions and POD.</p>
