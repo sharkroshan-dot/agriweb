@@ -6137,6 +6137,15 @@ async def get_packing_tasks(status: Optional[str] = None, current_user: dict = D
             if order:
                 task["orderNumber"] = order.get("orderNumber")
                 task["deliveryAddress"] = order.get("deliveryAddress") or {}
+                for payment_key in (
+                    "paymentMethod", "payment_method", "paymentMode", "paymentType",
+                    "paymentStatus", "payment_status", "totalAmount", "grandTotal",
+                    "payableAmount", "finalPayableAmount", "total", "cashOnDelivery",
+                ):
+                    if order.get(payment_key) is not None:
+                        task[payment_key] = _make_json_safe(order[payment_key])
+                if isinstance(order.get("payment"), dict):
+                    task["payment"] = _make_json_safe(order["payment"])
                 # Expose source-farm details for the packing UI. Legacy packing
                 # tasks may have no farmName, but the linked order/product/profile
                 # often still has the farmer reference and farm address.

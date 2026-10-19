@@ -295,13 +295,11 @@ export default function WarehousePackingPage() {
         const description = i.description || i.productDescription || i.product?.description || "";
         return "<tr><td><div class='item-name'>" + esc(name) + "</div><div class='muted'>" + esc(description || "Fresh produce") + "</div></td><td class='qty'>" + esc(quantity ?? "") + (unit ? " " + esc(unit) : "") + "</td></tr>";
       }).join("");
-      const paymentRaw = String(t.paymentMethod || t.payment_method || t.paymentMode || t.paymentType || t.payment?.method || order.paymentMethod || order.payment_method || order.paymentMode || order.paymentType || order.payment?.method || (t.cashOnDelivery || order.cashOnDelivery ? "cash" : "")).trim().toLowerCase().replace(/[ -]+/g, "_");
+      const paymentRaw = String(t.paymentMethod || t.payment_method || t.paymentMode || t.paymentType || t.payment?.method || t.payment?.paymentMethod || order.paymentMethod || order.payment_method || order.paymentMode || order.paymentType || order.payment?.method || order.payment?.paymentMethod || (t.cashOnDelivery || order.cashOnDelivery ? "cash" : "")).trim().toLowerCase().replace(/[ -]+/g, "_");
       const isCod = ["cash", "cod", "cash_on_delivery", "cashondelivery", "pay_on_delivery", "pay_later"].includes(paymentRaw);
-      const isOnline = ["online", "razorpay", "upi", "card", "netbanking", "wallet", "net_banking"].includes(paymentRaw);
+      const isOnline = ["online", "online_payment", "razorpay", "upi", "card", "netbanking", "net_banking", "wallet", "stripe"].includes(paymentRaw);
       const payment = isCod ? "COD" : isOnline ? "ONLINE" : "";
-      const rawStatus = String(t.paymentStatus || t.payment_status || t.payment?.status || order.paymentStatus || order.payment_status || order.payment?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_");
-      const paymentStatus = ["paid", "success", "successful", "captured", "completed"].includes(rawStatus) ? "PAID" : "";
-      const rawAmount = t.totalAmount ?? t.total ?? order.totalAmount ?? order.total;
+      const rawAmount = t.finalPayableAmount ?? t.totalAmount ?? t.grandTotal ?? t.payableAmount ?? t.total ?? order.finalPayableAmount ?? order.totalAmount ?? order.grandTotal ?? order.payableAmount ?? order.total;
       const amount = Number(rawAmount);
       const qr = printQrRef.current?.querySelector("svg")?.outerHTML || "";
       const win = window.open("", "_blank", "width=720,height=900");
@@ -311,7 +309,7 @@ export default function WarehousePackingPage() {
        ${farmName ? '<div class="heading">SOURCE FARM</div><div class="value">' + esc(farmName) + '</div>' + ([t.farmAddress, t.sourceFarmAddress, t.farm?.address, t.sourceFarm?.address].find((v) => typeof v === "string" && v.trim()) ? '<div class="muted">' + esc([t.farmAddress, t.sourceFarmAddress, t.farm?.address, t.sourceFarm?.address].find((v) => typeof v === "string" && v.trim())) + '</div>' : '') : ""}
       ${(customer || phone || addressText) ? '<div class="heading">DELIVER TO</div>' + (customer ? '<div class="value"><b>' + esc(customer) + '</b></div>' : "") + (phone ? '<div class="value">' + esc(phone) + '</div>' : "") + (addressText ? '<div class="value">' + esc(addressText) + '</div>' : "") : ""}
       ${rows ? '<div class="heading">PACKED ITEMS · ACTUAL QUANTITY</div><table>' + rows + '</table>' : ""}
-        ${'<div class="heading">PAYMENT</div>' + (payment === "COD" ? '<div class="value">COD · Payable on delivery</div>' + (rawAmount !== undefined && rawAmount !== null && Number.isFinite(amount) ? '<div class="value">₹' + amount.toFixed(2) + '</div>' : '') : payment === "ONLINE" && paymentStatus === "PAID" ? '<div class="value">ONLINE PAYMENT · PAID</div>' : '<div class="value">PAYMENT DETAILS UNCONFIRMED · Do not dispatch until verified</div>')}
+        ${'<div class="heading">PAYMENT</div>' + (payment === "COD" ? '<div class="value">COD · Payable on delivery</div>' + (rawAmount !== undefined && rawAmount !== null && Number.isFinite(amount) ? '<div class="value">₹' + amount.toFixed(2) + '</div>' : '') : payment === "ONLINE" ? '<div class="value">ONLINE PAYMENT · PAID</div>' : '<div class="value">PAYMENT DETAILS UNCONFIRMED · Do not dispatch until verified</div>')}
       <div class="qr">${qr}<div class="muted"><b>DELIVERY PARTNER QR</b></div><div class="muted">Scan to open the delivery workspace. Login and assignment management authorization are required to access delivery actions and POD.</div><div class="muted verify">Verify the order reference before handover.</div></div></main><script>window.onload=()=>window.print();</script></body></html>`);
       win.document.close();
       setPrintLabelData(null);
