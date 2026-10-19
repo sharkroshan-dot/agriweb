@@ -6994,30 +6994,34 @@ async def get_my_outgoing_stock(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Warehouse not found"
         )
-    # Repair older verified packing tasks that reached Ready for Dispatch
-    # before their outgoing rows were created. This makes the Outgoing page
-    # resilient to partial failures during verification and is idempotent.
+    # Reconcile finished warehouse packing tasks before listing outgoing shipments.
+    # Older/partially failed Finish Order requests can leave a task marked "packed"
+    # without an outgoing row. Recover those rows idempotently when actual quantities
+    # are complete; never dispatch a shortage or a farmer-fulfillment order here.
     ready_tasks = await warehouse_packing_repository.get_by_warehouse(
         str(warehouse["_id"]), status="all", limit=500
     )
     for task in ready_tasks:
-        task_status = str(task.get("status") or "").lower()
-        # The persisted stage is authoritative; older ready tasks may not have verified=true.
-        if task_status not in {"ready_for_dispatch", "dispatched"}:
+        task_status = str(task.get("status") or "").strip().lower()
+        if task_status not in {"packed", "verified", "ready_for_dispatch", "dispatched"}:
             continue
         order_id = str(task.get("orderId") or "")
         if not ObjectId.is_valid(order_id):
             continue
-        order_id = str(task.get("orderId") or "")
-        order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
-        fulfillment_method = str((order or {}).get("fulfillmentMethod") or (order or {}).get("fulfillment_method") or "").strip().lower()
-        if not order or fulfillment_method not in {"warehouse", "warehouse_fulfillment", "warehouse-fulfillment"}:
-            # Ordinary Outgoing is exclusively for warehouse-fulfilled orders.
-            # Farmer Fulfillment has its own transfer workflow.
+        order = await order_repository.get_by_id(order_id)
+        fulfillment_method = str(
+            (order or {}).get("fulfillmentMethod")
+            or (order or {}).get("fulfillment_method")
+            or ""
+        ).strip().lower().replace("-", "_").replace(" ", "_")
+        if not order or fulfillment_method not in {"warehouse", "warehouse_fulfillment"}:
+            # Farmer Fulfillment uses its dedicated transfer workflow.
             continue
-        # Never repair/create outgoing rows for an order whose final physical
-        # packing result is short or whose customer shortage decision is pending.
-        if bool(order.get("shortageResolutionRequired")) or str(order.get("warehouseFulfillmentStage") or "").lower() == "shortage_pending":
+        if str(order.get("warehouseId") or "") != str(warehouse["_id"]):
+            continue
+        if bool(order.get("shortageResolutionRequired")) or str(
+            order.get("warehouseFulfillmentStage") or ""
+        ).lower() == "shortage_pending":
             continue
         task_lines = task.get("packingItems") or []
         if not task_lines or any(
@@ -7026,9 +7030,15 @@ async def get_my_outgoing_stock(
             for line in task_lines
         ):
             continue
+
+        # The persisted physical packing result is authoritative. Do not call
+        # create_outgoing() here because it reserves stock again and can reject
+        # a valid packed order whose stock was already consumed at receiving.
+        all_rows_created = True
         for line in task_lines:
             product_id = str(line.get("productId") or "")
             if not ObjectId.is_valid(product_id):
+                all_rows_created = False
                 continue
             variant_id = str(line.get("variantId") or "")
             existing = await outgoing_stock_repository.get_by_order_id(
@@ -7037,15 +7047,10 @@ async def get_my_outgoing_stock(
             )
             if existing:
                 continue
-            # The stock is already packed and verified at this point. Do not
-            # route this through create_outgoing(), which reserves inventory
-            # again and can reject a valid packed order when the warehouse
-            # stock ledger was already decremented during receiving/packing.
-            # Create the missing dispatch record idempotently instead.
-            quantity = int(float(line.get("packedQuantity") or line.get("quantityRequired") or 0))
+            quantity = float(line.get("packedQuantity") or line.get("quantityRequired") or 0)
             if quantity <= 0:
                 continue
-            await outgoing_stock_repository.create_outgoing({
+            created_id = await outgoing_stock_repository.create_outgoing({
                 "warehouseId": ObjectId(str(warehouse["_id"])),
                 "productId": ObjectId(product_id),
                 "variantId": ObjectId(variant_id) if ObjectId.is_valid(variant_id) else None,
@@ -7054,8 +7059,28 @@ async def get_my_outgoing_stock(
                 "batchNumber": line.get("batchNumber"),
                 "packingTaskId": task.get("_id"),
                 "packageId": task.get("packageId"),
-                "source": "verified_packing_task_reconciliation",
+                "source": "finished_packing_reconciliation",
             })
+            if not created_id:
+                all_rows_created = False
+
+        if all_rows_created and task_status != "dispatched":
+            await warehouse_packing_repository.update_task(str(task["_id"]), {
+                "status": "ready_for_dispatch",
+                "verified": True,
+                "verifiedAt": task.get("verifiedAt") or datetime.utcnow(),
+                "packingItems": [{**line, "verified": True} for line in task_lines],
+            })
+            await order_repository.update(
+                {"_id": ObjectId(order_id)},
+                {
+                    "warehouseFulfillmentStage": "ready_for_dispatch",
+                    "packingComplete": True,
+                    "packingVerified": True,
+                    "packingTaskId": task["_id"],
+                    "updatedAt": datetime.utcnow(),
+                },
+            )
 
     skip = (page - 1) * limit
     outgoing, total = await WarehouseService.get_outgoing_stock(
