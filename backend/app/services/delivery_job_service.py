@@ -64,7 +64,20 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def job_weight_kg(order: dict) -> float:
-    return round(sum(int(i.get("quantity", 0) or 0) for i in (order.get("items") or [])), 2)
+    """Return the shipment weight used for capacity checks without truncating fractions.
+
+    Farmer produce quantities can be fractional (for example 0.5 kg). Preserve
+    decimal quantities so vehicle eligibility does not incorrectly treat them
+    as zero or undercount a shipment.
+    """
+    total = 0.0
+    for item in order.get("items") or []:
+        raw = item.get("weightKg", item.get("weight_kg", item.get("quantity", 0))) or 0
+        try:
+            total += float(raw)
+        except (TypeError, ValueError):
+            continue
+    return round(total, 2)
 
 
 def job_earnings(order: dict, distance_km: Optional[float]) -> float:
