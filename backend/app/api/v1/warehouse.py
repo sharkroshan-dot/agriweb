@@ -6366,9 +6366,28 @@ async def complete_packing_task(task_id: str, data: PackingCompleteRequest, curr
                     batchNumber=line.get("batchNumber"),
                 ))
                 if not created:
+                    # Do not leave a failed Finish Order attempt marked "packed".
+                    # That made the next attempt fail with "Task is not packable".
+                    # Revert the task to a resumable packing stage and report the
+                    # actual inventory/warehouse mismatch without claiming dispatch succeeded.
+                    await warehouse_packing_repository.update_task(task_id, {
+                        "status": "packing",
+                        "verified": False,
+                        "packingAttemptComplete": False,
+                        "packingItems": packing_items,
+                        "packedQuantity": packed_total,
+                    })
+                    order_warehouse_id = str(order.get("warehouseId") or "")
+                    task_warehouse_id = str(warehouse.get("_id") or "")
+                    if str(order.get("fulfillmentMethod") or "").lower() != "warehouse" and str(order.get("logisticsMode") or "") != "farmer_to_warehouse_to_local_hub_to_delivery_partner":
+                        reason = "The customer order is not marked for warehouse fulfillment."
+                    elif order_warehouse_id and order_warehouse_id != task_warehouse_id:
+                        reason = "The order is assigned to a different warehouse than this packing task."
+                    else:
+                        reason = "Available warehouse stock for this product/variant is missing or insufficient. Confirm Incoming Stock has been received, quality-approved, and stored in warehouse inventory before finishing packing."
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Could not create dispatch record for {line.get('productName') or line.get('productId')}",
+                        detail=f"Could not create dispatch record for {line.get('productName') or line.get('productId')}. {reason} The packing task has been kept resumable; correct the warehouse/order data and click Finish Order again.",
                     )
         await warehouse_packing_repository.update_task(task_id, {
             "status": "ready_for_dispatch",
