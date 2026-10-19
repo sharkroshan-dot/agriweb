@@ -4263,7 +4263,13 @@ async def choose_farmer_fulfillment_delivery_route(
     if existing:
         if str(existing.get("jobType") or "") != "farmer_fulfillment_direct_warehouse_delivery":
             raise HTTPException(status_code=409, detail="This order already has a delivery job for another route. Cancel or resolve that job before switching routes.")
-        return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}, "message": "The existing direct warehouse delivery job was reused; no duplicate job was created."}
+        existing_status = str(existing.get("status") or "").lower()
+        expires_at = existing.get("expiresAt")
+        is_unexpired_open = existing_status == "open" and (expires_at is None or expires_at > now)
+        if is_unexpired_open or existing_status in ("accepted", "in_transit", "picked_up", "delivered", "completed"):
+            return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}, "message": "The existing direct warehouse delivery job was reused; no duplicate job was created."}
+        # Expired/no-partner-found/cancelled direct jobs are refreshed below
+        # using the repository's upsert key for this order and job type.
 
     pickup_coords = None
     if isinstance(warehouse_location, dict):
