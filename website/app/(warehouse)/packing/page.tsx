@@ -227,7 +227,7 @@ export default function WarehousePackingPage() {
         }
         toast.success("Physical shortage recorded. Customer approval is required before dispatch.");
       } else {
-        toast.success("Packing quantities checked. The order is verified and ready for dispatch.");
+        toast.success("Packing finished. Dispatch records were created automatically; open Outgoing / Dispatch to process the shipment.");
       }
       await Promise.all([refetch(), refetchShortages()]);
     } catch (error: any) { toast.error(error?.response?.data?.detail || error?.message || "Could not finish packing this order."); }
@@ -442,7 +442,7 @@ export default function WarehousePackingPage() {
               {t.status === "customer_approval_pending" && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><p className="font-semibold">Waiting for customer decision</p><p className="mt-1">The customer must accept the available quantity or cancel the order. Dispatch remains blocked until the customer responds and the final quantities are checked.</p></div>}
               {t.status === "packed" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><p className="font-semibold">Packing quantities checked during Finish Order</p><p className="mt-1">No separate verification action is needed. Refresh the page if the order status has not updated.</p></div>}
               {["packed","ready_for_dispatch"].includes(t.status) && <Button size="sm" variant="outline" className="h-9 px-4 text-sm" onClick={()=>printLabel(t)}><PackageCheck className="mr-2 h-4 w-4"/>Print Label</Button>}
-              {t.status === "ready_for_dispatch" && <div className="flex flex-wrap items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Checked · Ready for Dispatch</Badge><Button size="sm" onClick={() => { window.location.href = "/outgoing"; }}><PackageCheck className="mr-2 h-4 w-4"/>Next: Continue to Dispatch</Button></div>}
+              {t.status === "ready_for_dispatch" && <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900"><Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Packing Checked · Ready for Dispatch</Badge><p className="mt-2">Dispatch records were created automatically. No additional action is required here. Open <Link href="/outgoing" className="font-semibold underline">Outgoing / Dispatch</Link> whenever you are ready to process the shipment.</p></div>}
               </div>
             </div>
           </div>
