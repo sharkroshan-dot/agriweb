@@ -4248,8 +4248,16 @@ async def choose_farmer_fulfillment_delivery_route(
 
     if route_distance_km > threshold_km and not urgent:
         raise HTTPException(status_code=409, detail=f"Direct warehouse delivery is limited to {threshold_km:g} km unless the order is marked urgent")
-    if str(order.get("transferStatus") or "") in ("hub_handoff_pending", "local_hub_ready", "direct_delivery_pending"):
+    if str(order.get("transferStatus") or "") in ("local_hub_ready", "direct_delivery_pending"):
         raise HTTPException(status_code=409, detail="A downstream delivery route has already been started for this order")
+    # hub_handoff_pending is a staging state, not proof that the physical
+    # local-hub transfer has begun. Block switching only once a hub transfer
+    # record has actually been created.
+    hub_transfer = await MongoDB.get_collection("farmer_fulfillment_hub_transfers").find_one({
+        "orderId": ObjectId(order_id), "deletedAt": None,
+    })
+    if hub_transfer and str(hub_transfer.get("status") or "") not in ("cancelled", "canceled", "failed"):
+        raise HTTPException(status_code=409, detail="A local-hub transfer already exists for this order; finish or cancel it before switching to direct delivery")
 
     existing = await delivery_job_repository.get_by_order_id(order_id)
     if existing:
@@ -4296,6 +4304,9 @@ async def choose_farmer_fulfillment_delivery_route(
     job_doc["pickupType"] = "warehouse"
     job_doc["warehouseId"] = ObjectId(warehouse_id)
     job_doc["warehouseUrgent"] = bool(urgent)
+    if urgent:
+        job_doc["priority"] = max(int(job_doc.get("priority") or 1), 5)
+        job_doc["priorityLabel"] = "Urgent"
     job_doc["singleFinalDelivery"] = True
     try:
         job_id = await delivery_job_repository.create_job(job_doc)
