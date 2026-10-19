@@ -3390,7 +3390,7 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
             continue
         # Nearby Farmer Fulfillment is assigned to a specific partner; do not
         # leak that job to every driver in the open marketplace.
@@ -3513,10 +3513,10 @@ async def accept_delivery_job(
             status_code=400,
             detail="Your vehicle capacity cannot fit this job. Complete or drop other deliveries first.",
         )
-    if job.get("jobType") == "warehouse_pickup" and not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
+    if not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
         raise HTTPException(
             status_code=400,
-            detail="Your vehicle type cannot safely carry this warehouse pickup route.",
+            detail="Your vehicle type cannot safely carry this delivery job.",
         )
     eligible_ids = {str(x) for x in (job.get("eligiblePartnerIds") or [])}
     if eligible_ids and partner_id not in eligible_ids:
@@ -3524,7 +3524,7 @@ async def accept_delivery_job(
     assigned_partner_id = str(job.get("assignedPartnerId") or "")
     if assigned_partner_id and assigned_partner_id != partner_id:
         raise HTTPException(status_code=403, detail="This delivery job is assigned to another partner.")
-    if job.get("jobType") == "warehouse_pickup" and not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
+    if not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
         raise HTTPException(status_code=400, detail="Your vehicle type cannot safely carry this warehouse pickup route.")
 
     if not await delivery_job_repository.claim_job(job_id, partner_id):
