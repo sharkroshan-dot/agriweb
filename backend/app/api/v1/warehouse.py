@@ -3745,6 +3745,23 @@ async def dispatch_farmer_fulfillment_to_consolidation(
     ]
     if not_physically_received:
         raise HTTPException(status_code=400, detail="Complete Farm Collection arrival and confirm physical receipt for every packed portion before consolidation dispatch")
+    quality_not_approved = [
+        {
+            "productId": str(row.get("productId") or ""),
+            "qualityCheck": str(row.get("qualityCheck") or row.get("qualityStatus") or "missing"),
+        }
+        for row in source_incoming
+        if str(row.get("qualityCheck") or row.get("qualityStatus") or "").strip().lower()
+        not in ("passed", "pass", "approved", "accepted")
+    ]
+    if quality_not_approved:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Every packed portion must pass quality inspection before dispatch to consolidation.",
+                "qualityNotApproved": quality_not_approved,
+            },
+        )
 
     required_by_product = {}
     for allocation in allocations:
