@@ -4824,12 +4824,19 @@ async def get_my_warehouse_stock(
         limit,
         status
     )
+    # Normalize nested MongoDB ObjectIds before FastAPI/Pydantic serializes
+    # the response. Converting only the top-level _id leaves related IDs nested
+    # in product/batch/warehouse fields and causes HTTP 500 responses.
+    safe_stock = []
     for item in stock:
-        item["id"] = str(item["_id"])
+        safe_item = _make_json_safe(item)
+        if isinstance(safe_item, dict) and safe_item.get("_id") is not None:
+            safe_item["id"] = str(safe_item.pop("_id"))
+        safe_stock.append(safe_item)
     return {
         "success": True,
         "data": {
-            "stock": stock,
+            "stock": safe_stock,
             "pagination": {
                 "page": page,
                 "limit": limit,
