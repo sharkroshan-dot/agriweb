@@ -4073,15 +4073,25 @@ async def complete_farmer_fulfillment_consolidation(
 
     received = {}
     not_stored = []
+    quality_not_approved = []
     for row in incoming:
         key = (str(row.get("warehouseId")), str(row.get("productId")), str(row.get("variantId") or ""))
         # Farmer Fulfillment receipts are already-packed customer order portions.
-        # A verified physical receipt is sufficient; do not require bulk inventory storage.
+        # They do not need bulk inventory storage, but every portion still needs
+        # an explicit successful quality result before final consolidation.
         is_packed_farmer_transfer = str(row.get("sourceMode") or "") == "farmer_fulfillment_transfer"
         acceptable_receipt_statuses = ("received", "stored") if is_packed_farmer_transfer else ("stored",)
-        if str(row.get("status")) not in acceptable_receipt_statuses:
+        if str(row.get("status") or "").strip().lower() not in acceptable_receipt_statuses:
             not_stored.append(row)
             continue
+        quality_result = str(row.get("qualityCheck") or row.get("qualityStatus") or "").strip().lower()
+        if is_packed_farmer_transfer and quality_result not in ("passed", "pass", "approved", "accepted"):
+            quality_not_approved.append({
+                "warehouseId": key[0],
+                "productId": key[1],
+                "variantId": key[2] or None,
+                "qualityCheck": quality_result or "missing",
+            })
         qty = row.get("quantityReceived") if is_packed_farmer_transfer else row.get("usableQuantity")
         if qty is None:
             qty = row.get("usableQuantity")
@@ -4104,13 +4114,14 @@ async def complete_farmer_fulfillment_consolidation(
         x for x in legs if str(x.get("status")) != "received_at_consolidation"
     ]
 
-    if not expected or missing or not_stored or not_received_at_consolidation:
+    if not expected or missing or not_stored or quality_not_approved or not_received_at_consolidation:
         raise HTTPException(
             status_code=400,
             detail={
-                "message": "Every farmer-packed portion must be physically received with the required quantity, dispatched, and received at the consolidation warehouse before consolidation. Normal bulk inventory storage is not required for Farmer Fulfillment.",
+                "message": "Every farmer-packed portion must be physically received with the required quantity, pass quality inspection, and be received at the consolidation warehouse before consolidation. Normal bulk inventory storage is not required for Farmer Fulfillment.",
                 "missingPortions": missing,
                 "unstoredReceipts": len(not_stored),
+                "qualityNotApproved": quality_not_approved,
                 "pendingConsolidationLegs": len(not_received_at_consolidation),
             },
         )
