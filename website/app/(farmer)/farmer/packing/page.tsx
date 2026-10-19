@@ -471,29 +471,30 @@ export default function FarmerPackingPage() {
         )}
 
         <div className="hidden print:block">
-          <div className="mx-auto max-w-md border-2 border-black p-4 text-black" style={{ fontFamily: "Arial, sans-serif" }}>
-            <div className="text-center"><p className="text-xl font-extrabold">AGRICONNECT</p><p className="text-[10px]">FARM-TO-HOME · DELIVERY LABEL</p></div>
-            <div className="my-3 border-t border-black" />
-            <p className="text-[10px] font-bold">ORDER NUMBER</p>
-            <p className="text-base font-extrabold">{selectedOrder?.orderNumber || selectedOrder?.id || selectedOrder?._id || "Order number unavailable"}</p>
-            <p className="text-[9px] text-gray-600">Package / Label ID: PKG-{String(selectedOrder?.id || selectedOrder?._id || selectedOrder?.orderNumber || "").slice(-8)} · Printed: {new Date().toLocaleString()}</p>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {(selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name) && <div className="border border-gray-400 p-2"><p className="text-[10px] font-bold">SOURCE FARM</p><p className="break-words text-xs">{selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name}</p></div>}
+          <div className="mx-auto w-full max-w-[384px] rounded border border-slate-300 px-[9px] pb-[7px] pt-2 text-black" style={{ fontFamily: "Arial, sans-serif" }}>
+            <div className="text-center"><p className="text-base font-extrabold tracking-[0.2px]">AGRICONNECT</p><p className="text-[7px] text-gray-600">FARM-TO-HOME · DELIVERY LABEL</p></div>
+            <div className="my-[9px] border-t border-gray-300" />
+            <p className="text-[7px] font-medium tracking-[0.25px] text-gray-500">ORDER NUMBER</p>
+            <p className="text-[11px] font-bold">{selectedOrder?.orderNumber || selectedOrder?.id || selectedOrder?._id || "Order number unavailable"}</p>
+            <p className="text-[7px] leading-[1.4] text-gray-600">Package / Label ID: PKG-{String(selectedOrder?.id || selectedOrder?._id || selectedOrder?.orderNumber || "").slice(-8)} · Printed: {new Date().toLocaleString()}</p>
+            <div className="mt-[5px] grid grid-cols-2 gap-[14px]">
+              {(selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name) && <div className="min-w-0"><p className="mb-1 mt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">SOURCE FARM</p><p className="break-words text-[9px] leading-[1.45]">{selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name}</p></div>}
               
             </div>
-            <p className="mt-3 text-[10px] font-bold">DELIVER TO</p>
-            {(selectedOrder?.customerName || selectedOrder?.customer?.name) && <p className="break-words text-xs font-semibold">{selectedOrder?.customerName || selectedOrder?.customer?.name}</p>}
+            <p className="mb-1 mt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">DELIVER TO</p>
+            {(selectedOrder?.customerName || selectedOrder?.customer?.name) && <p className="break-words text-[9px] font-semibold leading-[1.45]">{selectedOrder?.customerName || selectedOrder?.customer?.name}</p>}
             {(selectedOrder?.customerPhone || selectedOrder?.customer?.phone) && <p className="break-words text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone}</p>}
-            {selectedOrder && formatAddress(selectedOrder) && <p className="break-words text-xs leading-5">{formatAddress(selectedOrder)}</p>}
-            <p className="mt-3 text-[10px] font-bold">PACKED ITEMS · ACTUAL QUANTITY</p>
-            {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 border-b border-gray-200 py-1 text-xs"><span className="break-words">{item.productName || item.name || "Product"}</span><b className="shrink-0">{item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</b></div>)}
-            <p className="mt-3 text-[10px] font-bold">PAYMENT</p>
-            <p className="text-xs">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `CASH ON DELIVERY · Amount to collect: ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "No cash collection on delivery"}</p>
-            <div className="mt-4 flex justify-center">
-              <QRCodeSVG value={typeof window !== "undefined" && selectedOrder ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(selectedOrder.id || selectedOrder._id || selectedOrder.orderNumber || "")) : ""} size={112} level="M" />
+            {selectedOrder && formatAddress(selectedOrder) && <p className="break-words text-[9px] leading-[1.45]">{formatAddress(selectedOrder)}</p>}
+            <p className="mb-1 mt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">PACKED ITEMS · ACTUAL QUANTITY</p>
+            {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 border-b border-gray-200 py-[7px] text-[9px]"><span className="break-words">{item.productName || item.name || "Product"}</span><b className="shrink-0">{item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</b></div>)}
+            <p className="mb-1 mt-[9px] border-t border-gray-200 pt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">PAYMENT</p>
+            <p className="text-[9px]">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `CASH ON DELIVERY · Amount to collect: ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "No cash collection on delivery"}</p>
+            <div className="mt-[10px] flex justify-center border-t border-gray-300 pt-2">
+              <QRCodeSVG value={typeof window !== "undefined" && selectedOrder ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(selectedOrder.id || selectedOrder._id || selectedOrder.orderNumber || "")) : ""} size={64} level="M" />
             </div>
-            <p className="mt-2 text-center text-[9px] font-bold">DELIVERY PARTNER ONLY · POD WORKSPACE</p>
-            <p className="text-center text-[9px]">Sign in as the assigned delivery partner to access this order and submit proof of delivery.</p>
+            <p className="text-center text-[6.5px] font-bold">DELIVERY PARTNER QR</p>
+            <p className="text-center text-[6.5px] leading-[1.4]">Scan to open the delivery workspace. Login and assignment management authorization are required to access delivery actions and POD.</p>
+            <p className="mt-2 text-center text-[6.5px] text-gray-600">Verify the order reference before handover.</p>
           </div>
         </div>
       </div>
