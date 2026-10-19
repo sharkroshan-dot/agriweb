@@ -173,7 +173,7 @@ export default function WarehousePackingPage() {
     }
     if (assigned) {
       setFarmAssignedLocally((current) => ({ ...current, [farm.key]: true }));
-      const text = "Team assigned successfully to " + assigned + " order(s). The next action is Start Packing for Farm.";
+      const text = "Team assigned successfully to " + assigned + " order(s). You can now click Finish Order directly and enter the actual packed quantities.";
       setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: failed.length ? "error" : "success", text: failed.length ? text + " " + failed.length + " order(s) failed: " + failed.slice(0, 2).join("; ") : text } }));
       toast.success("Packing team assigned to " + assigned + " order(s) for " + farm.name + ".");
     } else {
@@ -181,44 +181,6 @@ export default function WarehousePackingPage() {
       setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "error", text } }));
       toast.error(text);
     }
-    setAssigningFarm(null);
-    await Promise.all([refetch(), refetchShortages()]);
-  };
-
-  const startPackingForFarm = async (farm: { key: string; name: string; tasks: any[] }) => {
-    const assignedTasks = farm.tasks.filter((task: any) => {
-      const status = String(task.status || "").toLowerCase();
-      return status === "assigned" || (farmAssignedLocally[farm.key] && status === "ready_for_packing");
-    });
-    if (!assignedTasks.length) {
-      const text = "Assign a packing team first. No assigned orders are waiting to start.";
-      setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "error", text } }));
-      toast.error(text);
-      return;
-    }
-    setAssigningFarm(farm.key);
-    setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: "info", text: "Starting packing for " + assignedTasks.length + " assigned order(s)…" } }));
-    let started = 0;
-    const failed: string[] = [];
-    for (const task of assignedTasks) {
-      try {
-        await api.put("/warehouse/me/packing-tasks/" + task.id + "/start");
-        setTaskStatusOverrides((current) => ({ ...current, [task.id]: "packing" }));
-        started += 1;
-      } catch (error: any) {
-        failed.push((task.orderNumber || task.orderId || task.id) + ": " + (error?.response?.data?.detail || error?.message || "Could not start"));
-      }
-    }
-    const message = started
-      ? "Packing started for " + started + " order(s). Continue with the actual packed quantities on each order card."
-      : "Could not start packing. " + (failed.slice(0, 2).join("; ") || "Refresh and try again.");
-    setFarmAssignmentMessages((current) => ({ ...current, [farm.key]: { kind: failed.length ? "error" : started ? "success" : "error", text: failed.length && started ? message + " Failed: " + failed.slice(0, 2).join("; ") : message } }));
-    if (started) {
-      setFarmAssignedLocally((current) => ({ ...current, [farm.key]: false }));
-      setFarmStartedLocally((current) => ({ ...current, [farm.key]: true }));
-      toast.success("Started packing for " + started + " order(s).");
-    }
-    if (failed.length && !started) toast.error(message);
     setAssigningFarm(null);
     await Promise.all([refetch(), refetchShortages()]);
   };
