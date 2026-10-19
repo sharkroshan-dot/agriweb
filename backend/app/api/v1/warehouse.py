@@ -3456,6 +3456,23 @@ async def dispatch_farmer_fulfillment_to_destination(
     if warehouse_id != source_id:
         raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this order")
     # No capacity confirmation is required for immediate Farmer Fulfillment handoff.
+    # Still require physical receipt of the full sealed shipment at the source warehouse.
+    incoming = await _get_farmer_fulfillment_incoming_rows(order, warehouse_id)
+    def _complete_transfer_receipt(row: dict) -> bool:
+        receipt_status = str(row.get("status") or "").strip().lower()
+        received = next(
+            (row.get(key) for key in ("quantityReceived", "receivedQuantity", "actualReceivedQuantity", "actualQuantityReceived", "receivedQty") if row.get(key) is not None),
+            None,
+        )
+        expected = float(row.get("quantity") or row.get("expectedQuantity") or row.get("plannedQuantity") or 0)
+        if received is None:
+            received = expected if receipt_status in ("received", "stored") else 0
+        try:
+            return receipt_status in ("received", "stored") and float(received or 0) + 1e-9 >= expected
+        except (TypeError, ValueError):
+            return False
+    if not incoming or any(not _complete_transfer_receipt(row) for row in incoming):
+        raise HTTPException(status_code=400, detail="Physically receive the complete farmer-packed shipment before dispatch")
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
     leg = await legs.find_one({
         "orderId": ObjectId(order_id),
