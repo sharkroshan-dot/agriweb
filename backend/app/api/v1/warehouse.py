@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
+from bson import ObjectId
 from app.api.v1.auth import get_current_user
 from app.repositories.warehouse_repository import warehouse_repository
 from app.schemas.warehouse import (
@@ -16,6 +17,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _serialize_mongo_value(value):
+    """Convert MongoDB values (including nested ObjectIds) into JSON-safe values."""
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _serialize_mongo_value(item) for key, item in value.items() if key != "_id"}
+    if isinstance(value, (list, tuple)):
+        return [_serialize_mongo_value(item) for item in value]
+    return value
 
 @router.get("/me", response_model=WarehouseResponse)
 async def get_my_warehouse(current_user: dict = Depends(get_current_user)):
@@ -97,12 +109,15 @@ async def get_my_warehouse_stock(
         skip,
         limit
     )
+    safe_stock = []
     for item in stock:
-        item["id"] = str(item["_id"])
+        safe_item = _serialize_mongo_value(item)
+        safe_item["id"] = str(item.get("_id", item.get("id", "")))
+        safe_stock.append(safe_item)
     return {
         "success": True,
         "data": {
-            "stock": stock,
+            "stock": safe_stock,
             "pagination": {
                 "page": page,
                 "limit": limit,
