@@ -53,6 +53,15 @@ export default function WarehouseQualityInspectionPage() {
     refetchInterval: 15000,
   });
 
+  // Farmer Fulfillment orders are already packed at the farm. Cross-check the
+  // dedicated transfer queue so legacy incoming records missing sourceMode or
+  // packingRequired are not incorrectly shown as warehouse quality rechecks.
+  const farmerTransfersQuery = useQuery({
+    queryKey: ["warehouseFarmerFulfillmentTransfersForQualityFilter"],
+    queryFn: () => api.get("/warehouse/me/farmer-fulfillment-transfers"),
+    refetchInterval: 30000,
+  });
+
   const incomingQualityQueue: any[] = useMemo(() => {
     // The API client may expose either the axios response or its unwrapped data.
     // Accept both response shapes so the recheck list doesn't silently appear empty.
@@ -60,28 +69,39 @@ export default function WarehouseQualityInspectionPage() {
     const root = response?.data ?? response;
     const payload = root?.data?.incoming ?? root?.incoming ?? root?.data?.items ?? root?.items ?? root?.data?.results ?? root?.results ?? [];
     const rows = Array.isArray(payload) ? payload : [];
+    const transferResponse = farmerTransfersQuery.data?.data ?? farmerTransfersQuery.data;
+    const transferRoot = transferResponse?.data ?? transferResponse;
+    const transferRows = transferRoot?.orders ?? transferRoot?.transfers ?? transferRoot?.items ?? [];
+    const farmerOrderIds = new Set<string>();
+    const farmerOrderNumbers = new Set<string>();
+    for (const row of Array.isArray(transferRows) ? transferRows : []) {
+      const orderId = String(row.orderId || row.id || row._id || "").trim();
+      const orderNumber = String(row.orderNumber || row.orderNo || "").trim();
+      if (orderId) farmerOrderIds.add(orderId);
+      if (orderNumber) farmerOrderNumbers.add(orderNumber);
+    }
     return rows.filter((item: any) => {
       const status = String(item.status || "").trim().toLowerCase();
-      const quality = String(item.qualityCheck || item.quality_check || "pending").trim().toLowerCase();
-      const mode = String(item.sourceMode || "").trim().toLowerCase();
-      const fulfillment = String(item.fulfillmentMethod || "").trim().toLowerCase();
+      const quality = String(item.qualityCheck || item.quality_check || item.qualityStatus || "").trim().toLowerCase();
+      const mode = String(item.sourceMode || item.fulfillmentType || item.shipmentType || "").trim().toLowerCase();
+      const fulfillment = String(item.fulfillmentMethod || item.fulfillment_method || item.order?.fulfillmentMethod || "").trim().toLowerCase();
+      const orderId = String(item.orderId || item.order?._id || item.order?.id || "").trim();
+      const orderNumber = String(item.orderNumber || item.orderNo || item.order?.orderNumber || "").trim();
       const receivedOrWaiting = ["received", "quality_check"].includes(status);
       const qualityPending = ["", "pending", "quality_check", "not_checked"].includes(quality);
-      // Strictly include only explicitly identified Warehouse Fulfillment stock.
-      // Do not treat unknown/legacy orders as warehouse fulfillment by default.
-      // Match the fulfillment classifier used by Incoming Stock. Only explicitly
-      // warehouse-fulfilled orders that still require warehouse packing are eligible.
       const isFarmerFulfillment =
         fulfillment === "farmer"
-        || ["farmer_fulfillment", "farmer_fulfillment_transfer"].includes(mode)
-        || item.packingRequired === false;
+        || ["farmer_fulfillment", "farmer_fulfillment_transfer", "packed_orders_transfer"].includes(mode)
+        || item.packingRequired === false
+        || farmerOrderIds.has(orderId)
+        || (orderNumber !== "" && farmerOrderNumbers.has(orderNumber));
       const isWarehouseFulfillment =
-        ["warehouse", "warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(fulfillment)
+        ["warehouse", "warehouse_fulfillment", "warehouse_fulfillment_bulk", "warehouse_transfer"].includes(fulfillment)
         || ["warehouse_fulfillment", "warehouse_fulfillment_bulk"].includes(mode)
         || (item.packingRequired === true && !isFarmerFulfillment);
       return receivedOrWaiting && qualityPending && isWarehouseFulfillment && !isFarmerFulfillment;
     });
-  }, [incomingQuery.data]);
+  }, [incomingQuery.data, farmerTransfersQuery.data]);
 
   const incomingQualityMutation = useMutation({
     mutationFn: async (qualityCheck: "passed" | "failed") => {
