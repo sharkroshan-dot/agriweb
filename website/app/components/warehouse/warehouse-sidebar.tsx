@@ -73,9 +73,12 @@ export function WarehouseSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const isLocalHubManager = (session?.user as any)?.facilityType === "local_hub";
-  const visibleSections = isLocalHubManager ? [{ title: "Local Hub Operations", items: [
-    { name: "Hub Dashboard & Incoming Orders", href: "/hub-management", icon: LayoutDashboard },
-  ] }] : [{ title: "Local Hub Management", items: [
+  const visibleSections = isLocalHubManager ? [
+    { title: "Local Hub", items: [
+      { name: "Dashboard", href: "/hub-management", icon: LayoutDashboard },
+      { name: "Incoming Orders", href: "/hub-management?view=incoming", icon: PackageCheck },
+    ] },
+  ] : [{ title: "Local Hub Management", items: [
     { name: "Manage Local Hubs", href: "/hub-management", icon: Warehouse },
   ] }, ...navSections.filter((section) => section.title !== "Local Hub Operations")];
   const dashboardQuery = useQuery({
@@ -123,7 +126,7 @@ export function WarehouseSidebar() {
               </div>
               <div className="space-y-1">
                 {section.items.map((item) => {
-                  const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+                  const isActive = pathname === item.href.split("?")[0] && (item.href.includes("?view=incoming") ? (typeof window !== "undefined" && window.location.search.includes("view=incoming")) : !(typeof window !== "undefined" && window.location.search.includes("view=incoming")));
                   return (
                     <Link
                       key={item.name}
