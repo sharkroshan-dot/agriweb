@@ -7121,6 +7121,61 @@ async def get_my_outgoing_stock(
         item["packingVerified"] = task_status in {"ready_for_dispatch", "dispatched"} or bool(task.get("verified"))
         eligible_outgoing.append(item)
     outgoing = eligible_outgoing
+
+    # Reconcile legacy outgoing rows against existing local-hub transfer records.
+    # Older dispatches may have a transfer marked dispatched while their outgoing
+    # stock row still says ready_for_pickup/ready_for_dispatch.
+    transfer_collection = MongoDB.get_collection("warehouse_order_transfers")
+    dispatched_transfer_states = {
+        "dispatched", "in_transit", "arrived_at_destination", "received", "ready_for_delivery"
+    }
+    for item in outgoing:
+        order_id = str(item.get("orderId") or "")
+        if not ObjectId.is_valid(order_id):
+            continue
+        transfer = await transfer_collection.find_one({
+            "orderId": {"$in": [ObjectId(order_id), order_id]},
+            "sourceWarehouseId": {"$in": [warehouse["_id"], str(warehouse["_id"])]},
+            "deletedAt": None,
+            "status": {"$in": list(dispatched_transfer_states)},
+        }, sort=[("updatedAt", -1)])
+        if not transfer:
+            continue
+        destination_id = transfer.get("destinationWarehouseId")
+        destination_id_text = str(destination_id or "")
+        destination_hub = await MongoDB.get_collection("warehouses").find_one({
+            "_id": ObjectId(destination_id_text) if ObjectId.is_valid(destination_id_text) else destination_id,
+            "facilityType": "local_hub",
+            "deletedAt": None,
+        })
+        if not destination_hub:
+            continue
+        dispatched_at = transfer.get("dispatchedAt") or transfer.get("updatedAt") or transfer.get("createdAt")
+        item.update({
+            "status": "dispatched",
+            "transferStatus": "dispatched_to_local_hub",
+            "destinationWarehouseId": destination_id_text,
+            "localHubId": destination_id_text,
+            "localHubName": destination_hub.get("name") or destination_hub.get("warehouseName") or destination_hub.get("hubName") or "Local hub",
+            "dispatchDate": dispatched_at.isoformat() if hasattr(dispatched_at, "isoformat") else dispatched_at,
+        })
+        outgoing_id = item.get("id") or item.get("_id")
+        if outgoing_id:
+            try:
+                await outgoing_stock_repository.update({"_id": ObjectId(str(outgoing_id))}, {
+                    "status": "dispatched",
+                    "transferStatus": "dispatched_to_local_hub",
+                    "destinationWarehouseId": destination_hub["_id"],
+                    "destinationFacilityType": "local_hub",
+                    "localHubId": destination_hub["_id"],
+                    "localHubName": item["localHubName"],
+                    "localHubTransferId": transfer.get("_id"),
+                    "dispatchedAt": dispatched_at or datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                })
+            except Exception as exc:
+                logger.warning("Could not reconcile outgoing status for order %s: %s", order_id, exc)
+
     # Enrich ordinary warehouse dispatch rows with the same distance/district
     # classification used by Farmer Fulfillment Transfers. Resolve saved-address
     # snapshots for legacy orders before deciding location data is missing.
