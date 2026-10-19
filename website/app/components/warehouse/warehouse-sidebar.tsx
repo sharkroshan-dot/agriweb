@@ -77,6 +77,7 @@ export function WarehouseSidebar() {
     { title: "Local Hub", items: [
       { name: "Dashboard", href: "/hub-management", icon: LayoutDashboard },
       { name: "Incoming Orders", href: "/hub-management?view=incoming", icon: PackageCheck },
+      { name: "Delivery Status", href: "/hub-management?view=delivery", icon: Truck },
     ] },
   ] : [{ title: "Local Hub Management", items: [
     { name: "Manage Local Hubs", href: "/hub-management", icon: Warehouse },
