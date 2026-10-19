@@ -442,10 +442,9 @@ export default function WarehouseIncomingPage() {
       const isOnline = ["online", "razorpay", "upi", "card", "netbanking", "wallet", "net_banking"].includes(paymentRaw);
       const payment = isCod ? "COD" : isOnline ? "ONLINE" : "";
       const rawPaymentStatus = String(item.paymentStatus || item.payment_status || item.payment?.status || order.paymentStatus || order.payment_status || order.payment?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_");
-      const paymentStatus = rawPaymentStatus === "paid" || rawPaymentStatus === "success" || rawPaymentStatus === "successful" || rawPaymentStatus === "captured" ? "PAID" : rawPaymentStatus === "pending" || rawPaymentStatus === "created" || rawPaymentStatus === "processing" ? "PAYMENT PENDING" : rawPaymentStatus === "failed" ? "PAYMENT FAILED" : rawPaymentStatus === "refunded" ? "REFUNDED" : rawPaymentStatus.toUpperCase();
+      const paymentStatus = ["paid", "success", "successful", "captured", "completed"].includes(rawPaymentStatus) ? "PAID" : "";
       const rawAmount = item.totalAmount ?? item.total ?? order.totalAmount ?? order.total;
       const amount = Number(rawAmount);
-      const paymentStatus = String(item.paymentStatus || order.paymentStatus || order.payment?.status || "").replace(/_/g, " ").toUpperCase();
       const qr = document.querySelector('[data-farm-label-qr="' + index + '"] svg')?.outerHTML || "";
       const qty = item.quantity ?? item.allocatedQuantity ?? item.orderQuantity;
       const unit = item.unit || item.product?.unit || "";
@@ -458,7 +457,7 @@ export default function WarehouseIncomingPage() {
         "<div class='heading'>SOURCE FARM</div><div class='value'>" + esc(farm) + "</div>" + (farmAddress ? "<div class='muted'>" + esc(farmAddress) + "</div>" : "") +
         "<div class='heading'>DELIVER TO</div>" + (customer ? "<div class='value'><b>" + esc(customer) + "</b></div>" : "") + (phone ? "<div class='value'>Phone: " + esc(phone) + "</div>" : "") + "<div class='value'>Address: " + esc(addressText || "Delivery address unavailable") + "</div>" +
         (product || qty !== undefined && qty !== null ? "<div class='heading'>PACKED ITEMS · ACTUAL QUANTITY</div><table><tr><td><div class='item-name'>" + esc(product) + "</div><div class='muted'>Fresh produce</div></td><td class='qty'>" + esc(qty ?? "") + (unit ? " " + esc(unit) : "") + "</td></tr></table><div class='muted'>Incoming allocation; final packed quantity is confirmed in Order Packing.</div>" : "") +
-      ("<div class='heading'>PAYMENT</div>" + (payment === "COD" ? "<div class='value'>COD · Payable on delivery</div>" + (Number.isFinite(amount) && rawAmount !== undefined && rawAmount !== null ? "<div class='value'><b>₹" + amount.toFixed(2) + "</b></div>" : "") : payment === "ONLINE" ? "<div class='value'>ONLINE PAYMENT · " + esc(paymentStatus || "STATUS UNCONFIRMED") + "</div>" + (Number.isFinite(amount) && rawAmount !== undefined && rawAmount !== null ? "<div class='value'>Order total: ₹" + amount.toFixed(2) + "</div>" : "") : "<div class='value'>PAYMENT METHOD UNCONFIRMED · Verify order payment</div>")) +
+       ("<div class='heading'>PAYMENT</div>" + (payment === "COD" ? "<div class='value'>COD · Payable on delivery</div>" + (Number.isFinite(amount) && rawAmount !== undefined && rawAmount !== null ? "<div class='value'><b>₹" + amount.toFixed(2) + "</b></div>" : "") : payment === "ONLINE" && paymentStatus === "PAID" ? "<div class='value'>ONLINE PAYMENT · PAID</div>" : "<div class='value'>PAYMENT DETAILS UNCONFIRMED · Do not dispatch until verified</div>")) +
         "<div class='qr'>" + qr + "<div class='muted'><b>DELIVERY PARTNER QR</b></div><div class='muted'>Scan to open the delivery workspace. Login and assignment authorization are required to access delivery actions and POD.</div><div class='muted' style='margin-top:8px'>Verify the order reference before handover.</div></div></main>";
     }).join("");
     win.document.open();
