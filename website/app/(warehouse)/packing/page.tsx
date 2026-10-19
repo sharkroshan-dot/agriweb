@@ -308,7 +308,7 @@ export default function WarehousePackingPage() {
       ${(customer || phone || addressText) ? '<div class="heading">DELIVER TO</div>' + (customer ? '<div class="value"><b>' + esc(customer) + '</b></div>' : "") + (phone ? '<div class="value">' + esc(phone) + '</div>' : "") + (addressText ? '<div class="value">' + esc(addressText) + '</div>' : "") : ""}
       ${rows ? '<div class="heading">PACKED ITEMS · ACTUAL QUANTITY</div><table>' + rows + '</table>' : ""}
       ${payment === "COD" && rawAmount !== undefined && rawAmount !== null && Number.isFinite(amount) ? '<div class="heading">PAYMENT</div><div class="value">COD · Payable on delivery</div><div class="value">₹' + amount.toFixed(2) + '</div>' : paymentStatus ? '<div class="heading">PAYMENT</div><div class="value">' + esc(paymentStatus) + '</div>' : ""}
-      <div class="qr">${qr}<div class="muted"><b>DELIVERY PARTNER ONLY · POD WORKSPACE</b></div><div class="muted">Sign in as the assigned delivery partner to access this order and submit proof of delivery.</div></div></main><script>window.onload=()=>window.print();</script></body></html>`);
+      <div class="qr">${qr}<div class="muted"><b>DELIVERY PARTNER QR</b></div><div class="muted">Scan to open the delivery workspace. Login and assignment management authorization are required to access delivery actions and POD.</div><div class="muted verify">Verify the order reference before handover.</div></div></main><script>window.onload=()=>window.print();</script></body></html>`);
       win.document.close();
       setPrintLabelData(null);
     }, 100);
