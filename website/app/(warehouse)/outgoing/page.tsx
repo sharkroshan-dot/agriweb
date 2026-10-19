@@ -27,7 +27,17 @@ const categoryOf = (item: any): RouteKey => {
 };
 const routeReady = (item: any) => ["nearby", "same_district", "inter_district", "multi_warehouse"].includes(categoryOf(item)) && item?.routeDataComplete !== false && item?.routeDistanceKm != null;
 const statusLabel = (status: string) => status === "pending" ? "Ready for Dispatch" : status === "packed" ? "Packed" : status === "dispatched" ? "Dispatched" : status || "Unknown";
-const normalizePlace = (value: any) => String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+const normalizePlace = (value: any) => {
+  const place = String(value ?? "").trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  const aliases: Record<string, string> = {
+    trichy: "tiruchirappalli",
+    trichirapalli: "tiruchirappalli",
+    tiruchirapalli: "tiruchirappalli",
+    tiruchirappalli: "tiruchirappalli",
+    trichirappalli: "tiruchirappalli",
+  };
+  return aliases[place] || place;
+};
 const locationPoint = (value: any): [number, number] | null => {
   if (!value || typeof value !== "object") return null;
   const nested = value.location || value.coordinates || value.geoLocation || value.geo_location || value.position || value;
@@ -92,8 +102,9 @@ const chooseLocalHub = (item: any, hubs: any[]) => {
   const eligible = (hubs || []).filter((hub) => hub?.id && isVerifiedActiveHub(hub));
   if (!eligible.length) return null;
   const destination = item?.deliveryAddress || item?.shippingAddress || item?.customerAddress || item?.destinationAddress || {};
-  const destinationDistrict = normalizePlace(item?.destinationDistrict || destination?.district || destination?.districtName);
-  const destinationTaluk = normalizePlace(item?.destinationTaluk || item?.deliveryTaluk || item?.destinationSubDistrict || destination?.taluk || destination?.talukName || destination?.subDistrict || destination?.tehsil);
+  const destinationDistrict = normalizePlace(item?.destinationDistrict || item?.deliveryDistrict || destination?.district || destination?.districtName || item?.destinationAddressText);
+  const destinationTaluk = normalizePlace(item?.destinationTaluk || item?.deliveryTaluk || item?.destinationSubDistrict || destination?.taluk || destination?.talukName || destination?.subDistrict || destination?.tehsil || destination?.block);
+  const destinationLocality = normalizePlace(destination?.locality || destination?.village || destination?.town || destination?.city || item?.destinationLocality || item?.destinationVillage);
   const customerPoint = locationPoint(destination) || locationPoint(item?.deliveryLocation) || locationPoint(item?.customerLocation);
   const scored = eligible.map((hub) => {
     const hubDistrict = normalizePlace(hub?.district || hub?.districtName || hub?.address?.district || hub?.address?.districtName);
@@ -103,11 +114,13 @@ const chooseLocalHub = (item: any, hubs: any[]) => {
     const talukMatch = Boolean(destinationTaluk && hubTaluk && destinationTaluk === hubTaluk);
     const districtMatch = Boolean(destinationDistrict && hubDistrict && destinationDistrict === hubDistrict);
     // Taluk match takes precedence, then same district, then nearest by coordinates.
-    const score = (talukMatch ? 100000 : 0) + (districtMatch ? 10000 : 0) + (distance == null ? 0 : Math.max(0, 1000 - distance));
-    return { hub, score, distance, talukMatch, districtMatch };
+    const hubLocality = normalizePlace(hub?.locality || hub?.area || hub?.village || hub?.city || hub?.town || hub?.name || hub?.address?.locality);
+    const localityMatch = Boolean(destinationLocality && hubLocality && (destinationLocality === hubLocality || destinationLocality.includes(hubLocality) || hubLocality.includes(destinationLocality)));
+    const score = (talukMatch ? 100000 : 0) + (localityMatch ? 50000 : 0) + (districtMatch ? 10000 : 0) + (distance == null ? 0 : Math.max(0, 1000 - distance));
+    return { hub, score, distance, talukMatch, districtMatch, localityMatch };
   }).sort((a, b) => b.score - a.score);
   const best = scored[0];
-  if (!best || (!best.talukMatch && !best.districtMatch && best.distance == null)) return null;
+  if (!best || (!best.talukMatch && !best.localityMatch && !best.districtMatch && best.distance == null)) return null;
   return best.hub;
 };
 
