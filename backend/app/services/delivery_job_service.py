@@ -197,7 +197,10 @@ async def eligible_partners_for_job(
         count, committed = await partner_commitment(p["id"])
         if count >= PARTNER_MAX_ACTIVE_JOBS:
             continue
-        if job_type == "warehouse_pickup" and not passes_vehicle_type(p, job_weight):
+        # Every assigned delivery job must fit both the vehicle's physical
+        # type limit and the partner's remaining declared capacity. Unknown
+        # vehicle types are not eligible because capacity cannot be verified.
+        if not passes_vehicle_type(p, job_weight):
             continue
         if not passes_capacity(p, committed, job_weight):
             continue
