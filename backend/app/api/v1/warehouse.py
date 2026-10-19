@@ -4145,6 +4145,170 @@ async def complete_farmer_fulfillment_consolidation(
     }
 
 
+
+@router.post("/me/farmer-fulfillment/{order_id}/choose-delivery-route")
+async def choose_farmer_fulfillment_delivery_route(
+    order_id: str,
+    route: str = Query(..., pattern="^(direct|local_hub)$"),
+    urgent: bool = Query(False),
+    current_user: dict = Depends(get_current_user),
+):
+    """Choose direct warehouse-to-customer delivery or the local-hub route.
+
+    Direct delivery is allowed within the configured 15 km nearby threshold,
+    or for an explicitly urgent order. Vehicle eligibility is checked against
+    the physical vehicle type and remaining partner capacity before publishing.
+    """
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can choose the warehouse delivery route")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order ID")
+    warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    order = await order_repository.get_by_id(order_id)
+    if not warehouse or not order:
+        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+
+    mode = str(order.get("logisticsMode") or "")
+    allowed_modes = (
+        "farmer_to_delivery_partner",
+        "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+        "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner",
+    )
+    if mode not in allowed_modes:
+        raise HTTPException(status_code=409, detail="This order is not eligible for warehouse delivery routing")
+
+    warehouse_id = str(warehouse["_id"])
+    if mode == "farmer_to_multiple_warehouses_to_consolidation_to_local_hub_to_delivery_partner":
+        if str(order.get("consolidationStatus") or "") != "consolidated":
+            raise HTTPException(status_code=409, detail="Receive every source portion and complete consolidation before selecting final delivery")
+        if str(order.get("consolidationWarehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the consolidation warehouse can choose final delivery")
+    elif mode == "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+        if str(order.get("destinationWarehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the destination warehouse can choose final delivery")
+        receipt_leg = await MongoDB.get_collection("farmer_fulfillment_transfer_legs").find_one({
+            "orderId": ObjectId(order_id), "legType": "warehouse_to_destination_warehouse",
+            "destinationWarehouseId": ObjectId(warehouse_id), "status": "received_at_destination", "deletedAt": None,
+        })
+        if not receipt_leg:
+            raise HTTPException(status_code=409, detail="Confirm physical receipt at the destination warehouse first")
+    else:
+        if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the assigned source warehouse can choose final delivery")
+        incoming_rows = await incoming_stock_repository.find_many({
+            "orderId": ObjectId(order_id),
+            "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+            "sourceMode": "farmer_fulfillment_transfer", "deletedAt": None,
+        }, skip=0, limit=1000)
+        if not incoming_rows or any(str(row.get("status") or "") not in ("received", "stored") for row in incoming_rows):
+            raise HTTPException(status_code=409, detail="Confirm physical warehouse receipt before choosing final delivery")
+
+    address = order.get("deliveryAddress") or order.get("shippingAddress") or {}
+    if not isinstance(address, dict):
+        raise HTTPException(status_code=400, detail="Customer delivery address is missing")
+    customer_location = address.get("location") or address.get("deliveryLocation") or address
+    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or order.get("currentWarehouseLocation") or order.get("sourceWarehouseLocation")
+    route_distance_km = distance_km(warehouse_location, customer_location)
+    threshold_km = float(order.get("nearbyDeliveryThresholdKm") or warehouse.get("nearbyDeliveryThresholdKm") or 15.0)
+    if route_distance_km is None:
+        raise HTTPException(status_code=409, detail="Verified warehouse and customer coordinates are required to calculate the delivery route")
+
+    now = datetime.utcnow()
+    if route == "local_hub":
+        await order_repository.update({"_id": ObjectId(order_id)}, {
+            "warehouseDeliveryRouteChoice": "local_hub",
+            "warehouseDeliveryRouteChosenAt": now,
+            "warehouseDeliveryRouteChosenBy": ObjectId(str(current_user["_id"])),
+            "warehouseDeliveryUrgent": bool(urgent),
+            "updatedAt": now,
+        })
+        # Reuse the existing guarded handoff path so the hub manifest and
+        # partner arrival/receipt process remain the single source of truth.
+        return await handoff_farmer_fulfillment_to_local_hub(order_id, current_user)
+
+    if route_distance_km > threshold_km and not urgent:
+        raise HTTPException(status_code=409, detail=f"Direct warehouse delivery is limited to {threshold_km:g} km unless the order is marked urgent")
+    if str(order.get("transferStatus") or "") in ("hub_handoff_pending", "local_hub_ready", "direct_delivery_pending"):
+        raise HTTPException(status_code=409, detail="A downstream delivery route has already been started for this order")
+
+    existing = await delivery_job_repository.get_by_order_id(order_id)
+    if existing:
+        return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}, "message": "An existing delivery job was reused; no duplicate job was created."}
+
+    pickup_coords = None
+    if isinstance(warehouse_location, dict):
+        pickup_coords = warehouse_location.get("coordinates")
+        if not pickup_coords and warehouse_location.get("lat") is not None and warehouse_location.get("lng", warehouse_location.get("lon")) is not None:
+            pickup_coords = [float(warehouse_location.get("lng", warehouse_location.get("lon"))), float(warehouse_location.get("lat"))]
+    delivery_coords = None
+    if isinstance(customer_location, dict):
+        delivery_coords = customer_location.get("coordinates")
+        if not delivery_coords and customer_location.get("lat", customer_location.get("latitude")) is not None and customer_location.get("lng", customer_location.get("lon", customer_location.get("longitude"))) is not None:
+            delivery_coords = [float(customer_location.get("lng", customer_location.get("lon", customer_location.get("longitude")))), float(customer_location.get("lat", customer_location.get("latitude")))]
+    if not pickup_coords or len(pickup_coords) < 2 or not delivery_coords or len(delivery_coords) < 2:
+        raise HTTPException(status_code=409, detail="Warehouse pickup and customer delivery coordinates are required")
+
+    pickup_name = warehouse.get("name") or warehouse.get("warehouseName") or "Warehouse"
+    pickup_address = warehouse.get("address") or warehouse.get("fullAddress") or ""
+    patched_order = dict(order)
+    patched_order["deliveryAddress"] = dict(address)
+    patched_order["deliveryAddress"]["location"] = {"type": "Point", "coordinates": [float(delivery_coords[0]), float(delivery_coords[1])]}
+    patched_order["deliveryPickupLocation"] = {
+        "type": "warehouse", "id": warehouse_id, "name": pickup_name,
+        "address": pickup_address, "coordinates": [float(pickup_coords[0]), float(pickup_coords[1])],
+    }
+    patched_order["nearbyFulfillmentLocation"] = {}
+    patched_order["nearbyFulfillmentLocationId"] = None
+
+    weight = job_weight_kg(patched_order)
+    eligible = await eligible_partners_for_job(float(pickup_coords[1]), float(pickup_coords[0]), weight, job_type="customer_delivery")
+    job_doc = build_job_document(
+        patched_order,
+        {"name": pickup_name, "address": pickup_address, "lat": float(pickup_coords[1]), "lng": float(pickup_coords[0])},
+        route_distance_km,
+        eligible_partner_ids=[p["id"] for p in eligible],
+    )
+    job_doc["jobType"] = "farmer_fulfillment_direct_warehouse_delivery"
+    job_doc["pickupType"] = "warehouse"
+    job_doc["warehouseId"] = ObjectId(warehouse_id)
+    job_doc["warehouseUrgent"] = bool(urgent)
+    job_doc["singleFinalDelivery"] = True
+    try:
+        job_id = await delivery_job_repository.create_job(job_doc)
+    except Exception as exc:
+        existing = await delivery_job_repository.get_by_order_id(order_id)
+        if existing:
+            return {"success": True, "data": {"orderId": order_id, "jobId": str(existing["_id"]), "status": existing.get("status"), "existing": True}, "message": "An existing delivery job was reused."}
+        logger.exception("Failed to publish direct warehouse delivery for order %s", order_id)
+        raise HTTPException(status_code=409, detail="Could not safely publish the direct delivery job") from exc
+
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "warehouseDeliveryRouteChoice": "direct",
+        "warehouseDeliveryRouteChosenAt": now,
+        "warehouseDeliveryRouteChosenBy": ObjectId(str(current_user["_id"])),
+        "warehouseDeliveryUrgent": bool(urgent),
+        "transferStatus": "direct_delivery_pending",
+        "warehouseFulfillmentStage": "direct_delivery_pending",
+        "deliveryPickupLocation": patched_order["deliveryPickupLocation"],
+        "deliveryPartnerJobId": ObjectId(str(job_id)),
+        "partnerAssignmentOpen": True,
+        "deliveryDecisionStatus": "partner_pending",
+        "updatedAt": now,
+    })
+    await order_repository.append_tracking_event(
+        order_id, "direct_warehouse_delivery_published", "Direct warehouse delivery published",
+        "The warehouse published this order to eligible delivery partners for direct customer delivery.",
+        actor_id=str(current_user["_id"]), actor_role="warehouse",
+        metadata={"warehouseId": warehouse_id, "distanceKm": route_distance_km, "urgent": bool(urgent), "jobId": str(job_id)},
+    )
+    return {
+        "success": True,
+        "data": {"orderId": order_id, "jobId": str(job_id), "status": "open", "distanceKm": route_distance_km, "urgent": bool(urgent), "eligiblePartners": len(eligible)},
+        "message": "Direct warehouse delivery published. Only verified, available partners with sufficient vehicle capacity are eligible.",
+    }
+
+
 @router.post("/me/farmer-fulfillment/{order_id}/handoff-local-hub")
 async def handoff_farmer_fulfillment_to_local_hub(
     order_id: str,
@@ -4214,8 +4378,8 @@ async def handoff_farmer_fulfillment_to_local_hub(
             raise HTTPException(status_code=409, detail="Verified source/customer districts and coordinates are required before creating a Same-District local-hub transfer")
         if source_district != destination_district:
             raise HTTPException(status_code=409, detail="Customer is in a different district. Use Inter-District warehouse fulfillment.")
-        if route_distance_km <= threshold_km:
-            raise HTTPException(status_code=409, detail=f"This order is within the {threshold_km:g} km Nearby threshold. Use direct delivery only if the order is configured for it.")
+        if route_distance_km <= threshold_km and str(order.get("warehouseDeliveryRouteChoice") or "") != "local_hub":
+            raise HTTPException(status_code=409, detail=f"This order is within the {threshold_km:g} km Nearby threshold. Choose direct delivery or explicitly select the local-hub route.")
         if mode != "farmer_to_warehouse_to_local_hub_to_delivery_partner":
             await order_repository.update({"_id": ObjectId(order_id)}, {
                 "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
