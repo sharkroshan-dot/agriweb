@@ -1515,8 +1515,8 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
         request_update.update({
             "eventLocalHubId": ObjectId(str(warehouse_id)),
             "eventLocalHubName": warehouse.get("name") or warehouse.get("warehouseName"),
-            "consolidationHubId": ObjectId(str(warehouse_id)),
-            "consolidationHubName": warehouse.get("name") or warehouse.get("warehouseName"),
+            "consolidationHubId": ObjectId(str(request.get("eventWarehouseId"))) if request.get("eventWarehouseId") else None,
+            "consolidationHubName": request.get("eventWarehouseName") or "Event consolidation warehouse",
         })
     await request_repo.update({"_id": request["_id"]}, request_update)
     try:
