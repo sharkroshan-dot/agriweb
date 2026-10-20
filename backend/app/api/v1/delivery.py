@@ -3597,6 +3597,10 @@ async def accept_delivery_job(
         if str(request.get("eventLocalHubStatus") or "") != "in_transit":
             await delivery_job_repository.release_job(job_id)
             raise HTTPException(status_code=409, detail="The event order is not awaiting local-hub transfer")
+        await delivery_job_repository.collection.update_one(
+            {"_id": ObjectId(job_id), "status": "accepted", "deletedAt": None},
+            {"$set": {"eventProgressStatus": "accepted", "updatedAt": datetime.utcnow()}},
+        )
         await request_repo.update({"_id": request["_id"]}, {
             "eventHubTransferStatus": "assigned",
             "eventHubTransferPartnerId": ObjectId(partner_id),
