@@ -46,6 +46,7 @@ export default function FarmerFulfillmentWarehousePage() {
   const [receiptQuality,setReceiptQuality]=useState<"pending"|"passed"|"failed">("pending");
   const [receiptNotes,setReceiptNotes]=useState("");
   const [savingReceipt,setSavingReceipt]=useState(false);
+  const [recheckingQuality,setRecheckingQuality]=useState(false);
   const [activeRouteSection,setActiveRouteSection]=useState<"nearby"|"same_district"|"inter_district"|"route_review"|"needs_location">("nearby");
   const {data:teamsData}=useQuery({
     queryKey:["warehouseApprovedPickupTeams"],
@@ -128,9 +129,10 @@ export default function FarmerFulfillmentWarehousePage() {
   };
   const openReceiptDialog=(row:any)=>{
     setReceivingPortion(row);
-    setReceiptQuantity(String(row.expectedQuantity ?? row.quantity ?? ""));
+    setReceiptQuantity(String(row.quantity ?? row.expectedQuantity ?? ""));
     setReceiptQuality("pending");
     setReceiptNotes("");
+    setRecheckingQuality(Boolean(row.qualityRecheck));
   };
   const receive=async()=>{
     if(!receivingPortion) return;
@@ -141,13 +143,22 @@ export default function FarmerFulfillmentWarehousePage() {
       toast.error("The received quantity differs from the declared quantity. Reconcile the discrepancy and keep quality pending before approval.");
       return;
     }
+    if(recheckingQuality&&receiptQuality==="pending"){
+      toast.error("Choose Passed or Failed to record the quality recheck.");
+      return;
+    }
     setSavingReceipt(true);
     try {
-      await api.put(`/warehouse/me/incoming/${receivingPortion.id}/receive`,undefined,{params:{quantity:qty,quality_check:receiptQuality,usableQuantity:receiptQuality==="failed"?0:qty,notes:receiptNotes.trim()||undefined}});
-      toast.success(receiptQuality==="passed"?"Shipment received and quality approved":receiptQuality==="failed"?"Shipment received and marked failed":"Shipment received; quality approval remains pending");
+      if(recheckingQuality){
+        await api.put(`/warehouse/me/incoming/${receivingPortion.id}/quality`,{qualityCheck:receiptQuality,usableQuantity:receiptQuality==="failed"?0:qty,notes:receiptNotes.trim()||undefined});
+        toast.success(receiptQuality==="passed"?"Quality recheck passed; portion may be stored":"Quality recheck failed; portion remains on hold");
+      }else{
+        await api.put(`/warehouse/me/incoming/${receivingPortion.id}/receive`,undefined,{params:{quantity:qty,quality_check:receiptQuality,usableQuantity:receiptQuality==="failed"?0:qty,notes:receiptNotes.trim()||undefined}});
+        toast.success(receiptQuality==="passed"?"Shipment received and quality approved":receiptQuality==="failed"?"Shipment received and marked failed":"Shipment received; quality approval remains pending");
+      }
       setReceivingPortion(null);
       await refreshAll();
-    } catch(e:any){toast.error(e?.message||"Receiving failed");}
+    } catch(e:any){toast.error(e?.message||"Receiving/quality update failed");}
     finally{setSavingReceipt(false);}
   };
   const refreshAll=async()=>{await refetch();await refetchConsolidations();};
@@ -250,7 +261,7 @@ export default function FarmerFulfillmentWarehousePage() {
     try {
       await api.put(`/warehouse/me/incoming/${id}/store`);
       toast.success("Transfer stored and ready for dispatch");
-      await refetch();
+      await refreshAll();
     } catch(e:any){toast.error(e?.message||"Storage failed");}
   };
 
@@ -540,7 +551,7 @@ export default function FarmerFulfillmentWarehousePage() {
     {receivingPortion && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="receipt-dialog-title">
       <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
-          <div><h2 id="receipt-dialog-title" className="text-lg font-semibold">Receive and inspect packed portion</h2><p className="mt-1 text-sm text-muted-foreground">Record physical quantity and the actual quality result. Do not approve quality unless inspected.</p></div>
+          <div><h2 id="receipt-dialog-title" className="text-lg font-semibold">{recheckingQuality?"Recheck portion quality":"Receive and inspect packed portion"}</h2><p className="mt-1 text-sm text-muted-foreground">{recheckingQuality?"Record a new quality decision against the existing receipt; do not receive the shipment again.":"Record physical quantity and the actual quality result. Do not approve quality unless inspected."}</p></div>
           <button type="button" className="rounded px-2 py-1 text-sm text-muted-foreground" onClick={()=>setReceivingPortion(null)} aria-label="Close receipt dialog">Close</button>
         </div>
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm"><p><span className="font-medium">Order:</span> {receivingPortion.orderNumber||receivingPortion.orderId||"Farmer Fulfillment"}</p><p><span className="font-medium">Product:</span> {receivingPortion.productName||receivingPortion.product?.name||"Packed product"}</p><p><span className="font-medium">Declared quantity:</span> {receivingPortion.expectedQuantity??receivingPortion.quantity??"Not specified"}</p></div>
@@ -550,7 +561,7 @@ export default function FarmerFulfillmentWarehousePage() {
           <label className="block text-sm font-medium">Inspection notes<textarea className="mt-1 w-full rounded-md border p-3" rows={3} value={receiptNotes} onChange={e=>setReceiptNotes(e.target.value)} placeholder="Condition, damage, shortage, temperature, or other findings" /></label>
           {Number(receiptQuantity)!==Number(receivingPortion.expectedQuantity) && <p className="text-sm text-amber-700">Received quantity differs from the declared quantity. Reconcile the shortage/excess and keep quality pending unless the discrepancy is resolved.</p>}
         </div>
-        <div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={()=>setReceivingPortion(null)} disabled={savingReceipt}>Cancel</Button><Button onClick={()=>void receive()} disabled={savingReceipt}>{savingReceipt?"Saving receipt…":"Save Receipt and Inspection"}</Button></div>
+        <div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={()=>setReceivingPortion(null)} disabled={savingReceipt}>Cancel</Button><Button onClick={()=>void receive()} disabled={savingReceipt||(recheckingQuality&&receiptQuality==="pending")}>{savingReceipt?"Saving…":recheckingQuality?"Save Quality Recheck":"Save Receipt and Inspection"}</Button></div>
       </div>
     </div>}
   </div>;
