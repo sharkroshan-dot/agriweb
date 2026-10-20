@@ -387,6 +387,7 @@ export default function FarmerFulfillmentWarehousePage() {
         const routeBusy=Boolean(routingOrder===requestId);
         const statusLabel=(p:any)=>{
           const crossWarehouse=String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"");
+          if(p.consolidationTransferStatus==="shortage_reported"||p.consolidationStatus==="shortage") return "Consolidation shortage — replacement required";
           if(crossWarehouse&&p.consolidationTransferStatus==="received") return "Received at consolidation";
           if(crossWarehouse&&p.consolidationTransferStatus==="arrived_at_consolidation") return "Arrived — receipt pending";
           if(crossWarehouse&&["in_transit","assigned","picked_up"].includes(String(p.consolidationTransferStatus||""))) return "Transfer to consolidation in progress";
@@ -404,12 +405,13 @@ export default function FarmerFulfillmentWarehousePage() {
               const incomingId=String(p.incomingRecordIds?.[0]||"");
               const received=String(p.incomingStatus||"").toLowerCase()==="received";
               const failed=String(p.qualityStatus||"").toLowerCase()==="failed"||String(p.incomingStatus||"").toLowerCase()==="rejected";
+              const shortage=String(p.consolidationTransferStatus||"")==="shortage_reported"||String(p.consolidationStatus||"")==="shortage";
               const canReceive=Boolean(p.isAssignedSourceWarehouse)&&Boolean(incomingId)&&Boolean(p.arrivedWarehouseAt)&&["pending","scheduled","in_transit","ready_for_pickup"].includes(String(p.incomingStatus||"").toLowerCase());
               const canStore=Boolean(p.isAssignedSourceWarehouse)&&received&&String(p.qualityStatus||"").toLowerCase()==="passed"&&Number(p.receivedQuantity)+1e-9>=Number(p.requiredQuantity);
               const canRecheck=Boolean(p.isAssignedSourceWarehouse)&&(received||failed);
               return <div key={p.eventFulfillmentId||p.productId||index} className="rounded-lg border p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{p.productName||"Product"} · {p.requiredQuantity} kg</p><p className="text-xs text-muted-foreground">{p.farmerName||p.sourceWarehouseName||"Farmer"} · Received {p.receivedQuantity||0} kg · Usable {p.acceptedQuantity||0} kg</p></div><Badge variant={canStore||p.transferStatus==="stored_at_consolidation"?"success":failed?"destructive":"outline"}>{statusLabel(p)}</Badge></div>
-                {p.shortageQuantity>0&&<p className="mt-2 text-xs text-amber-700">Shortage: {p.shortageQuantity} kg. Reconcile before storage or route selection.</p>}
+                <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{p.productName||"Product"} · {p.requiredQuantity} kg</p><p className="text-xs text-muted-foreground">{p.farmerName||p.sourceWarehouseName||"Farmer"} · Received {p.receivedQuantity||0} kg · Usable {p.acceptedQuantity||0} kg</p></div><Badge variant={canStore||p.transferStatus==="stored_at_consolidation"?"success":failed||shortage?"destructive":"outline"}>{statusLabel(p)}</Badge></div>
+                {p.shortageQuantity>0&&<p className="mt-2 text-xs text-amber-700">Source receipt shortage: {p.shortageQuantity} kg. Reconcile before storage or route selection.</p>}{shortage&&<p className="mt-2 text-xs text-red-700">Consolidation receipt shortage: expected {p.requiredQuantity} kg, received {p.consolidationReceivedQuantity} kg. Final delivery is blocked until the missing quantity is replaced.</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {canReceive&&<Button size="sm" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.requiredQuantity})}>Receive + Inspect Portion</Button>}
                   {Boolean(p.isAssignedSourceWarehouse)&&Boolean(incomingId)&&!p.arrivedWarehouseAt&&["pending","scheduled","in_transit","ready_for_pickup"].includes(String(p.incomingStatus||"").toLowerCase())&&<p className="text-xs text-amber-700">Waiting for the farm collection team to record physical arrival at this source warehouse before receipt can be confirmed.</p>}
