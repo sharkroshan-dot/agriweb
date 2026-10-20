@@ -1544,7 +1544,7 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
     existing = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
     if existing:
         return existing
-    warehouse_id = request.get("eventWarehouseId")
+    warehouse_id = fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId")
     if not warehouse_id:
         return None
     farmer = await farmer_repository.find_one({"userId": ObjectId(str(fulfillment["farmerId"]))})
