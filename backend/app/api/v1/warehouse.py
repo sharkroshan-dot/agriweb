@@ -2692,6 +2692,9 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             is_stored = source_stored and consolidation_received
             if is_stored:
                 stored_count += 1
+            transfer_job_id = str(fulfillment.get("consolidationTransferJobId") or "")
+            transfer_job = await delivery_job_repository.get_by_id(transfer_job_id) if ObjectId.is_valid(transfer_job_id) else None
+            transfer_progress_status = str((transfer_job or {}).get("eventProgressStatus") or "")
             farmer = await farmer_repository.find_one({"userId": fulfillment.get("farmerId")}) if fulfillment.get("farmerId") else None
             portion_status = (
                 "stored_at_consolidation" if is_stored else
@@ -2708,7 +2711,8 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
                 "sourceWarehouseName": fulfillment.get("sourceWarehouseName") or "Source Warehouse",
                 "consolidationWarehouseId": str(fulfillment.get("consolidationWarehouseId") or event_warehouse_id),
                 "consolidationTransferStatus": fulfillment.get("consolidationTransferStatus") or "pending_dispatch",
-                "consolidationTransferJobId": str(fulfillment.get("consolidationTransferJobId") or "") or None,
+                "consolidationTransferJobId": transfer_job_id or None,
+                "consolidationTransferProgressStatus": transfer_progress_status or "not_created",
                 "consolidationStatus": fulfillment.get("consolidationStatus") or "awaiting_transfer",
                 "consolidationReceivedQuantity": float(fulfillment.get("consolidationReceivedQuantityKg") or 0),
                 "consolidationReceiptNotes": fulfillment.get("consolidationReceiptNotes") or "",
