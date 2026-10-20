@@ -1739,7 +1739,7 @@ async def choose_event_delivery_route(
             raise HTTPException(status_code=400, detail="Urgent is only valid for direct delivery")
         return await dispatch_event_order_to_local_hub(request_id, current_user)
 
-    if str(request.get("eventFulfillmentRoute") or "") == "local_hub" and str(request.get("eventLocalHubStatus") or "") in ("in_transit", "received"):
+    if str(request.get("eventFulfillmentRoute") or "") == "local_hub" and str(request.get("eventLocalHubStatus") or "") in ("in_transit", "arrived_at_hub", "received"):
         raise HTTPException(status_code=409, detail="This order is already on the local-hub route; do not switch routes while the transfer is active")
     warehouse_location = manager_warehouse.get("location") or {}
     warehouse_coords = warehouse_location.get("coordinates") or []
