@@ -6091,9 +6091,13 @@ async def update_incoming_quality(
     incoming = await incoming_stock_repository.get_by_id(incoming_id)
     if not incoming or str(incoming.get("warehouseId")) != str(warehouse["_id"]):
         raise HTTPException(status_code=404, detail="Incoming shipment not found")
-    if str(incoming.get("sourceMode") or "") == "farmer_fulfillment_transfer":
+    source_mode = str(incoming.get("sourceMode") or "")
+    incoming_status = str(incoming.get("status") or "").lower()
+    if source_mode == "farmer_fulfillment_transfer":
         raise HTTPException(status_code=409, detail="Farmer Fulfillment orders are already packed. Skip warehouse quality inspection and continue to Farmer Fulfillment Transfers / Consolidation.")
-    if str(incoming.get("status") or "") != "received":
+    # Event portions may be quality-rechecked after a failed inspection, without
+    # issuing a second physical receipt or creating a duplicate receipt record.
+    if incoming_status != "received" and not (source_mode == "event_fulfillment_transfer" and incoming_status == "rejected"):
         raise HTTPException(status_code=400, detail="Receive the physical shipment before quality inspection")
     if data.usableQuantity is not None and float(data.usableQuantity) > float(incoming.get("quantityReceived") or incoming.get("quantity") or 0):
         raise HTTPException(status_code=400, detail="Usable quantity cannot exceed received quantity")
@@ -6110,6 +6114,8 @@ async def update_incoming_quality(
         update["qualityRejectedAt"] = datetime.utcnow()
     elif data.qualityCheck == "passed":
         update["qualityPassedAt"] = datetime.utcnow()
+        if source_mode == "event_fulfillment_transfer" and incoming_status == "rejected":
+            update["status"] = "received"
     # Keep the permanent receipt snapshot aligned with the latest quality decision
     # while retaining its original receipt number and receipt timestamp.
     existing_receipt = incoming.get("receipt") if isinstance(incoming.get("receipt"), dict) else {}
