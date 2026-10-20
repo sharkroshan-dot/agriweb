@@ -6283,10 +6283,17 @@ async def store_incoming_stock(
             if request_id:
                 bulk_requests = MongoDB.get_collection("bulk_requests")
                 siblings = await event_fulfillments.find({"requestId": request_id, "deletedAt": None}).to_list(length=500)
-                all_stored = bool(siblings) and all(str(s.get("status") or "") == "stored" for s in siblings)
+                parent_request = await bulk_requests.find_one({"_id": request_id, "deletedAt": None})
+                target_warehouse_id = str((parent_request or {}).get("eventWarehouseId") or "")
+                all_source_stored = bool(siblings) and all(str(s.get("status") or "") == "stored" for s in siblings)
+                all_consolidated = all_source_stored and all(
+                    str(s.get("sourceWarehouseId") or s.get("warehouseId") or target_warehouse_id) == target_warehouse_id
+                    or str(s.get("consolidationStatus") or "") == "received"
+                    for s in siblings
+                )
                 await bulk_requests.update_one({"_id": request_id, "deletedAt": None}, {"$set": {
-                    "eventDeliveryStatus": "awaiting_local_hub_dispatch" if all_stored else "warehouse_receiving",
-                    "eventConsolidationStatus": "consolidated" if all_stored else "warehouse_receiving",
+                    "eventDeliveryStatus": "awaiting_local_hub_dispatch" if all_consolidated else "consolidation_in_transit" if all_source_stored else "warehouse_receiving",
+                    "eventConsolidationStatus": "consolidated" if all_consolidated else "consolidation_in_transit" if all_source_stored else "warehouse_receiving",
                     "updatedAt": now,
                 }})
     try:
