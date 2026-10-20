@@ -1774,6 +1774,8 @@ async def receive_event_portion_at_consolidation(
     if not target_warehouse or str(target_warehouse.get("_id")) != str(request.get("eventWarehouseId") or ""):
         raise HTTPException(status_code=403, detail="Only the assigned consolidation warehouse can receive this portion")
     source_id = str(fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId") or "")
+    if str(fulfillment.get("consolidationStatus") or "") == "received":
+        return {"success": True, "data": {"status": "received", "allConsolidated": str(request.get("eventConsolidationStatus") or "") == "consolidated"}, "message": "This portion's consolidation receipt is already recorded"}
     if source_id == str(request.get("eventWarehouseId") or ""):
         return {"success": True, "data": {"status": "received", "transferRequired": False}, "message": "This portion was collected directly into the consolidation warehouse"}
     if str(fulfillment.get("status") or "") != "stored":
