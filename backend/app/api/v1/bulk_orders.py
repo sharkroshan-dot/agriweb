@@ -174,6 +174,9 @@ async def _resolve_delivery_address(user_id: str, data: BulkRequestCreate) -> di
 def _stringify_request(r: dict) -> dict:
     r["id"] = str(r["_id"])
     r["buyerUserId"] = str(r.get("buyerUserId"))
+    # The customer OTP is returned only by the authenticated buyer tracking
+    # endpoint; never expose it through farmer request lists or admin summaries.
+    r.pop("eventDeliveryVerificationCode", None)
     if r.get("deliveryAddressId"):
         r["deliveryAddressId"] = str(r["deliveryAddressId"])
     return r
