@@ -1920,8 +1920,9 @@ async def update_event_fulfillment_status(
             raise HTTPException(status_code=404, detail="Event order not found")
         if role == "warehouse":
             manager_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
-            if not manager_warehouse or str(request_for_warehouse.get("eventWarehouseId")) != str(manager_warehouse["_id"]):
-                raise HTTPException(status_code=403, detail="This fulfillment is not assigned to your warehouse")
+            assigned_source_warehouse = str(fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request_for_warehouse.get("eventWarehouseId") or "")
+            if not manager_warehouse or assigned_source_warehouse != str(manager_warehouse["_id"]):
+                raise HTTPException(status_code=403, detail="This farm portion is not assigned to your source warehouse")
 
     # Warehouse milestones must be backed by the actual Incoming Stock
     # record. The status endpoint must not let a user skip physical receipt,
