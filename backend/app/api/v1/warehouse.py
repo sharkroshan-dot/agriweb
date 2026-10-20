@@ -2759,6 +2759,8 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "isEventLocalHub": is_event_local_hub,
             "eventDeliveryJobId": str(request.get("eventDeliveryJobId") or "") or None,
             "deliveryJobId": str(request.get("eventDeliveryJobId") or "") or None,
+            "eventHubTransferJobId": str(request.get("eventHubTransferJobId") or "") or None,
+            "eventHubTransferStatus": request.get("eventHubTransferStatus"),
             "routeDistanceKm": event_route_distance_km,
             "nearbyThresholdKm": 15,
             "eventFulfillmentRoute": request.get("eventFulfillmentRoute"),
