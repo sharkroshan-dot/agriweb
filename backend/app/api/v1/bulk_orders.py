@@ -2112,7 +2112,11 @@ async def bulk_order_tracking(
     )
 
     fulfillment_statuses = [str(f.get("status") or "") for f in fulfillments]
-    job_statuses = [str(j.get("status") or "") for j in delivery_jobs]
+    # Intermediate consolidation-to-hub transfer completion is not the parent
+    # customer's delivery completion. Only final customer delivery jobs advance
+    # the parent to Delivered.
+    final_delivery_jobs = [j for j in delivery_jobs if str(j.get("jobType") or "") != "event_hub_transfer"]
+    job_statuses = [str(j.get("status") or "") for j in final_delivery_jobs]
     order_statuses = [str(o.get("status") or "") for o in bulk_orders]
     sourcing_status = str(request.get("eventSourcingStatus") or "")
     delivery_status = str(request.get("eventDeliveryStatus") or "")
