@@ -1416,11 +1416,12 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
     if not warehouse:
         return None
 
-    warehouse_coords = (warehouse.get("location") or {}).get("coordinates") or []
+    warehouse_location = warehouse.get("location") or warehouse.get("coordinates") or {}
+    warehouse_coords = warehouse_location.get("coordinates") if isinstance(warehouse_location, dict) else warehouse_location
     destination = request.get("deliveryAddress") or {}
     destination_location = destination.get("location") or {}
     destination_coords = destination_location.get("coordinates") or []
-    if len(warehouse_coords) < 2 or len(destination_coords) < 2:
+    if not isinstance(warehouse_coords, (list, tuple)) or len(warehouse_coords) < 2 or len(destination_coords) < 2:
         return None
 
     total_weight = round(sum(float(f.get("allocatedQuantityKg") or 0) for f in fulfillments), 2)
