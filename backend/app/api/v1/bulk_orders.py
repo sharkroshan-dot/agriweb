@@ -1650,7 +1650,11 @@ async def dispatch_event_order_to_local_hub(
             "deliveryLocation": {"type": "Point", "coordinates": [float(hub_coords[0]), float(hub_coords[1])]},
             "deliveryArea": hub.get("city") or hub.get("district") or "Local Hub",
             "deliveryCity": hub.get("city") or hub.get("district") or "",
-            "deliveryAddress": hub.get("address") or hub.get("name") or "Approved Local Hub",
+            "deliveryAddress": (
+                hub.get("address") if isinstance(hub.get("address"), str)
+                else (hub.get("address") or {}).get("addressLine1") or (hub.get("address") or {}).get("formattedAddress")
+                or hub.get("name") or "Approved Local Hub"
+            ),
             "customerName": request.get("buyerName") or "Event buyer",
             "distanceKm": round(BulkOrderService.haversine_km(pickup_lat, pickup_lng, hub_lat, hub_lng), 2),
             "weightKg": total_weight,
