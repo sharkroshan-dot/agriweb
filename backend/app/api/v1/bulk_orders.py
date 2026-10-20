@@ -2034,7 +2034,7 @@ async def bulk_order_tracking(
         current_stage = "cancelled"
     elif any(s in ("delivered", "completed") for s in job_statuses + order_statuses):
         current_stage = "delivered"
-    elif any(s in ("in_transit", "out_for_delivery", "picked_up") for s in job_statuses) or "out_for_delivery" in order_statuses:
+    elif any(s in ("in_transit", "out_for_delivery", "picked_up") for s in job_statuses) or "out_for_delivery" in order_statuses or delivery_status in ("picked_up", "out_for_delivery"):
         current_stage = "out_for_delivery"
     elif any(s in ("accepted", "confirmed") for s in job_statuses) or delivery_status == "delivery_partner_assignment":
         current_stage = "delivery_partner"
@@ -2124,6 +2124,7 @@ async def bulk_order_tracking(
             "fulfillments": [await _stringify_event_fulfillment(dict(f)) for f in fulfillments],
             "orders": [await _stringify_order(dict(o)) for o in bulk_orders],
             "deliveryJobs": [serialize_job(j) for j in delivery_jobs],
+            "deliveryVerificationCode": request.get("eventDeliveryVerificationCode") if role in ("customer", "business") else None,
             "currentStage": current_stage,
             "isActive": current_stage not in ("delivered", "cancelled"),
         },
