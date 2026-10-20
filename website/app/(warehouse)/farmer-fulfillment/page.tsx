@@ -355,7 +355,17 @@ export default function FarmerFulfillmentWarehousePage() {
         const selectedRoute=String(o.eventFulfillmentRoute||"");
         const jobExists=Boolean(o.eventDeliveryJobId||o.deliveryJobId);
         const routeBusy=Boolean(routingOrder===requestId);
-        const statusLabel=(p:any)=>p.incomingStatus==="stored"&&p.qualityStatus==="passed"&&Number(p.receivedQuantity)>=Number(p.requiredQuantity)?"Stored and quality-approved":p.qualityStatus==="failed"?"Quality failed — recheck required":p.incomingStatus==="received"?"Physically received — quality/storage pending":p.incomingStatus==="not_created"?String(p.eventFulfillmentStatus||"Waiting for farmer"):String(p.incomingStatus||p.eventFulfillmentStatus||"Pending").replace(/_/g," ");
+        const statusLabel=(p:any)=>{
+          const crossWarehouse=String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"");
+          if(crossWarehouse&&p.consolidationTransferStatus==="received") return "Received at consolidation";
+          if(crossWarehouse&&p.consolidationTransferStatus==="arrived_at_consolidation") return "Arrived — receipt pending";
+          if(crossWarehouse&&["in_transit","assigned","picked_up"].includes(String(p.consolidationTransferStatus||""))) return "Transfer to consolidation in progress";
+          if(p.incomingStatus==="stored"&&p.qualityStatus==="passed"&&Number(p.receivedQuantity)>=Number(p.requiredQuantity)) return crossWarehouse?"Stored at source — dispatch pending":"Stored and quality-approved";
+          if(p.qualityStatus==="failed") return "Quality failed — recheck required";
+          if(p.incomingStatus==="received") return "Physically received — quality/storage pending";
+          if(p.incomingStatus==="not_created") return String(p.eventFulfillmentStatus||"Waiting for farmer");
+          return String(p.incomingStatus||p.eventFulfillmentStatus||"Pending").replace(/_/g," ");
+        };
         return <Card key={requestId} className="overflow-hidden border-violet-200">
           <div className="border-b bg-violet-50 px-4 py-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="font-semibold">{o.orderNumber||requestId}</h3><p className="mt-1 text-sm text-muted-foreground">{o.buyerName||"Event buyer"} · {o.buyerType||"Event"}</p></div><Badge variant="outline">{o.eventRequestStatus||o.eventStatus||"Active"}</Badge></div><p className="mt-2 text-sm">{[o.deliveryAddress?.addressLine1||o.deliveryAddress?.address,o.deliveryAddress?.city,o.deliveryAddress?.district,o.deliveryAddress?.state].filter(Boolean).join(", ")||"Delivery address needs review"}</p></div>
           <CardContent className="space-y-3 p-4">
@@ -377,7 +387,8 @@ export default function FarmerFulfillmentWarehousePage() {
                   {canStore&&<Button size="sm" variant="outline" onClick={()=>void store(incomingId)}>Store Approved Portion</Button>}
                   {Boolean(o.isEventSourceWarehouse)&&String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.incomingStatus==="stored"&&String(p.qualityStatus||"").toLowerCase()==="passed"&&Number(p.receivedQuantity)+1e-9>=Number(p.requiredQuantity)&&!p.consolidationTransferJobId&&<Button size="sm" onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/portions/"+p.eventFulfillmentId+"/dispatch-to-consolidation");toast.success("Sealed portion transfer to consolidation created");await refreshAll();}catch(e:any){toast.error(e?.message||"Could not dispatch portion to consolidation");}finally{setRoutingOrder(null);}})()} disabled={routeBusy}>Dispatch to Consolidation</Button>}
                   {Boolean(o.isConsolidationWarehouse)&&String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="arrived_at_consolidation"&&<Button size="sm" onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/portions/"+p.eventFulfillmentId+"/receive-at-consolidation");toast.success("Portion physically received at consolidation");await refreshAll();}catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}finally{setRoutingOrder(null);}})()} disabled={routeBusy}>Confirm Consolidation Receipt</Button>}
-                  {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="in_transit"&&<p className="text-xs text-sky-700">Transfer to consolidation is in progress.</p>}
+                  {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&["in_transit","assigned","picked_up"].includes(String(p.consolidationTransferStatus||""))&&<p className="text-xs text-sky-700">Transfer to consolidation is in progress.</p>}
+                  {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="arrived_at_consolidation"&&<p className="text-xs text-amber-700">Transfer partner reported arrival; warehouse receipt is still required.</p>}
                   {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="received"&&<p className="text-xs text-emerald-700">✓ Consolidation warehouse receipt confirmed.</p>}
                   {failed&&<span className="text-xs text-red-700">This portion cannot be stored or dispatched until quality is passed and the full quantity is reconciled.</span>}
                 </div>
