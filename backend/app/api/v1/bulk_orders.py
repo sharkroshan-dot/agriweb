@@ -2079,8 +2079,10 @@ async def receive_event_order_at_local_hub(
     if not request:
         raise HTTPException(status_code=404, detail="Event order not found")
     manager_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
-    if not manager_warehouse or str(request.get("eventWarehouseId") or "") != str(manager_warehouse["_id"]):
-        raise HTTPException(status_code=403, detail="Only the consolidation warehouse assigned to this event order can confirm the local-hub handoff")
+    # Physical receipt is confirmed by the destination local hub, not by the
+    # origin consolidation warehouse. The latter dispatches the transfer.
+    if not manager_warehouse or str(request.get("eventLocalHubId") or "") != str(manager_warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the destination local hub assigned to this event order can confirm physical receipt")
     if str(request.get("eventLocalHubStatus") or "") == "received" and request.get("eventDeliveryJobId"):
         return {"success": True, "data": {"status": "received", "deliveryJobId": str(request.get("eventDeliveryJobId"))}, "message": "Local-hub receipt and final delivery job are already recorded"}
     if str(request.get("eventLocalHubStatus") or "") != "arrived_at_hub":
