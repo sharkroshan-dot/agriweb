@@ -178,7 +178,7 @@ export default function BulkOrderTrackingPage() {
                   <div><p className="font-semibold">{job.orderNumber || request.requestNumber}</p><p className="text-sm text-slate-500">{job.pickupName || "Pickup"} → {job.deliveryCity || "Destination"}</p></div>
                   <Badge variant="success">{String(job.status || "").replace(/_/g, " ")}</Badge>
                 </div>
-                {job.deliveryAddress ? <p className="mt-3 flex items-center gap-2 text-sm text-slate-600"><Package className="h-4 w-4" />{job.deliveryAddress}</p> : null}
+                {job.deliveryAddress ? <p className="mt-3 flex items-center gap-2 text-sm text-slate-600"><Package className="h-4 w-4" />{typeof job.deliveryAddress === "string" ? job.deliveryAddress : job.deliveryAddress?.addressLine1 || job.deliveryAddress?.formattedAddress || job.deliveryAddress?.city || "Delivery address available"}</p> : null}
               </div>
             ))}
           </CardContent>
