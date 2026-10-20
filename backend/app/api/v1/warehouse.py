@@ -2762,7 +2762,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "routeDistanceKm": event_route_distance_km,
             "nearbyThresholdKm": 15,
             "eventFulfillmentRoute": request.get("eventFulfillmentRoute"),
-            "deliveryPartnerId": str(request.get("deliveryPartnerId") or "") or None,
+            "deliveryPartnerId": str(request.get("eventDeliveryPartnerId") or request.get("deliveryPartnerId") or "") or None,
             "deliveryAddress": request.get("deliveryAddress") or {},
             "requestedDeliveryDate": request.get("requestedDeliveryDate"),
             "requestedDeliveryTime": request.get("requestedDeliveryTime"),
