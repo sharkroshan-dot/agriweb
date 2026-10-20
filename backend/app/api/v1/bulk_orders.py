@@ -1148,13 +1148,15 @@ async def planned_event_confirm(
         raise HTTPException(status_code=400, detail={"message": "Selected quotes do not fully cover the event", "shortages": shortages})
 
     destination = ((request.get("deliveryAddress") or {}).get("location") or {})
-    total_required = sum(required.values())
-    event_warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required) if destination.get("coordinates") else None
+    # The customer's delivery area selects the consolidation warehouse. Immediate
+    # event transfers must not be blocked by a bulk storage-capacity reservation.
+    event_warehouse = await WarehouseService.find_best_warehouse(destination) if destination.get("coordinates") else None
     if not event_warehouse:
-        raise HTTPException(status_code=409, detail="No active warehouse has enough available capacity for the complete bulk order")
+        raise HTTPException(status_code=409, detail="No active consolidation warehouse is available for the customer delivery area")
 
     created = []
     reserved = []
+    source_warehouse_ids = set()
     try:
         for allocation in allocations:
             ok = await inventory_repository.atomic_reserve(allocation["productId"], allocation["quantityKg"])
@@ -1162,11 +1164,23 @@ async def planned_event_confirm(
                 raise HTTPException(status_code=409, detail=f"Stock changed for {allocation['productName']}; please review the selected quotes")
             reserved.append(allocation)
             required_qty = required[BulkOrderService._normalize(allocation["productName"])]
+            farmer_doc = await farmer_repository.find_one({"userId": ObjectId(allocation["farmerId"])})
+            farm_location = (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("location") or {}
+            farm_coordinates = farm_location.get("coordinates") if isinstance(farm_location, dict) else None
+            source_warehouse = await WarehouseService.find_best_warehouse(farm_location) if farm_coordinates and len(farm_coordinates) >= 2 else None
+            source_warehouse = source_warehouse or event_warehouse
+            source_warehouse_id = source_warehouse["_id"]
+            source_warehouse_ids.add(str(source_warehouse_id))
             fulfillment = {
                 "requestId": request["_id"],
                 "requestNumber": request.get("requestNumber"),
                 "buyerUserId": request.get("buyerUserId"),
-                "warehouseId": event_warehouse["_id"],
+                "warehouseId": source_warehouse_id,
+                "sourceWarehouseId": source_warehouse_id,
+                "sourceWarehouseName": source_warehouse.get("name") or source_warehouse.get("warehouseName") or "Source Warehouse",
+                "consolidationWarehouseId": event_warehouse["_id"],
+                "consolidationStatus": "received" if str(source_warehouse_id) == str(event_warehouse["_id"]) else "awaiting_transfer",
+                "consolidationTransferStatus": "not_required" if str(source_warehouse_id) == str(event_warehouse["_id"]) else "pending_dispatch",
                 "eventWarehouseId": event_warehouse["_id"],
                 "farmerId": ObjectId(allocation["farmerId"]),
                 "productId": ObjectId(allocation["productId"]),
@@ -1200,6 +1214,7 @@ async def planned_event_confirm(
                 "eventFulfillmentIds": [x["_id"] for x in created],
                 "eventWarehouseId": event_warehouse["_id"],
                 "eventWarehouseName": event_warehouse.get("name") or event_warehouse.get("warehouseName"),
+                "eventSourceWarehouseIds": [ObjectId(value) for value in source_warehouse_ids],
                 "eventWarehouseStatus": "awaiting_fulfillment",
                 "selectedOfferIds": [x["_id"] for x in offers],
                 "updatedAt": datetime.utcnow(),
