@@ -1320,6 +1320,7 @@ async def confirm_event_source(
 
     created = []
     reserved = []
+    source_warehouse_ids = set()
     try:
         for a in normalized:
             ok = await __import__("app.repositories.inventory_repository", fromlist=["inventory_repository"]).inventory_repository.atomic_reserve(
@@ -1328,6 +1329,13 @@ async def confirm_event_source(
             if not ok:
                 raise HTTPException(status_code=409, detail=f"Stock changed for {a['productName']} at {a['farmName']}; run sourcing again")
             reserved.append(a)
+            farmer_doc = await farmer_repository.find_one({"userId": ObjectId(a["farmerId"])})
+            farm_location = (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("location") or {}
+            farm_coordinates = farm_location.get("coordinates") if isinstance(farm_location, dict) else None
+            source_warehouse = await WarehouseService.find_best_warehouse(farm_location) if farm_coordinates and len(farm_coordinates) >= 2 else None
+            source_warehouse = source_warehouse or event_warehouse
+            source_warehouse_id = source_warehouse["_id"]
+            source_warehouse_ids.add(str(source_warehouse_id))
 
             fulfillment = {
                 "requestId": request["_id"],
@@ -1344,7 +1352,12 @@ async def confirm_event_source(
                 "deliveryStatus": "pending_consolidation",
                 "distanceKm": a.get("distanceKm"),
                 "farmName": a.get("farmName"),
-                "warehouseId": event_warehouse_id,
+                "warehouseId": source_warehouse_id,
+                "sourceWarehouseId": source_warehouse_id,
+                "sourceWarehouseName": source_warehouse.get("name") or source_warehouse.get("warehouseName") or "Source Warehouse",
+                "consolidationWarehouseId": event_warehouse_id,
+                "consolidationStatus": "received" if str(source_warehouse_id) == str(event_warehouse_id) else "awaiting_transfer",
+                "consolidationTransferStatus": "not_required" if str(source_warehouse_id) == str(event_warehouse_id) else "pending_dispatch",
             }
             fid = await event_fulfillment_repo.create(fulfillment)
             if not fid:
@@ -1369,6 +1382,7 @@ async def confirm_event_source(
             "eventFulfillmentIds": [x["_id"] for x in created],
             "eventWarehouseId": event_warehouse_id,
             "eventWarehouseName": event_warehouse.get("name") or event_warehouse.get("warehouseName"),
+            "eventSourceWarehouseIds": [ObjectId(value) for value in source_warehouse_ids],
             "eventWarehouseStatus": "awaiting_fulfillment",
             "updatedAt": datetime.utcnow(),
         })
