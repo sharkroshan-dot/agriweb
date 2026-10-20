@@ -1305,10 +1305,12 @@ async def confirm_event_source(
 
     # One warehouse must be able to consolidate the complete parent order.
     destination = ((request.get("deliveryAddress") or {}).get("location") or {})
-    total_required = sum(float(i.get("quantityKg") or 0) for i in request.get("items", []))
-    event_warehouse = await WarehouseService.find_best_warehouse(destination, required_capacity=total_required) if destination.get("coordinates") else None
+    # Choose the consolidation warehouse by the customer's delivery area.
+    # This workflow transfers sealed portions through the warehouse promptly;
+    # do not block sourcing on a bulk inventory-capacity reservation.
+    event_warehouse = await WarehouseService.find_best_warehouse(destination) if destination.get("coordinates") else None
     if not event_warehouse:
-        raise HTTPException(status_code=409, detail="No active warehouse has enough available capacity for the complete bulk order")
+        raise HTTPException(status_code=409, detail="No active consolidation warehouse is available for the customer delivery area")
     event_warehouse_id = event_warehouse["_id"]
 
     created = []
