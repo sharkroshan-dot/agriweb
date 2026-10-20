@@ -41,6 +41,11 @@ export default function FarmerFulfillmentWarehousePage() {
   const [routingOrder,setRoutingOrder]=useState<string|null>(null);
   const [selectedRouteOrders,setSelectedRouteOrders]=useState<Record<string,boolean>>({});
   const [planningRoute,setPlanningRoute]=useState(false);
+  const [receivingPortion,setReceivingPortion]=useState<any>(null);
+  const [receiptQuantity,setReceiptQuantity]=useState("");
+  const [receiptQuality,setReceiptQuality]=useState<"pending"|"passed"|"failed">("pending");
+  const [receiptNotes,setReceiptNotes]=useState("");
+  const [savingReceipt,setSavingReceipt]=useState(false);
   const [activeRouteSection,setActiveRouteSection]=useState<"nearby"|"same_district"|"inter_district"|"route_review"|"needs_location">("nearby");
   const {data:teamsData}=useQuery({
     queryKey:["warehouseApprovedPickupTeams"],
@@ -119,12 +124,24 @@ export default function FarmerFulfillmentWarehousePage() {
       await refreshAll();
     }catch(e:any){toast.error(e?.message||"Could not assign source warehouse");}
   };
-  const receive=async(id:string,qty:number)=>{
+  const openReceiptDialog=(row:any)=>{
+    setReceivingPortion(row);
+    setReceiptQuantity(String(row.expectedQuantity ?? row.quantity ?? ""));
+    setReceiptQuality("pending");
+    setReceiptNotes("");
+  };
+  const receive=async()=>{
+    if(!receivingPortion) return;
+    const qty=Number(receiptQuantity);
+    if(!Number.isFinite(qty)||qty<=0){toast.error("Enter the actual received quantity greater than zero.");return;}
+    setSavingReceipt(true);
     try {
-      await api.put(`/warehouse/me/incoming/${id}/receive`,undefined,{params:{quantity:qty,quality_check:"passed",usableQuantity:qty,notes:"Farmer-packed fulfillment received at warehouse"}});
-      toast.success("Farmer-packed shipment received");
-      await refetch();
+      await api.put(`/warehouse/me/incoming/${receivingPortion.id}/receive`,undefined,{params:{quantity:qty,quality_check:receiptQuality,usableQuantity:receiptQuality==="failed"?0:qty,notes:receiptNotes.trim()||undefined}});
+      toast.success(receiptQuality==="passed"?"Shipment received and quality approved":receiptQuality==="failed"?"Shipment received and marked failed":"Shipment received; quality approval remains pending");
+      setReceivingPortion(null);
+      await refreshAll();
     } catch(e:any){toast.error(e?.message||"Receiving failed");}
+    finally{setSavingReceipt(false);}
   };
   const refreshAll=async()=>{await refetch();await refetchConsolidations();};
   const completeConsolidation=async(id:string)=>{
@@ -136,8 +153,16 @@ export default function FarmerFulfillmentWarehousePage() {
     catch(e:any){toast.error(e?.message||"Dispatch failed");}
   };
   const receiveConsolidation=async(id:string)=>{
-    try{await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-consolidation`);toast.success("Portion received at consolidation");await refreshAll();}
-    catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
+    try{
+      const order=consolidations.find((item:any)=>String(item.id)===String(id)||String(item.orderId)===String(id)) || transfers.find((item:any)=>String(item.id)===String(id));
+      const legs=(order?.consolidationLegs||order?.consolidation?.consolidationLegs||[]).filter((leg:any)=>String(leg.status||"").toLowerCase()==="in_transit" && leg.id);
+      const legIds=legs.map((leg:any)=>String(leg.id));
+      if(!legIds.length){toast.error("No in-transit consolidation portions are available to receive.");return;}
+      const params=new URLSearchParams();legIds.forEach((legId:string)=>params.append("legIds",legId));
+      await api.post(`/warehouse/me/farmer-fulfillment/${id}/receive-at-consolidation?${params.toString()}`);
+      toast.success(`Received ${legIds.length} portion transfer(s) at consolidation`);
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
   };
   const toggleRouteOrder=(id:string,checked:boolean)=>setSelectedRouteOrders(current=>({...current,[id]:checked}));
   const planSelectedTransfers=async(category:"same_district"|"inter_district")=>{
@@ -340,7 +365,7 @@ export default function FarmerFulfillmentWarehousePage() {
             </div>
             <div className="rounded-lg bg-slate-50 p-3 text-xs text-muted-foreground">Farm pickup: {o.pickupSchedule?.start||"20:00"}–{o.pickupSchedule?.end||"06:00"} IST · Warehouse transfer: {o.downstreamTransferSchedule?.start||"06:00"}–{o.downstreamTransferSchedule?.end||"20:00"} IST. Sealed farmer-packed orders are never repacked.</div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">{(o.items||[]).map((i:any)=><div key={`${i.productId}-${i.variantId||""}`} className="rounded-lg bg-slate-50 p-3 text-sm"><b>{i.productName}</b><div className="text-muted-foreground">{i.quantity} {i.unit}</div></div>)}</div>
-            <div className="mt-4 space-y-2">{(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><b>Incoming shipment</b><div className="text-xs text-muted-foreground">Expected {x.expectedQuantity} · Received {x.receivedQuantity||0} · {x.qualityCheck||"quality pending"}</div></div><div className="flex gap-2">{x.status==="pending"&&<Button size="sm" onClick={()=>receive(x.id,x.expectedQuantity)}>Receive + Verify</Button>}{x.status==="received"&&<Button size="sm" onClick={()=>store(x.id)}>Store Packed Shipment</Button>}{x.status==="stored"&&<Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Stored</Badge>}
+            <div className="mt-4 space-y-2">{(o.incoming||[]).map((x:any)=><div key={x.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"><div><b>Incoming shipment</b><div className="text-xs text-muted-foreground">Expected {x.expectedQuantity} · Received {x.receivedQuantity||0} · {x.qualityCheck||"quality pending"}</div></div><div className="flex gap-2">{x.status==="pending"&&<Button size="sm" onClick={()=>openReceiptDialog(x)}>Receive + Verify</Button>}{x.status==="received"&&<Button size="sm" onClick={()=>store(x.id)}>Store Packed Shipment</Button>}{x.status==="stored"&&<Badge variant="success"><CheckCircle2 className="mr-1 h-4 w-4"/>Stored</Badge>}
                   {(x.status==="rejected"||x.qualityCheck==="failed")&&<Button size="sm" variant="outline" onClick={()=>requestReturn(o.id)}>Return to Farmer</Button>}</div></div>)}</div>
           <div className="space-y-3">
             {o.isUnassigned && <Button size="sm" onClick={()=>recoverSourceWarehouse(o.id)}>Assign Source Warehouse & Prepare Pickup</Button>}
@@ -458,5 +483,21 @@ export default function FarmerFulfillmentWarehousePage() {
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
       </CardContent></Card>)}</div></>}
+    {receivingPortion && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="receipt-dialog-title">
+      <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-3">
+          <div><h2 id="receipt-dialog-title" className="text-lg font-semibold">Receive and inspect packed portion</h2><p className="mt-1 text-sm text-muted-foreground">Record physical quantity and the actual quality result. Do not approve quality unless inspected.</p></div>
+          <button type="button" className="rounded px-2 py-1 text-sm text-muted-foreground" onClick={()=>setReceivingPortion(null)} aria-label="Close receipt dialog">Close</button>
+        </div>
+        <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm"><p><span className="font-medium">Order:</span> {receivingPortion.orderNumber||receivingPortion.orderId||"Farmer Fulfillment"}</p><p><span className="font-medium">Product:</span> {receivingPortion.productName||receivingPortion.product?.name||"Packed product"}</p><p><span className="font-medium">Declared quantity:</span> {receivingPortion.expectedQuantity??receivingPortion.quantity??"Not specified"}</p></div>
+        <div className="mt-4 space-y-3">
+          <label className="block text-sm font-medium">Actual received quantity<input className="mt-1 h-10 w-full rounded-md border px-3" type="number" min="0.001" step="0.001" value={receiptQuantity} onChange={e=>setReceiptQuantity(e.target.value)} /></label>
+          <label className="block text-sm font-medium">Quality inspection result<select className="mt-1 h-10 w-full rounded-md border bg-white px-3" value={receiptQuality} onChange={e=>setReceiptQuality(e.target.value as "pending"|"passed"|"failed")}><option value="pending">Pending — needs inspection/review</option><option value="passed">Passed — approved</option><option value="failed">Failed — hold/reject</option></select></label>
+          <label className="block text-sm font-medium">Inspection notes<textarea className="mt-1 w-full rounded-md border p-3" rows={3} value={receiptNotes} onChange={e=>setReceiptNotes(e.target.value)} placeholder="Condition, damage, shortage, temperature, or other findings" /></label>
+          {Number(receiptQuantity)!==Number(receivingPortion.expectedQuantity) && <p className="text-sm text-amber-700">Received quantity differs from the declared quantity. Reconcile the shortage/excess and keep quality pending unless the discrepancy is resolved.</p>}
+        </div>
+        <div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={()=>setReceivingPortion(null)} disabled={savingReceipt}>Cancel</Button><Button onClick={()=>void receive()} disabled={savingReceipt}>{savingReceipt?"Saving receipt…":"Save Receipt and Inspection"}</Button></div>
+      </div>
+    </div>}
   </div>;
 }
