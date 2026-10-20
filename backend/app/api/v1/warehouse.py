@@ -2709,6 +2709,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
                 "qualityStatus": quality_status,
                 "collectionStatus": fulfillment.get("collectionStatus") or "pending",
                 "incomingStatus": incoming_row.get("status") or "not_created",
+                "arrivedWarehouseAt": incoming_row.get("arrivedWarehouseAt"),
                 "transferLegId": fid,
                 "transferStatus": portion_status,
                 "portionStatus": portion_status,
@@ -5901,12 +5902,12 @@ async def receive_incoming_stock(
     if (
         incoming_record
         and str(incoming_record.get("warehouseId")) == str(warehouse["_id"])
-        and str(incoming_record.get("sourceMode") or "") == "farmer_fulfillment_transfer"
+        and str(incoming_record.get("sourceMode") or "") in ("farmer_fulfillment_transfer", "event_fulfillment_transfer")
         and not incoming_record.get("arrivedWarehouseAt")
     ):
         raise HTTPException(
             status_code=409,
-            detail="This farmer-packed shipment has not arrived at the warehouse yet. Complete Farm Collection → Arrived Warehouse first.",
+            detail="This farm-packed shipment has not physically arrived at the warehouse yet. Complete Farm Collection → Arrived Warehouse first.",
         )
 
     # Physical receipt is separate from quality approval. Bulk stock stays pending until
