@@ -2718,6 +2718,18 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
                 "eventFulfillmentStatus": fulfillment_status,
             })
         all_stored = len(fulfillments) > 0 and stored_count == len(fulfillments)
+        event_route_distance_km = None
+        event_warehouse = await warehouse_repository.get_by_id(event_warehouse_id) if event_warehouse_id else None
+        event_source_coords = ((event_warehouse or {}).get("location") or {}).get("coordinates") or []
+        event_destination_coords = (((request.get("deliveryAddress") or {}).get("location") or {}).get("coordinates") or [])
+        if len(event_source_coords) >= 2 and len(event_destination_coords) >= 2:
+            try:
+                event_route_distance_km = round(BulkOrderService.haversine_km(
+                    float(event_source_coords[1]), float(event_source_coords[0]),
+                    float(event_destination_coords[1]), float(event_destination_coords[0]),
+                ), 2)
+            except (TypeError, ValueError, IndexError):
+                event_route_distance_km = None
         result.append({
             "orderId": str(request["_id"]),
             "requestId": str(request["_id"]),
@@ -2746,6 +2758,9 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "isEventLocalHub": is_event_local_hub,
             "eventDeliveryJobId": str(request.get("eventDeliveryJobId") or "") or None,
             "deliveryJobId": str(request.get("eventDeliveryJobId") or "") or None,
+            "routeDistanceKm": event_route_distance_km,
+            "nearbyThresholdKm": 15,
+            "eventFulfillmentRoute": request.get("eventFulfillmentRoute"),
             "deliveryPartnerId": str(request.get("deliveryPartnerId") or "") or None,
             "deliveryAddress": request.get("deliveryAddress") or {},
             "requestedDeliveryDate": request.get("requestedDeliveryDate"),
