@@ -3389,7 +3389,7 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
             continue
         # Nearby Farmer Fulfillment is assigned to a specific partner; do not
         # leak that job to every driver in the open marketplace.
@@ -3408,7 +3408,7 @@ async def get_my_delivery_jobs(
     accepted_jobs = await delivery_job_repository.get_jobs_for_partner(partner_id)
     accepted_list = []
     for job in accepted_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
             continue
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
     accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
@@ -3585,6 +3585,28 @@ async def accept_delivery_job(
             "message": "Warehouse pickup route accepted successfully",
         }
 
+    # Event consolidation -> local-hub transfers are intermediate logistics
+    # jobs, not customer deliveries. The consolidation warehouse confirms receipt.
+    if job.get("jobType") == "event_hub_transfer":
+        from app.api.v1.bulk_orders import request_repo
+        request_id = str(job.get("eventRequestId") or job.get("orderId") or "")
+        request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+        if not request or str(request.get("eventHubTransferJobId") or "") != str(job_id):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Event hub transfer is no longer linked to the parent request")
+        if str(request.get("eventLocalHubStatus") or "") != "in_transit":
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="The event order is not awaiting local-hub transfer")
+        await request_repo.update({"_id": request["_id"]}, {
+            "eventHubTransferStatus": "assigned",
+            "eventHubTransferPartnerId": ObjectId(partner_id),
+            "eventHubTransferPartnerName": profile.get("name") or "Delivery Partner",
+            "updatedAt": datetime.utcnow(),
+        })
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        refreshed = await delivery_job_repository.get_by_id(job_id)
+        return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event consolidation-to-local-hub transfer accepted"}
+
     # Consolidated event/weekly bulk delivery starts at the warehouse and is
     # intentionally not represented by a normal customer order document.
     if job.get("jobType") == "event_consolidated_delivery":
@@ -3700,6 +3722,57 @@ async def accept_delivery_job(
         "data": serialize_job_for_partner(refreshed, reveal=True),
         "message": "Delivery job accepted",
     }
+
+
+@router.put("/jobs/{job_id}/event-hub-transfer-status")
+async def update_event_hub_transfer_progress(
+    job_id: str,
+    progress: str = Query(..., alias="status", pattern="^(picked_up|arrived_at_hub)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Track the intermediate sealed transfer; hub receipt still requires warehouse confirmation."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update event transfer progress")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_hub_transfer":
+        raise HTTPException(status_code=404, detail="Event local-hub transfer job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event transfer is not assigned to you")
+    if str(job.get("status") or "") != "accepted":
+        raise HTTPException(status_code=409, detail="This event transfer is no longer active")
+    request_id = str(job.get("eventRequestId") or "")
+    from app.api.v1.bulk_orders import request_repo
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    if not request or str(request.get("eventHubTransferJobId") or "") != str(job_id):
+        raise HTTPException(status_code=404, detail="Parent event order or transfer link not found")
+    current = str(job.get("eventProgressStatus") or "accepted")
+    expected_next = {"open": "picked_up", "accepted": "picked_up", "picked_up": "arrived_at_hub"}
+    if expected_next.get(current) != progress:
+        raise HTTPException(status_code=409, detail="Invalid transfer progression from " + current)
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "deletedAt": None},
+        {"$set": {
+            "eventProgressStatus": progress,
+            "updatedAt": now,
+            "pickedUpAt": now if progress == "picked_up" else job.get("pickedUpAt"),
+            "arrivedAtHubAt": now if progress == "arrived_at_hub" else job.get("arrivedAtHubAt"),
+        }},
+    )
+    request_update = {
+        "eventHubTransferStatus": progress,
+        "updatedAt": now,
+    }
+    if progress == "arrived_at_hub":
+        request_update.update({
+            "eventLocalHubStatus": "arrived_at_hub",
+            "eventLocalHubArrivedAt": now,
+            "eventDeliveryStatus": "awaiting_local_hub_receipt",
+        })
+    await request_repo.update({"_id": request["_id"]}, request_update)
+    refreshed = await delivery_job_repository.get_by_id(job_id)
+    return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event local-hub transfer updated to " + progress.replace("_", " ")}
 
 
 @router.put("/jobs/{job_id}/event-status")
