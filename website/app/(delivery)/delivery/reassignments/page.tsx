@@ -86,6 +86,19 @@ export default function DeliveryReassignPage() {
     }
   };
 
+  const updateEventSourceTransfer = async (jobId: string, nextStatus: "picked_up" | "arrived_at_consolidation") => {
+    try {
+      setEventProgressBusy(jobId);
+      await api.put("/delivery/jobs/" + jobId + "/event-source-transfer-status", undefined, { params: { status: nextStatus } });
+      toast.success(nextStatus === "picked_up" ? "Event portion picked up from source warehouse" : "Arrival at consolidation recorded; warehouse receipt is required");
+      await queryClient.invalidateQueries({ queryKey: ["deliveryJobs"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Could not update source-to-consolidation transfer");
+    } finally {
+      setEventProgressBusy(null);
+    }
+  };
+
   const updateEventHubTransfer = async (jobId: string, nextStatus: "picked_up" | "arrived_at_hub") => {
     try {
       setEventProgressBusy(jobId);
@@ -186,6 +199,16 @@ export default function DeliveryReassignPage() {
             </div>
           )}
           {j.status === "delivered" && <div className="text-sm font-medium text-emerald-700">✓ Delivered with proof recorded{j.proofOfDelivery?.recipientName ? " · Recipient: " + j.proofOfDelivery.recipientName : ""}{j.proofOfDelivery?.photoUrl ? <p><a className="underline" href={j.proofOfDelivery.photoUrl} target="_blank" rel="noreferrer">View proof photo</a></p> : null}</div>}
+        </div>
+      )}
+      {!allowAction && j.jobType === "event_source_transfer" && (
+        <div className="mt-4 space-y-3 rounded-lg border border-orange-200 bg-orange-50/60 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-orange-950">Source Warehouse → Consolidation Transfer</p><Badge variant={j.status === "delivered" ? "success" : "outline"}>{String(j.eventProgressStatus || "accepted").replace(/_/g, " ")}</Badge></div>
+          <p className="text-sm text-orange-900">Transport this sealed product portion to the designated consolidation warehouse. The warehouse must confirm the received portion before the parent event order can be consolidated.</p>
+          {String(j.eventProgressStatus || "accepted") === "accepted" && <Button size="sm" disabled={eventProgressBusy === j.id} onClick={() => void updateEventSourceTransfer(j.id, "picked_up")}>{eventProgressBusy === j.id ? "Updating…" : "Confirm Portion Picked Up"}</Button>}
+          {String(j.eventProgressStatus || "") === "picked_up" && <Button size="sm" disabled={eventProgressBusy === j.id} onClick={() => void updateEventSourceTransfer(j.id, "arrived_at_consolidation")}>{eventProgressBusy === j.id ? "Updating…" : "Record Arrival at Consolidation"}</Button>}
+          {String(j.eventProgressStatus || "") === "arrived_at_consolidation" && <p className="text-sm font-medium text-emerald-700">Arrival recorded. Waiting for consolidation warehouse receipt.</p>}
+          {String(j.eventProgressStatus || "") === "received_at_consolidation" && <p className="text-sm font-medium text-emerald-700">✓ Consolidation warehouse confirmed receipt.</p>}
         </div>
       )}
       {!allowAction && j.jobType === "event_hub_transfer" && (
