@@ -2648,6 +2648,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
         "$or": [
             {"eventWarehouseId": {"$in": warehouse_refs}},
             {"eventLocalHubId": {"$in": warehouse_refs}},
+            {"eventSourceWarehouseIds": {"$in": warehouse_refs}},
         ],
         "eventSourcingStatus": {"$nin": ["cancelled"]},
         "status": {"$nin": ["cancelled"]},
@@ -2657,6 +2658,8 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
         local_hub_id = str(request.get("eventLocalHubId") or "")
         is_event_consolidation_warehouse = event_warehouse_id == warehouse_id
         is_event_local_hub = local_hub_id == warehouse_id
+        event_source_warehouse_ids = {str(value) for value in (request.get("eventSourceWarehouseIds") or [])}
+        is_event_source_warehouse = warehouse_id in event_source_warehouse_ids
         fulfillments = await event_fulfillments_collection.find({
             "requestId": request["_id"], "deletedAt": None,
         }).to_list(length=500)
@@ -2683,12 +2686,16 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             actual_received = float(actual_received or 0)
             required_qty = float(fulfillment.get("allocatedQuantityKg") or 0)
             quality_status = str(incoming_row.get("qualityCheck") or "pending")
-            is_stored = fulfillment_status == "stored" and str(incoming_row.get("status") or "").lower() == "stored" and quality_status.lower() == "passed" and actual_received + 1e-9 >= required_qty
+            source_warehouse_id = str(fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or event_warehouse_id)
+            source_stored = fulfillment_status == "stored" and str(incoming_row.get("status") or "").lower() == "stored" and quality_status.lower() == "passed" and actual_received + 1e-9 >= required_qty
+            consolidation_received = source_warehouse_id == event_warehouse_id or str(fulfillment.get("consolidationStatus") or "") == "received"
+            is_stored = source_stored and consolidation_received
             if is_stored:
                 stored_count += 1
             farmer = await farmer_repository.find_one({"userId": fulfillment.get("farmerId")}) if fulfillment.get("farmerId") else None
             portion_status = (
                 "stored_at_consolidation" if is_stored else
+                "stored_at_source_warehouse" if source_stored else
                 "warehouse_received" if fulfillment_status == "warehouse_received" else
                 "quality_check" if str(incoming_row.get("status") or "").lower() in ("quality_check", "quality_check_pending") else
                 "received_at_warehouse" if str(incoming_row.get("status") or "").lower() == "received" else
@@ -2696,8 +2703,12 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
                 fulfillment_status
             )
             portions.append({
-                "sourceWarehouseId": str(fulfillment.get("farmerId") or ""),
-                "sourceWarehouseName": fulfillment.get("farmName") or (farmer or {}).get("farmName") or "Farmer source",
+                "sourceWarehouseId": source_warehouse_id,
+                "sourceWarehouseName": fulfillment.get("sourceWarehouseName") or "Source Warehouse",
+                "consolidationWarehouseId": str(fulfillment.get("consolidationWarehouseId") or event_warehouse_id),
+                "consolidationTransferStatus": fulfillment.get("consolidationTransferStatus") or "pending_dispatch",
+                "consolidationTransferJobId": str(fulfillment.get("consolidationTransferJobId") or "") or None,
+                "consolidationStatus": fulfillment.get("consolidationStatus") or "awaiting_transfer",
                 "farmerName": (farmer or {}).get("farmName") or "Farmer",
                 "farmerId": str(fulfillment.get("farmerId") or ""),
                 "productId": str(fulfillment.get("productId") or ""),
@@ -2739,6 +2750,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             "buyerType": request.get("buyerCategory") or request.get("buyerType") or request.get("requestType") or "event",
             "isEventOrder": True,
             "isConsolidationWarehouse": is_event_consolidation_warehouse,
+            "isEventSourceWarehouse": is_event_source_warehouse,
             "isLocalHub": is_event_local_hub,
             "canDispatchToConsolidation": False,
             "warehouseCount": len(fulfillments),
