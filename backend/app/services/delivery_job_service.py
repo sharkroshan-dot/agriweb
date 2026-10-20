@@ -381,6 +381,9 @@ def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] 
     return {
         "id": str(job["_id"]),
         "jobType": job.get("jobType", "customer_delivery"),
+        "eventProgressStatus": job.get("eventProgressStatus") if reveal else None,
+        "proofOfDelivery": job.get("proofOfDelivery") if reveal else None,
+        "completedAt": job.get("completedAt").isoformat() if reveal and hasattr(job.get("completedAt"), "isoformat") else None,
         "routeId": str(job["routeId"]) if job.get("routeId") else None,
         "orderId": str(job["orderId"]) if job.get("orderId") else None,
         "orderNumber": job.get("orderNumber", ""),
