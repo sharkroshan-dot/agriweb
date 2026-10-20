@@ -47,6 +47,10 @@ export default function FarmerFulfillmentWarehousePage() {
   const [receiptNotes,setReceiptNotes]=useState("");
   const [savingReceipt,setSavingReceipt]=useState(false);
   const [recheckingQuality,setRecheckingQuality]=useState(false);
+  const [consolidationReceipt,setConsolidationReceipt]=useState<any>(null);
+  const [consolidationReceiptQuantity,setConsolidationReceiptQuantity]=useState("");
+  const [consolidationReceiptNotes,setConsolidationReceiptNotes]=useState("");
+  const [savingConsolidationReceipt,setSavingConsolidationReceipt]=useState(false);
   const [activeRouteSection,setActiveRouteSection]=useState<"nearby"|"same_district"|"inter_district"|"route_review"|"needs_location">("nearby");
   const {data:teamsData}=useQuery({
     queryKey:["warehouseApprovedPickupTeams"],
@@ -133,6 +137,32 @@ export default function FarmerFulfillmentWarehousePage() {
     setReceiptQuality("pending");
     setReceiptNotes("");
     setRecheckingQuality(Boolean(row.qualityRecheck));
+  };
+  const openConsolidationReceipt=(order:any,portion:any)=>{
+    setConsolidationReceipt({requestId:String(order.requestId||order.orderId||""),orderNumber:order.orderNumber,fulfillmentId:String(portion.eventFulfillmentId||""),productName:portion.productName,expectedQuantity:Number(portion.requiredQuantity||0)});
+    setConsolidationReceiptQuantity(String(portion.requiredQuantity||""));
+    setConsolidationReceiptNotes("");
+  };
+  const saveConsolidationReceipt=async()=>{
+    if(!consolidationReceipt) return;
+    const quantity=Number(consolidationReceiptQuantity);
+    if(!Number.isFinite(quantity)||quantity<=0){toast.error("Enter the actual quantity physically received at consolidation.");return;}
+    if(quantity>Number(consolidationReceipt.expectedQuantity)+1e-9){toast.error("Received quantity exceeds the allocated portion. Recount and resolve the excess before confirming.");return;}
+    setSavingConsolidationReceipt(true);
+    try{
+      const requestId=consolidationReceipt.requestId;
+      const fulfillmentId=consolidationReceipt.fulfillmentId;
+      const result=await api.post("/bulk-orders/event-orders/"+requestId+"/portions/"+fulfillmentId+"/receive-at-consolidation",undefined,{params:{quantityReceived:quantity,notes:consolidationReceiptNotes.trim()||undefined}});
+      const data=result?.data?.data||result?.data||{};
+      setConsolidationReceipt(null);
+      if(data.replacementRequired){
+        toast.error("Consolidation shortage recorded. The event order is blocked until the missing quantity is replaced.");
+      }else{
+        toast.success("Physical consolidation receipt recorded");
+      }
+      await refreshAll();
+    }catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}
+    finally{setSavingConsolidationReceipt(false);}
   };
   const receive=async()=>{
     if(!receivingPortion) return;
@@ -386,7 +416,7 @@ export default function FarmerFulfillmentWarehousePage() {
                   {canRecheck&&<Button size="sm" variant="outline" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.receivedQuantity,qualityCheck:p.qualityStatus,qualityRecheck:true})}>Recheck Quality</Button>}
                   {canStore&&<Button size="sm" variant="outline" onClick={()=>void store(incomingId)}>Store Approved Portion</Button>}
                   {Boolean(p.isAssignedSourceWarehouse)&&String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.incomingStatus==="stored"&&String(p.qualityStatus||"").toLowerCase()==="passed"&&Number(p.receivedQuantity)+1e-9>=Number(p.requiredQuantity)&&!p.consolidationTransferJobId&&<Button size="sm" onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/portions/"+p.eventFulfillmentId+"/dispatch-to-consolidation");toast.success("Sealed portion transfer to consolidation created");await refreshAll();}catch(e:any){toast.error(e?.message||"Could not dispatch portion to consolidation");}finally{setRoutingOrder(null);}})()} disabled={routeBusy}>Dispatch to Consolidation</Button>}
-                  {Boolean(o.isConsolidationWarehouse)&&String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="arrived_at_consolidation"&&<Button size="sm" onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/portions/"+p.eventFulfillmentId+"/receive-at-consolidation");toast.success("Portion physically received at consolidation");await refreshAll();}catch(e:any){toast.error(e?.message||"Consolidation receipt failed");}finally{setRoutingOrder(null);}})()} disabled={routeBusy}>Confirm Consolidation Receipt</Button>}
+                  {Boolean(o.isConsolidationWarehouse)&&String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="arrived_at_consolidation"&&<Button size="sm" onClick={()=>openConsolidationReceipt(o,p)} disabled={routeBusy}>Confirm Consolidation Receipt</Button>}
                   {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&["in_transit","assigned","picked_up"].includes(String(p.consolidationTransferStatus||""))&&<p className="text-xs text-sky-700">Transfer to consolidation is in progress.</p>}
                   {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="arrived_at_consolidation"&&<p className="text-xs text-amber-700">Transfer partner reported arrival; warehouse receipt is still required.</p>}
                   {String(p.sourceWarehouseId||"")!==String(p.consolidationWarehouseId||"")&&p.consolidationTransferStatus==="received"&&<p className="text-xs text-emerald-700">✓ Consolidation warehouse receipt confirmed.</p>}
@@ -565,6 +595,14 @@ export default function FarmerFulfillmentWarehousePage() {
             {o.stage==="dispatched"&&<Badge variant="success" className="justify-center py-2"><Truck className="mr-1 h-4 w-4"/>Sent to Local Hub</Badge>}
           </div>
       </CardContent></Card>)}</div></>}
+    {consolidationReceipt && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="consolidation-receipt-title">
+      <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
+        <div className="flex items-start justify-between gap-3"><div><h2 id="consolidation-receipt-title" className="text-lg font-semibold">Receive Portion at Consolidation</h2><p className="mt-1 text-sm text-muted-foreground">Verify the physical quantity delivered by the transfer partner. The parent event order stays blocked if a shortage is found.</p></div><button type="button" className="rounded px-2 py-1 text-sm text-muted-foreground" onClick={()=>setConsolidationReceipt(null)} aria-label="Close consolidation receipt">Close</button></div>
+        <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm"><p><span className="font-medium">Order:</span> {consolidationReceipt.orderNumber||consolidationReceipt.requestId}</p><p><span className="font-medium">Product:</span> {consolidationReceipt.productName}</p><p><span className="font-medium">Allocated quantity:</span> {consolidationReceipt.expectedQuantity} kg</p></div>
+        <div className="mt-4 space-y-3"><label className="block text-sm font-medium">Actual quantity received at consolidation (kg)<input className="mt-1 h-10 w-full rounded-md border px-3" type="number" min="0.001" step="0.001" value={consolidationReceiptQuantity} onChange={e=>setConsolidationReceiptQuantity(e.target.value)} /></label><label className="block text-sm font-medium">Receipt / discrepancy notes<textarea className="mt-1 w-full rounded-md border p-3" rows={3} value={consolidationReceiptNotes} onChange={e=>setConsolidationReceiptNotes(e.target.value)} placeholder="Seal condition, weight difference, damage, or notes" /></label>{Number(consolidationReceiptQuantity)<Number(consolidationReceipt.expectedQuantity)&&<p className="text-sm text-amber-700">This records a shortage and blocks consolidation completion until the missing quantity is replaced.</p>}</div>
+        <div className="mt-5 flex justify-end gap-2"><Button variant="outline" onClick={()=>setConsolidationReceipt(null)} disabled={savingConsolidationReceipt}>Cancel</Button><Button onClick={()=>void saveConsolidationReceipt()} disabled={savingConsolidationReceipt}>{savingConsolidationReceipt?"Saving receipt…":"Save Consolidation Receipt"}</Button></div>
+      </div>
+    </div>}
     {receivingPortion && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="receipt-dialog-title">
       <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
