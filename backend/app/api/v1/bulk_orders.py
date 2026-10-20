@@ -1525,7 +1525,7 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
         "warehouseId": ObjectId(str(warehouse_id)),
         "productId": fulfillment["productId"],
         "farmerId": fulfillment["farmerId"],
-        "quantity": int(round(float(fulfillment.get("allocatedQuantityKg") or 0))),
+        "quantity": float(fulfillment.get("allocatedQuantityKg") or 0),
         "expectedDate": datetime.utcnow(),
         "batchNumber": fulfillment.get("batchNumber"),
         "qualityGrade": fulfillment.get("qualityGrade"),
@@ -1597,6 +1597,8 @@ async def dispatch_event_order_to_local_hub(
         actual = incoming.get("quantityReceived", incoming.get("receivedQuantity", incoming.get("actualQuantityReceived", 0)))
         if float(actual or 0) + 1e-9 < float(portion.get("allocatedQuantityKg") or 0):
             raise HTTPException(status_code=409, detail=f"Received quantity is short for {portion.get('productName') or portion.get('productId')}")
+    if str(request.get("eventDeliveryJobId") or "") and str(request.get("eventFulfillmentRoute") or "") != "local_hub":
+        raise HTTPException(status_code=409, detail="A direct delivery job already exists for this event order")
     if str(request.get("eventLocalHubStatus") or "") in ("in_transit", "received"):
         return {"success": True, "data": {"status": request.get("eventLocalHubStatus"), "localHubName": request.get("eventLocalHubName")}, "message": "The local-hub transfer is already recorded"}
     destination = (request.get("deliveryAddress") or {}).get("location") or {}
@@ -1653,6 +1655,13 @@ async def choose_event_delivery_route(
         actual = incoming.get("quantityReceived", incoming.get("receivedQuantity", incoming.get("actualQuantityReceived", 0)))
         if float(actual or 0) + 1e-9 < float(portion.get("allocatedQuantityKg") or 0):
             raise HTTPException(status_code=409, detail=f"Received quantity is short for {portion.get('productName') or portion.get('productId')}")
+
+    requested_route = "local_hub" if route == "local_hub" else ("urgent_direct" if urgent else "nearby_direct")
+    existing_job_id = str(request.get("eventDeliveryJobId") or "")
+    if existing_job_id:
+        if str(request.get("eventFulfillmentRoute") or "") == requested_route:
+            return {"success": True, "data": {"route": requested_route, "deliveryJobId": existing_job_id}, "message": "The selected event delivery route and job are already recorded"}
+        raise HTTPException(status_code=409, detail="A final event delivery job already exists; do not create a second route or delivery job")
 
     if route == "local_hub":
         if urgent:
