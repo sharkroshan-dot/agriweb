@@ -257,6 +257,23 @@ export default function FarmerBulkOrdersPage() {
     queryFn: () => api.get("/bulk-orders/orders"),
   });
 
+  const { data: eventFulfillmentData, isLoading: eventFulfillmentLoading } = useQuery({
+    queryKey: ["farmer", "event-fulfillments"],
+    queryFn: () => api.get("/bulk-orders/event-orders/fulfillments"),
+    refetchInterval: 15000,
+  });
+  const eventFulfillments = eventFulfillmentData?.data?.fulfillments || [];
+  const updateEventFulfillment = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.put("/bulk-orders/event-orders/fulfillments/" + id + "/status", { status }),
+    onSuccess: () => {
+      toast.success("Event portion status updated");
+      queryClient.invalidateQueries({ queryKey: ["farmer", "event-fulfillments"] });
+      queryClient.invalidateQueries({ queryKey: ["bulk", "request"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not update event portion"),
+  });
+
   const { data: b2bData, isLoading: b2bLoading } = useQuery({
     queryKey: ["b2b", "farmer", "orders"],
     queryFn: () => api.get("/b2b/orders"),
@@ -292,7 +309,7 @@ export default function FarmerBulkOrdersPage() {
     onError: (err: any) => toast.error(err?.message || "Failed to update order"),
   });
 
-  if (bulkLoading || b2bLoading) {
+  if (bulkLoading || b2bLoading || eventFulfillmentLoading) {
     return (
       <div className="flex h-40 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
@@ -377,6 +394,42 @@ export default function FarmerBulkOrdersPage() {
           )}
         </button>
       </div>
+
+      {tab === "bulk" && eventFulfillments.length > 0 && (
+        <section className={sectionClass}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <h2 className={headingClass}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100"><Truck className="h-5 w-5 text-amber-700" /></span>Event / Bulk Fulfillment Portions</h2>
+            <p className={countClass}>{eventFulfillments.length} assigned portion(s) · refreshes automatically</p>
+          </div>
+          <p className="mb-4 text-sm text-muted-foreground">Accept each allocated product portion, prepare and pack it, then mark it Ready for Pickup. The warehouse must physically receive and quality-check the portion before storage and final delivery.</p>
+          <div className="space-y-3">
+            {eventFulfillments.map((portion: any) => {
+              const status = String(portion.status || "pending_farmer_confirmation");
+              const next = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "packing" : status === "packing" ? "packed" : status === "packed" ? "ready_for_collection" : null;
+              const action = status === "pending_farmer_confirmation" ? "Accept Event Portion" : status === "accepted" ? "Start Packing" : status === "packing" ? "Mark Packed" : status === "packed" ? "Ready for Pickup" : null;
+              return (
+                <Card key={portion.id} className="border-amber-200">
+                  <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{portion.productName || "Product"} · {portion.allocatedQuantityKg} kg</p><Badge variant="outline">Event</Badge><Badge variant={status === "cancelled" || status === "warehouse_rejected" ? "destructive" : status === "stored" ? "success" : "secondary"}>{status.replace(/_/g, " ")}</Badge></div>
+                      <p className="mt-1 text-sm text-muted-foreground">Request {portion.requestNumber || portion.requestId} · {portion.farmName || "Your farm"}{portion.distanceKm != null ? " · " + Number(portion.distanceKm).toFixed(1) + " km from sourcing plan" : ""}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Keep the allocated quantity and product identity intact. Only mark Ready for Pickup after the portion is packed and sealed.</p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      {next && action && <Button size="sm" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ id: portion.id, status: next })}>{action}</Button>}
+                      {status === "pending_farmer_confirmation" && <Button size="sm" variant="outline" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ id: portion.id, status: "cancelled" })}>Decline</Button>}
+                      {status === "ready_for_collection" && <Badge variant="success">Ready for farm collection</Badge>}
+                      {status === "collected" && <Badge variant="secondary">Collected · Warehouse receiving</Badge>}
+                      {status === "warehouse_received" && <Badge variant="secondary">Warehouse received</Badge>}
+                      {status === "stored" && <Badge variant="success">Stored · Portion complete</Badge>}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Bulk Orders section */}
       {tab === "bulk" && (
