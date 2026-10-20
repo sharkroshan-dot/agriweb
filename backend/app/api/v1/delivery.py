@@ -3389,7 +3389,7 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "event_source_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
             continue
         # Nearby Farmer Fulfillment is assigned to a specific partner; do not
         # leak that job to every driver in the open marketplace.
@@ -3408,7 +3408,7 @@ async def get_my_delivery_jobs(
     accepted_jobs = await delivery_job_repository.get_jobs_for_partner(partner_id)
     accepted_list = []
     for job in accepted_jobs or []:
-        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "event_source_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
             continue
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
     accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
@@ -3585,6 +3585,33 @@ async def accept_delivery_job(
             "message": "Warehouse pickup route accepted successfully",
         }
 
+    # Source warehouse -> consolidation transfers are individual sealed
+    # event portions. The destination warehouse confirms each physical receipt.
+    if job.get("jobType") == "event_source_transfer":
+        from app.api.v1.bulk_orders import request_repo, event_fulfillment_repo
+        request_id = str(job.get("eventRequestId") or "")
+        fulfillment_id = str(job.get("eventFulfillmentId") or "")
+        request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+        fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "requestId": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(fulfillment_id) and ObjectId.is_valid(request_id) else None
+        if not request or not fulfillment or str(fulfillment.get("consolidationTransferJobId") or "") != str(job_id):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Event portion transfer is no longer linked to its parent request")
+        if str(fulfillment.get("status") or "") != "stored" or str(fulfillment.get("consolidationTransferStatus") or "") not in ("in_transit", "assigned"):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="The source portion is not ready for consolidation transfer")
+        await delivery_job_repository.collection.update_one(
+            {"_id": ObjectId(job_id), "status": "accepted", "deletedAt": None},
+            {"$set": {"eventProgressStatus": "accepted", "updatedAt": datetime.utcnow()}},
+        )
+        await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+            "consolidationTransferStatus": "assigned",
+            "consolidationTransferPartnerId": ObjectId(partner_id),
+            "updatedAt": datetime.utcnow(),
+        })
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        refreshed = await delivery_job_repository.get_by_id(job_id)
+        return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event portion transfer accepted"}
+
     # Event consolidation -> local-hub transfers are intermediate logistics
     # jobs, not customer deliveries. The consolidation warehouse confirms receipt.
     if job.get("jobType") == "event_hub_transfer":
@@ -3726,6 +3753,58 @@ async def accept_delivery_job(
         "data": serialize_job_for_partner(refreshed, reveal=True),
         "message": "Delivery job accepted",
     }
+
+
+@router.put("/jobs/{job_id}/event-source-transfer-status")
+async def update_event_source_transfer_progress(
+    job_id: str,
+    progress: str = Query(..., alias="status", pattern="^(picked_up|arrived_at_consolidation)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Track an individual sealed event portion from source warehouse to consolidation."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update event portion transfers")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_source_transfer":
+        raise HTTPException(status_code=404, detail="Event source transfer job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event portion transfer is not assigned to you")
+    if str(job.get("status") or "") != "accepted":
+        raise HTTPException(status_code=409, detail="This event portion transfer is no longer active")
+    request_id = str(job.get("eventRequestId") or "")
+    fulfillment_id = str(job.get("eventFulfillmentId") or "")
+    from app.api.v1.bulk_orders import request_repo, event_fulfillment_repo
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "requestId": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(fulfillment_id) and ObjectId.is_valid(request_id) else None
+    if not request or not fulfillment or str(fulfillment.get("consolidationTransferJobId") or "") != str(job_id):
+        raise HTTPException(status_code=404, detail="Parent event or portion transfer link not found")
+    current = str(job.get("eventProgressStatus") or "accepted")
+    expected_next = {"accepted": "picked_up", "picked_up": "arrived_at_consolidation"}
+    if expected_next.get(current) != progress:
+        raise HTTPException(status_code=409, detail="Invalid event portion transfer progression from " + current)
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "deletedAt": None},
+        {"$set": {
+            "eventProgressStatus": progress,
+            "updatedAt": now,
+            "pickedUpAt": now if progress == "picked_up" else job.get("pickedUpAt"),
+            "arrivedAtConsolidationAt": now if progress == "arrived_at_consolidation" else job.get("arrivedAtConsolidationAt"),
+        }},
+    )
+    await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+        "consolidationTransferStatus": progress,
+        "consolidationTransferArrivedAt": now if progress == "arrived_at_consolidation" else fulfillment.get("consolidationTransferArrivedAt"),
+        "updatedAt": now,
+    })
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryStatus": "consolidation_in_transit",
+        "eventConsolidationStatus": "consolidation_in_transit",
+        "updatedAt": now,
+    })
+    refreshed = await delivery_job_repository.get_by_id(job_id)
+    return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event portion transfer updated to " + progress.replace("_", " ")}
 
 
 @router.put("/jobs/{job_id}/event-hub-transfer-status")
