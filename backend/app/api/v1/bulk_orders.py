@@ -1607,7 +1607,7 @@ async def dispatch_event_order_to_local_hub(
     if not destination.get("coordinates"):
         raise HTTPException(status_code=409, detail="Customer delivery coordinates are required to select the local hub")
     total_weight = round(sum(float(row.get("allocatedQuantityKg") or 0) for row in fulfillments), 2)
-    hub = await nearest_local_hub(destination, total_weight)
+    hub = await nearest_local_hub(destination, total_weight, require_capacity=False)
     if not hub:
         raise HTTPException(status_code=409, detail="No eligible local hub is available for this customer address and order weight")
     if str(hub.get("_id") or "") == str(manager_warehouse.get("_id") or ""):
