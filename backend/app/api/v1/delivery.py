@@ -48,6 +48,7 @@ from app.services.delivery_job_service import (
 )
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.delivery_priority_service import calculate_order_delivery_priority
 from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
 import logging
