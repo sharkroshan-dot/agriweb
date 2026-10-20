@@ -29,6 +29,8 @@ from app.services.notification_service import NotificationService
 from app.services.delivery_job_service import eligible_partners_for_job, JOB_DEFAULT_EXPIRY_MINUTES
 from app.repositories.delivery_job_repository import delivery_job_repository
 from app.repositories.warehouse_repository import warehouse_repository
+from app.repositories.delivery_repository import delivery_repository
+from app.schemas.delivery import DeliveryPartnerStatus
 from app.repositories.incoming_stock_repository import incoming_stock_repository
 from app.services.warehouse_service import WarehouseService
 from app.services.logistics_routing_service import nearest_local_hub
@@ -1785,18 +1787,30 @@ async def receive_event_order_at_local_hub(
     if not request:
         raise HTTPException(status_code=404, detail="Event order not found")
     manager_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
-    if not manager_warehouse or str(request.get("eventLocalHubId") or "") != str(manager_warehouse["_id"]):
-        raise HTTPException(status_code=403, detail="Only the assigned local hub can confirm physical receipt")
+    if not manager_warehouse or str(request.get("eventWarehouseId") or "") != str(manager_warehouse["_id"]):
+        raise HTTPException(status_code=403, detail="Only the consolidation warehouse assigned to this event order can confirm the local-hub handoff")
     if str(request.get("eventLocalHubStatus") or "") == "received" and request.get("eventDeliveryJobId"):
         return {"success": True, "data": {"status": "received", "deliveryJobId": str(request.get("eventDeliveryJobId"))}, "message": "Local-hub receipt and final delivery job are already recorded"}
-    if str(request.get("eventLocalHubStatus") or "") not in ("in_transit", "received"):
-        raise HTTPException(status_code=409, detail="The order must be dispatched to this local hub before receipt can be confirmed")
+    if str(request.get("eventLocalHubStatus") or "") != "arrived_at_hub":
+        raise HTTPException(status_code=409, detail="The transfer partner must record arrival at the assigned local hub before warehouse receipt can be confirmed")
+    transfer_job_id = str(request.get("eventHubTransferJobId") or "")
+    transfer_job = await delivery_job_repository.get_by_id(transfer_job_id) if ObjectId.is_valid(transfer_job_id) else None
+    if not transfer_job or str(transfer_job.get("jobType") or "") != "event_hub_transfer" or str(transfer_job.get("eventProgressStatus") or "") != "arrived_at_hub":
+        raise HTTPException(status_code=409, detail="The consolidation-to-local-hub transfer has not recorded physical arrival")
     fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
     if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
         raise HTTPException(status_code=409, detail="All required portions must remain verified and stored before hub receipt")
     now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": transfer_job["_id"], "jobType": "event_hub_transfer", "deletedAt": None},
+        {"$set": {"status": "delivered", "eventProgressStatus": "received_at_hub", "completedAt": now, "updatedAt": now}},
+    )
+    transfer_partner_id = str(transfer_job.get("acceptedBy") or "")
+    if transfer_partner_id:
+        await delivery_repository.update_status(transfer_partner_id, DeliveryPartnerStatus.AVAILABLE, is_available=True)
     await request_repo.update({"_id": request["_id"]}, {
         "eventLocalHubStatus": "received",
+        "eventHubTransferStatus": "received",
         "eventLocalHubReceivedAt": now,
         "eventLocalHubReceivedBy": ObjectId(str(current_user["_id"])),
         "eventDeliveryStatus": "local_hub_received",
