@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
+import secrets
 
 from app.api.v1.auth import get_current_user
 from app.database.mongodb import MongoDB
@@ -1465,8 +1466,10 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
     job_id = await delivery_job_repository.create_job(job)
     if not job_id:
         return None
+    verification_code = str(request.get("eventDeliveryVerificationCode") or f"{secrets.randbelow(900000) + 100000}")
     request_update = {
         "eventDeliveryJobId": ObjectId(job_id),
+        "eventDeliveryVerificationCode": verification_code,
         "eventDeliveryStatus": "delivery_partner_assignment",
         "eventConsolidationStatus": "consolidated",
         "eventFulfillmentRoute": route,
@@ -1480,6 +1483,17 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
             "consolidationHubName": warehouse.get("name") or warehouse.get("warehouseName"),
         })
     await request_repo.update({"_id": request["_id"]}, request_update)
+    try:
+        await NotificationService.create_in_app_notification(
+            str(request.get("buyerUserId") or ""),
+            NotificationType.ORDER,
+            "Event delivery verification code",
+            f"Your event order {request.get('requestNumber') or ''} is ready for final delivery. Share verification code {verification_code} with the delivery partner only when the complete order arrives.",
+            {"requestId": str(request["_id"]), "deliveryJobId": str(job_id), "type": "event_delivery_otp"},
+            NotificationPriority.HIGH,
+        )
+    except Exception:
+        pass
     for partner in partners:
         try:
             await NotificationService.create_in_app_notification(
