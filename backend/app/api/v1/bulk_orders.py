@@ -2352,7 +2352,7 @@ async def bulk_order_tracking(
     # Intermediate consolidation-to-hub transfer completion is not the parent
     # customer's delivery completion. Only final customer delivery jobs advance
     # the parent to Delivered.
-    final_delivery_jobs = [j for j in delivery_jobs if str(j.get("jobType") or "") != "event_hub_transfer"]
+    final_delivery_jobs = [j for j in delivery_jobs if str(j.get("jobType") or "") not in ("event_hub_transfer", "event_source_transfer")]
     job_statuses = [str(j.get("status") or "") for j in final_delivery_jobs]
     order_statuses = [str(o.get("status") or "") for o in bulk_orders]
     sourcing_status = str(request.get("eventSourcingStatus") or "")
