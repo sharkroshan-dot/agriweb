@@ -107,7 +107,11 @@ async def nearest_warehouse(origin: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return candidates[0][1] if candidates else None
 
 
-async def nearest_local_hub(destination: Dict[str, Any], quantity: float = 0) -> Optional[Dict[str, Any]]:
+async def nearest_local_hub(
+    destination: Dict[str, Any],
+    quantity: float = 0,
+    require_capacity: bool = True,
+) -> Optional[Dict[str, Any]]:
     docs = await MongoDB.get_collection("fulfillment_hubs").find({
         "deletedAt": None,
         "isLocalFulfillmentHub": True,
@@ -117,7 +121,7 @@ async def nearest_local_hub(destination: Dict[str, Any], quantity: float = 0) ->
     candidates = []
     for doc in docs:
         capacity = float(doc.get("availableCapacity", doc.get("storageCapacity", 0)) or 0)
-        if capacity < quantity:
+        if require_capacity and capacity < quantity:
             continue
         d = distance_km(destination, doc.get("location") or doc.get("coordinates"))
         if d is not None:
