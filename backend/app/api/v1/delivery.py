@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, UploadFile, File, Form
 from typing import List, Optional
 from typing import Dict, Any
 from datetime import datetime, timedelta
@@ -3699,6 +3699,133 @@ async def accept_delivery_job(
         "data": serialize_job_for_partner(refreshed, reveal=True),
         "message": "Delivery job accepted",
     }
+
+
+@router.put("/jobs/{job_id}/event-status")
+async def update_event_delivery_progress(
+    job_id: str,
+    progress: str = Query(..., alias="status", pattern="^(picked_up|out_for_delivery)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Advance a claimed event delivery job without requiring a normal orders/assignment row."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update event delivery progress")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_consolidated_delivery":
+        raise HTTPException(status_code=404, detail="Event delivery job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event delivery is not assigned to you")
+    if str(job.get("status") or "") != "accepted":
+        raise HTTPException(status_code=409, detail="Only an active accepted event delivery can be updated")
+    request_id = str(job.get("eventRequestId") or "")
+    from app.api.v1.bulk_orders import request_repo
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request no longer exists")
+    current = str(job.get("eventProgressStatus") or "accepted")
+    allowed_next = {"accepted": "picked_up", "picked_up": "out_for_delivery"}
+    if allowed_next.get(current) != progress:
+        raise HTTPException(status_code=409, detail=f"Invalid progress transition from {current} to {progress}")
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "deletedAt": None},
+        {"$set": {"eventProgressStatus": progress, "updatedAt": now, "pickedUpAt": now if progress == "picked_up" else job.get("pickedUpAt"), "outForDeliveryAt": now if progress == "out_for_delivery" else job.get("outForDeliveryAt")}},
+    )
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryStatus": progress,
+        "updatedAt": now,
+    })
+    refreshed = await delivery_job_repository.get_by_id(job_id)
+    return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event delivery progress updated to " + progress.replace("_", " ")}
+
+
+@router.post("/jobs/{job_id}/event-pod")
+async def complete_event_delivery_with_otp_and_pod(
+    job_id: str,
+    photo: UploadFile = File(...),
+    otp: str = Form(...),
+    recipientName: str = Form(...),
+    signature: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Complete an event delivery only with the customer's OTP and a validated POD photo."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can complete event deliveries")
+    if not recipientName.strip():
+        raise HTTPException(status_code=400, detail="Recipient name is required")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_consolidated_delivery":
+        raise HTTPException(status_code=404, detail="Event delivery job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event delivery is not assigned to you")
+    if str(job.get("status") or "") != "accepted" or str(job.get("eventProgressStatus") or "") != "out_for_delivery":
+        raise HTTPException(status_code=409, detail="Mark the event order picked up and out for delivery before completing it")
+    request_id = str(job.get("eventRequestId") or "")
+    from app.api.v1.bulk_orders import request_repo, event_fulfillment_repo, ORDER_DELIVERED
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request no longer exists")
+    expected_otp = str(request.get("eventDeliveryVerificationCode") or "")
+    if not expected_otp or str(otp).strip() != expected_otp:
+        raise HTTPException(status_code=400, detail="Customer delivery OTP is invalid")
+    fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
+        raise HTTPException(status_code=409, detail="All event portions must remain stored and verified through delivery completion")
+    from app.utils.file_security import validate_upload, UploadValidationError
+    content = await photo.read()
+    try:
+        ext = validate_upload(
+            photo.filename or "event-pod",
+            content,
+            content_type=photo.content_type,
+            max_bytes=settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
+        )
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    upload_dir = settings.UPLOAD_DIR
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = "event-pod-" + uuid4().hex + ext
+    with open(os.path.join(upload_dir, filename), "wb") as handle:
+        handle.write(content)
+    photo_url = "/uploads/" + filename
+    now = datetime.utcnow()
+    result = await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "eventProgressStatus": "out_for_delivery", "deletedAt": None},
+        {"$set": {
+            "status": "delivered",
+            "eventProgressStatus": "delivered",
+            "completedAt": now,
+            "updatedAt": now,
+            "proofOfDelivery": {"photoUrl": photo_url, "recipientName": recipientName.strip(), "signature": signature or "", "uploadedAt": now, "otpVerified": True},
+            "deliveryVerificationVerifiedAt": now,
+        }},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Event delivery changed while completing; refresh the job and retry")
+    await request_repo.update({"_id": request["_id"]}, {
+        "status": ORDER_DELIVERED,
+        "eventDeliveryStatus": "delivered",
+        "eventDeliveryDeliveredAt": now,
+        "eventDeliveryVerificationVerifiedAt": now,
+        "eventDeliveryProof": {"photoUrl": photo_url, "recipientName": recipientName.strip(), "signature": signature or "", "uploadedAt": now, "deliveryPartnerId": ObjectId(str(profile["_id"]))},
+        "updatedAt": now,
+    })
+    await delivery_repository.update_status(str(profile["_id"]), DeliveryPartnerStatus.AVAILABLE, is_available=True)
+    try:
+        from app.services.notification_service import NotificationService
+        await NotificationService.create_in_app_notification(
+            str(request.get("buyerUserId") or ""),
+            NotificationType.ORDER,
+            "Event order delivered",
+            "Your complete event order " + str(request.get("requestNumber") or "") + " was delivered and proof of delivery was recorded.",
+            {"requestId": str(request["_id"]), "deliveryJobId": job_id, "type": "event_delivery_completed"},
+            NotificationPriority.HIGH,
+        )
+    except Exception:
+        pass
+    return {"success": True, "data": {"deliveryJobId": job_id, "status": "delivered", "photoUrl": photo_url, "recipientName": recipientName.strip(), "otpVerified": True}, "message": "Event order delivered with customer OTP and proof of delivery"}
 
 
 @router.get("/me/farmer-fulfillment-warehouse-transfers")
