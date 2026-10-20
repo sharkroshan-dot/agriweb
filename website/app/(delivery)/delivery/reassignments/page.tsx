@@ -26,6 +26,9 @@ interface Job {
   distanceFromPartner?: number;
   weightKg?: number;
   status?: string;
+  jobType?: string;
+  eventProgressStatus?: string;
+  proofOfDelivery?: { photoUrl?: string; recipientName?: string; uploadedAt?: string };
   timeSlot?: string;
   expiresAt?: string;
   accepted?: boolean;
@@ -35,11 +38,16 @@ export default function DeliveryReassignPage() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState("open");
   const [actionId, setActionId] = useState<string | null>(null);
+  const [eventOtpByJob, setEventOtpByJob] = useState<Record<string, string>>({});
+  const [eventRecipientByJob, setEventRecipientByJob] = useState<Record<string, string>>({});
+  const [eventPodFileByJob, setEventPodFileByJob] = useState<Record<string, File | null>>({});
+  const [eventProgressBusy, setEventProgressBusy] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["deliveryJobs"],
     queryFn: () => api.get("/delivery/me/jobs"),
     retry: 1,
+    refetchInterval: 15000,
   });
 
   const open: Job[] = sortByDeliveryPriority((data?.data?.openJobs || []).map((j: any) => ({ ...j })));
@@ -64,6 +72,45 @@ export default function DeliveryReassignPage() {
   });
 
   const jobStatus = (j: Job) => (j.status === "delivered" ? "Delivered" : j.status === "in_transit" ? "In transit" : j.status === "accepted" ? "Accepted" : "Available");
+
+  const updateEventProgress = async (jobId: string, nextStatus: "picked_up" | "out_for_delivery") => {
+    try {
+      setEventProgressBusy(jobId);
+      await api.put("/delivery/jobs/" + jobId + "/event-status", undefined, { params: { status: nextStatus } });
+      toast.success(nextStatus === "picked_up" ? "Complete event order picked up" : "Event order marked out for delivery");
+      await queryClient.invalidateQueries({ queryKey: ["deliveryJobs"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Could not update event delivery progress");
+    } finally {
+      setEventProgressBusy(null);
+    }
+  };
+
+  const submitEventPod = async (job: Job) => {
+    const otp = (eventOtpByJob[job.id] || "").trim();
+    const recipientName = (eventRecipientByJob[job.id] || "").trim();
+    const photo = eventPodFileByJob[job.id];
+    if (!otp || !recipientName || !photo) {
+      toast.error("Enter the customer OTP, recipient name, and delivery photo.");
+      return;
+    }
+    const form = new FormData();
+    form.append("otp", otp);
+    form.append("recipientName", recipientName);
+    form.append("photo", photo);
+    try {
+      setEventProgressBusy(job.id);
+      await api.post("/delivery/jobs/" + job.id + "/event-pod", form);
+      toast.success("Event order delivered with OTP and proof of delivery");
+      setEventOtpByJob((v) => ({ ...v, [job.id]: "" }));
+      setEventPodFileByJob((v) => ({ ...v, [job.id]: null }));
+      await queryClient.invalidateQueries({ queryKey: ["deliveryJobs"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Event delivery completion failed");
+    } finally {
+      setEventProgressBusy(null);
+    }
+  };
 
   const renderJob = (j: Job, allowAction: boolean) => (
     <div key={j.id} className="rounded-lg border p-4">
@@ -107,6 +154,25 @@ export default function DeliveryReassignPage() {
             {releaseMutation.isPending && actionId === j.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCcw className="mr-2 h-4 w-4" />}
             Release
           </Button>
+        </div>
+      )}
+      {!allowAction && j.jobType === "event_consolidated_delivery" && (
+        <div className="mt-4 space-y-3 rounded-lg border border-violet-200 bg-violet-50/50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold text-violet-950">Event delivery workflow</p>
+            <Badge variant={j.status === "delivered" ? "success" : "outline"}>{String(j.eventProgressStatus || "accepted").replace(/_/g, " ")}</Badge>
+          </div>
+          {String(j.eventProgressStatus || "accepted") === "accepted" && <Button size="sm" disabled={eventProgressBusy === j.id} onClick={() => void updateEventProgress(j.id, "picked_up")}>{eventProgressBusy === j.id ? "Updating…" : "Confirm Complete Order Picked Up"}</Button>}
+          {String(j.eventProgressStatus || "") === "picked_up" && <Button size="sm" disabled={eventProgressBusy === j.id} onClick={() => void updateEventProgress(j.id, "out_for_delivery")}>{eventProgressBusy === j.id ? "Updating…" : "Start Final Delivery"}</Button>}
+          {String(j.eventProgressStatus || "") === "out_for_delivery" && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="text-xs font-medium">Customer delivery OTP<input className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" inputMode="numeric" value={eventOtpByJob[j.id] || ""} onChange={(e) => setEventOtpByJob((v) => ({ ...v, [j.id]: e.target.value }))} placeholder="6-digit code" /></label>
+              <label className="text-xs font-medium">Recipient name<input className="mt-1 h-10 w-full rounded-md border bg-white px-3 text-sm" value={eventRecipientByJob[j.id] || ""} onChange={(e) => setEventRecipientByJob((v) => ({ ...v, [j.id]: e.target.value }))} placeholder="Person receiving the event order" /></label>
+              <label className="text-xs font-medium sm:col-span-2">Proof-of-delivery photo<input className="mt-1 block w-full rounded-md border bg-white p-2 text-sm" type="file" accept="image/*" onChange={(e) => setEventPodFileByJob((v) => ({ ...v, [j.id]: e.target.files?.[0] || null }))} /></label>
+              <div className="sm:col-span-2"><Button size="sm" disabled={eventProgressBusy === j.id || !(eventOtpByJob[j.id] || "").trim() || !(eventRecipientByJob[j.id] || "").trim() || !eventPodFileByJob[j.id]} onClick={() => void submitEventPod(j)}>{eventProgressBusy === j.id ? "Saving delivery…" : "Verify OTP & Complete Delivery"}</Button><p className="mt-1 text-xs text-muted-foreground">The backend validates the customer's OTP and requires a valid image before marking the parent event order delivered.</p></div>
+            </div>
+          )}
+          {j.status === "delivered" && <div className="text-sm font-medium text-emerald-700">✓ Delivered with proof recorded{j.proofOfDelivery?.recipientName ? " · Recipient: " + j.proofOfDelivery.recipientName : ""}{j.proofOfDelivery?.photoUrl ? <p><a className="underline" href={j.proofOfDelivery.photoUrl} target="_blank" rel="noreferrer">View proof photo</a></p> : null}</div>}
         </div>
       )}
     </div>
