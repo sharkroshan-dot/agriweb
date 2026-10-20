@@ -2427,6 +2427,8 @@ async def bulk_order_tracking(
         current_stage = "local_hub_receipt"
     elif any(s in ("dispatched", "ready_for_delivery") for s in job_statuses) or delivery_status == "ready_for_event_delivery":
         current_stage = "ready_for_delivery"
+    elif any(s in ("accepted", "confirmed") for s in job_statuses) or delivery_status in ("delivery_partner_assignment", "delivery_partner_assigned"):
+        current_stage = "delivery_partner"
     elif consolidation_status == "consolidation_in_transit" or delivery_status == "consolidation_in_transit":
         current_stage = "consolidation_transfer"
     elif consolidation_status in ("consolidated", "consolidation_ready") or (fulfillment_statuses and all(s == "collected" for s in fulfillment_statuses)):
