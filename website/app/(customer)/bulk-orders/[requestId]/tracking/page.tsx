@@ -78,6 +78,9 @@ export default function BulkOrderTrackingPage() {
         </CardContent>
       </Card>
 
+      {request.eventDeliveryStatus === "replacement_required" && (
+        <Card className="border-amber-300 bg-amber-50/60"><CardContent className="p-5"><h2 className="font-semibold text-amber-950">Quantity or quality discrepancy under review</h2><p className="mt-1 text-sm text-amber-900">The warehouse has recorded a discrepancy in one of the event portions. Final delivery remains blocked while the missing or rejected quantity is resolved. The order will continue once the required quantity is verified.</p></CardContent></Card>
+      )}
       {tracking.deliveryVerificationCode && tracking.currentStage !== "delivered" && (
         <Card className="border-amber-300 bg-amber-50/60">
           <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
