@@ -1799,6 +1799,11 @@ async def update_event_fulfillment_status(
     if new_status not in allowed:
         raise HTTPException(status_code=400, detail="Invalid event fulfillment status")
 
+    # Keep farm-side milestones restricted to the assigned farmer. A warehouse
+    # must not be able to accept or mark packing complete on the farmer's behalf.
+    farmer_stage = new_status in ("accepted", "packing", "packed", "ready_for_collection", "cancelled")
+    if farmer_stage and not (farmer_ok or admin_ok):
+        raise HTTPException(status_code=403, detail="Only the assigned farmer can update farm preparation and pickup readiness")
     # Warehouse stages are authoritative warehouse operations. Farmers may
     # advance only their farm-side stages through collection.
     warehouse_stage = new_status in ("warehouse_received", "stored", "warehouse_rejected")
