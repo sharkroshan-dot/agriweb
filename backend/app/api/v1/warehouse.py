@@ -2710,6 +2710,8 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
                 "consolidationTransferStatus": fulfillment.get("consolidationTransferStatus") or "pending_dispatch",
                 "consolidationTransferJobId": str(fulfillment.get("consolidationTransferJobId") or "") or None,
                 "consolidationStatus": fulfillment.get("consolidationStatus") or "awaiting_transfer",
+                "consolidationReceivedQuantity": float(fulfillment.get("consolidationReceivedQuantityKg") or 0),
+                "consolidationReceiptNotes": fulfillment.get("consolidationReceiptNotes") or "",
                 "farmerName": (farmer or {}).get("farmName") or "Farmer",
                 "farmerId": str(fulfillment.get("farmerId") or ""),
                 "productId": str(fulfillment.get("productId") or ""),
