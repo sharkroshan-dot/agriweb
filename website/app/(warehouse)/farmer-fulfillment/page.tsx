@@ -139,7 +139,7 @@ export default function FarmerFulfillmentWarehousePage() {
     const qty=Number(receiptQuantity);
     if(!Number.isFinite(qty)||qty<=0){toast.error("Enter the actual received quantity greater than zero.");return;}
     const declared=Number(receivingPortion.expectedQuantity ?? receivingPortion.quantity);
-    if(Number.isFinite(declared)&&declared>0&&Math.abs(qty-declared)>1e-9&&receiptQuality!=="pending"){
+    if(Number.isFinite(declared)&&declared>0&&Math.abs(qty-declared)>1e-9&&receiptQuality==="passed"){
       toast.error("The received quantity differs from the declared quantity. Reconcile the discrepancy and keep quality pending before approval.");
       return;
     }
@@ -364,14 +364,16 @@ export default function FarmerFulfillmentWarehousePage() {
               const incomingId=String(p.incomingRecordIds?.[0]||"");
               const received=String(p.incomingStatus||"").toLowerCase()==="received";
               const failed=String(p.qualityStatus||"").toLowerCase()==="failed"||String(p.incomingStatus||"").toLowerCase()==="rejected";
-              const canReceive=Boolean(incomingId)&&["pending","scheduled","in_transit","ready_for_pickup"].includes(String(p.incomingStatus||"").toLowerCase());
+              const canReceive=Boolean(incomingId)&&Boolean(p.arrivedWarehouseAt)&&["pending","scheduled","in_transit","ready_for_pickup"].includes(String(p.incomingStatus||"").toLowerCase());
               const canStore=received&&String(p.qualityStatus||"").toLowerCase()==="passed"&&Number(p.receivedQuantity)+1e-9>=Number(p.requiredQuantity);
+              const canRecheck=received||failed;
               return <div key={p.eventFulfillmentId||p.productId||index} className="rounded-lg border p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{p.productName||"Product"} · {p.requiredQuantity} kg</p><p className="text-xs text-muted-foreground">{p.farmerName||p.sourceWarehouseName||"Farmer"} · Received {p.receivedQuantity||0} kg · Usable {p.acceptedQuantity||0} kg</p></div><Badge variant={canStore||p.transferStatus==="stored_at_consolidation"?"success":failed?"destructive":"outline"}>{statusLabel(p)}</Badge></div>
                 {p.shortageQuantity>0&&<p className="mt-2 text-xs text-amber-700">Shortage: {p.shortageQuantity} kg. Reconcile before storage or route selection.</p>}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {canReceive&&<Button size="sm" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.requiredQuantity})}>Receive + Inspect Portion</Button>}
-                  {received&&<Button size="sm" variant="outline" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.receivedQuantity,qualityCheck:p.qualityStatus,qualityRecheck:true})}>Recheck Quality</Button>}
+                  {Boolean(incomingId)&&!p.arrivedWarehouseAt&&["pending","scheduled","in_transit","ready_for_pickup"].includes(String(p.incomingStatus||"").toLowerCase())&&<p className="text-xs text-amber-700">Waiting for the farm collection team to record physical arrival at this warehouse before receipt can be confirmed.</p>}
+                  {canRecheck&&<Button size="sm" variant="outline" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.receivedQuantity,qualityCheck:p.qualityStatus,qualityRecheck:true})}>Recheck Quality</Button>}
                   {canStore&&<Button size="sm" variant="outline" onClick={()=>void store(incomingId)}>Store Approved Portion</Button>}
                   {failed&&<span className="text-xs text-red-700">This portion cannot be stored or dispatched until quality is passed and the full quantity is reconciled.</span>}
                 </div>
