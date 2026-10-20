@@ -1757,6 +1757,8 @@ async def dispatch_event_portion_to_consolidation(
 async def receive_event_portion_at_consolidation(
     request_id: str,
     fulfillment_id: str,
+    quantity_received: Optional[float] = Query(None, alias="quantityReceived", gt=0),
+    notes: Optional[str] = Query(None),
     current_user: dict = Depends(get_current_user),
 ):
     """Confirm the physical arrival of one source-warehouse portion at consolidation."""
@@ -1782,21 +1784,50 @@ async def receive_event_portion_at_consolidation(
     actual = incoming.get("quantityReceived", incoming.get("receivedQuantity", incoming.get("actualQuantityReceived", 0)))
     if float(actual or 0) + 1e-9 < float(fulfillment.get("allocatedQuantityKg") or 0):
         raise HTTPException(status_code=409, detail="Source received quantity is short; reconcile it before consolidation receipt")
+    expected_quantity = float(fulfillment.get("allocatedQuantityKg") or 0)
+    actual_at_consolidation = float(quantity_received if quantity_received is not None else actual or 0)
+    if actual_at_consolidation > expected_quantity + 1e-9:
+        raise HTTPException(status_code=409, detail="Consolidation received quantity exceeds the allocated portion. Recount and reconcile the excess before confirming receipt")
     transfer_job_id = str(fulfillment.get("consolidationTransferJobId") or "")
     transfer_job = await delivery_job_repository.get_by_id(transfer_job_id) if ObjectId.is_valid(transfer_job_id) else None
     if not transfer_job or str(transfer_job.get("jobType") or "") != "event_source_transfer" or str(transfer_job.get("eventProgressStatus") or "") != "arrived_at_consolidation":
         raise HTTPException(status_code=409, detail="The transfer partner must record arrival at the consolidation warehouse first")
     now = datetime.utcnow()
+    partner_id = str(transfer_job.get("acceptedBy") or "")
+    if actual_at_consolidation + 1e-9 < expected_quantity:
+        await delivery_job_repository.collection.update_one(
+            {"_id": transfer_job["_id"], "jobType": "event_source_transfer", "deletedAt": None},
+            {"$set": {"status": "delivered", "eventProgressStatus": "received_with_discrepancy", "completedAt": now, "updatedAt": now}},
+        )
+        if partner_id:
+            await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.AVAILABLE, is_available=True)
+        await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+            "consolidationTransferStatus": "shortage_reported",
+            "consolidationStatus": "shortage",
+            "consolidationReceivedQuantityKg": actual_at_consolidation,
+            "consolidationReceiptNotes": notes,
+            "consolidationReceivedAt": now,
+            "consolidationReceivedBy": ObjectId(str(current_user["_id"])),
+            "updatedAt": now,
+        })
+        await request_repo.update({"_id": request["_id"]}, {
+            "eventDeliveryStatus": "replacement_required",
+            "eventConsolidationStatus": "replacement_required",
+            "updatedAt": now,
+        })
+        return {"success": True, "data": {"status": "shortage_reported", "expectedQuantity": expected_quantity, "receivedQuantity": actual_at_consolidation, "shortageQuantity": round(expected_quantity - actual_at_consolidation, 3), "replacementRequired": True}, "message": "Consolidation shortage recorded. The parent order is blocked until the missing quantity is replaced."}
+
     await delivery_job_repository.collection.update_one(
         {"_id": transfer_job["_id"], "jobType": "event_source_transfer", "deletedAt": None},
         {"$set": {"status": "delivered", "eventProgressStatus": "received_at_consolidation", "completedAt": now, "updatedAt": now}},
     )
-    partner_id = str(transfer_job.get("acceptedBy") or "")
     if partner_id:
         await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.AVAILABLE, is_available=True)
     await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
         "consolidationTransferStatus": "received",
         "consolidationStatus": "received",
+        "consolidationReceivedQuantityKg": actual_at_consolidation,
+        "consolidationReceiptNotes": notes,
         "consolidationReceivedAt": now,
         "consolidationReceivedBy": ObjectId(str(current_user["_id"])),
         "updatedAt": now,
