@@ -101,12 +101,13 @@ function buildUrl(path: string, params?: Record<string, string | number | boolea
 async function request<T = any>(method: HttpMethod, path: string, options: ApiRequestOptions = {}) {
   const headers = new Headers(options.headers || {});
   const accessToken = await getCachedSession();
+  const bodyIsFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
 
   if (accessToken?.accessToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${accessToken.accessToken}`);
   }
 
-  if (options.body !== undefined && !headers.has("Content-Type")) {
+  if (options.body !== undefined && !bodyIsFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -122,7 +123,7 @@ async function request<T = any>(method: HttpMethod, path: string, options: ApiRe
         headers,
         credentials: "include",
         signal: controller.signal,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.body === undefined ? undefined : bodyIsFormData ? options.body as FormData : JSON.stringify(options.body),
       });
     } catch (firstError: any) {
       if (firstError?.name === "AbortError") {
@@ -136,7 +137,7 @@ async function request<T = any>(method: HttpMethod, path: string, options: ApiRe
           // Keep the fallback attempt under the same deadline as the first
           // request; otherwise a network failure can leave a page waiting.
           signal: controller.signal,
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          body: options.body === undefined ? undefined : bodyIsFormData ? options.body as FormData : JSON.stringify(options.body),
         });
       } catch {
         throw new Error(`Network error: ${method} ${url} (${firstError?.message || firstError})`);
