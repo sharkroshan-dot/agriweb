@@ -452,7 +452,7 @@ export default function FarmerFulfillmentWarehousePage() {
                     {destinationRole && <Button size="sm" onClick={()=>receiveDestination(o.id)} disabled={transferStatus !== "destination_warehouse_in_transit"}><Warehouse className="mr-2 h-4 w-4"/>Confirm Destination Receipt</Button>}
                     {destinationRole && <Button size="sm" onClick={()=>handoffHub(o.id)} disabled={transferStatus !== "destination_warehouse_received"}><Route className="mr-2 h-4 w-4"/>Transfer to Local Hub</Button>}
                     {destinationRole && <Button size="sm" variant="outline" onClick={()=>chooseDeliveryRoute(o.id,"direct",false)} disabled={transferStatus !== "destination_warehouse_received"||routingOrder===o.id}>{routingOrder===o.id?"Publishing…":"Publish Direct Delivery"}</Button>}
-                    {destinationRole && <Button size="sm" variant="destructive" onClick={()=>chooseDeliveryRoute(o.id,"direct",true)} disabled={transferStatus !== "destination_warehouse_received"||routingOrder===o.id}>Urgent · Deliver Directly</Button>
+                    {destinationRole && <Button size="sm" variant="destructive" onClick={()=>chooseDeliveryRoute(o.id,"direct",true)} disabled={transferStatus !== "destination_warehouse_received"||routingOrder===o.id}>Urgent · Deliver Directly</Button>}
                     {transferStatus === "hub_arrived_pending_receipt" && <Button size="sm" onClick={()=>receiveHub(o.id)}><MapPin className="mr-2 h-4 w-4"/>Confirm Local Hub Receipt</Button>}
                   </>}
                   {multi && <>
