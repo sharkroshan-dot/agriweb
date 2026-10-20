@@ -1618,10 +1618,71 @@ async def dispatch_event_order_to_local_hub(
         raise HTTPException(status_code=409, detail="No eligible local hub is available for this customer address and order weight")
     if str(hub.get("_id") or "") == str(manager_warehouse.get("_id") or ""):
         raise HTTPException(status_code=409, detail="The selected consolidation warehouse is also the nearest hub. Configure a distinct local hub before dispatching")
+    warehouse_coords = (manager_warehouse.get("location") or {}).get("coordinates") or []
+    hub_location = hub.get("location") or hub.get("coordinates") or {}
+    hub_coords = hub_location.get("coordinates") if isinstance(hub_location, dict) else hub_location
+    if not isinstance(hub_coords, (list, tuple)) or len(hub_coords) < 2 or len(warehouse_coords) < 2:
+        raise HTTPException(status_code=409, detail="The consolidation warehouse and selected local hub must both have valid map coordinates")
+    pickup_lat, pickup_lng = float(warehouse_coords[1]), float(warehouse_coords[0])
+    hub_lat, hub_lng = float(hub_coords[1]), float(hub_coords[0])
+    partners = await eligible_partners_for_job(pickup_lat, pickup_lng, total_weight, job_type="customer_delivery")
     now = datetime.utcnow()
+    transfer_job_id = str(request.get("eventHubTransferJobId") or "")
+    if not transfer_job_id:
+        transfer_job = {
+            "jobType": "event_hub_transfer",
+            "eventRequestId": request["_id"],
+            "requestNumber": request.get("requestNumber"),
+            "orderId": request["_id"],
+            "orderNumber": request.get("requestNumber") or "EVENT",
+            "status": "open",
+            "openedAt": now,
+            "expiresAt": now + timedelta(minutes=JOB_DEFAULT_EXPIRY_MINUTES),
+            "acceptedBy": None,
+            "acceptedAt": None,
+            "eligiblePartnerIds": [str(p.get("id")) for p in partners if p.get("id")],
+            "pickupLocation": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
+            "pickupName": manager_warehouse.get("name") or manager_warehouse.get("warehouseName") or "Event Consolidation Warehouse",
+            "pickupAddress": manager_warehouse.get("address") or "",
+            "pickupWarehouseId": manager_warehouse["_id"],
+            "deliveryLocation": {"type": "Point", "coordinates": [float(hub_coords[0]), float(hub_coords[1])]},
+            "deliveryArea": hub.get("city") or hub.get("district") or "Local Hub",
+            "deliveryCity": hub.get("city") or hub.get("district") or "",
+            "deliveryAddress": hub.get("address") or hub.get("name") or "Approved Local Hub",
+            "customerName": request.get("buyerName") or "Event buyer",
+            "distanceKm": round(BulkOrderService.haversine_km(pickup_lat, pickup_lng, hub_lat, hub_lng), 2),
+            "weightKg": total_weight,
+            "itemCount": len(fulfillments),
+            "eventTransferType": "consolidation_to_local_hub",
+            "eventProgressStatus": "open",
+            "priority": 2,
+            "priorityLabel": "High",
+            "orderStatus": "ready_for_delivery",
+            "createdAt": now,
+            "updatedAt": now,
+            "deletedAt": None,
+        }
+        created_job_id = await delivery_job_repository.create_job(transfer_job)
+        if not created_job_id:
+            raise HTTPException(status_code=500, detail="Could not create the consolidation-to-local-hub transfer job")
+        transfer_job_id = str(created_job_id)
+        for partner in partners:
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(partner.get("userId") or partner.get("id")),
+                    NotificationType.ORDER,
+                    "Event consolidation transfer available",
+                    str(request.get("requestNumber") or "Event order") + " needs a sealed transfer from the consolidation warehouse to the local hub.",
+                    {"requestId": str(request["_id"]), "deliveryJobId": transfer_job_id, "type": "event_hub_transfer"},
+                    NotificationPriority.HIGH,
+                )
+            except Exception:
+                continue
     await request_repo.update({"_id": request["_id"]}, {
         "eventLocalHubId": hub["_id"],
         "eventLocalHubName": hub.get("name") or hub.get("warehouseName") or "Local Hub",
+        "eventHubTransferJobId": ObjectId(transfer_job_id),
+        "eventHubTransferStatus": request.get("eventHubTransferStatus") or "open",
         "eventFulfillmentRoute": "local_hub",
         "eventLocalHubStatus": "in_transit",
         "eventLocalHubDispatchedAt": now,
@@ -1630,7 +1691,7 @@ async def dispatch_event_order_to_local_hub(
         "eventConsolidationStatus": "consolidated",
         "updatedAt": now,
     })
-    return {"success": True, "data": {"status": "in_transit", "localHubId": str(hub["_id"]), "localHubName": hub.get("name") or hub.get("warehouseName")}, "message": "Consolidated order dispatched to local hub; the receiving hub must confirm physical arrival."}
+    return {"success": True, "data": {"status": "in_transit", "transferJobId": transfer_job_id, "localHubId": str(hub["_id"]), "localHubName": hub.get("name") or hub.get("warehouseName")}, "message": "Consolidated order transfer job created; a delivery partner must record arrival at the local hub before warehouse receipt."}
 
 
 @router.post("/event-orders/{request_id}/choose-delivery-route")
