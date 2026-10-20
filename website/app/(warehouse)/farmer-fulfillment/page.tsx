@@ -134,6 +134,11 @@ export default function FarmerFulfillmentWarehousePage() {
     if(!receivingPortion) return;
     const qty=Number(receiptQuantity);
     if(!Number.isFinite(qty)||qty<=0){toast.error("Enter the actual received quantity greater than zero.");return;}
+    const declared=Number(receivingPortion.expectedQuantity ?? receivingPortion.quantity);
+    if(Number.isFinite(declared)&&declared>0&&Math.abs(qty-declared)>1e-9&&receiptQuality!=="pending"){
+      toast.error("The received quantity differs from the declared quantity. Reconcile the discrepancy and keep quality pending before approval.");
+      return;
+    }
     setSavingReceipt(true);
     try {
       await api.put(`/warehouse/me/incoming/${receivingPortion.id}/receive`,undefined,{params:{quantity:qty,quality_check:receiptQuality,usableQuantity:receiptQuality==="failed"?0:qty,notes:receiptNotes.trim()||undefined}});
