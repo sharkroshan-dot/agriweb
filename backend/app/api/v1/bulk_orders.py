@@ -1404,7 +1404,13 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
         return None
 
     warehouse_id = request.get("eventLocalHubId") if local_hub_route else request.get("eventWarehouseId")
-    warehouse = await warehouse_repository.get_by_id(str(warehouse_id)) if warehouse_id else None
+    if local_hub_route:
+        warehouse = await MongoDB.get_collection("fulfillment_hubs").find_one({
+            "_id": ObjectId(str(warehouse_id)), "deletedAt": None,
+            "isLocalFulfillmentHub": True, "isActive": True, "approvalStatus": "approved",
+        }) if warehouse_id and ObjectId.is_valid(str(warehouse_id)) else None
+    else:
+        warehouse = await warehouse_repository.get_by_id(str(warehouse_id)) if warehouse_id else None
     if not warehouse:
         return None
 
@@ -1442,7 +1448,7 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
         "pickupLocation": {"type": "Point", "coordinates": [pickup_lng, pickup_lat]},
         "pickupName": warehouse.get("name") or warehouse.get("warehouseName") or ("Event Local Hub" if local_hub_route else "Event Consolidation Warehouse"),
         "pickupAddress": warehouse.get("address") or "",
-        "pickupWarehouseId": warehouse["_id"],
+        **({"pickupHubId": warehouse["_id"]} if local_hub_route else {"pickupWarehouseId": warehouse["_id"]}),
         "deliveryLocation": {"type": "Point", "coordinates": [delivery_lng, delivery_lat]},
         "deliveryArea": destination.get("area") or request.get("deliveryCity") or "",
         "deliveryCity": destination.get("city") or request.get("deliveryCity") or "",
