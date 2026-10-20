@@ -1609,8 +1609,8 @@ async def dispatch_event_order_to_local_hub(
             raise HTTPException(status_code=409, detail=f"Received quantity is short for {portion.get('productName') or portion.get('productId')}")
     if str(request.get("eventDeliveryJobId") or "") and str(request.get("eventFulfillmentRoute") or "") != "local_hub":
         raise HTTPException(status_code=409, detail="A direct delivery job already exists for this event order")
-    if str(request.get("eventLocalHubStatus") or "") in ("in_transit", "received"):
-        return {"success": True, "data": {"status": request.get("eventLocalHubStatus"), "localHubName": request.get("eventLocalHubName")}, "message": "The local-hub transfer is already recorded"}
+    if str(request.get("eventLocalHubStatus") or "") in ("in_transit", "arrived_at_hub", "received"):
+        return {"success": True, "data": {"status": request.get("eventLocalHubStatus"), "localHubName": request.get("eventLocalHubName"), "transferJobId": str(request.get("eventHubTransferJobId") or "") or None}, "message": "The local-hub transfer is already recorded"}
     destination = (request.get("deliveryAddress") or {}).get("location") or {}
     if not destination.get("coordinates"):
         raise HTTPException(status_code=409, detail="Customer delivery coordinates are required to select the local hub")
