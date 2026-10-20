@@ -2704,6 +2704,7 @@ async def get_farmer_fulfillment_consolidations(current_user: dict = Depends(get
             )
             portions.append({
                 "sourceWarehouseId": source_warehouse_id,
+                "isAssignedSourceWarehouse": source_warehouse_id == warehouse_id,
                 "sourceWarehouseName": fulfillment.get("sourceWarehouseName") or "Source Warehouse",
                 "consolidationWarehouseId": str(fulfillment.get("consolidationWarehouseId") or event_warehouse_id),
                 "consolidationTransferStatus": fulfillment.get("consolidationTransferStatus") or "pending_dispatch",
