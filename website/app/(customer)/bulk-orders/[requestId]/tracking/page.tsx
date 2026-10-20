@@ -78,6 +78,15 @@ export default function BulkOrderTrackingPage() {
         </CardContent>
       </Card>
 
+      {tracking.deliveryVerificationCode && tracking.currentStage !== "delivered" && (
+        <Card className="border-amber-300 bg-amber-50/60">
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
+            <div><h2 className="font-semibold text-amber-950">Final delivery verification code</h2><p className="mt-1 max-w-2xl text-sm text-amber-900">Share this code with the delivery partner only after the complete event order physically arrives at your delivery address. The partner must also upload a delivery photo.</p></div>
+            <div className="rounded-xl border border-amber-300 bg-white px-5 py-3 text-center"><p className="text-xs text-amber-800">Customer OTP</p><p className="text-2xl font-bold tracking-[0.25em] text-amber-950">{tracking.deliveryVerificationCode}</p></div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="p-5 sm:p-7">
           <h2 className="mb-6 text-lg font-semibold">Order Journey</h2>
