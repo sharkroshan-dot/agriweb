@@ -86,6 +86,19 @@ export default function DeliveryReassignPage() {
     }
   };
 
+  const updateEventHubTransfer = async (jobId: string, nextStatus: "picked_up" | "arrived_at_hub") => {
+    try {
+      setEventProgressBusy(jobId);
+      await api.put("/delivery/jobs/" + jobId + "/event-hub-transfer-status", undefined, { params: { status: nextStatus } });
+      toast.success(nextStatus === "picked_up" ? "Consolidated event order picked up for hub transfer" : "Arrival at local hub recorded; hub staff must confirm physical receipt");
+      await queryClient.invalidateQueries({ queryKey: ["deliveryJobs"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Could not update event hub transfer");
+    } finally {
+      setEventProgressBusy(null);
+    }
+  };
+
   const submitEventPod = async (job: Job) => {
     const otp = (eventOtpByJob[job.id] || "").trim();
     const recipientName = (eventRecipientByJob[job.id] || "").trim();
@@ -173,6 +186,16 @@ export default function DeliveryReassignPage() {
             </div>
           )}
           {j.status === "delivered" && <div className="text-sm font-medium text-emerald-700">✓ Delivered with proof recorded{j.proofOfDelivery?.recipientName ? " · Recipient: " + j.proofOfDelivery.recipientName : ""}{j.proofOfDelivery?.photoUrl ? <p><a className="underline" href={j.proofOfDelivery.photoUrl} target="_blank" rel="noreferrer">View proof photo</a></p> : null}</div>}
+        </div>
+      )}
+      {!allowAction && j.jobType === "event_hub_transfer" && (
+        <div className="mt-4 space-y-3 rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold text-sky-950">Consolidation → Local Hub Transfer</p><Badge variant={j.status === "delivered" ? "success" : "outline"}>{String(j.eventProgressStatus || "accepted").replace(/_/g, " ")}</Badge></div>
+          <p className="text-sm text-sky-900">Transport the sealed complete event order from the consolidation warehouse to the assigned local hub. The warehouse must confirm physical receipt before the final customer delivery job opens.</p>
+          {String(j.eventProgressStatus || "accepted") === "accepted" && <Button size="sm" disabled={eventProgressBusy === j.id} onClick={() => void updateEventHubTransfer(j.id, "picked_up")}>{eventProgressBusy === j.id ? "Updating…" : "Confirm Sealed Order Picked Up"}</Button>}
+          {String(j.eventProgressStatus || "") === "picked_up" && <Button size="sm" disabled={eventProgressBusy === j.id} onClick={() => void updateEventHubTransfer(j.id, "arrived_at_hub")}>{eventProgressBusy === j.id ? "Updating…" : "Record Arrival at Local Hub"}</Button>}
+          {String(j.eventProgressStatus || "") === "arrived_at_hub" && <p className="text-sm font-medium text-emerald-700">Arrival recorded. Waiting for the consolidation warehouse to confirm physical receipt.</p>}
+          {String(j.eventProgressStatus || "") === "received_at_hub" && <p className="text-sm font-medium text-emerald-700">✓ Local hub receipt confirmed by warehouse staff.</p>}
         </div>
       )}
     </div>
