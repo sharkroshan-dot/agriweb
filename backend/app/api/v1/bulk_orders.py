@@ -1629,7 +1629,7 @@ async def dispatch_event_portion_to_consolidation(
     if str(fulfillment.get("status") or "") != "stored":
         raise HTTPException(status_code=409, detail="The source warehouse must receive, quality-approve, reconcile, and store the portion before dispatch")
     existing_job_id = str(fulfillment.get("consolidationTransferJobId") or "")
-    if existing_job_id and str(fulfillment.get("consolidationTransferStatus") or "") in ("in_transit", "arrived_at_consolidation", "received"):
+    if existing_job_id and str(fulfillment.get("consolidationTransferStatus") or "") in ("in_transit", "assigned", "picked_up", "arrived_at_consolidation", "received"):
         return {"success": True, "data": {"transferJobId": existing_job_id, "status": fulfillment.get("consolidationTransferStatus")}, "message": "This event portion's consolidation transfer is already recorded"}
     incoming = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
     if not incoming or str(incoming.get("status") or "").lower() != "stored" or str(incoming.get("qualityCheck") or "").lower() != "passed":
