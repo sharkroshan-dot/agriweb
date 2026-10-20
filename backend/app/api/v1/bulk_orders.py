@@ -1654,7 +1654,8 @@ async def dispatch_event_portion_to_consolidation(
         "eventRequestId": request["_id"],
         "eventFulfillmentId": fulfillment["_id"],
         "requestNumber": request.get("requestNumber"),
-        "orderId": request["_id"],
+        # Intermediate jobs are unique per fulfillment portion; the parent is tracked separately.
+        "orderId": fulfillment["_id"],
         "orderNumber": str(request.get("requestNumber") or "EVENT") + " · " + str(fulfillment.get("productName") or "Portion"),
         "status": "open",
         "openedAt": now,
