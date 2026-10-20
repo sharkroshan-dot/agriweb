@@ -1412,7 +1412,15 @@ async def confirm_event_source(
 
 async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optional[str]:
     """Create exactly one final delivery job after all event portions are physically stored and a valid route is selected."""
-    if not fulfillments or any(str(f.get("status") or "") != "stored" for f in fulfillments):
+    target_warehouse_id = str(request.get("eventWarehouseId") or "")
+    if not fulfillments or any(
+        str(f.get("status") or "") != "stored"
+        or (
+            str(f.get("sourceWarehouseId") or f.get("warehouseId") or target_warehouse_id) != target_warehouse_id
+            and str(f.get("consolidationStatus") or "") != "received"
+        )
+        for f in fulfillments
+    ):
         return None
     route = str(request.get("eventFulfillmentRoute") or "")
     local_hub_route = route == "local_hub"
@@ -1613,8 +1621,15 @@ async def dispatch_event_order_to_local_hub(
     if not manager_warehouse or str(request.get("eventWarehouseId") or "") != str(manager_warehouse["_id"]):
         raise HTTPException(status_code=403, detail="Only the consolidation warehouse can dispatch this event order")
     fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
-    if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
-        raise HTTPException(status_code=409, detail="Every required farmer portion must be physically received, quality-approved and stored before consolidation dispatch")
+    if not fulfillments or any(
+        str(row.get("status") or "") != "stored"
+        or (
+            str(row.get("sourceWarehouseId") or row.get("warehouseId") or request.get("eventWarehouseId") or "") != str(request.get("eventWarehouseId") or "")
+            and str(row.get("consolidationStatus") or "") != "received"
+        )
+        for row in fulfillments
+    ):
+        raise HTTPException(status_code=409, detail="Every required farmer portion must be physically received, quality-approved, stored, and received at the consolidation warehouse before final route selection")
     incoming_rows = await incoming_stock_repository.find_many({"eventRequestId": request["_id"], "deletedAt": None}, skip=0, limit=1000)
     if len(incoming_rows) < len(fulfillments):
         raise HTTPException(status_code=409, detail="One or more farmer portions have no Incoming Stock record")
@@ -1738,8 +1753,15 @@ async def choose_event_delivery_route(
         raise HTTPException(status_code=403, detail="Only the assigned consolidation warehouse can choose the final event route")
 
     fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
-    if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
-        raise HTTPException(status_code=409, detail="Every event portion must be physically received, quality-approved, quantity-reconciled, and stored before choosing the final route")
+    if not fulfillments or any(
+        str(row.get("status") or "") != "stored"
+        or (
+            str(row.get("sourceWarehouseId") or row.get("warehouseId") or request.get("eventWarehouseId") or "") != str(request.get("eventWarehouseId") or "")
+            and str(row.get("consolidationStatus") or "") != "received"
+        )
+        for row in fulfillments
+    ):
+        raise HTTPException(status_code=409, detail="Every event portion must be physically received, quality-approved, quantity-reconciled, stored, and received at consolidation before route selection")
     incoming_rows = await incoming_stock_repository.find_many({"eventRequestId": request["_id"], "deletedAt": None}, skip=0, limit=1000)
     for portion in fulfillments:
         incoming = next((row for row in incoming_rows if str(row.get("eventFulfillmentId") or "") == str(portion["_id"])), None)
