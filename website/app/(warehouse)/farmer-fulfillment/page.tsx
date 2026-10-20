@@ -75,23 +75,25 @@ export default function FarmerFulfillmentWarehousePage() {
   };
   const transfersRaw=data?.data?.transfers||[];
   const transfers=[...transfersRaw].sort((a:any,b:any)=>(routeOrder[a.routeCategory]??4)-(routeOrder[b.routeCategory]??4));
-  // Only fully received orders with verified routing belong in actionable queues.
-  const eligibleTransfers=transfers.filter((o:any)=>o.physicalReceiptConfirmed && o.routeDataComplete && o.routeCategory!=="needs_location" && o.currentWarehouseRole!=="assigned");
+  const eventTransfers=transfers.filter((o:any)=>Boolean(o.isEventOrder));
+  const standardTransfers=transfers.filter((o:any)=>!o.isEventOrder);
+  // Only fully received standard Farmer Fulfillment orders with verified routing belong in these queues.
+  const eligibleTransfers=standardTransfers.filter((o:any)=>o.physicalReceiptConfirmed && o.routeDataComplete && o.routeCategory!=="needs_location" && o.currentWarehouseRole!=="assigned");
   // Consolidation warehouses must see inbound legs before receipt, but those
   // orders must not inflate the fully-received route-planning count.
-  const inboundConsolidationTransfers=transfers.filter((o:any)=>o.isConsolidationWarehouse && Number(o.consolidation?.inTransitLegs||0)>0 && o.routeDataComplete);
+  const inboundConsolidationTransfers=standardTransfers.filter((o:any)=>o.isConsolidationWarehouse && Number(o.consolidation?.inTransitLegs||0)>0 && o.routeDataComplete);
   const visibleTransfers=[...eligibleTransfers,...inboundConsolidationTransfers.filter((o:any)=>!eligibleTransfers.some((ready:any)=>ready.id===o.id))];
-  const waitingTransfers=transfers.filter((o:any)=>!visibleTransfers.some((ready:any)=>ready.id===o.id));
+  const waitingTransfers=standardTransfers.filter((o:any)=>!visibleTransfers.some((ready:any)=>ready.id===o.id));
   const needsLocationData=(o:any)=>o.routeCategory==="needs_location" || !o.routeDataComplete;
   const needsOperationalReview=(o:any)=>!needsLocationData(o) && (
     Boolean(o.isUnassigned) || o.currentWarehouseRole==="assigned" || !o.physicalReceiptConfirmed
   );
   const routeSectionRows={
-    nearby:transfers.filter((o:any)=>o.routeCategory==="nearby" && !needsLocationData(o) && !needsOperationalReview(o)),
-    same_district:transfers.filter((o:any)=>o.routeCategory==="same_district" && !needsLocationData(o) && !needsOperationalReview(o)),
-    inter_district:transfers.filter((o:any)=>["inter_district","multi_warehouse"].includes(String(o.routeCategory)) && !needsLocationData(o) && !needsOperationalReview(o)),
-    route_review:transfers.filter((o:any)=>needsOperationalReview(o)),
-    needs_location:transfers.filter((o:any)=>needsLocationData(o)),
+    nearby:standardTransfers.filter((o:any)=>o.routeCategory==="nearby" && !needsLocationData(o) && !needsOperationalReview(o)),
+    same_district:standardTransfers.filter((o:any)=>o.routeCategory==="same_district" && !needsLocationData(o) && !needsOperationalReview(o)),
+    inter_district:standardTransfers.filter((o:any)=>["inter_district","multi_warehouse"].includes(String(o.routeCategory)) && !needsLocationData(o) && !needsOperationalReview(o)),
+    route_review:standardTransfers.filter((o:any)=>needsOperationalReview(o)),
+    needs_location:standardTransfers.filter((o:any)=>needsLocationData(o)),
   };
   const routeSectionMeta=[
     {key:"nearby" as const,label:"Nearby Delivery",description:"Within 15 km by default; choose direct delivery or a local hub. Urgent orders can go directly from the warehouse."},
@@ -332,6 +334,53 @@ export default function FarmerFulfillmentWarehousePage() {
       </div>
     </CardContent></Card>
 
+    {eventTransfers.length>0 && <section className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-xl font-bold">Bulk / Event Order Fulfillment</h2><p className="text-sm text-muted-foreground">One parent event order, all farmer portions, one verified final route and one customer delivery job.</p></div><Badge variant="outline">{eventTransfers.length} event order(s)</Badge></div>
+      <div className="grid gap-4 xl:grid-cols-2">{eventTransfers.map((o:any)=>{
+        const requestId=String(o.requestId||o.orderId||"");
+        const portions=o.productPortions||[];
+        const allStored=Boolean(o.allEventPortionsStored);
+        const distance=o.routeDistanceKm==null?null:Number(o.routeDistanceKm);
+        const selectedRoute=String(o.eventFulfillmentRoute||"");
+        const jobExists=Boolean(o.eventDeliveryJobId||o.deliveryJobId);
+        const routeBusy=Boolean(routingOrder===requestId);
+        const statusLabel=(p:any)=>p.incomingStatus==="stored"&&p.qualityStatus==="passed"&&Number(p.receivedQuantity)>=Number(p.requiredQuantity)?"Stored and quality-approved":p.qualityStatus==="failed"?"Quality failed — recheck required":p.incomingStatus==="received"?"Physically received — quality/storage pending":p.incomingStatus==="not_created"?String(p.eventFulfillmentStatus||"Waiting for farmer"):String(p.incomingStatus||p.eventFulfillmentStatus||"Pending").replace(/_/g," ");
+        return <Card key={requestId} className="overflow-hidden border-violet-200">
+          <div className="border-b bg-violet-50 px-4 py-3"><div className="flex flex-wrap items-start justify-between gap-2"><div><h3 className="font-semibold">{o.orderNumber||requestId}</h3><p className="mt-1 text-sm text-muted-foreground">{o.buyerName||"Event buyer"} · {o.buyerType||"Event"}</p></div><Badge variant="outline">{o.eventRequestStatus||o.eventStatus||"Active"}</Badge></div><p className="mt-2 text-sm">{[o.deliveryAddress?.addressLine1||o.deliveryAddress?.address,o.deliveryAddress?.city,o.deliveryAddress?.district,o.deliveryAddress?.state].filter(Boolean).join(", ")||"Delivery address needs review"}</p></div>
+          <CardContent className="space-y-3 p-4">
+            <div className="grid grid-cols-3 gap-2 text-sm"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Portions</p><p className="font-semibold">{portions.length}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Stored / approved</p><p className="font-semibold">{portions.filter((p:any)=>p.incomingStatus==="stored"&&p.qualityStatus==="passed"&&Number(p.receivedQuantity)>=Number(p.requiredQuantity)).length}/{portions.length}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-muted-foreground">Warehouse distance</p><p className="font-semibold">{distance==null?"Unverified":distance.toFixed(1)+" km"}</p></div></div>
+            <div className="space-y-2">{portions.map((p:any,index:number)=>{
+              const incomingId=String(p.incomingRecordIds?.[0]||"");
+              const received=String(p.incomingStatus||"").toLowerCase()==="received";
+              const failed=String(p.qualityStatus||"").toLowerCase()==="failed"||String(p.incomingStatus||"").toLowerCase()==="rejected";
+              const canReceive=Boolean(incomingId)&&["pending","scheduled","in_transit","ready_for_pickup"].includes(String(p.incomingStatus||"").toLowerCase());
+              const canStore=received&&String(p.qualityStatus||"").toLowerCase()==="passed"&&Number(p.receivedQuantity)+1e-9>=Number(p.requiredQuantity);
+              return <div key={p.eventFulfillmentId||p.productId||index} className="rounded-lg border p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">{p.productName||"Product"} · {p.requiredQuantity} kg</p><p className="text-xs text-muted-foreground">{p.farmerName||p.sourceWarehouseName||"Farmer"} · Received {p.receivedQuantity||0} kg · Usable {p.acceptedQuantity||0} kg</p></div><Badge variant={canStore||p.transferStatus==="stored_at_consolidation"?"success":failed?"destructive":"outline"}>{statusLabel(p)}</Badge></div>
+                {p.shortageQuantity>0&&<p className="mt-2 text-xs text-amber-700">Shortage: {p.shortageQuantity} kg. Reconcile before storage or route selection.</p>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {canReceive&&<Button size="sm" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.requiredQuantity})}>Receive + Inspect Portion</Button>}
+                  {received&&<Button size="sm" variant="outline" onClick={()=>openReceiptDialog({id:incomingId,orderNumber:o.orderNumber,productName:p.productName,expectedQuantity:p.requiredQuantity,quantity:p.receivedQuantity,qualityCheck:p.qualityStatus,qualityRecheck:true})}>Recheck Quality</Button>}
+                  {canStore&&<Button size="sm" variant="outline" onClick={()=>void store(incomingId)}>Store Approved Portion</Button>}
+                  {failed&&<span className="text-xs text-red-700">This portion cannot be stored or dispatched until quality is passed and the full quantity is reconciled.</span>}
+                </div>
+              </div>;
+            })}</div>
+            {o.isConsolidationWarehouse&&<div className="rounded-lg border bg-slate-50 p-3"><p className="font-semibold">Final delivery route</p><p className="mt-1 text-xs text-muted-foreground">Normal direct delivery: up to 15 km. Beyond 15 km, choose Local Hub or explicitly choose Urgent Direct. Every portion must be stored and quality-approved first.</p><p className="mt-1 text-xs">Current route: {selectedRoute?selectedRoute.replace(/_/g," "):"Not selected"}{o.localHubName?" · Local hub: "+o.localHubName:""}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button size="sm" disabled={!allStored||distance==null||distance>15||routeBusy||jobExists||Boolean(o.localHubStatus==="in_transit"||o.localHubStatus==="received")} onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/choose-delivery-route",undefined,{params:{route:"direct",urgent:false}});toast.success("Nearby direct event delivery job created");await refreshAll();}catch(e:any){toast.error(e?.message||"Nearby route selection failed");}finally{setRoutingOrder(null);}})()}>{routeBusy?"Saving route…":"Option A · Nearby Direct"}</Button>
+                <Button size="sm" variant="outline" disabled={!allStored||routeBusy||jobExists||Boolean(o.localHubStatus==="in_transit"||o.localHubStatus==="received")} onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/choose-delivery-route",undefined,{params:{route:"local_hub",urgent:false}});toast.success("Complete event order dispatched to local hub");await refreshAll();}catch(e:any){toast.error(e?.message||"Local-hub route selection failed");}finally{setRoutingOrder(null);}})()}>Option B · Send to Local Hub</Button>
+                <Button size="sm" variant="destructive" disabled={!allStored||distance==null||routeBusy||jobExists||Boolean(o.localHubStatus==="in_transit"||o.localHubStatus==="received")} onClick={()=>void (async()=>{try{setRoutingOrder(requestId);await api.post("/bulk-orders/event-orders/"+requestId+"/choose-delivery-route",undefined,{params:{route:"direct",urgent:true}});toast.success("Urgent direct event delivery job created");await refreshAll();}catch(e:any){toast.error(e?.message||"Urgent route selection failed");}finally{setRoutingOrder(null);}})()}>Option C · Urgent Direct</Button>
+                {o.isLocalHub&&o.localHubStatus==="in_transit"&&<Button size="sm" onClick={()=>void (async()=>{try{await api.post("/bulk-orders/event-orders/"+requestId+"/receive-local-hub");toast.success("Local hub receipt confirmed; final delivery job opened");await refreshAll();}catch(e:any){toast.error(e?.message||"Local-hub receipt failed");}})()}>Confirm Local Hub Receipt</Button>}
+              </div>
+              {distance==null&&<p className="mt-2 text-xs text-amber-700">Direct route is blocked until verified warehouse and customer coordinates are available.</p>}
+              {distance!=null&&distance>15&&<p className="mt-2 text-xs text-amber-700">Route is {distance.toFixed(1)} km: choose Local Hub or Urgent Direct instead of normal nearby direct.</p>}
+              {jobExists&&<p className="mt-2 text-sm font-medium text-emerald-700">Final delivery job created: {o.eventDeliveryJobId||o.deliveryJobId}. Check delivery-partner jobs for acceptance and completion.</p>}
+            </div>}
+          </CardContent>
+        </Card>;
+      })}</div>
+    </section>}
     {isLoading?<div className="h-32 animate-pulse rounded-xl bg-muted"/>:transfers.length===0?
       <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">No farmer-packed transfers</h3><p className="mt-2 text-sm text-muted-foreground">Long-distance farmer fulfillment orders routed through this warehouse will appear here.</p></Card>:
       <>
