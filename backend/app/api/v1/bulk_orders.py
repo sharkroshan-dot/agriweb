@@ -1604,6 +1604,182 @@ async def _stringify_event_fulfillment(f: dict) -> dict:
     return f
 
 
+@router.post("/event-orders/{request_id}/portions/{fulfillment_id}/dispatch-to-consolidation")
+async def dispatch_event_portion_to_consolidation(
+    request_id: str,
+    fulfillment_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a tracked source-warehouse -> consolidation transfer for one stored event portion."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch event portions")
+    if not ObjectId.is_valid(request_id) or not ObjectId.is_valid(fulfillment_id):
+        raise HTTPException(status_code=400, detail="Invalid event or fulfillment ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "requestId": ObjectId(request_id), "deletedAt": None})
+    if not request or not fulfillment:
+        raise HTTPException(status_code=404, detail="Event request or fulfillment portion not found")
+    source_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    source_id = str(fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId") or "")
+    target_id = str(request.get("eventWarehouseId") or "")
+    if not source_warehouse or str(source_warehouse.get("_id")) != source_id:
+        raise HTTPException(status_code=403, detail="Only the portion's assigned source warehouse can dispatch it")
+    if not target_id or source_id == target_id:
+        raise HTTPException(status_code=409, detail="This portion is already assigned directly to the consolidation warehouse; no transfer is required")
+    if str(fulfillment.get("status") or "") != "stored":
+        raise HTTPException(status_code=409, detail="The source warehouse must receive, quality-approve, reconcile, and store the portion before dispatch")
+    existing_job_id = str(fulfillment.get("consolidationTransferJobId") or "")
+    if existing_job_id and str(fulfillment.get("consolidationTransferStatus") or "") in ("in_transit", "arrived_at_consolidation", "received"):
+        return {"success": True, "data": {"transferJobId": existing_job_id, "status": fulfillment.get("consolidationTransferStatus")}, "message": "This event portion's consolidation transfer is already recorded"}
+    incoming = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
+    if not incoming or str(incoming.get("status") or "").lower() != "stored" or str(incoming.get("qualityCheck") or "").lower() != "passed":
+        raise HTTPException(status_code=409, detail="The source Incoming Stock record must be stored and quality-approved before dispatch")
+    actual = incoming.get("quantityReceived", incoming.get("receivedQuantity", incoming.get("actualQuantityReceived", 0)))
+    if float(actual or 0) + 1e-9 < float(fulfillment.get("allocatedQuantityKg") or 0):
+        raise HTTPException(status_code=409, detail="Received quantity is below the event allocation; resolve the shortage before dispatch")
+    target_warehouse = await warehouse_repository.get_by_id(target_id)
+    if not target_warehouse:
+        raise HTTPException(status_code=409, detail="Assigned consolidation warehouse is unavailable")
+    source_coords = ((source_warehouse.get("location") or {}).get("coordinates") or [])
+    target_coords = ((target_warehouse.get("location") or {}).get("coordinates") or [])
+    if len(source_coords) < 2 or len(target_coords) < 2:
+        raise HTTPException(status_code=409, detail="Source and consolidation warehouse coordinates are required for a safe transfer")
+    source_lat, source_lng = float(source_coords[1]), float(source_coords[0])
+    target_lat, target_lng = float(target_coords[1]), float(target_coords[0])
+    quantity = float(fulfillment.get("allocatedQuantityKg") or 0)
+    partners = await eligible_partners_for_job(source_lat, source_lng, quantity, job_type="customer_delivery")
+    now = datetime.utcnow()
+    transfer_job = {
+        "jobType": "event_source_transfer",
+        "eventRequestId": request["_id"],
+        "eventFulfillmentId": fulfillment["_id"],
+        "requestNumber": request.get("requestNumber"),
+        "orderId": request["_id"],
+        "orderNumber": str(request.get("requestNumber") or "EVENT") + " · " + str(fulfillment.get("productName") or "Portion"),
+        "status": "open",
+        "openedAt": now,
+        "expiresAt": now + timedelta(minutes=JOB_DEFAULT_EXPIRY_MINUTES),
+        "acceptedBy": None,
+        "acceptedAt": None,
+        "eligiblePartnerIds": [str(p.get("id")) for p in partners if p.get("id")],
+        "pickupLocation": {"type": "Point", "coordinates": [source_lng, source_lat]},
+        "pickupName": source_warehouse.get("name") or source_warehouse.get("warehouseName") or "Source Warehouse",
+        "pickupAddress": source_warehouse.get("address") or "",
+        "pickupWarehouseId": source_warehouse["_id"],
+        "deliveryLocation": {"type": "Point", "coordinates": [target_lng, target_lat]},
+        "deliveryArea": target_warehouse.get("district") or target_warehouse.get("city") or "Consolidation Warehouse",
+        "deliveryCity": target_warehouse.get("city") or target_warehouse.get("district") or "",
+        "deliveryAddress": target_warehouse.get("address") or target_warehouse.get("name") or "Consolidation Warehouse",
+        "customerName": "Warehouse transfer",
+        "distanceKm": round(BulkOrderService.haversine_km(source_lat, source_lng, target_lat, target_lng), 2),
+        "weightKg": quantity,
+        "itemCount": 1,
+        "eventTransferType": "source_to_consolidation",
+        "eventProgressStatus": "open",
+        "priority": 2,
+        "priorityLabel": "High",
+        "orderStatus": "ready_for_delivery",
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    }
+    job_id = await delivery_job_repository.create_job(transfer_job)
+    if not job_id:
+        raise HTTPException(status_code=500, detail="Could not create the source-to-consolidation transfer job")
+    await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+        "consolidationTransferJobId": ObjectId(job_id),
+        "consolidationTransferStatus": "in_transit",
+        "consolidationStatus": "in_transit",
+        "consolidationDispatchedAt": now,
+        "consolidationDispatchedBy": ObjectId(str(current_user["_id"])),
+        "updatedAt": now,
+    })
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryStatus": "consolidation_in_transit",
+        "eventConsolidationStatus": "consolidation_in_transit",
+        "updatedAt": now,
+    })
+    for partner in partners:
+        try:
+            await NotificationService.create_in_app_notification(
+                str(partner.get("userId") or partner.get("id")),
+                NotificationType.ORDER,
+                "Event portion transfer available",
+                str(request.get("requestNumber") or "Event order") + " needs a sealed " + str(fulfillment.get("productName") or "product") + " transfer to the consolidation warehouse.",
+                {"requestId": str(request["_id"]), "fulfillmentId": str(fulfillment["_id"]), "deliveryJobId": job_id, "type": "event_source_transfer"},
+                NotificationPriority.HIGH,
+            )
+        except Exception:
+            continue
+    return {"success": True, "data": {"transferJobId": job_id, "status": "in_transit"}, "message": "Source-to-consolidation transfer job created"}
+
+
+@router.post("/event-orders/{request_id}/portions/{fulfillment_id}/receive-at-consolidation")
+async def receive_event_portion_at_consolidation(
+    request_id: str,
+    fulfillment_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Confirm the physical arrival of one source-warehouse portion at consolidation."""
+    if current_user.get("role") != "warehouse":
+        raise HTTPException(status_code=403, detail="Only warehouse staff can receive consolidation portions")
+    if not ObjectId.is_valid(request_id) or not ObjectId.is_valid(fulfillment_id):
+        raise HTTPException(status_code=400, detail="Invalid event or fulfillment ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "requestId": ObjectId(request_id), "deletedAt": None})
+    if not request or not fulfillment:
+        raise HTTPException(status_code=404, detail="Event request or fulfillment portion not found")
+    target_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not target_warehouse or str(target_warehouse.get("_id")) != str(request.get("eventWarehouseId") or ""):
+        raise HTTPException(status_code=403, detail="Only the assigned consolidation warehouse can receive this portion")
+    source_id = str(fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId") or "")
+    if source_id == str(request.get("eventWarehouseId") or ""):
+        return {"success": True, "data": {"status": "received", "transferRequired": False}, "message": "This portion was collected directly into the consolidation warehouse"}
+    if str(fulfillment.get("status") or "") != "stored":
+        raise HTTPException(status_code=409, detail="The source portion must remain stored and quality-approved")
+    incoming = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
+    if not incoming or str(incoming.get("status") or "").lower() != "stored" or str(incoming.get("qualityCheck") or "").lower() != "passed":
+        raise HTTPException(status_code=409, detail="Source receipt, quality approval, and storage must be complete")
+    actual = incoming.get("quantityReceived", incoming.get("receivedQuantity", incoming.get("actualQuantityReceived", 0)))
+    if float(actual or 0) + 1e-9 < float(fulfillment.get("allocatedQuantityKg") or 0):
+        raise HTTPException(status_code=409, detail="Source received quantity is short; reconcile it before consolidation receipt")
+    transfer_job_id = str(fulfillment.get("consolidationTransferJobId") or "")
+    transfer_job = await delivery_job_repository.get_by_id(transfer_job_id) if ObjectId.is_valid(transfer_job_id) else None
+    if not transfer_job or str(transfer_job.get("jobType") or "") != "event_source_transfer" or str(transfer_job.get("eventProgressStatus") or "") != "arrived_at_consolidation":
+        raise HTTPException(status_code=409, detail="The transfer partner must record arrival at the consolidation warehouse first")
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": transfer_job["_id"], "jobType": "event_source_transfer", "deletedAt": None},
+        {"$set": {"status": "delivered", "eventProgressStatus": "received_at_consolidation", "completedAt": now, "updatedAt": now}},
+    )
+    partner_id = str(transfer_job.get("acceptedBy") or "")
+    if partner_id:
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.AVAILABLE, is_available=True)
+    await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+        "consolidationTransferStatus": "received",
+        "consolidationStatus": "received",
+        "consolidationReceivedAt": now,
+        "consolidationReceivedBy": ObjectId(str(current_user["_id"])),
+        "updatedAt": now,
+    })
+    siblings = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    target_id = str(request.get("eventWarehouseId") or "")
+    all_consolidated = bool(siblings) and all(
+        str(row.get("status") or "") == "stored"
+        and (
+            str(row.get("sourceWarehouseId") or row.get("warehouseId") or target_id) == target_id
+            or str(row.get("consolidationStatus") or "") == "received"
+        )
+        for row in siblings
+    )
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryStatus": "awaiting_local_hub_dispatch" if all_consolidated else "consolidation_in_transit",
+        "eventConsolidationStatus": "consolidated" if all_consolidated else "consolidation_in_transit",
+        "updatedAt": now,
+    })
+    return {"success": True, "data": {"status": "received", "allConsolidated": all_consolidated}, "message": "Portion physically received at consolidation"}
+
+
 @router.post("/event-orders/{request_id}/dispatch-local-hub")
 async def dispatch_event_order_to_local_hub(
     request_id: str,
