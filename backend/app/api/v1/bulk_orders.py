@@ -172,8 +172,20 @@ async def _resolve_delivery_address(user_id: str, data: BulkRequestCreate) -> di
 
 
 def _stringify_request(r: dict) -> dict:
-    r["id"] = str(r["_id"])
-    r["buyerUserId"] = str(r.get("buyerUserId"))
+    def convert(value):
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {key: convert(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [convert(item) for item in value]
+        return value
+
+    r = convert(dict(r))
+    r["id"] = str(r.get("_id") or "")
+    r["buyerUserId"] = str(r.get("buyerUserId") or "")
     # The customer OTP is returned only by the authenticated buyer tracking
     # endpoint; never expose it through farmer request lists or admin summaries.
     r.pop("eventDeliveryVerificationCode", None)
@@ -1612,11 +1624,22 @@ async def _finalize_event_after_warehouse_storage(request_id: str) -> Optional[s
     return await _create_event_delivery_job(request, fulfillments)
 
 async def _stringify_event_fulfillment(f: dict) -> dict:
-    f["id"] = str(f["_id"])
-    f["requestId"] = str(f.get("requestId"))
-    f["farmerId"] = str(f.get("farmerId"))
-    f["productId"] = str(f.get("productId"))
-    return f
+    def convert(value):
+        if isinstance(value, ObjectId):
+            return str(value)
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, dict):
+            return {key: convert(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [convert(item) for item in value]
+        return value
+    result = convert(dict(f))
+    result["id"] = str(result.get("_id") or "")
+    result["requestId"] = str(result.get("requestId") or "")
+    result["farmerId"] = str(result.get("farmerId") or "")
+    result["productId"] = str(result.get("productId") or "")
+    return result
 
 
 @router.post("/event-orders/{request_id}/portions/{fulfillment_id}/dispatch-to-consolidation")
