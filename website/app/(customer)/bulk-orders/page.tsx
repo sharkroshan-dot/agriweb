@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package, Eye } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package, Eye, XCircle } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
+import toast from "react-hot-toast";
 
 const requestStatusVariant: Record<string, any> = {
   open: "success",
@@ -35,6 +36,27 @@ function ItemsSummary({ items }: { items: any[] }) {
 
 export default function CustomerBulkOrdersPage() {
   const [tab, setTab] = useState<"requests" | "orders">("requests");
+  const queryClient = useQueryClient();
+
+  const cancelRequestMutation = useMutation({
+    mutationFn: (requestId: string) => api.post(`/bulk-orders/requests/${requestId}/cancel`),
+    onSuccess: () => {
+      toast.success("Bulk/event request cancelled.");
+      queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
+      queryClient.invalidateQueries({ queryKey: ["bulk", "orders"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not cancel this request"),
+  });
+
+  const cancelOrderMutation = useMutation({
+    mutationFn: (orderId: string) => api.put(`/bulk-orders/orders/${orderId}/status`, { status: "cancelled" }),
+    onSuccess: () => {
+      toast.success("Bulk order cancelled.");
+      queryClient.invalidateQueries({ queryKey: ["bulk", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not cancel this order"),
+  });
 
   const { data: requestsData, isLoading: requestsLoading } = useQuery({
     queryKey: ["bulk", "requests"],
@@ -141,6 +163,26 @@ export default function CustomerBulkOrdersPage() {
                         </>
                       ) : null}
                     </div>
+                    {r.status !== "awarded" && r.status !== "cancelled" ? (
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={cancelRequestMutation.isPending}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (window.confirm("Cancel this bulk/event request? Pending farmer offers will be declined.")) {
+                              cancelRequestMutation.mutate(r.id);
+                            }
+                          }}
+                        >
+                          {cancelRequestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                          Cancel Request
+                        </Button>
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
               </Link>
@@ -180,13 +222,29 @@ export default function CustomerBulkOrdersPage() {
                   <span>₹{Number(o.totalAmount || 0).toFixed(2)}</span>
                   <span className="capitalize">{o.deliveryMethod?.replace(/_/g, " ")}</span>
                 </div>
-                <div className="mt-2">
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
                   <Link
                     href={"/bulk-orders/" + o.requestId + "/tracking"}
                     className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
                   >
                     <Eye className="h-4 w-4" /> View Tracking
                   </Link>
+                  {o.status === "confirmed" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={cancelOrderMutation.isPending}
+                      onClick={() => {
+                        if (window.confirm("Cancel this bulk order? This is only allowed before preparation or dispatch starts.")) {
+                          cancelOrderMutation.mutate(o.id);
+                        }
+                      }}
+                    >
+                      {cancelOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                      Cancel Order
+                    </Button>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>
