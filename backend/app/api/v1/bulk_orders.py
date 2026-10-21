@@ -1186,7 +1186,17 @@ async def planned_event_confirm(
                 raise HTTPException(status_code=409, detail=f"{name} is no longer supplied by the selected farmer")
             available = float(await InventoryService.get_available_stock(str(product["_id"])))
             if available + 1e-6 < qty:
-                raise HTTPException(status_code=409, detail=f"{name} stock changed at {(farmer or {}).get('farmName') or 'selected farmer'}; please review quotes again")
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "STOCK_SHORTAGE",
+                        "productId": str(product["_id"]),
+                        "productName": name,
+                        "requestedQuantity": qty,
+                        "availableQuantity": max(0.0, available),
+                        "message": f"Only {max(0.0, available):g} kg of {name} is currently available. Please review the quantity and confirm again.",
+                    },
+                )
             distance = _distance_for_farmer(request, farmer or {})
             covered[key] += qty
             allocations.append({
@@ -1223,8 +1233,25 @@ async def planned_event_confirm(
     source_warehouse_ids = set()
     try:
         for allocation in allocations:
-            # Quote selection creates a pending farmer offer/fulfillment only.
-            # Do not reserve stock until the assigned farmer accepts the portion.
+            # Reserve the customer-confirmed quote atomically against concurrent
+            # normal and event checkouts. Farmer acceptance remains a separate step.
+            reserved_ok = await inventory_repository.atomic_reserve(
+                allocation["productId"], allocation["quantityKg"]
+            )
+            if not reserved_ok:
+                available_now = float(await InventoryService.get_available_stock(allocation["productId"]))
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "STOCK_SHORTAGE",
+                        "productId": allocation["productId"],
+                        "productName": allocation["productName"],
+                        "requestedQuantity": allocation["quantityKg"],
+                        "availableQuantity": max(0.0, available_now),
+                        "message": f"Only {max(0.0, available_now):g} kg of {allocation['productName']} is currently available. Please review the quantity and confirm again.",
+                    },
+                )
+            reserved.append(allocation)
             required_qty = required[BulkOrderService._normalize(allocation["productName"])]
             farmer_doc = await farmer_repository.find_one({"userId": ObjectId(allocation["farmerId"])})
             farm_location = (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("location") or {}
@@ -1250,6 +1277,7 @@ async def planned_event_confirm(
                 "requiredQuantityKg": required_qty,
                 "allocatedQuantityKg": allocation["quantityKg"],
                 "status": "pending_farmer_confirmation",
+                "inventoryReservedAt": datetime.utcnow(),
                 "packingStatus": "not_started",
                 "collectionStatus": "pending",
                 "deliveryStatus": "pending_consolidation",
@@ -1400,8 +1428,25 @@ async def confirm_event_source(
     source_warehouse_ids = set()
     try:
         for a in normalized:
-            # Smart sourcing is only a proposal. Live availability remains unchanged
-            # until the assigned farmer accepts this fulfillment portion.
+            # Reserve the customer-confirmed quantity atomically so a simultaneous
+            # normal checkout cannot claim the same stock. Farmer acceptance remains
+            # a separate fulfillment decision; this reservation is not a sale.
+            from app.repositories.inventory_repository import inventory_repository
+            reserved_ok = await inventory_repository.atomic_reserve(a["productId"], a["quantityKg"])
+            if not reserved_ok:
+                available_now = float(await InventoryService.get_available_stock(a["productId"]))
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "STOCK_SHORTAGE",
+                        "productId": a["productId"],
+                        "productName": a["productName"],
+                        "requestedQuantity": a["quantityKg"],
+                        "availableQuantity": max(0.0, available_now),
+                        "message": f"Only {max(0.0, available_now):g} kg of {a['productName']} is currently available. Please review the quantity and confirm again.",
+                    },
+                )
+            reserved.append(a)
             farmer_doc = await farmer_repository.find_one({"userId": ObjectId(a["farmerId"])})
             farm_location = (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("location") or {}
             farm_coordinates = farm_location.get("coordinates") if isinstance(farm_location, dict) else None
@@ -1420,6 +1465,7 @@ async def confirm_event_source(
                 "requiredQuantityKg": next((x["quantityKg"] for x in request.get("items", []) if str(x.get("name")).strip().lower() == a["productName"].strip().lower()), a["quantityKg"]),
                 "allocatedQuantityKg": a["quantityKg"],
                 "status": "pending_farmer_confirmation",
+                "inventoryReservedAt": datetime.utcnow(),
                 "packingStatus": "not_started",
                 "collectionStatus": "pending",
                 "deliveryStatus": "pending_consolidation",
@@ -2289,14 +2335,24 @@ async def update_event_fulfillment_status(
     # Until then, merely listing/quoting/confirming the customer sourcing plan
     # must not reduce available quantity.
     if new_status == "accepted" and current == "pending_farmer_confirmation" and not fulfillment.get("inventoryReservedAt"):
+        # Legacy fulfillments created before customer-confirmed stock holds still
+        # reserve here; new fulfillments already hold stock from customer confirmation.
         reserved_ok = await inventory_repository.atomic_reserve(
             str(fulfillment["productId"]),
             float(fulfillment.get("allocatedQuantityKg") or 0),
         )
         if not reserved_ok:
+            available_now = float(await InventoryService.get_available_stock(str(fulfillment["productId"])))
             raise HTTPException(
                 status_code=409,
-                detail="This product quantity is no longer available. Refresh your stock and contact the customer before accepting.",
+                detail={
+                    "code": "STOCK_SHORTAGE",
+                    "productId": str(fulfillment["productId"]),
+                    "productName": fulfillment.get("productName"),
+                    "requestedQuantity": float(fulfillment.get("allocatedQuantityKg") or 0),
+                    "availableQuantity": max(0.0, available_now),
+                    "message": f"Only {max(0.0, available_now):g} kg is currently available. The customer must confirm an updated quantity.",
+                },
             )
         fulfillment["inventoryReservedAt"] = datetime.utcnow()
 
