@@ -1223,10 +1223,8 @@ async def planned_event_confirm(
     source_warehouse_ids = set()
     try:
         for allocation in allocations:
-            ok = await inventory_repository.atomic_reserve(allocation["productId"], allocation["quantityKg"])
-            if not ok:
-                raise HTTPException(status_code=409, detail=f"Stock changed for {allocation['productName']}; please review the selected quotes")
-            reserved.append(allocation)
+            # Quote selection creates a pending farmer offer/fulfillment only.
+            # Do not reserve stock until the assigned farmer accepts the portion.
             required_qty = required[BulkOrderService._normalize(allocation["productName"])]
             farmer_doc = await farmer_repository.find_one({"userId": ObjectId(allocation["farmerId"])})
             farm_location = (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("location") or {}
@@ -1402,12 +1400,8 @@ async def confirm_event_source(
     source_warehouse_ids = set()
     try:
         for a in normalized:
-            ok = await __import__("app.repositories.inventory_repository", fromlist=["inventory_repository"]).inventory_repository.atomic_reserve(
-                a["productId"], a["quantityKg"]
-            )
-            if not ok:
-                raise HTTPException(status_code=409, detail=f"Stock changed for {a['productName']} at {a['farmName']}; run sourcing again")
-            reserved.append(a)
+            # Smart sourcing is only a proposal. Live availability remains unchanged
+            # until the assigned farmer accepts this fulfillment portion.
             farmer_doc = await farmer_repository.find_one({"userId": ObjectId(a["farmerId"])})
             farm_location = (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("location") or {}
             farm_coordinates = farm_location.get("coordinates") if isinstance(farm_location, dict) else None
@@ -2289,13 +2283,32 @@ async def update_event_fulfillment_status(
                     detail="The physically received quantity is below the reserved fulfillment quantity. Resolve the discrepancy before storage.",
                 )
 
+    from app.repositories.inventory_repository import inventory_repository
+
+    # Stock becomes reserved only when the farmer explicitly accepts the portion.
+    # Until then, merely listing/quoting/confirming the customer sourcing plan
+    # must not reduce available quantity.
+    if new_status == "accepted" and current == "pending_farmer_confirmation" and not fulfillment.get("inventoryReservedAt"):
+        reserved_ok = await inventory_repository.atomic_reserve(
+            str(fulfillment["productId"]),
+            float(fulfillment.get("allocatedQuantityKg") or 0),
+        )
+        if not reserved_ok:
+            raise HTTPException(
+                status_code=409,
+                detail="This product quantity is no longer available. Refresh your stock and contact the customer before accepting.",
+            )
+        fulfillment["inventoryReservedAt"] = datetime.utcnow()
+
     if new_status == "cancelled":
         if current not in ("pending_farmer_confirmation", "accepted"):
             raise HTTPException(status_code=400, detail="Event fulfillment can only be declined before packing starts")
-        from app.repositories.inventory_repository import inventory_repository
-        released = await inventory_repository.atomic_release(str(fulfillment["productId"]), float(fulfillment["allocatedQuantityKg"]))
-        if not released:
-            raise HTTPException(status_code=409, detail="Reserved stock could not be released safely")
+        if fulfillment.get("inventoryReservedAt") and not fulfillment.get("inventoryFinalizedAt"):
+            released = await inventory_repository.atomic_release(
+                str(fulfillment["productId"]), float(fulfillment["allocatedQuantityKg"])
+            )
+            if not released:
+                raise HTTPException(status_code=409, detail="Reserved stock could not be released safely")
     elif new_status != "pending_farmer_confirmation":
         try:
             if allowed.index(new_status) <= allowed.index(current):
@@ -2306,8 +2319,7 @@ async def update_event_fulfillment_status(
     # A warehouse "stored" event is the commit point for the reservation:
     # reserved stock becomes sold/committed only after physical receipt,
     # quality approval and storage. This is deliberately after collection.
-    if new_status == "stored" and not fulfillment.get("inventoryFinalizedAt"):
-        from app.repositories.inventory_repository import inventory_repository
+    if new_status == "stored" and fulfillment.get("inventoryReservedAt") and not fulfillment.get("inventoryFinalizedAt"):
         confirmed = await inventory_repository.atomic_confirm(
             str(fulfillment["productId"]),
             float(fulfillment["allocatedQuantityKg"]),
@@ -2315,8 +2327,7 @@ async def update_event_fulfillment_status(
         if not confirmed:
             raise HTTPException(status_code=409, detail="Reserved stock could not be finalized; verify the warehouse quantity before storing")
 
-    if new_status == "warehouse_rejected":
-        from app.repositories.inventory_repository import inventory_repository
+    if new_status == "warehouse_rejected" and fulfillment.get("inventoryReservedAt") and not fulfillment.get("inventoryFinalizedAt"):
         released = await inventory_repository.atomic_release(
             str(fulfillment["productId"]),
             float(fulfillment["allocatedQuantityKg"]),
@@ -2327,6 +2338,9 @@ async def update_event_fulfillment_status(
     await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
         "status": new_status,
         "updatedAt": datetime.utcnow(),
+        **({"inventoryReservedAt": fulfillment.get("inventoryReservedAt")} if fulfillment.get("inventoryReservedAt") else {}),
+        **({"inventoryFinalizedAt": datetime.utcnow()} if new_status == "stored" and fulfillment.get("inventoryReservedAt") and not fulfillment.get("inventoryFinalizedAt") else {}),
+        **({"inventoryReservedAt": None} if new_status in ("cancelled", "warehouse_rejected") else {}),
         "packingStatus": "started" if new_status in ("packing", "packed", "ready_for_collection", "collected") else fulfillment.get("packingStatus", "not_started"),
         "collectionStatus": "ready" if new_status == "ready_for_collection" else ("collected" if new_status == "collected" else fulfillment.get("collectionStatus", "pending")),
         "warehouseStatus": (
