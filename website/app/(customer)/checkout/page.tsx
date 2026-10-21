@@ -112,6 +112,7 @@ export default function CheckoutPage() {
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [stockAdjustment, setStockAdjustment] = useState<{ productId: string; requested: number; available: number } | null>(null);
   const [completedOrderId, setCompletedOrderId] = useState("");
   const [completedTransactionId, setCompletedTransactionId] = useState("");
   const [paymentStage, setPaymentStage] = useState("idle");
@@ -392,7 +393,7 @@ export default function CheckoutPage() {
   const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
   const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
 
-  const handlePlaceOrder = async () => {
+  const handlePlaceOrder = async (quantityOverrides?: Record<string, number>) => {
     const addressId = selectedAddressId || defaultAddress?.id;
 
     if (!addressId) {
@@ -439,7 +440,7 @@ export default function CheckoutPage() {
         items: items.map((item) => ({
           productId: item.id,
           variantId: item.variantId || undefined,
-          quantity: item.quantity,
+          quantity: quantityOverrides?.[item.id] ?? item.quantity,
           unitPrice: item.price,
         })),
         deliveryAddressId: addressId,
@@ -502,7 +503,17 @@ export default function CheckoutPage() {
       setPaymentStage("failed");
       setPaymentMessage("Payment could not be completed. Your order can be retried safely.");
       const msg = err?.message || "";
-      if (msg.includes("Product not found")) {
+      const shortageMatch = msg.match(/STOCK_SHORTAGE\|([a-f0-9]{24})\|([0-9.]+)\|([0-9.]+)/i);
+      const detail = err?.response?.data?.detail;
+      const shortage = detail?.code === "STOCK_SHORTAGE"
+        ? { productId: String(detail.productId), available: Number(detail.availableQuantity), requested: Number(detail.requestedQuantity) }
+        : shortageMatch
+          ? { productId: shortageMatch[1], available: Number(shortageMatch[2]), requested: Number(shortageMatch[3]) }
+          : null;
+      if (shortage && shortage.available > 0 && shortage.available < shortage.requested) {
+        setStockAdjustment(shortage);
+        toast("Stock changed while you were checking out. Please confirm the available quantity.");
+      } else if (msg.includes("Product not found")) {
         const productId = msg.match(/[a-f0-9]{24}/)?.[0];
         if (productId) {
           removeItem(productId);
@@ -528,6 +539,28 @@ export default function CheckoutPage() {
   if (paymentStage === "success") {
     return (
       <div className="space-y-6 p-6">
+        {stockAdjustment && (
+          <div role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+            <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+              <h2 id="stock-adjustment-title" className="text-xl font-bold text-slate-900">Update your order quantity?</h2>
+              <p className="text-sm text-slate-600">Sorry, the requested quantity is no longer available. Another customer purchased or reserved some of this stock moments ago.</p>
+              <div className="rounded-xl bg-emerald-50 p-4">
+                <p className="text-sm text-slate-600">Requested quantity: <strong>{stockAdjustment.requested} kg</strong></p>
+                <p className="mt-1 text-2xl font-bold text-emerald-800">{stockAdjustment.available} kg available</p>
+                <p className="text-sm text-slate-600">Would you like to continue with {stockAdjustment.available} kg?</p>
+              </div>
+              <div className="flex gap-3">
+                <Button className="flex-1" disabled={isPlacing} onClick={() => {
+                  const adjustment = stockAdjustment;
+                  setStockAdjustment(null);
+                  updateItem(adjustment.productId, { quantity: adjustment.available });
+                  void handlePlaceOrder({ [adjustment.productId]: adjustment.available });
+                }}>Yes, continue with {stockAdjustment.available} kg</Button>
+                <Button className="flex-1" variant="outline" onClick={() => setStockAdjustment(null)}>No, cancel</Button>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
