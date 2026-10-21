@@ -337,7 +337,13 @@ export default function CreateBulkOrderPage() {
             ) : (
               <Send className="mr-2 h-4 w-4" />
             )}
-            {isFamilyWeekly ? "Find Available Farmers" : urgentEventPreview ? "Find Available Stock" : buyerCategory === "business" || buyerCategory === "institution" ? "Find Suppliers / Request Quotes" : "Request Quotes"}
+            {createMutation.isPending
+              ? "Submitting Request..."
+              : isFamilyWeekly
+                ? "Find Available Farmers"
+                : buyerCategory === "business" || buyerCategory === "institution"
+                  ? "Submit B2B Request"
+                  : "Submit Event / Bulk Request"}
           </Button>
         </CardContent>
       </Card>
