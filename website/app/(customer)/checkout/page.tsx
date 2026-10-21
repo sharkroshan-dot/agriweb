@@ -547,27 +547,6 @@ export default function CheckoutPage() {
   if (paymentStage === "success") {
     return (
       <div className="space-y-6 p-6">
-        {stockAdjustment && (
-          <div role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-            <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
-              <h2 id="stock-adjustment-title" className="text-xl font-bold text-slate-900">Update your order quantity?</h2>
-              <p className="text-sm text-slate-600">Sorry, the requested quantity is no longer available. Another customer purchased or reserved some of this stock moments ago.</p>
-              <div className="rounded-xl bg-emerald-50 p-4">
-                <p className="text-sm text-slate-600">Requested quantity: <strong>{stockAdjustment.requested} kg</strong></p>
-                <p className="mt-1 text-2xl font-bold text-emerald-800">{stockAdjustment.available} kg available</p>
-                <p className="text-sm text-slate-600">Would you like to continue with {stockAdjustment.available} kg?</p>
-              </div>
-              <div className="flex gap-3">
-                <Button className="flex-1" disabled={isPlacing} onClick={() => {
-                  const adjustment = stockAdjustment;
-                  setStockAdjustment(null);
-                  void handlePlaceOrder({ [adjustment.productId]: adjustment.available });
-                }}>Yes, continue with {stockAdjustment.available} kg</Button>
-                <Button className="flex-1" variant="outline" onClick={() => setStockAdjustment(null)}>No, cancel</Button>
-              </div>
-            </div>
-          </div>
-        )}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" asChild>
             <Link href="/orders"><ArrowLeft className="h-4 w-4" /></Link>
@@ -623,6 +602,28 @@ export default function CheckoutPage() {
 
   return (
     <div className="space-y-6 p-6">
+      {stockAdjustment && (
+        <div role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+            <h2 id="stock-adjustment-title" className="text-xl font-bold text-slate-900">Update your order quantity?</h2>
+            <p className="text-sm text-slate-600">Sorry, the requested quantity is no longer available. Another customer purchased or reserved some of this stock moments ago.</p>
+            <div className="rounded-xl bg-emerald-50 p-4">
+              <p className="text-sm text-slate-600">Requested quantity: <strong>{stockAdjustment.requested} kg</strong></p>
+              <p className="mt-1 text-2xl font-bold text-emerald-800">{stockAdjustment.available} kg available</p>
+              <p className="text-sm text-slate-600">Would you like to continue with {stockAdjustment.available} kg?</p>
+            </div>
+            <div className="flex gap-3">
+              <Button className="flex-1" disabled={isPlacing} onClick={() => {
+                const adjustment = stockAdjustment;
+                setStockAdjustment(null);
+                void handlePlaceOrder({ [adjustment.productId]: adjustment.available });
+              }}>Yes, continue with {stockAdjustment.available} kg</Button>
+              <Button className="flex-1" variant="outline" onClick={() => setStockAdjustment(null)}>No, cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
