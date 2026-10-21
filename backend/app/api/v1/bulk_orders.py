@@ -785,6 +785,53 @@ async def update_order_status(
 event_fulfillment_repo = BaseRepository("event_fulfillments")
 
 
+async def _find_event_consolidation_warehouse(request: dict) -> Optional[dict]:
+    """Resolve the consolidation warehouse for an event delivery destination."""
+    address = request.get("deliveryAddress") or {}
+    destination = address.get("location") or {}
+    if isinstance(destination, dict) and destination.get("coordinates"):
+        selected = await WarehouseService.find_best_warehouse(destination, required_capacity=0)
+        if selected:
+            return selected
+
+    active = await warehouse_repository.get_all_warehouses(is_active=True, limit=500)
+    active = [
+        w for w in active
+        if w.get("deletedAt") is None
+        and w.get("isActive", True) is not False
+        and isinstance(w.get("location"), dict)
+        and w.get("location", {}).get("coordinates")
+    ]
+    if not active:
+        return None
+
+    city = str(address.get("city") or request.get("deliveryCity") or "").strip().casefold()
+    state = str(address.get("state") or "").strip().casefold()
+    if city or state:
+        for warehouse in active:
+            warehouse_address = warehouse.get("address") or {}
+            areas = warehouse.get("serviceAreas") or []
+            searchable = [
+                str(warehouse.get("name") or ""),
+                str(warehouse.get("warehouseName") or ""),
+                str(warehouse_address.get("city") or ""),
+                str(warehouse_address.get("district") or ""),
+                str(warehouse_address.get("state") or ""),
+            ]
+            for area in areas:
+                if isinstance(area, dict):
+                    searchable.extend(str(area.get(k) or "") for k in ("city", "district", "state", "name", "pincode", "zipCode"))
+                else:
+                    searchable.append(str(area))
+            searchable_text = " ".join(searchable).casefold()
+            if (city and city in searchable_text) or (state and state in searchable_text):
+                return warehouse
+
+    # Legacy address metadata can be incomplete. Do not fail solely because
+    # the destination cannot be geocoded; use a configured active warehouse.
+    return active[0]
+
+
 class EventSourceConfirm(BaseModel):
     allocations: List[dict] = Field(..., min_length=1)
 
@@ -1164,9 +1211,12 @@ async def planned_event_confirm(
     destination = ((request.get("deliveryAddress") or {}).get("location") or {})
     # The customer's delivery area selects the consolidation warehouse. Immediate
     # event transfers must not be blocked by a bulk storage-capacity reservation.
-    event_warehouse = await WarehouseService.find_best_warehouse(destination) if destination.get("coordinates") else None
+    event_warehouse = await _find_event_consolidation_warehouse(request)
     if not event_warehouse:
-        raise HTTPException(status_code=409, detail="No active consolidation warehouse is available for the customer delivery area")
+        raise HTTPException(
+            status_code=409,
+            detail="No active warehouse is configured. Activate at least one warehouse in Warehouse Management, add its location/service area, then retry sourcing.",
+        )
 
     created = []
     reserved = []
@@ -1342,7 +1392,7 @@ async def confirm_event_source(
     # Choose the consolidation warehouse by the customer's delivery area.
     # This workflow transfers sealed portions through the warehouse promptly;
     # do not block sourcing on a bulk inventory-capacity reservation.
-    event_warehouse = await WarehouseService.find_best_warehouse(destination) if destination.get("coordinates") else None
+    event_warehouse = await _find_event_consolidation_warehouse(request)
     if not event_warehouse:
         raise HTTPException(status_code=409, detail="No active consolidation warehouse is available for the customer delivery area")
     event_warehouse_id = event_warehouse["_id"]
