@@ -231,12 +231,11 @@ export default function FarmerBulkOrdersPage() {
         ) : (
           <div className="mt-4 space-y-3">
             {(eventData?.data?.fulfillments || []).map((f: any) => {
+              // Farmer-side workflow ends at pickup readiness. The pickup team
+              // records collection and subsequent roles own warehouse/delivery stages.
               const next: Record<string, string> = {
                 pending_farmer_confirmation: "accepted",
-                accepted: "packing",
-                packing: "packed",
-                packed: "ready_for_collection",
-                ready_for_collection: "collected",
+                accepted: "ready_for_collection",
               };
               const nextStatus = next[f.status];
               return (
@@ -258,7 +257,7 @@ export default function FarmerBulkOrdersPage() {
                       <div className="flex gap-2">
                         {nextStatus ? (
                           <Button size="sm" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: nextStatus })}>
-                            <CheckCircle className="mr-1.5 h-4 w-4" /> Mark {nextStatus.replace(/_/g, " ")}
+                            <CheckCircle className="mr-1.5 h-4 w-4" /> {nextStatus === "accepted" ? "Confirm Order" : "Ready for Pickup"}
                           </Button>
                         ) : null}
                         {["pending_farmer_confirmation", "accepted"].includes(f.status) ? (
