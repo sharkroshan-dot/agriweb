@@ -118,8 +118,8 @@ export default function FarmerBulkOrdersPage() {
   });
 
   const eventStatusMutation = useMutation({
-    mutationFn: (payload: { id: string; status: string }) =>
-      api.put(`/bulk-orders/event-orders/fulfillments/${payload.id}/status`, { status: payload.status }),
+    mutationFn: (payload: { ids: string[]; status: string }) =>
+      Promise.all(payload.ids.map((id) => api.put(`/bulk-orders/event-orders/fulfillments/${id}/status`, { status: payload.status }))),
     onSuccess: () => {
       toast.success("Event fulfillment updated.");
       queryClient.invalidateQueries({ queryKey: ["farmer", "event-fulfillments"] });
@@ -350,11 +350,7 @@ export default function FarmerBulkOrdersPage() {
                                     <p className="mt-1 text-xs text-slate-500">{portion.farmName || "Your farm"}{portion.distanceKm != null && portion.distanceKm < 999 ? " · " + Number(portion.distanceKm).toFixed(1) + " km to destination" : ""}</p>
                                   </div>
                                   <div className="flex shrink-0 flex-wrap items-center gap-2">
-                                    {nextStatus ? (
-                                      <Button size="sm" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: portion.id, status: nextStatus })}>
-                                        <CheckCircle className="mr-1.5 h-4 w-4" /> {nextStatus === "accepted" ? "Confirm Order" : "Ready for Pickup"}
-                                      </Button>
-                                    ) : status === "ready_for_collection" ? (
+                                    {status === "ready_for_collection" ? (
                                       <Badge variant="success">Ready for Pickup · Awaiting pickup team</Badge>
                                     ) : status === "collected" ? (
                                       <Badge variant="secondary">Collected by pickup team</Badge>
@@ -363,15 +359,16 @@ export default function FarmerBulkOrdersPage() {
                                     ) : status === "stored" ? (
                                       <Badge variant="success">Stored</Badge>
                                     ) : null}
-                                    {["pending_farmer_confirmation", "accepted"].includes(status) ? (
-                                      <Button size="sm" variant="outline" className="text-red-600" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: portion.id, status: "cancelled" })}>Decline</Button>
-                                    ) : null}
                                   </div>
                                 </div>
                               );
                             })}
                           </div>
-                          <p className="text-xs text-slate-500">These products belong to the same customer event request. The pickup team records collection after all required farm portions are ready.</p>
+                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+                            <div><p className="font-medium">Customer order actions</p><p className="text-xs text-slate-500">Apply one action to eligible products in this order.</p></div>
+                            {(() => { const pending = order.portions.filter((p: any) => String(p.status || "pending_farmer_confirmation") === "pending_farmer_confirmation"); const accepted = order.portions.filter((p: any) => String(p.status) === "accepted"); const ids = pending.length ? pending.map((p: any) => p.id) : accepted.map((p: any) => p.id); const status = pending.length ? "accepted" : accepted.length ? "ready_for_collection" : null; const label = pending.length ? (pending.length === order.portions.length ? "Confirm Order" : "Confirm Remaining Products") : accepted.length ? "Ready for Pickup (All Eligible Products)" : null; return status ? <Button disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ ids, status })}><CheckCircle className="mr-2 h-4 w-4" />{label}</Button> : <Badge variant="success">No farmer action pending</Badge>; })()}
+                          </div>
+                                                    <p className="text-xs text-slate-500">These products belong to the same customer event request. The pickup team records collection after all required farm portions are ready.</p>
                         </CardContent>
                       </Card>
                     ))}
