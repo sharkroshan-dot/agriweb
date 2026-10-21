@@ -24,6 +24,7 @@ from app.api.v1.auth import get_current_user
 from app.database.mongodb import MongoDB
 from app.repositories.base_repository import BaseRepository
 from app.repositories.farmer_repository import farmer_repository
+from app.repositories.product_repository import product_repository
 from app.repositories.address_repository import address_repository
 from app.services.notification_service import NotificationService
 from app.services.delivery_job_service import eligible_partners_for_job, JOB_DEFAULT_EXPIRY_MINUTES
@@ -36,6 +37,7 @@ from app.services.warehouse_service import WarehouseService
 from app.services.logistics_routing_service import nearest_local_hub
 from app.services.warehouse_collection_service import ensure_collection_job
 from app.schemas.notification import NotificationType, NotificationPriority
+from app.services.inventory_service import InventoryService
 from app.services.bulk_order_service import (
     BulkOrderService,
     request_repo,
