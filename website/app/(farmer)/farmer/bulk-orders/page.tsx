@@ -263,6 +263,18 @@ export default function FarmerBulkOrdersPage() {
     refetchInterval: 15000,
   });
   const eventFulfillments = eventFulfillmentData?.data?.fulfillments || [];
+  const eventOrders = Object.values(eventFulfillments.reduce((groups: Record<string, any>, portion: any) => {
+    const key = String(portion.requestId || portion.requestNumber || portion.eventOrderId || portion.id);
+    if (!groups[key]) groups[key] = { id: `event-${key}`, key, number: portion.requestNumber || portion.requestId || "Event order", portions: [], status: "active", kind: "event" };
+    groups[key].portions.push(portion);
+    return groups;
+  }, {})).map((order: any) => {
+    const statuses = order.portions.map((p: any) => String(p.status || "pending_farmer_confirmation"));
+    const allCancelled = statuses.every((s: string) => s === "cancelled");
+    const completed = statuses.every((s: string) => ["collected", "warehouse_received", "stored"].includes(s));
+    return { ...order, status: allCancelled ? "cancelled" : completed ? "delivered" : "active", title: "Customer event order", subtitle: order.portions.map((p: any) => `${p.productName || "Product"} ${p.allocatedQuantityKg} kg`).join(" • ") };
+  });
+  const allBulkOrders = [...orders, ...eventOrders];
   const updateEventFulfillment = useMutation({
     mutationFn: async (payload: { id?: string; ids?: string[]; status: string }) => {
       const ids = payload.ids || (payload.id ? [payload.id] : []);
@@ -337,8 +349,8 @@ export default function FarmerBulkOrdersPage() {
   const b2bOrders = b2bData?.data?.orders || [];
 
   const filterBulk = (list: any[]) => {
-    if (bulkFilter === "active") return list.filter((o) => !["delivered", "cancelled"].includes(o.status));
-    if (bulkFilter === "completed") return list.filter((o) => o.status === "delivered");
+    if (bulkFilter === "active") return list.filter((o) => !["delivered", "completed", "cancelled"].includes(o.status));
+    if (bulkFilter === "completed") return list.filter((o) => ["delivered", "completed"].includes(o.status));
     if (bulkFilter === "cancelled") return list.filter((o) => o.status === "cancelled");
     return list;
   };
@@ -350,7 +362,7 @@ export default function FarmerBulkOrdersPage() {
     return list;
   };
 
-  const visibleOrders = filterBulk(orders);
+  const visibleOrders = filterBulk(allBulkOrders);
   const visibleB2bOrders = filterB2b(b2bOrders);
 
   const nextOfB2b = (status: string) => {
@@ -398,85 +410,6 @@ export default function FarmerBulkOrdersPage() {
         </button>
       </div>
 
-      {tab === "bulk" && eventFulfillments.length > 0 && (
-        <section className={sectionClass}>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <h2 className={headingClass}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100"><Truck className="h-5 w-5 text-amber-700" /></span>Event / Bulk Fulfillment Portions</h2>
-            <p className={countClass}>{eventFulfillments.length} assigned portion(s) · refreshes automatically</p>
-          </div>
-          <p className="mb-4 text-sm text-muted-foreground">Confirm the assigned urgent/event portion once, then use Ready for Pickup when it is prepared. After pickup readiness is recorded, the pickup team marks it collected; farmers cannot mark collection or warehouse milestones.</p>
-          <div className="space-y-4">
-            {Object.values(eventFulfillments.reduce((groups: Record<string, any>, portion: any) => {
-              const orderKey = String(portion.requestId || portion.requestNumber || portion.eventOrderId || portion.id);
-              if (!groups[orderKey]) groups[orderKey] = { key: orderKey, requestNumber: portion.requestNumber || portion.requestId || "Event order", portions: [] };
-              groups[orderKey].portions.push(portion);
-              return groups;
-            }, {})).map((order: any) => (
-              <Card key={order.key} className="border-amber-200">
-                <CardContent className="space-y-4 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">Customer event order</Badge>
-                        <p className="font-semibold">{order.requestNumber}</p>
-                      </div>
-                      <p className="mt-1 text-sm text-muted-foreground">{order.portions.length} product portion(s) · one customer order</p>
-                    </div>
-                    <Badge variant="secondary">{order.portions.every((p: any) => ["ready_for_collection", "collected", "warehouse_received", "stored"].includes(String(p.status))) ? "Pickup process started" : "Farmer action required"}</Badge>
-                  </div>
-                  <div className="space-y-3">
-                    {order.portions.map((portion: any) => {
-                      const status = String(portion.status || "pending_farmer_confirmation");
-                      const next = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "ready_for_collection" : null;
-                      const action = status === "pending_farmer_confirmation" ? "Confirm Order" : status === "accepted" ? "Ready for Pickup" : null;
-                      return (
-                        <div key={portion.id} className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="font-medium">{portion.productName || "Product"}</p>
-                              <span className="text-sm text-slate-600">{portion.allocatedQuantityKg} kg</span>
-                              <Badge variant={status === "cancelled" || status === "warehouse_rejected" ? "destructive" : status === "stored" ? "success" : "secondary"}>{status.replace(/_/g, " ")}</Badge>
-                            </div>
-                            <p className="mt-1 text-xs text-muted-foreground">{portion.farmName || "Your farm"}{portion.distanceKm != null ? " · " + Number(portion.distanceKm).toFixed(1) + " km from sourcing plan" : ""}</p>
-                          </div>
-                          <div className="flex shrink-0 flex-wrap items-center gap-2">
-                            {next && action && <Button size="sm" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ id: portion.id, status: next })}>{action}</Button>}
-                            {status === "pending_farmer_confirmation" && <Button size="sm" variant="outline" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ id: portion.id, status: "cancelled" })}>Decline</Button>}
-                            {status === "ready_for_collection" && <Badge variant="success">Awaiting pickup team</Badge>}
-                            {status === "collected" && <Badge variant="secondary">Collected by pickup team</Badge>}
-                            {status === "warehouse_received" && <Badge variant="secondary">Received at warehouse</Badge>}
-                            {status === "stored" && <Badge variant="success">Stored</Badge>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
-                    <div>
-                      <p className="font-medium">Customer order actions</p>
-                      <p className="text-xs text-slate-500">Apply one action to all eligible products in this customer order.</p>
-                    </div>
-                    {(() => {
-                      const pending = order.portions.filter((p: any) => String(p.status || "pending_farmer_confirmation") === "pending_farmer_confirmation");
-                      const accepted = order.portions.filter((p: any) => String(p.status) === "accepted");
-                      const ids = pending.length ? pending.map((p: any) => p.id) : accepted.map((p: any) => p.id);
-                      const status = pending.length ? "accepted" : accepted.length ? "ready_for_collection" : null;
-                      const label = pending.length ? (pending.length === order.portions.length ? "Confirm Order" : "Confirm Remaining Products") : accepted.length ? "Ready for Pickup (All Eligible Products)" : null;
-                      return status ? (
-                        <Button disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ ids, status })}>
-                          <CheckCircle2 className="mr-2 h-4 w-4" />{label}
-                        </Button>
-                      ) : <Badge variant="success">No farmer action pending</Badge>;
-                    })()}
-                  </div>
-                  <p className="text-xs text-muted-foreground">All products shown here belong to the same customer event request. Farmers confirm and prepare each allocated product; the pickup team records collection.</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Bulk Orders section */}
       {tab === "bulk" && (
         <section className={sectionClass}>
@@ -494,10 +427,10 @@ export default function FarmerBulkOrdersPage() {
             filter={bulkFilter}
             setFilter={setBulkFilter}
             counts={{
-              all: orders.length,
-              active: orders.filter((o: any) => !["delivered", "cancelled"].includes(o.status)).length,
-              completed: orders.filter((o: any) => o.status === "delivered").length,
-              cancelled: orders.filter((o: any) => o.status === "cancelled").length,
+              all: allBulkOrders.length,
+              active: allBulkOrders.filter((o: any) => !["delivered", "completed", "cancelled"].includes(o.status)).length,
+              completed: allBulkOrders.filter((o: any) => ["delivered", "completed"].includes(o.status)).length,
+              cancelled: allBulkOrders.filter((o: any) => o.status === "cancelled").length,
             }}
           />
 
@@ -509,7 +442,35 @@ export default function FarmerBulkOrdersPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {visibleOrders.map((o: any) => {
+              {visibleOrders.filter((o: any) => o.kind === "event").map((order: any) => (
+                <Card key={order.id} className="border-amber-200">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">Customer event order</Badge><p className="font-semibold">{order.number}</p></div>
+                        <p className="mt-1 text-sm text-muted-foreground">{order.portions.length} product portion(s) · {order.portions.map((p: any) => `${p.productName || "Product"} ${p.allocatedQuantityKg} kg`).join(" • ")}</p>
+                      </div>
+                      <Badge variant={order.status === "cancelled" ? "destructive" : order.status === "delivered" ? "success" : "secondary"}>{order.status === "delivered" ? "completed" : order.status}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {order.portions.map((portion: any) => {
+                        const status = String(portion.status || "pending_farmer_confirmation");
+                        const next = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "ready_for_collection" : null;
+                        return <div key={portion.id} className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{portion.productName || "Product"}</span><span className="text-sm text-slate-600">{portion.allocatedQuantityKg} kg</span><Badge variant={status === "cancelled" || status === "warehouse_rejected" ? "destructive" : ["collected", "warehouse_received", "stored"].includes(status) ? "success" : "secondary"}>{status.replace(/_/g, " ")}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{portion.farmName || "Your farm"}</p></div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {next && <Button size="sm" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ id: portion.id, status: next })}>{next === "accepted" ? "Confirm Order" : "Ready for Pickup"}</Button>}
+                            {status === "ready_for_collection" && <Badge variant="success">Awaiting pickup team</Badge>}
+                            {status === "collected" && <Badge variant="secondary">Collected by pickup team</Badge>}
+                          </div>
+                        </div>;
+                      })}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div><p className="font-medium">Customer order actions</p><p className="text-xs text-slate-500">Apply one action to all eligible products.</p></div>{(() => { const pending=order.portions.filter((p:any)=>String(p.status||"pending_farmer_confirmation")==="pending_farmer_confirmation"); const accepted=order.portions.filter((p:any)=>String(p.status)==="accepted"); const ids=pending.length?pending.map((p:any)=>p.id):accepted.map((p:any)=>p.id); const status=pending.length?"accepted":accepted.length?"ready_for_collection":null; const label=pending.length?(pending.length===order.portions.length?"Confirm Order":"Confirm Remaining Products"):accepted.length?"Ready for Pickup (All Eligible Products)":null; return status?<Button disabled={updateEventFulfillment.isPending} onClick={()=>updateEventFulfillment.mutate({ids,status})}>{label}</Button>:<Badge variant="success">No farmer action pending</Badge>; })()}</div>
+                  </CardContent>
+                </Card>
+              ))}
+              {visibleOrders.filter((o: any) => o.kind !== "event").map((o: any) => {
                 const hasWeighed = o.preparedKg != null;
                 const canWeigh = ["confirmed", "preparing", "quality_check"].includes(o.status);
                 return (
