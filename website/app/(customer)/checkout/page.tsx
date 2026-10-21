@@ -553,7 +553,6 @@ export default function CheckoutPage() {
                 <Button className="flex-1" disabled={isPlacing} onClick={() => {
                   const adjustment = stockAdjustment;
                   setStockAdjustment(null);
-                  updateItem(adjustment.productId, { quantity: adjustment.available });
                   void handlePlaceOrder({ [adjustment.productId]: adjustment.available });
                 }}>Yes, continue with {stockAdjustment.available} kg</Button>
                 <Button className="flex-1" variant="outline" onClick={() => setStockAdjustment(null)}>No, cancel</Button>
