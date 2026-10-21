@@ -392,8 +392,8 @@ export default function FarmerBulkOrdersPage() {
         >
           <Truck className="h-4 w-4" />
           Bulk Orders
-          {orders.length > 0 && (
-            <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">{orders.length}</span>
+          {allBulkOrders.length > 0 && (
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === "bulk" ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700"}`}>{allBulkOrders.length}</span>
           )}
         </button>
         <button
