@@ -264,8 +264,11 @@ export default function FarmerBulkOrdersPage() {
   });
   const eventFulfillments = eventFulfillmentData?.data?.fulfillments || [];
   const updateEventFulfillment = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) =>
-      api.put("/bulk-orders/event-orders/fulfillments/" + id + "/status", { status }),
+    mutationFn: async (payload: { id?: string; ids?: string[]; status: string }) => {
+      const ids = payload.ids || (payload.id ? [payload.id] : []);
+      if (!ids.length) throw new Error("No eligible product portions to update");
+      return Promise.all(ids.map((id) => api.put("/bulk-orders/event-orders/fulfillments/" + id + "/status", { status: payload.status })));
+    },
     onSuccess: () => {
       toast.success("Event portion status updated");
       queryClient.invalidateQueries({ queryKey: ["farmer", "event-fulfillments"] });
@@ -447,6 +450,24 @@ export default function FarmerBulkOrdersPage() {
                         </div>
                       );
                     })}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+                    <div>
+                      <p className="font-medium">Customer order actions</p>
+                      <p className="text-xs text-slate-500">Apply one action to all eligible products in this customer order.</p>
+                    </div>
+                    {(() => {
+                      const pending = order.portions.filter((p: any) => String(p.status || "pending_farmer_confirmation") === "pending_farmer_confirmation");
+                      const accepted = order.portions.filter((p: any) => String(p.status) === "accepted");
+                      const ids = pending.length ? pending.map((p: any) => p.id) : accepted.map((p: any) => p.id);
+                      const status = pending.length ? "accepted" : accepted.length ? "ready_for_collection" : null;
+                      const label = pending.length ? (pending.length === order.portions.length ? "Confirm Order" : "Confirm Remaining Products") : accepted.length ? "Ready for Pickup (All Eligible Products)" : null;
+                      return status ? (
+                        <Button disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ ids, status })}>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />{label}
+                        </Button>
+                      ) : <Badge variant="success">No farmer action pending</Badge>;
+                    })()}
                   </div>
                   <p className="text-xs text-muted-foreground">All products shown here belong to the same customer event request. Farmers confirm and prepare each allocated product; the pickup team records collection.</p>
                 </CardContent>
