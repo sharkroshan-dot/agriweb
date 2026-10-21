@@ -240,37 +240,74 @@ async def get_my_collections(
                 "event_fulfillment_transfer",
             )
             continue
-        request_id = portion.get("requestId")
-        if not request_id:
-            continue
-        event_request = await event_requests_collection.find_one({"_id": request_id, "deletedAt": None})
-        if not event_request:
-            continue
-        assigned_warehouse = portion.get("sourceWarehouseId") or portion.get("warehouseId") or portion.get("eventWarehouseId") or event_request.get("eventWarehouseId")
+        request_id = portion.get("requestId") or portion.get("eventRequestId") or portion.get("bulkRequestId")
+        event_request = None
+        if request_id:
+            request_refs = [request_id]
+            request_id_text = str(request_id)
+            if ObjectId.is_valid(request_id_text):
+                request_refs = [ObjectId(request_id_text), request_id_text]
+            event_request = await event_requests_collection.find_one({
+                "_id": {"$in": request_refs},
+                "deletedAt": None,
+            })
+        # Do not silently drop a ready portion just because older event records
+        # stored the request reference in a different field/type. Its explicit
+        # warehouse assignment is still authoritative when present.
+        assigned_warehouse = (
+            portion.get("sourceWarehouseId")
+            or portion.get("warehouseId")
+            or portion.get("eventWarehouseId")
+            or (event_request or {}).get("eventWarehouseId")
+        )
         if assigned_warehouse and str(assigned_warehouse) != warehouse_id:
             continue
-        farmer_id = portion.get("farmerId")
+        farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
         if not farmer_id:
             continue
-        farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id))
-        farm_location = (farmer_profile or {}).get("farmLocation") or (farmer_profile or {}).get("location") or (farmer_profile or {}).get("address") or {}
+        farmer_refs = [farmer_id]
+        farmer_id_text = str(farmer_id)
+        if ObjectId.is_valid(farmer_id_text):
+            farmer_refs = [ObjectId(farmer_id_text), farmer_id_text]
+        farmer_profile = await farmer_repository.get_by_user_id(farmer_id_text)
+        if not farmer_profile and ObjectId.is_valid(farmer_id_text):
+            farmer_profile = await farmer_repository.get_by_id(farmer_id_text)
+        farm_location = (
+            (farmer_profile or {}).get("farmLocation")
+            or (farmer_profile or {}).get("farmAddress")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("address")
+            or portion.get("pickupLocation")
+            or {}
+        )
+        product_id = portion.get("productId") or portion.get("product_id")
+        quantity = float(
+            portion.get("allocatedQuantityKg")
+            or portion.get("quantityKg")
+            or portion.get("quantity")
+            or 0
+        )
+        if quantity <= 0:
+            logger.warning("Skipping ready event portion %s: no positive allocated quantity", portion_id)
+            continue
         incoming_id = await incoming_stock_repository.create_incoming({
             "warehouseId": warehouse["_id"],
-            "productId": portion.get("productId"),
-            "farmerId": farmer_id,
-            "quantity": float(portion.get("allocatedQuantityKg") or 0),
+            "productId": product_id,
+            "farmerId": farmer_refs[0],
+            "quantity": quantity,
             "expectedDate": datetime.utcnow(),
             "sourceMode": "event_fulfillment_transfer",
             "collectionType": "event_fulfillment_transfer",
             "eventRequestId": request_id,
             "eventFulfillmentId": portion_id,
+            "eventOrderNumber": (event_request or {}).get("requestNumber") or (event_request or {}).get("orderNumber"),
             "packingRequired": False,
             "packingVerified": True,
             "readyForPickup": True,
             "readyForPickupAt": portion.get("updatedAt") or datetime.utcnow(),
             "pickupLocation": farm_location,
             "farmLocation": farm_location,
-            "eventProductName": portion.get("productName"),
+            "eventProductName": portion.get("productName") or portion.get("name"),
         })
         if incoming_id:
             incoming = await incoming_stock_repository.get_by_id(str(incoming_id))
