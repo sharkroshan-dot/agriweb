@@ -504,7 +504,15 @@ export default function CheckoutPage() {
       setPaymentMessage("Payment could not be completed. Your order can be retried safely.");
       const msg = err?.message || "";
       const shortageMatch = msg.match(/STOCK_SHORTAGE\|([a-f0-9]{24})\|([0-9.]+)\|([0-9.]+)/i);
-      const detail = err?.response?.data?.detail;
+      let detail = err?.response?.data?.detail ?? err?.detail;
+      if (!detail && typeof msg === "string" && msg.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(msg);
+          detail = parsed?.detail ?? parsed;
+        } catch {
+          detail = null;
+        }
+      }
       const shortage = detail?.code === "STOCK_SHORTAGE"
         ? { productId: String(detail.productId), available: Number(detail.availableQuantity), requested: Number(detail.requestedQuantity) }
         : shortageMatch
