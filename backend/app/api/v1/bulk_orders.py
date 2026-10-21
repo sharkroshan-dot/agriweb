@@ -1673,7 +1673,29 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
         return existing
     warehouse_id = fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId")
     if not warehouse_id:
-        return None
+        # Urgent event sourcing can create fulfillment portions without a
+        # warehouse pre-assigned. Resolve the destination/consolidation
+        # warehouse now so Ready for Pickup produces a real Farm Collection job.
+        resolved_warehouse = await _find_event_consolidation_warehouse(request)
+        if not resolved_warehouse or not resolved_warehouse.get("_id"):
+            logger.warning(
+                "Event fulfillment %s is ready for pickup but no active destination warehouse could be resolved",
+                fulfillment.get("_id"),
+            )
+            return None
+        warehouse_id = resolved_warehouse["_id"]
+        await request_repo.update({"_id": request["_id"]}, {
+            "eventWarehouseId": ObjectId(str(warehouse_id)),
+            "eventWarehouseName": resolved_warehouse.get("name") or resolved_warehouse.get("warehouseName"),
+            "updatedAt": datetime.utcnow(),
+        })
+        await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+            "warehouseId": ObjectId(str(warehouse_id)),
+            "eventWarehouseId": ObjectId(str(warehouse_id)),
+            "updatedAt": datetime.utcnow(),
+        })
+        fulfillment["warehouseId"] = ObjectId(str(warehouse_id))
+        fulfillment["eventWarehouseId"] = ObjectId(str(warehouse_id))
     farmer = await farmer_repository.find_one({"userId": ObjectId(str(fulfillment["farmerId"]))})
     farm_location = (farmer or {}).get("farmLocation") or (farmer or {}).get("location") or {}
     incoming_id = await incoming_stock_repository.create_incoming({
