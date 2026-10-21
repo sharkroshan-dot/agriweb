@@ -2275,6 +2275,12 @@ async def update_event_fulfillment_status(
         raise HTTPException(status_code=403, detail="Only the assigned farmer can update farm preparation and pickup readiness")
     # Warehouse stages are authoritative warehouse operations. Farmers may
     # advance only their farm-side stages through collection.
+    # Collection is a pickup-team action, never a farmer action. The farmer
+    # can only make the portion ready; the assigned warehouse/pickup workflow
+    # records physical collection through this status endpoint.
+    if new_status == "collected" and not (warehouse_ok or admin_ok):
+        raise HTTPException(status_code=403, detail="Only the assigned pickup/warehouse team can mark this portion collected")
+
     warehouse_stage = new_status in ("warehouse_received", "stored", "warehouse_rejected")
     if warehouse_stage:
         if role not in ("warehouse", "admin", "super_admin"):
