@@ -331,7 +331,6 @@ export default function FarmerBulkOrdersPage() {
     );
   }
 
-  const allBulkOrders = [...orders, ...eventOrders];
   const orders = (bulkData?.data?.orders || []).map((o: any) => ({
     id: o.id,
     number: o.orderNumber,
@@ -345,6 +344,7 @@ export default function FarmerBulkOrdersPage() {
     evidence: o.evidence || [],
     meta: `${o.purpose ? `${o.purpose} • ` : ""}${o.requestedDeliveryDate || ""}${o.deliveryMethod ? ` • ${o.deliveryMethod.replace(/_/g, " ")}` : ""}`,
   }));
+  const allBulkOrders = [...orders, ...eventOrders];
 
   const b2bOrders = b2bData?.data?.orders || [];
 
