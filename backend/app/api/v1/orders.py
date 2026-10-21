@@ -65,8 +65,17 @@ async def create_order(
         )
     except InsufficientStockError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "STOCK_SHORTAGE",
+                "productId": e.product_id,
+                "requestedQuantity": e.requested,
+                "availableQuantity": e.available,
+                "message": (
+                    f"Only {e.available:g} kg is currently available. "
+                    "Would you like to continue with the available quantity?"
+                ),
+            },
         )
     except AddressNotFoundError as e:
         raise HTTPException(
