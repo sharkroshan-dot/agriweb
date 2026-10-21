@@ -208,6 +208,79 @@ async def get_my_collections(
         raise HTTPException(status_code=404, detail="Warehouse not found")
 
     warehouse_id = str(warehouse["_id"])
+
+    # Recover event/bulk portions that were already marked Ready for Pickup
+    # before the event-to-collection handoff was available or if the original
+    # status update was interrupted. Reconcile them on page load, idempotently.
+    event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
+    event_requests_collection = MongoDB.get_collection("bulk_requests")
+    ready_event_portions = await event_fulfillments_collection.find({
+        "status": "ready_for_collection",
+        "deletedAt": None,
+        "$or": [
+            {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+            {"eventWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+            {"sourceWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+            {"warehouseId": {"$exists": False}},
+            {"warehouseId": None},
+        ],
+    }).to_list(length=1000)
+    for portion in ready_event_portions:
+        portion_id = portion.get("_id")
+        if not portion_id:
+            continue
+        existing_incoming = await incoming_stock_repository.find_one({
+            "eventFulfillmentId": portion_id,
+            "deletedAt": None,
+        })
+        if existing_incoming:
+            await ensure_collection_job(
+                existing_incoming,
+                "event_fulfillment_transfer",
+                "event_fulfillment_transfer",
+            )
+            continue
+        request_id = portion.get("requestId")
+        if not request_id:
+            continue
+        event_request = await event_requests_collection.find_one({"_id": request_id, "deletedAt": None})
+        if not event_request:
+            continue
+        assigned_warehouse = portion.get("sourceWarehouseId") or portion.get("warehouseId") or portion.get("eventWarehouseId") or event_request.get("eventWarehouseId")
+        if assigned_warehouse and str(assigned_warehouse) != warehouse_id:
+            continue
+        farmer_id = portion.get("farmerId")
+        if not farmer_id:
+            continue
+        farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id))
+        farm_location = (farmer_profile or {}).get("farmLocation") or (farmer_profile or {}).get("location") or (farmer_profile or {}).get("address") or {}
+        incoming_id = await incoming_stock_repository.create_incoming({
+            "warehouseId": warehouse["_id"],
+            "productId": portion.get("productId"),
+            "farmerId": farmer_id,
+            "quantity": float(portion.get("allocatedQuantityKg") or 0),
+            "expectedDate": datetime.utcnow(),
+            "sourceMode": "event_fulfillment_transfer",
+            "collectionType": "event_fulfillment_transfer",
+            "eventRequestId": request_id,
+            "eventFulfillmentId": portion_id,
+            "packingRequired": False,
+            "packingVerified": True,
+            "readyForPickup": True,
+            "readyForPickupAt": portion.get("updatedAt") or datetime.utcnow(),
+            "pickupLocation": farm_location,
+            "farmLocation": farm_location,
+            "eventProductName": portion.get("productName"),
+        })
+        if incoming_id:
+            incoming = await incoming_stock_repository.get_by_id(str(incoming_id))
+            if incoming:
+                await ensure_collection_job(incoming, "event_fulfillment_transfer", "event_fulfillment_transfer")
+                await event_fulfillments_collection.update_one(
+                    {"_id": portion_id},
+                    {"$set": {"warehouseId": warehouse["_id"], "eventWarehouseId": warehouse["_id"], "updatedAt": datetime.utcnow()}},
+                )
+
     jobs = await warehouse_collection_repository.get_by_warehouse(warehouse_id, status_filter, limit=1000)
     products_collection = MongoDB.get_collection("products")
     batches_collection = MongoDB.get_collection("batches")
