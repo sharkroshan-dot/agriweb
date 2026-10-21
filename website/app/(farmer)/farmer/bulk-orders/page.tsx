@@ -274,7 +274,6 @@ export default function FarmerBulkOrdersPage() {
     const completed = statuses.every((s: string) => ["collected", "warehouse_received", "stored"].includes(s));
     return { ...order, status: allCancelled ? "cancelled" : completed ? "delivered" : "active", title: "Customer event order", subtitle: order.portions.map((p: any) => `${p.productName || "Product"} ${p.allocatedQuantityKg} kg`).join(" • ") };
   });
-  const allBulkOrders = [...orders, ...eventOrders];
   const updateEventFulfillment = useMutation({
     mutationFn: async (payload: { id?: string; ids?: string[]; status: string }) => {
       const ids = payload.ids || (payload.id ? [payload.id] : []);
@@ -332,6 +331,7 @@ export default function FarmerBulkOrdersPage() {
     );
   }
 
+  const allBulkOrders = [...orders, ...eventOrders];
   const orders = (bulkData?.data?.orders || []).map((o: any) => ({
     id: o.id,
     number: o.orderNumber,
