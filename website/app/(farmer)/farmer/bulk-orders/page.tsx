@@ -262,8 +262,8 @@ export default function FarmerBulkOrdersPage() {
     queryFn: () => api.get("/bulk-orders/event-orders/fulfillments"),
     refetchInterval: 15000,
   });
-  const eventFulfillments = eventFulfillmentData?.data?.fulfillments || [];
-  const eventOrders = Object.values(eventFulfillments.reduce((groups: Record<string, any>, portion: any) => {
+  const eventFulfillments = eventFulfillmentData?.data?.fulfillments || eventFulfillmentData?.fulfillments || eventFulfillmentData?.data?.data?.fulfillments || [];
+  const eventOrders = Object.values((Array.isArray(eventFulfillments) ? eventFulfillments : []).reduce((groups: Record<string, any>, portion: any) => {
     const key = String(portion.requestId || portion.requestNumber || portion.eventOrderId || portion.id);
     if (!groups[key]) groups[key] = { id: `event-${key}`, key, number: portion.requestNumber || portion.requestId || "Event order", portions: [], status: "active", kind: "event" };
     groups[key].portions.push(portion);
@@ -427,10 +427,10 @@ export default function FarmerBulkOrdersPage() {
             filter={bulkFilter}
             setFilter={setBulkFilter}
             counts={{
-              all: allBulkOrders.length,
-              active: allBulkOrders.filter((o: any) => !["delivered", "completed", "cancelled"].includes(o.status)).length,
-              completed: allBulkOrders.filter((o: any) => ["delivered", "completed"].includes(o.status)).length,
-              cancelled: allBulkOrders.filter((o: any) => o.status === "cancelled").length,
+              all: orders.length + eventOrders.length,
+              active: orders.filter((o: any) => !["delivered", "completed", "cancelled"].includes(String(o.status || "").toLowerCase())).length + eventOrders.filter((o: any) => !["delivered", "completed", "cancelled"].includes(String(o.status || "").toLowerCase())).length,
+              completed: orders.filter((o: any) => ["delivered", "completed"].includes(String(o.status || "").toLowerCase())).length + eventOrders.filter((o: any) => ["delivered", "completed"].includes(String(o.status || "").toLowerCase())).length,
+              cancelled: orders.filter((o: any) => String(o.status || "").toLowerCase() === "cancelled").length + eventOrders.filter((o: any) => String(o.status || "").toLowerCase() === "cancelled").length,
             }}
           />
 
