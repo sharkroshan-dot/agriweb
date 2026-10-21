@@ -121,7 +121,7 @@ export default function CustomerBulkOrdersPage() {
         ) : (
           <div className="space-y-3">
             {requests.map((r: any) => (
-              <Link key={r.id} href={`/bulk-orders/${r.id}`}>
+              <div key={r.id}>
                 <Card className="transition-colors hover:border-emerald-300">
                   <CardContent className="space-y-2 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -129,7 +129,7 @@ export default function CustomerBulkOrdersPage() {
                         <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700">
                           {r.buyerCategory === "institution" ? "Institutional Bulk" : r.buyerCategory === "business" || r.requestType === "b2b" ? "Business / B2B RFQ" : r.buyerCategory === "individual" ? "Individual Bulk" : r.purchaseMode === "family_weekly" ? "🧺 Weekly Family Basket" : "🎉 Event Request"}
                         </Badge>
-                        <p className="font-medium">{r.requestNumber}</p>
+                        <Link href={`/bulk-orders/${r.id}`} className="font-medium hover:underline">{r.requestNumber}</Link>
                       </div>
                       <Badge variant={requestStatusVariant[r.status] || "secondary"}>{r.status.replace(/_/g, " ")}</Badge>
                     </div>
@@ -185,7 +185,7 @@ export default function CustomerBulkOrdersPage() {
                     ) : null}
                   </CardContent>
                 </Card>
-              </Link>
+              </div>
             ))}
           </div>
         )
