@@ -413,14 +413,17 @@ export default function FarmerBulkOrdersPage() {
       {/* Bulk Orders section */}
       {tab === "bulk" && (
         <section className={sectionClass}>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className={headingClass}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100">
                 <Truck className="h-5 w-5 text-purple-600" />
               </span>
-              Bulk Orders
-            </h2>
-            <p className={countClass}>Confirmed event orders from your accepted offers</p>
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Bulk Orders</h2>
+                <p className="text-xs text-slate-500">Customer event orders and accepted bulk offers</p>
+              </div>
+            </div>
+            <Badge variant="outline">{allBulkOrders.length} total order(s)</Badge>
           </div>
 
           <StatusFilter
@@ -609,14 +612,17 @@ export default function FarmerBulkOrdersPage() {
       {/* B2B Orders section */}
       {tab === "b2b" && (
         <section className={sectionClass}>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className={headingClass}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
                 <ShoppingCart className="h-5 w-5 text-emerald-600" />
               </span>
-              B2B Orders
-            </h2>
-            <p className={countClass}>Confirmed orders from businesses that selected you</p>
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">B2B Orders</h2>
+                <p className="text-xs text-slate-500">Confirmed orders from business buyers</p>
+              </div>
+            </div>
+            <Badge variant="outline">{b2bOrders.length} total order(s)</Badge>
           </div>
 
           <StatusFilter
