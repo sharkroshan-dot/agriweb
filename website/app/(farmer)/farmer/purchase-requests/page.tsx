@@ -160,6 +160,7 @@ export default function FarmerBulkOrdersPage() {
     request: r,
   }));
 
+  const eventFulfillments = eventData?.data?.fulfillments || [];
   const submitted = items.filter((i) => i.myOfferStatus);
   const notSubmitted = items.filter((i) => !i.myOfferStatus);
   const sectionClass = "rounded-3xl border bg-white p-6";
@@ -214,68 +215,6 @@ export default function FarmerBulkOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-3xl border border-purple-200 bg-purple-50/60 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-purple-900">
-              <CalendarDays className="h-5 w-5" /> Event Fulfillment
-            </h2>
-            <p className="text-sm text-purple-700">Urgent and planned event allocations assigned directly to your farm.</p>
-          </div>
-          <Badge variant="outline" className="border-purple-300 bg-white text-purple-700">{(eventData?.data?.fulfillments || []).length} allocation(s)</Badge>
-        </div>
-        {eventLoading ? (
-          <div className="flex justify-center py-6"><Loader2 className="h-6 w-6 animate-spin text-purple-600" /></div>
-        ) : (eventData?.data?.fulfillments || []).length === 0 ? (
-          <p className="mt-4 rounded-xl border border-dashed border-purple-200 bg-white p-5 text-center text-sm text-slate-500">No event fulfillment assignments yet.</p>
-        ) : (
-          <div className="mt-4 space-y-3">
-            {(eventData?.data?.fulfillments || []).map((f: any) => {
-              // Farmer-side workflow ends at pickup readiness. The pickup team
-              // records collection and subsequent roles own warehouse/delivery stages.
-              const next: Record<string, string> = {
-                pending_farmer_confirmation: "accepted",
-                accepted: "ready_for_collection",
-              };
-              const nextStatus = next[f.status];
-              return (
-                <Card key={f.id} className="bg-white">
-                  <CardContent className="space-y-3 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">Event</Badge>
-                          <p className="font-semibold">{f.productName}</p>
-                          <Badge variant="secondary">{String(f.status || "").replace(/_/g, " ")}</Badge>
-                        </div>
-                        <p className="mt-1 text-sm text-slate-600">{f.allocatedQuantityKg} kg · {f.farmName || "Your farm"}</p>
-                      </div>
-                      {f.distanceKm != null && f.distanceKm < 999 ? <span className="text-xs text-slate-500">{f.distanceKm} km to event destination</span> : null}
-                    </div>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs text-slate-500">Event: {f.requestNumber || "Event order"}</p>
-                      <div className="flex gap-2">
-                        {nextStatus ? (
-                          <Button size="sm" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: nextStatus })}>
-                            <CheckCircle className="mr-1.5 h-4 w-4" /> {nextStatus === "accepted" ? "Confirm Order" : "Ready for Pickup"}
-                          </Button>
-                        ) : null}
-                        {["pending_farmer_confirmation", "accepted"].includes(f.status) ? (
-                          <Button size="sm" variant="outline" className="text-red-600" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: "cancelled" })}>
-                            Decline
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-
       <div className="flex items-center gap-2">
         <FileText className="h-6 w-6 text-emerald-600" />
         <h1 className="text-2xl font-bold">Bulk RFQ</h1>
@@ -312,9 +251,9 @@ export default function FarmerBulkOrdersPage() {
         >
           <Send className="h-4 w-4" />
           Submitted
-          {submitted.length > 0 && (
+          {(submitted.length + eventFulfillments.length) > 0 && (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              {submitted.length}
+              {submitted.length + eventFulfillments.length}
             </span>
           )}
         </button>
@@ -360,7 +299,7 @@ export default function FarmerBulkOrdersPage() {
             <p className={countClass}>Requests you've submitted offers for</p>
           </div>
 
-          {submitted.length === 0 ? (
+          {submitted.length === 0 && eventFulfillments.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-12 text-center">
               <Send className="h-9 w-9 text-gray-300" />
               <p className="mt-3 font-medium text-gray-600">No submitted offers yet</p>
@@ -368,6 +307,57 @@ export default function FarmerBulkOrdersPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {eventFulfillments.length > 0 && (
+                <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-purple-900">Confirmed Event Fulfillment</h3>
+                      <p className="text-sm text-purple-700">Orders assigned to your farm after the buyer confirms sourcing.</p>
+                    </div>
+                    <Badge variant="outline" className="border-purple-300 bg-white text-purple-700">{eventFulfillments.length} allocation(s)</Badge>
+                  </div>
+                  <div className="space-y-3">
+                    {eventFulfillments.map((f: any) => {
+                      const status = String(f.status || "pending_farmer_confirmation");
+                      const nextStatus = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "ready_for_collection" : null;
+                      return (
+                        <Card key={f.id} className="bg-white">
+                          <CardContent className="space-y-3 p-4">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <Badge variant="outline">Event</Badge>
+                                  <p className="font-semibold">{f.productName || "Product"}</p>
+                                  <Badge variant="secondary">{status.replace(/_/g, " ")}</Badge>
+                                </div>
+                                <p className="mt-1 text-sm text-slate-600">{f.allocatedQuantityKg} kg · {f.farmName || "Your farm"}</p>
+                              </div>
+                              {f.distanceKm != null && f.distanceKm < 999 ? <span className="text-xs text-slate-500">{f.distanceKm} km to event destination</span> : null}
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs text-slate-500">Event: {f.requestNumber || "Event order"}</p>
+                              <div className="flex gap-2">
+                                {nextStatus ? (
+                                  <Button size="sm" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: nextStatus })}>
+                                    <CheckCircle className="mr-1.5 h-4 w-4" /> {nextStatus === "accepted" ? "Confirm Order" : "Ready for Pickup"}
+                                  </Button>
+                                ) : status === "ready_for_collection" ? (
+                                  <Badge variant="success">Ready for Pickup · Awaiting pickup team</Badge>
+                                ) : status === "collected" ? (
+                                  <Badge variant="secondary">Collected by pickup team</Badge>
+                                ) : null}
+                                {["pending_farmer_confirmation", "accepted"].includes(status) ? (
+                                  <Button size="sm" variant="outline" className="text-red-600" disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ id: f.id, status: "cancelled" })}>Decline</Button>
+                                ) : null}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {submitted.map(renderItem)}
             </div>
           )}
