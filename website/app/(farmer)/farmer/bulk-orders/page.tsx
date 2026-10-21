@@ -401,12 +401,12 @@ export default function FarmerBulkOrdersPage() {
             <h2 className={headingClass}><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100"><Truck className="h-5 w-5 text-amber-700" /></span>Event / Bulk Fulfillment Portions</h2>
             <p className={countClass}>{eventFulfillments.length} assigned portion(s) · refreshes automatically</p>
           </div>
-          <p className="mb-4 text-sm text-muted-foreground">Accept each allocated product portion, prepare and pack it, then mark it Ready for Pickup. The warehouse must physically receive and quality-check the portion before storage and final delivery.</p>
+          <p className="mb-4 text-sm text-muted-foreground">Confirm the assigned urgent/event portion once, then use Ready for Pickup when it is prepared. After pickup readiness is recorded, the pickup team marks it collected; farmers cannot mark collection or warehouse milestones.</p>
           <div className="space-y-3">
             {eventFulfillments.map((portion: any) => {
               const status = String(portion.status || "pending_farmer_confirmation");
-              const next = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "packing" : status === "packing" ? "packed" : status === "packed" ? "ready_for_collection" : null;
-              const action = status === "pending_farmer_confirmation" ? "Accept Event Portion" : status === "accepted" ? "Start Packing" : status === "packing" ? "Mark Packed" : status === "packed" ? "Ready for Pickup" : null;
+              const next = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "ready_for_collection" : null;
+              const action = status === "pending_farmer_confirmation" ? "Confirm Order" : status === "accepted" ? "Ready for Pickup" : null;
               return (
                 <Card key={portion.id} className="border-amber-200">
                   <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
