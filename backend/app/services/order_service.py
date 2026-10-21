@@ -256,8 +256,13 @@ class ProductNotFoundError(OrderCreationError):
         super().__init__(f"Product not found: {product_id}")
 
 class InsufficientStockError(OrderCreationError):
-    def __init__(self, product_id: str, requested: int, available: int):
-        super().__init__(f"Insufficient stock for product {product_id}: requested {requested}, available {available}")
+    def __init__(self, product_id: str, requested: float, available: float):
+        self.product_id = str(product_id)
+        self.requested = float(requested)
+        self.available = max(0.0, float(available))
+        super().__init__(
+            f"STOCK_SHORTAGE|{self.product_id}|{self.available:g}|{self.requested:g}"
+        )
 
 class AddressNotFoundError(OrderCreationError):
     def __init__(self, address_id: str):
