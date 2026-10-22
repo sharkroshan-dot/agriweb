@@ -778,17 +778,23 @@ export default function WarehouseIncomingPage() {
           const canConfirmAllPackets = packedFarmerGroup && eligibleToReceive.length > 0;
           const canReceiveAllBulk = !packedFarmerGroup && eligibleToReceive.length > 0;
           const canReceiveAnyFarmStock = eligibleToReceive.length > 0;
-          const allPackedOrdersReceived = packedFarmerGroup && farmItems.every((row: any) => row.status === "received" || row.status === "stored");
+          const allPackedOrdersReceived = (packedFarmerGroup || eventFulfillmentGroup) && farmItems.length > 0 && farmItems.every((row: any) => {
+            const status = String(row.status || "").toLowerCase();
+            const physicallyReceived = ["received", "quality_check", "stored"].includes(status) ||
+              Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.bulkShipmentReceivedAt);
+            const rejected = status === "rejected" || String(row.qualityCheck || row.quality_check || "").toLowerCase() === "failed";
+            return physicallyReceived && !rejected;
+          });
           // Incoming Stock is a receipt checkpoint, not the decision point for multi-farm
           // consolidation. Every farmer-packed order continues to the transfer router;
           // the transfer backend decides whether it needs nearby delivery, a local hub,
           // or an inter-district warehouse. Multi-Warehouse Consolidation is reached
           // only from its dedicated bulk/multi-source workflow.
-          const farmContinueHref = packedFarmerGroup
+          const farmContinueHref = (packedFarmerGroup || eventFulfillmentGroup)
             ? "/warehouse/farmer-fulfillment"
             : "/warehouse/multi-warehouse-consolidation";
-          const farmContinueLabel = packedFarmerGroup
-            ? "Farmer Fulfillment Transfer"
+          const farmContinueLabel = (packedFarmerGroup || eventFulfillmentGroup)
+            ? "Farmer Fulfillment Transfers"
             : "Multi-Warehouse Consolidation";
           const confirmAllPackets = async () => {
             const receiptDescription = eventFulfillmentGroup
@@ -810,7 +816,7 @@ export default function WarehouseIncomingPage() {
               await refetch();
             } finally { setIsSaving(false); }
           };
-          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{eventFulfillmentGroup ? "Bulk/Event Order · Product receipt" : packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : eventFulfillmentGroup ? "Confirm All Products Received" : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />Continue Farm Orders to {farmContinueLabel}</Button>}{canReceiveAnyFarmStock && !packedFarmerGroup && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : "Receive All Stock"}</Button>} {!packedFarmerGroup && receivedCount > 0 && <Button size="sm" variant="outline" onClick={() => printFarmPackingLabels(farmItems.filter((row: any) => {
+          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{eventFulfillmentGroup ? "Bulk/Event Order · Product receipt" : packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : eventFulfillmentGroup ? "Confirm All Products Received" : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to {farmContinueLabel}</Button>}{canReceiveAnyFarmStock && !packedFarmerGroup && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : "Receive All Stock"}</Button>} {!packedFarmerGroup && receivedCount > 0 && <Button size="sm" variant="outline" onClick={() => printFarmPackingLabels(farmItems.filter((row: any) => {
               const status = String(row.status || "").toLowerCase();
               const hasReceipt = Boolean(row.receiptNumber || row.receipt?.receiptNumber || row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.quantityReceived !== undefined);
               return ["received", "quality_check", "stored"].includes(status) || hasReceipt;
