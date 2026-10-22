@@ -790,22 +790,13 @@ export default function WarehouseIncomingPage() {
             const rejected = status === "rejected" || String(row.qualityCheck || row.quality_check || "").toLowerCase() === "failed";
             return physicallyReceived && !rejected;
           });
-          // Incoming Stock is a receipt checkpoint, not the decision point for multi-farm
-          // consolidation. Every farmer-packed order continues to the transfer router;
-          // the transfer backend decides whether it needs nearby delivery, a local hub,
-          // or an inter-district warehouse. Multi-Warehouse Consolidation is reached
-          // only from its dedicated bulk/multi-source workflow.
-          // Event fulfillment rows are receipt/fulfillment portions, not standard
-          // customer-order packing tasks. The packing queue is backed by ordinary
-          // warehouse order documents, so sending event rows there produces an
-          // empty task list. Continue event receipts into the event consolidation
-          // workflow; only farmer-packed ordinary orders go to transfer routing.
-          const farmContinueHref = packedFarmerGroup
-            ? "/warehouse/farmer-fulfillment"
-            : "/warehouse/multi-warehouse-consolidation";
-          const farmContinueLabel = packedFarmerGroup
-            ? "Farmer Fulfillment Transfers"
-            : "Multi-Warehouse Consolidation";
+          // Both normal farmer-packed orders and Bulk/Event product portions
+          // continue through the same warehouse fulfillment routing screen.
+          // Multi-Warehouse Consolidation is not the next step for these receipts:
+          // Farmer Fulfillment Transfers determines the customer-district destination
+          // and coordinates the source-warehouse portions into one complete order.
+          const farmContinueHref = "/warehouse/farmer-fulfillment";
+          const farmContinueLabel = "Continue to Farmer Fulfillment Transfers";
           const confirmAllPackets = async () => {
             const receiptDescription = eventFulfillmentGroup
               ? `Confirm receipt of ${eligibleToReceive.length} event product lines from ${farmItems[0].displayFarmName}? Verify each product and its received quantity against the bulk/event order. Items not physically arrived remain pending.`
