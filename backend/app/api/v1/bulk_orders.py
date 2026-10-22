@@ -1670,6 +1670,14 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
         return None
     existing = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
     if existing:
+        ready_at = existing.get("readyForPickupAt") or datetime.utcnow()
+        await incoming_stock_repository.update({"_id": existing["_id"]}, {
+            "readyForPickup": True,
+            "readyForPickupAt": ready_at,
+        })
+        existing["readyForPickup"] = True
+        existing["readyForPickupAt"] = ready_at
+        await ensure_collection_job(existing, "event_fulfillment_transfer", "event_fulfillment_transfer")
         return existing
     warehouse_id = fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId")
     if not warehouse_id:
@@ -1710,6 +1718,7 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
         "sourceMode": "event_fulfillment_transfer",
         "eventRequestId": request["_id"],
         "eventFulfillmentId": fulfillment["_id"],
+        "eventOrderNumber": request.get("requestNumber") or request.get("orderNumber"),
         "packingRequired": False,
         "packingVerified": True,
         "readyForPickup": True,
@@ -2438,6 +2447,7 @@ async def update_event_fulfillment_status(
         "inventoryFinalizedAt": datetime.utcnow() if new_status == "stored" and not fulfillment.get("inventoryFinalizedAt") else fulfillment.get("inventoryFinalizedAt"),
         "inventoryFinalizationStatus": "confirmed" if new_status == "stored" else fulfillment.get("inventoryFinalizationStatus"),
     })
+    fulfillment["status"] = new_status
 
     siblings = await event_fulfillment_repo.find_many({"requestId": fulfillment["requestId"], "deletedAt": None}, limit=500)
     statuses = [s.get("status") for s in siblings]

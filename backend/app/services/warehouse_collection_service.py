@@ -145,6 +145,10 @@ async def ensure_collection_job(incoming: Dict[str, Any], collection_type: str, 
         "warehouseId": incoming["warehouseId"],
         "incomingStockId": incoming["_id"],
         "orderId": incoming.get("orderId"),
+        "eventRequestId": incoming.get("eventRequestId"),
+        "eventFulfillmentId": incoming.get("eventFulfillmentId"),
+        "eventOrderNumber": incoming.get("eventOrderNumber"),
+        "productName": incoming.get("eventProductName") or incoming.get("productName"),
         "farmerId": incoming.get("farmerId"),
         "productId": incoming.get("productId"),
         "variantId": incoming.get("variantId"),
@@ -218,7 +222,7 @@ def _serialize_mongo_values(value: Any) -> Any:
 
 def serialize_collection(job: Dict[str, Any]) -> Dict[str, Any]:
     result = dict(job)
-    for key in ("id", "_id", "warehouseId", "incomingStockId", "orderId", "farmerId", "productId", "variantId", "collectionTeamId"):
+    for key in ("id", "_id", "warehouseId", "incomingStockId", "orderId", "eventRequestId", "eventFulfillmentId", "farmerId", "productId", "variantId", "collectionTeamId"):
         if result.get(key) is not None:
             result["id" if key == "_id" else key] = str(result[key])
     if result.get("_id") is not None:

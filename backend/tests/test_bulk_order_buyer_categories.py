@@ -369,3 +369,55 @@ async def test_local_hub_receipt_creates_only_one_final_delivery_job(monkeypatch
     assert len(finalize_calls) == 1
     assert request["eventLocalHubStatus"] == "received"
     assert str(request["eventDeliveryJobId"]) == str(job_id)
+
+
+@pytest.mark.asyncio
+async def test_marking_event_portion_ready_creates_collection_job_with_updated_status(monkeypatch):
+    fulfillment_id = ObjectId()
+    request_id = ObjectId()
+    farmer_id = ObjectId()
+    fulfillment = {
+        "_id": fulfillment_id,
+        "requestId": request_id,
+        "farmerId": farmer_id,
+        "status": "accepted",
+    }
+    request = {"_id": request_id}
+    seen_statuses = []
+
+    async def fake_find_fulfillment(query):
+        return fulfillment
+
+    async def fake_update_fulfillment(query, values):
+        fulfillment.update(values)
+        return True
+
+    async def fake_find_siblings(query, **kwargs):
+        return [fulfillment]
+
+    async def fake_find_request(query):
+        return request
+
+    async def fake_update_request(query, values):
+        request.update(values)
+        return True
+
+    async def fake_ensure_inbound(request_arg, fulfillment_arg):
+        seen_statuses.append(fulfillment_arg["status"])
+        return {}
+
+    monkeypatch.setattr(bulk_module.event_fulfillment_repo, "find_one", fake_find_fulfillment)
+    monkeypatch.setattr(bulk_module.event_fulfillment_repo, "update", fake_update_fulfillment)
+    monkeypatch.setattr(bulk_module.event_fulfillment_repo, "find_many", fake_find_siblings)
+    monkeypatch.setattr(bulk_module.request_repo, "find_one", fake_find_request)
+    monkeypatch.setattr(bulk_module.request_repo, "update", fake_update_request)
+    monkeypatch.setattr(bulk_module, "_ensure_event_warehouse_inbound", fake_ensure_inbound)
+
+    result = await bulk_module.update_event_fulfillment_status(
+        str(fulfillment_id),
+        bulk_module.EventFulfillmentStatusUpdate(status="ready_for_collection"),
+        current_user={"_id": str(farmer_id), "role": "farmer"},
+    )
+
+    assert seen_statuses == ["ready_for_collection"]
+    assert result["success"] is True

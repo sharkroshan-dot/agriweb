@@ -341,6 +341,7 @@ async def get_my_collections(
     user_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     partner_cache: Dict[str, Optional[Dict[str, Any]]] = {}
     route_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    event_request_cache: Dict[str, Optional[Dict[str, Any]]] = {}
 
     def readable(value: Any) -> Optional[str]:
         if value is None:
@@ -890,6 +891,15 @@ async def get_my_collections(
     for job in unique_jobs.values():
         item = serialize_collection(job)
         order = await get_order(str(job.get("orderId") or ""))
+        event_request_id = str(job.get("eventRequestId") or "")
+        event_request = None
+        if event_request_id and ObjectId.is_valid(event_request_id):
+            if event_request_id not in event_request_cache:
+                event_request_cache[event_request_id] = await event_requests_collection.find_one({
+                    "_id": ObjectId(event_request_id),
+                    "deletedAt": None,
+                })
+            event_request = event_request_cache[event_request_id]
         order_items = (order or {}).get("items") or []
         product_id = str(job.get("productId") or "")
         order_item = next(
@@ -964,8 +974,16 @@ async def get_my_collections(
             or readable((order or {}).get("orderNo"))
             or readable((order or {}).get("referenceNumber"))
         )
+        event_order_number = (
+            readable(job.get("eventOrderNumber"))
+            or readable((event_request or {}).get("requestNumber"))
+            or readable((event_request or {}).get("orderNumber"))
+        )
+        if not order_number:
+            order_number = event_order_number
         if order_number and not order_number.upper().startswith(("ORD", "ORDER", "#")):
-            order_number = f"ORD-{order_number}"
+            if not event_order_number:
+                order_number = f"ORD-{order_number}"
         if not order_number and job.get("orderId"):
             order_number = "Order reference unavailable"
 
@@ -1021,6 +1039,7 @@ async def get_my_collections(
             "farmerName": farmer_name,
             "productName": product_name,
             "orderNumber": order_number,
+            "eventOrderNumber": event_order_number,
             "batchNumber": (
                 readable(job.get("batchNumber"))
                 or readable((batch or {}).get("lotNumber"))

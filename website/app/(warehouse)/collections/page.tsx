@@ -69,6 +69,7 @@ const STATUS = [
 ] as const;
 
 const label = (value: string) => STATUS.find(([key]) => key === value)?.[1] || value.replace(/_/g, " ");
+const getTeamCapacity = (team: any): number => Number(team.capacity || team.vehicleCapacity || 0);
 
 const getFarmProgress = (farmJobs: any[]) => {
   const statusRank = new Map<string, number>(STATUS.map(([key], index) => [key, index] as [string, number]));
@@ -103,7 +104,7 @@ export default function WarehouseCollectionsPage() {
 
   useEffect(() => {
     // Reset the date filter whenever the Farm Collection page is opened.
-    // The default queue should show today's pickup jobs, not historical jobs.
+    // Today's queue also includes unfinished pickups carried over from earlier days.
     setDatePeriod("today");
     const params = new URLSearchParams(window.location.search);
     const requestedSearch = params.get("search") || "";
@@ -151,7 +152,7 @@ export default function WarehouseCollectionsPage() {
     refetchInterval: 30000,
   });
   const pickupTeams = teamsData?.data?.members || [];
-  const eligibleTeams = pickupTeams.filter((team: any) => Number(team.capacity) > 0);
+  const eligibleTeams = pickupTeams.filter((team: any) => getTeamCapacity(team) > 0);
   const selectedTeam = eligibleTeams.find((team: any) => team.id === selectedTeamId);
 
   const jobs = useMemo(() => {
@@ -168,7 +169,7 @@ export default function WarehouseCollectionsPage() {
 
     return source.filter((job: any) => {
       const typeOk = filter === "all" || job.collectionType === filter;
-      const text = [job.farmerName, job.farmerId, job.orderId, job.orderNumber, job.productName, job.productId, job.status].filter(Boolean).join(" ").toLowerCase();
+      const text = [job.farmerName, job.farmerId, job.orderId, job.orderNumber, job.eventOrderNumber, job.productName, job.productId, job.status].filter(Boolean).join(" ").toLowerCase();
       // readyAt is the operational date for a farm collection; fall back to
       // creation/update timestamps for older records that predate readyAt.
       const rawDate = job.readyAt || job.readyForPickupAt || job.scheduledAt || job.createdAt || job.updatedAt;
@@ -176,10 +177,13 @@ export default function WarehouseCollectionsPage() {
       const validDate = jobDate && !Number.isNaN(jobDate.getTime());
       let dateOk = true;
       if (datePeriod !== "all") {
-        if (!validDate) {
+        if (datePeriod === "today") {
+          const pickupIsActive = ["ready_for_pickup", "team_assigned", "en_route", "arrived_at_farm", "collected", "departed_farm"].includes(String(job.status || "").toLowerCase());
+          dateOk = validDate
+            ? (jobDate! >= todayStart && jobDate! < tomorrowStart) || (pickupIsActive && jobDate! < todayStart)
+            : pickupIsActive;
+        } else if (!validDate) {
           dateOk = false;
-        } else if (datePeriod === "today") {
-          dateOk = jobDate! >= todayStart && jobDate! < tomorrowStart;
         } else if (datePeriod === "yesterday") {
           dateOk = jobDate! >= yesterdayStart && jobDate! < todayStart;
         } else if (datePeriod === "week") {
@@ -329,7 +333,8 @@ export default function WarehouseCollectionsPage() {
     }
     const teamId = farmTeamSelections[farm.key] || selectedTeamId;
     const team = eligibleTeams.find((candidate: any) => String(candidate.id) === String(teamId));
-    if (!team || Number(team.capacity) <= 0) {
+    const teamCapacity = team ? getTeamCapacity(team) : 0;
+    if (!team || teamCapacity <= 0) {
       toast.error("Select a pickup team with a registered vehicle capacity for this farm.");
       return;
     }
@@ -341,7 +346,7 @@ export default function WarehouseCollectionsPage() {
     try {
       const response = await api.post("/warehouse/me/pickup-routes", {
         collectionIds,
-        maxWeightKg: Number(team.capacity),
+        maxWeightKg: teamCapacity,
         assignmentMode: "assign_team",
         deliveryPartnerId: team.deliveryPartnerId,
       });
@@ -360,7 +365,7 @@ export default function WarehouseCollectionsPage() {
       toast.error("Select at least one Ready for Pickup job.");
       return;
     }
-    if (!selectedTeam || Number(selectedTeam.capacity) <= 0) {
+    if (!selectedTeam || getTeamCapacity(selectedTeam) <= 0) {
       toast.error("Select a pickup vehicle with a registered carrying capacity.");
       return;
     }
@@ -372,7 +377,7 @@ export default function WarehouseCollectionsPage() {
     try {
       const response = await api.post("/warehouse/me/pickup-routes", {
         collectionIds: selectedCollectionIds,
-        maxWeightKg: Number(selectedTeam.capacity),
+        maxWeightKg: getTeamCapacity(selectedTeam),
         assignmentMode,
         ...(routePlanningMode === "manual" ? { manualStopOrder: orderedManualFarmStops.map((farm) => farm.key) } : {}),
         ...(assignmentMode === "assign_team" ? { deliveryPartnerId: selectedTeam.deliveryPartnerId } : {}),
@@ -427,7 +432,7 @@ export default function WarehouseCollectionsPage() {
         <CardContent className="flex flex-col gap-3 p-4">
           <div className="flex flex-col gap-3 sm:flex-row">
             <Input className="h-12 flex-1 text-base placeholder:text-base" placeholder="Search farmer, order, product or team..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            <Select value={filter} onValueChange={setFilter}><SelectTrigger className="h-12 w-full text-base sm:w-[280px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Collection Types</SelectItem><SelectItem value="bulk_harvest">Bulk Harvest · Warehouse Fulfillment</SelectItem><SelectItem value="packed_orders_transfer">Packed Orders · Long Distance</SelectItem></SelectContent></Select>
+            <Select value={filter} onValueChange={setFilter}><SelectTrigger className="h-12 w-full text-base sm:w-[280px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Collection Types</SelectItem><SelectItem value="bulk_harvest">Bulk Harvest · Warehouse Fulfillment</SelectItem><SelectItem value="event_fulfillment_transfer">Customer Event Orders</SelectItem><SelectItem value="packed_orders_transfer">Packed Orders · Long Distance</SelectItem></SelectContent></Select>
           </div>
           <div className="flex flex-wrap items-center gap-2" aria-label="Filter farm collections by date">
             <span className="mr-1 text-sm font-semibold text-slate-700">Show orders:</span>
@@ -511,10 +516,10 @@ export default function WarehouseCollectionsPage() {
               <select value={selectedTeamId} onChange={(e) => setSelectedTeamId(e.target.value)} className="h-12 w-full rounded-md border border-input bg-background px-3 text-base font-normal">
                 <option value="">Select pickup vehicle</option>
                 {eligibleTeams.map((team: any) => (
-                  <option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {team.capacity} kg</option>
+                  <option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {getTeamCapacity(team)} kg</option>
                 ))}
               </select>
-              {selectedTeam && <span className="mt-1 block text-sm font-medium leading-6 text-slate-700">{selectedTeam.name || "Selected team"} · {selectedTeam.vehicleType || "Vehicle"} · {selectedTeam.capacity} kg</span>}
+              {selectedTeam && <span className="mt-1 block text-sm font-medium leading-6 text-slate-700">{selectedTeam.name || "Selected team"} · {selectedTeam.vehicleType || "Vehicle"} · {getTeamCapacity(selectedTeam)} kg</span>}
               {eligibleTeams.length === 0 && <span className="mt-1 block text-sm font-medium leading-6 text-amber-800">No approved team with a registered capacity. Approve a pickup team and add its vehicle capacity first.</span>}
             </label>
           </div>
@@ -657,7 +662,7 @@ export default function WarehouseCollectionsPage() {
                       >
                         <option value="">Choose pickup team</option>
                         {eligibleTeams.map((team: any) => (
-                          <option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {team.capacity} kg</option>
+                          <option key={team.id} value={team.id}>{team.name || "Pickup Team"} · {team.vehicleType || "Vehicle"} · {getTeamCapacity(team)} kg</option>
                         ))}
                       </select>
                       <p className="mt-2 text-xs leading-5 text-slate-600">One team assignment covers all {farm.readyCount} eligible order(s) from this farm.</p>
@@ -696,6 +701,7 @@ export default function WarehouseCollectionsPage() {
 
                     {farm.jobs.map((job: any) => {
                       const isPackedTransfer = job.collectionType === "packed_orders_transfer";
+                      const isEventOrder = job.collectionType === "event_fulfillment_transfer" || Boolean(job.eventRequestId);
                       const currentIndex = STATUS.findIndex(([key]) => key === job.status);
                       return (
                         <Card key={job.id || job._id} className="overflow-hidden border border-slate-200 shadow-sm">
@@ -704,7 +710,7 @@ export default function WarehouseCollectionsPage() {
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Badge className={isPackedTransfer ? "bg-blue-600 text-white" : "bg-emerald-600 text-white"}>
-                                    {isPackedTransfer ? "Packed Order Transfer" : "Bulk Harvest Pickup"}
+                                    {isPackedTransfer ? "Packed Order Transfer" : isEventOrder ? "Customer Event Order" : "Bulk Harvest Pickup"}
                                   </Badge>
                                   <Badge variant="outline" className="px-3 py-1 text-sm font-semibold">{label(job.status)}</Badge>
                                   {job.pickupRouteId && job.status !== "arrived_warehouse" && (
