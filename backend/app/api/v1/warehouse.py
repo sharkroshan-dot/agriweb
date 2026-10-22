@@ -360,6 +360,22 @@ async def get_my_collections(
         # Event pickup jobs are created directly from ready fulfillment portions.
         # Incoming stock is a receiving record and must not be required before
         # the pickup team collects the goods and arrives at the warehouse.
+        # Pickup warehouse is selected by farm location/coverage, not by the
+        # event's destination warehouse. This rule applies to every event order.
+        farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
+        farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id)) if farmer_id else None
+        if not farmer_profile and farmer_id and ObjectId.is_valid(str(farmer_id)):
+            farmer_profile = await farmer_repository.get_by_id(str(farmer_id))
+        farm_location = (
+            (farmer_profile or {}).get("farmLocation")
+            or (farmer_profile or {}).get("farmAddress")
+            or (farmer_profile or {}).get("location")
+            or (farmer_profile or {}).get("address")
+            or portion.get("pickupLocation")
+            or {}
+        )
+        coverage_districts = warehouse_collection_districts(warehouse)
+        farm_district = farmer_collection_district(farmer_profile or {}, farm_location, coverage_districts)
         assigned_warehouse = (
             portion.get("sourceWarehouseId")
             or portion.get("warehouseId")
@@ -370,34 +386,26 @@ async def get_my_collections(
             or (event_request or {}).get("destinationWarehouseId")
             or (event_request or {}).get("warehouseId")
         )
-        if not assigned_warehouse:
+        # If this manager's warehouse covers the farm's district, it is the
+        # pickup warehouse even when legacy source/destination fields point to
+        # a different warehouse. Preserve destination assignment separately.
+        if coverage_districts and farm_district in coverage_districts:
+            assigned_warehouse = warehouse["_id"]
+        elif not assigned_warehouse:
             assigned_warehouse = warehouse["_id"]
         if str(assigned_warehouse) != warehouse_id:
             explicit_source = portion.get("sourceWarehouseId")
             if explicit_source and str(explicit_source) != warehouse_id:
-                logger.info("Event pickup %s belongs to source warehouse %s, not active warehouse %s", portion_id, explicit_source, warehouse_id)
+                logger.info("Event pickup %s farm district %s is outside active warehouse coverage; source warehouse is %s", portion_id, farm_district, explicit_source)
                 continue
-            # If only a legacy destination warehouse was stored, keep the ready
-            # pickup visible to the manager currently servicing farm collection.
+            # If no reliable farm-district match exists, recover legacy ready
+            # portions into this manager's queue rather than hide them.
             assigned_warehouse = warehouse["_id"]
         if str(assigned_warehouse) == warehouse_id:
             existing_event_job = await warehouse_collection_repository.find_one({
                 "eventFulfillmentId": {"$in": [portion_id, str(portion_id)]},
                 "deletedAt": None,
             })
-            if not existing_event_job:
-                farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
-                farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id)) if farmer_id else None
-                if not farmer_profile and farmer_id and ObjectId.is_valid(str(farmer_id)):
-                    farmer_profile = await farmer_repository.get_by_id(str(farmer_id))
-                farm_location = (
-                    (farmer_profile or {}).get("farmLocation")
-                    or (farmer_profile or {}).get("farmAddress")
-                    or (farmer_profile or {}).get("location")
-                    or (farmer_profile or {}).get("address")
-                    or portion.get("pickupLocation")
-                    or {}
-                )
                 await warehouse_collection_repository.create_job({
                     "warehouseId": warehouse["_id"],
                     "incomingStockId": None,
