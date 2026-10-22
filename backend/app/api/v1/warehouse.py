@@ -215,16 +215,27 @@ async def get_my_collections(
     event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
     event_requests_collection = MongoDB.get_collection("bulk_requests")
     ready_event_portions = await event_fulfillments_collection.find({
-        # Older event workflows used both collection and pickup status names,
-        # and some records stored display labels with spaces.
-        "status": {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"},
         "deletedAt": None,
-        "$or": [
-            {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
-            {"eventWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
-            {"sourceWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
-            {"warehouseId": {"$exists": False}},
-            {"warehouseId": None},
+        "$and": [
+            {
+                "$or": [
+                    {"status": {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"}},
+                    {"readyForPickup": True},
+                    {"pickupStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
+                    {"farmerStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
+                ]
+            },
+            {
+                "$or": [
+                    {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+                    {"eventWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+                    {"destinationWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
+                    {"warehouseId": {"$exists": False}},
+                    {"warehouseId": None},
+                    {"eventWarehouseId": {"$exists": False}},
+                    {"eventWarehouseId": None},
+                ]
+            },
         ],
     }).to_list(length=1000)
     logger.info(
