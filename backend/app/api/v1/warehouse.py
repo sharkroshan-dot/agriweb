@@ -2336,13 +2336,34 @@ async def get_farmer_fulfillment_transfers(
             continue
         # Receipt rows may be stored against the source warehouse or the
         # receiving/destination warehouse, so look up by event request first.
-        incoming_rows = await incoming_stock_repository.find_many({
-            "eventRequestId": {"$in": [request_id, request_id_text]},
-        }, skip=0, limit=1000)
-        incoming_by_fulfillment = {
-            str(row.get("eventFulfillmentId")): row
-            for row in incoming_rows if row.get("eventFulfillmentId")
-        }
+        # Older incoming-stock rows sometimes have eventFulfillmentId but
+        # omit eventRequestId, or store one identifier as an ObjectId and the
+        # other as a string. Query by fulfillment IDs as the reliable join key.
+        fulfillment_ids = [
+            value for portion in event_portions
+            for value in (portion.get("_id"), str(portion.get("_id") or ""))
+            if value
+        ]
+        incoming_collection = MongoDB.get_collection("incoming_stock")
+        incoming_rows = await incoming_collection.find({
+            "$or": [
+                {"eventRequestId": {"$in": [request_id, request_id_text]}},
+                {"eventFulfillmentId": {"$in": fulfillment_ids}},
+            ],
+            "deletedAt": {"$in": [None, False, ""]},
+        }).limit(2000).to_list(length=2000)
+        incoming_by_fulfillment = {}
+        for incoming_row in incoming_rows:
+            fulfillment_key = str(incoming_row.get("eventFulfillmentId") or "")
+            if not fulfillment_key:
+                continue
+            existing = incoming_by_fulfillment.get(fulfillment_key)
+            # Prefer the most advanced receipt record if legacy duplicates exist.
+            rank = {"stored": 4, "received": 3, "approved": 2, "pending": 1}
+            current_rank = rank.get(str(existing.get("status") or "").lower(), 0) if existing else -1
+            candidate_rank = rank.get(str(incoming_row.get("status") or "").lower(), 0)
+            if existing is None or candidate_rank > current_rank:
+                incoming_by_fulfillment[fulfillment_key] = incoming_row
         portions_for_card = []
         for portion in event_portions:
             fid = str(portion.get("_id") or "")
