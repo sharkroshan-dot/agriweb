@@ -312,6 +312,50 @@ class PaymentService:
 
             return None
 
+        # Bulk/event request payments do not point to the standard orders or
+        # b2b_orders collections. Finalize them explicitly and skip standard-order
+        # fulfillment hooks and splits, which require a normal order document.
+        if payment.get("paymentContext") == "bulk_event":
+            from app.repositories.base_repository import BaseRepository
+
+            bulk_request_repo = BaseRepository("bulk_requests")
+            bulk_request_id = payment.get("bulkRequestId") or payment.get("orderId")
+            if bulk_request_id:
+                request_id = str(bulk_request_id)
+                request_doc = await bulk_request_repo.get_by_id(request_id)
+                if not request_doc:
+                    logger.error("Bulk/event request %s missing during payment finalization", request_id)
+                    return None
+                if str(request_doc.get("status") or "").lower() == "cancelled":
+                    logger.warning("Bulk/event request %s was cancelled before payment finalization", request_id)
+                    return None
+
+                paid_at = datetime.utcnow()
+                await bulk_request_repo.update(
+                    {"_id": ObjectId(request_id)},
+                    {
+                        "paymentStatus": "paid",
+                        "paymentMethod": "online",
+                        "paidAt": paid_at,
+                        "paidAmount": float(payment.get("amount") or 0),
+                        "paymentId": payment_id,
+                        "paymentTransactionId": gateway_response.get("razorpay_payment_id"),
+                        "codAmountDue": 0,
+                        "updatedAt": paid_at,
+                    },
+                )
+                await ledger_service.record(
+                    amount=payment.get("amount", 0),
+                    direction="credit",
+                    entry_type="payment_received",
+                    user_id=str(payment["userId"]) if payment.get("userId") else None,
+                    order_id=request_id,
+                    payment_id=payment_id,
+                    reference=gateway_response.get("razorpay_payment_id") or payment.get("transactionId"),
+                    metadata={"gateway": gateway_response, "paymentContext": "bulk_event"},
+                )
+            return await payment_repository.get_by_id(payment_id)
+
         # Update payment state without resurrecting an order that was already
         # cancelled while payment confirmation was in flight.
         order = None
