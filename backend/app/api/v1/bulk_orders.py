@@ -21,6 +21,9 @@ import logging
 import secrets
 
 from app.api.v1.auth import get_current_user
+from app.core.config import settings
+from app.repositories.payment_repository import payment_repository
+from app.services.payment_service import PaymentService, razorpay_client
 from app.database.mongodb import MongoDB
 from app.repositories.base_repository import BaseRepository
 from app.repositories.farmer_repository import farmer_repository
@@ -2739,6 +2742,163 @@ async def bulk_order_tracking(
             "isActive": current_stage not in ("delivered", "cancelled"),
         },
     }
+
+# ================== BULK / EVENT PAYMENTS ==================
+
+def _event_payment_total(request: dict, fulfillments: list) -> float:
+    """Derive the payable amount from server-side confirmed sourcing, never the browser."""
+    explicit_total = request.get("confirmedTotalAmount") or request.get("totalAmount")
+    if explicit_total is not None:
+        try:
+            amount = round(float(explicit_total), 2)
+            if amount > 0:
+                return amount
+        except (TypeError, ValueError):
+            pass
+    # Confirmed sourcing rows retain the price-per-unit and allocated quantity.
+    # This includes multi-farmer allocations without charging once per parent item.
+    total = 0.0
+    for row in fulfillments:
+        qty = float(row.get("allocatedQuantityKg") or 0)
+        unit_price = float(row.get("pricePerKg") or 0)
+        total += qty * unit_price
+    if total <= 0:
+        plan = (request.get("eventSourcingPlan") or {}).get("plan") or []
+        for product in plan:
+            for allocation in product.get("allocations") or []:
+                total += float(allocation.get("quantityKg") or 0) * float(allocation.get("pricePerKg") or 0)
+    return round(total, 2)
+
+
+@router.post("/requests/{request_id}/payment/create-intent")
+async def create_bulk_event_payment_intent(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a Razorpay intent for the confirmed parent bulk/event request."""
+    if not ObjectId.is_valid(request_id):
+        raise HTTPException(status_code=400, detail="Invalid request ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Bulk/event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]) and current_user.get("role") not in ("admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="You cannot pay for this request")
+    if request.get("status") != REQUEST_AWARDED or request.get("eventSourcingStatus") != "confirmed":
+        raise HTTPException(status_code=409, detail="Confirm sourcing before payment")
+    if request.get("paymentStatus") == "paid":
+        raise HTTPException(status_code=409, detail="This event order is already paid")
+
+    fulfillments = await event_fulfillment_repo.find_many(
+        {"requestId": ObjectId(request_id), "deletedAt": None}, skip=0, limit=2000
+    )
+    amount = _event_payment_total(request, fulfillments)
+    if amount <= 0:
+        raise HTTPException(status_code=409, detail="No confirmed payable total is available. Confirm product prices and event charges before collecting payment.")
+    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+        raise HTTPException(status_code=503, detail="Online payment is unavailable until Razorpay keys are configured")
+
+    payment_id = await payment_repository.create_payment({
+        "orderId": ObjectId(request_id),
+        "userId": ObjectId(str(current_user["_id"])),
+        "amount": amount,
+        "currency": "INR",
+        "paymentMethod": "razorpay",
+        "status": "pending",
+        "paymentContext": "bulk_event",
+        "bulkRequestId": ObjectId(request_id),
+        "requestNumber": request.get("requestNumber"),
+    })
+    if not payment_id:
+        raise HTTPException(status_code=500, detail="Could not create payment record")
+    try:
+        gateway_order = razorpay_client.order.create({
+            "amount": int(round(amount * 100)),
+            "currency": "INR",
+            "receipt": f"bulk_{payment_id}",
+            "notes": {"payment_id": payment_id, "bulk_request_id": request_id, "request_number": str(request.get("requestNumber") or "")},
+        })
+        await payment_repository.update_transaction_id(payment_id, gateway_order["id"])
+    except Exception:
+        logger.exception("Could not create Razorpay order for bulk request %s", request_id)
+        await payment_repository.update_payment_status(payment_id, "failed", {"reason": "gateway_order_creation_failed"})
+        raise HTTPException(status_code=503, detail="Could not start online payment. No payment has been taken.")
+
+    return {
+        "success": True,
+        "data": {
+            "paymentId": payment_id,
+            "keyId": settings.RAZORPAY_KEY_ID,
+            "razorpayOrderId": gateway_order["id"],
+            "amount": gateway_order["amount"],
+            "currency": gateway_order["currency"],
+            "requestId": request_id,
+            "requestNumber": request.get("requestNumber"),
+            "paymentStatus": "pending",
+        },
+    }
+
+
+@router.post("/requests/{request_id}/payment/verify")
+async def verify_bulk_event_payment(
+    request_id: str,
+    data: dict = Body(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Verify the Razorpay signature, then mark the parent event request paid."""
+    if not ObjectId.is_valid(request_id):
+        raise HTTPException(status_code=400, detail="Invalid request ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Bulk/event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="You cannot verify payment for this request")
+    payment_id = str(data.get("paymentId") or "")
+    payment = await payment_repository.get_by_id(payment_id)
+    if not payment or str(payment.get("bulkRequestId") or "") != request_id or str(payment.get("userId") or "") != str(current_user["_id"]):
+        raise HTTPException(status_code=400, detail="Payment record does not belong to this event request")
+    verified = await PaymentService.verify_razorpay_payment(
+        payment_id,
+        str(data.get("razorpayOrderId") or ""),
+        str(data.get("razorpayPaymentId") or ""),
+        str(data.get("razorpaySignature") or ""),
+    )
+    if not verified:
+        raise HTTPException(status_code=400, detail="Payment verification failed")
+    now = datetime.utcnow()
+    await request_repo.update(
+        {"_id": ObjectId(request_id)},
+        {"paymentStatus": "paid", "paymentMethod": "online", "paidAt": now, "paidAmount": float(payment.get("amount") or 0), "paymentId": ObjectId(payment_id), "updatedAt": now},
+    )
+    return {"success": True, "data": {"requestId": request_id, "paymentId": payment_id, "paymentStatus": "paid", "paidAmount": float(payment.get("amount") or 0)}}
+
+
+@router.post("/requests/{request_id}/payment/cod")
+async def select_bulk_event_cod(
+    request_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record COD only for eligible small bulk/event requests; no online payment is implied."""
+    if not ObjectId.is_valid(request_id):
+        raise HTTPException(status_code=400, detail="Invalid request ID")
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None})
+    if not request:
+        raise HTTPException(status_code=404, detail="Bulk/event request not found")
+    if str(request.get("buyerUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="You cannot select payment for this request")
+    if request.get("status") != REQUEST_AWARDED or request.get("eventSourcingStatus") != "confirmed":
+        raise HTTPException(status_code=409, detail="Confirm sourcing before selecting COD")
+    fulfillments = await event_fulfillment_repo.find_many({"requestId": ObjectId(request_id), "deletedAt": None}, skip=0, limit=2000)
+    amount = _event_payment_total(request, fulfillments)
+    # COD is intentionally limited by a server policy; larger events require prepayment.
+    cod_limit = float(getattr(settings, "BULK_EVENT_COD_LIMIT_INR", 10000) or 10000)
+    if amount <= 0 or amount > cod_limit or request.get("codEligible") is False:
+        raise HTTPException(status_code=409, detail=f"Cash on Delivery is not available for this event order. Online full payment is required (COD limit ₹{cod_limit:,.0f}).")
+    await request_repo.update(
+        {"_id": ObjectId(request_id)},
+        {"paymentStatus": "cod_pending", "paymentMethod": "cod", "codAmountDue": amount, "codEligible": True, "updatedAt": datetime.utcnow()},
+    )
+    return {"success": True, "data": {"requestId": request_id, "paymentStatus": "cod_pending", "paymentMethod": "cod", "amountDueAtDelivery": amount}}
+
 
 # ================== AI RECOMMENDATION ==================
 
