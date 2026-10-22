@@ -2294,6 +2294,143 @@ async def get_farmer_fulfillment_transfers(
         })
         result_order_ids.add(pending_id)
 
+    # Bulk/Event orders are stored in bulk_requests + event_fulfillments rather
+    # than the ordinary orders collection. Expose their allocated portions in
+    # this same transfer queue so they are not invisible after Incoming Stock.
+    # Keep one parent card per original event request and include all portions.
+    event_requests_collection = MongoDB.get_collection("bulk_requests")
+    event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
+    event_requests = await event_requests_collection.find({
+        "deletedAt": None,
+        "$or": [
+            {"eventWarehouseId": {"$in": warehouse_refs}},
+            {"warehouseId": {"$in": warehouse_refs}},
+            {"eventSourceWarehouseIds": {"$in": warehouse_refs}},
+            {"eventDestinationWarehouseId": {"$in": warehouse_refs}},
+        ],
+        "status": {"$nin": ["cancelled", "rejected"]},
+        "eventSourcingStatus": {"$nin": ["cancelled", "rejected"]},
+    }).sort("updatedAt", -1).limit(200).to_list(length=200)
+    for event_request in event_requests:
+        request_id = event_request.get("_id")
+        if not request_id:
+            continue
+        request_id_text = str(request_id)
+        if any(str(row.get("id") or "") == request_id_text for row in result):
+            continue
+        event_portions = await event_fulfillments_collection.find({
+            "requestId": {"$in": [request_id, request_id_text]},
+            "deletedAt": None,
+        }).to_list(length=500)
+        if not event_portions:
+            continue
+        # Include only requests where this warehouse has an operational role:
+        # source, selected destination, or the current receiving warehouse.
+        def _event_warehouse_matches(value: Any) -> bool:
+            return str(value or "") == warehouse_id
+        relevant_portions = [
+            portion for portion in event_portions
+            if any(_event_warehouse_matches(portion.get(field)) for field in (
+                "sourceWarehouseId", "warehouseId", "destinationWarehouseId", "eventWarehouseId"
+            )) or _event_warehouse_matches(event_request.get("eventWarehouseId"))
+        ]
+        if not relevant_portions:
+            continue
+        incoming_rows = await incoming_stock_repository.find_many({
+            "eventRequestId": {"$in": [request_id, request_id_text]},
+            "warehouseId": {"$in": warehouse_refs},
+            "deletedAt": None,
+        }, skip=0, limit=1000)
+        incoming_by_fulfillment = {
+            str(row.get("eventFulfillmentId")): row
+            for row in incoming_rows if row.get("eventFulfillmentId")
+        }
+        portions_for_card = []
+        for portion in event_portions:
+            fid = str(portion.get("_id") or "")
+            receipt = incoming_by_fulfillment.get(fid) or {}
+            source_id = str(portion.get("sourceWarehouseId") or portion.get("warehouseId") or event_request.get("eventWarehouseId") or "")
+            destination_id = str(portion.get("destinationWarehouseId") or event_request.get("eventDestinationWarehouseId") or event_request.get("eventWarehouseId") or "")
+            qty = float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0)
+            receipt_status = str(receipt.get("status") or "")
+            received_qty = float(receipt.get("quantityReceived") or receipt.get("receivedQuantity") or receipt.get("actualQuantityReceived") or 0)
+            portions_for_card.append({
+                "id": fid,
+                "eventFulfillmentId": fid,
+                "eventRequestId": request_id_text,
+                "productId": str(portion.get("productId") or ""),
+                "productName": portion.get("productName") or portion.get("name") or "Product",
+                "quantity": qty,
+                "expectedQuantity": qty,
+                "quantityReceived": received_qty,
+                "unit": portion.get("unit") or "kg",
+                "warehouseId": source_id,
+                "sourceWarehouseId": source_id,
+                "destinationWarehouseId": destination_id,
+                "warehouseName": portion.get("sourceWarehouseName") or "",
+                "status": receipt_status or str(portion.get("status") or "pending"),
+                "qualityCheck": receipt.get("qualityCheck") or "pending",
+                "incomingStockId": str(receipt.get("_id") or "") or None,
+            })
+        destination_id = str(event_request.get("eventDestinationWarehouseId") or event_request.get("eventWarehouseId") or "")
+        customer_address = event_request.get("deliveryAddress") or event_request.get("shippingAddress") or event_request.get("address") or {}
+        destination_district = str(
+            customer_address.get("district") or customer_address.get("city") or event_request.get("district")
+            or event_request.get("deliveryDistrict") or ""
+        )
+        source_districts = [str(p.get("sourceDistrict") or p.get("farmDistrict") or "") for p in event_portions]
+        source_district = next((x for x in source_districts if x), "")
+        statuses = [str(p.get("status") or "").lower() for p in event_portions]
+        all_received = bool(event_portions) and all(
+            str((incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("status") or "").lower() in ("received", "stored")
+            and float(
+                (incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("quantityReceived")
+                or (incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("receivedQuantity")
+                or (incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("actualQuantityReceived")
+                or 0
+            ) + 1e-9 >= float(p.get("allocatedQuantityKg") or p.get("quantityKg") or p.get("quantity") or 0)
+            for p in event_portions
+        )
+        result.append({
+            "id": request_id_text,
+            "requestId": request_id_text,
+            "orderNumber": event_request.get("requestNumber") or event_request.get("orderNumber") or ("EVENT-" + request_id_text[-6:]),
+            "buyerName": event_request.get("buyerName") or event_request.get("customerName") or "Bulk/Event customer",
+            "farmerName": "Bulk/Event fulfillment",
+            "orderStatus": event_request.get("status") or event_request.get("eventSourcingStatus") or "active",
+            "stage": "stored" if all_received else "awaiting_warehouse_receipt",
+            "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "isEventOrder": True,
+            "eventRequestId": request_id_text,
+            "isUnassigned": not bool(destination_id),
+            "physicalReceiptConfirmed": all_received,
+            "sourceWarehouseId": warehouse_id,
+            "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "This warehouse",
+            "sourceDistrict": source_district or None,
+            "destinationWarehouseId": destination_id or None,
+            "destinationWarehouseName": event_request.get("eventDestinationWarehouseName") or event_request.get("eventWarehouseName"),
+            "destinationDistrict": destination_district or None,
+            "routeCategory": "needs_location" if not destination_district else ("same_district" if source_district and source_district.lower() == destination_district.lower() else "inter_district"),
+            "items": portions_for_card,
+            "incoming": portions_for_card,
+            "warehouseAllocations": [],
+            "outgoing": [],
+            "eventPortions": portions_for_card,
+            "message": "Bulk/Event order portions are linked to Farmer Fulfillment. Confirm every source portion and route to the customer-district destination warehouse.",
+            "consolidation": {
+                "isConsolidationWarehouse": False,
+                "canReceive": False,
+                "canComplete": False,
+                "canHandoffLocalHub": False,
+                "canConfirmHubReceipt": False,
+                "hubTransferStatus": None,
+                "totalLegs": len(event_portions),
+                "inTransitLegs": sum(1 for p in event_portions if str(p.get("consolidationTransferStatus") or "") == "in_transit"),
+                "receivedLegs": sum(1 for p in event_portions if str(p.get("consolidationStatus") or "") == "received"),
+                "allSourcePortionsStored": all_received,
+            },
+        })
+
     return {"success": True, "data": {"transfers": result, "unlinkedPackedPackets": unlinked_packed_packets}}
 
 
