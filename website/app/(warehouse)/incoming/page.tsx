@@ -242,7 +242,7 @@ export default function WarehouseIncomingPage() {
         ...item,
         displayFarmName: getFarmDisplayName(item),
         displayProductName: getProductDisplayName(item),
-        displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber, "Order reference unavailable"),
+        displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber || item.eventOrderNumber || item.requestNumber || item.eventRequest?.requestNumber, "Event request reference unavailable"),
       }))
       .filter((item: any) => {
         if (fulfillmentFilter === "received_warehouse") return false;
@@ -760,11 +760,16 @@ export default function WarehouseIncomingPage() {
           const eventFulfillmentGroup = farmItems.every((row: any) => isEventFulfillmentIncoming(row));
           const packedFarmerGroup = !eventFulfillmentGroup && farmItems.every((row: any) => isFarmerPackedIncoming(row));
           const expectedTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
-          const receivedCount = farmItems.filter((row: any) => ["received", "quality_check", "stored", "rejected"].includes(String(row.status || "").toLowerCase()) || Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt)).length;
+          const isBulkLotReceived = (row: any) => Boolean(row.bulkShipmentReceivedAt || row.bulkShipmentMeasuredTotal !== undefined || /Bulk lot receipt:/i.test(String(row.notes || row.qualityNotes || "")));
+          const isPhysicallyReceived = (row: any) => ["received", "quality_check", "stored", "rejected"].includes(String(row.status || "").toLowerCase()) || Boolean(row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.bulkShipmentReceivedAt);
+          const receivedCount = farmItems.filter((row: any) => isPhysicallyReceived(row)).length;
           const passedBulkItems = farmItems.filter((row: any) => !isFarmerPackedIncoming(row) && ["received", "quality_check"].includes(String(row.status || "").toLowerCase()) && isReceiptQualityPassed(row));
           const storedBulkItems = farmItems.filter((row: any) => !isFarmerPackedIncoming(row) && String(row.status || "").toLowerCase() === "stored");
           const pendingCount = Math.max(0, farmItems.length - receivedCount);
-          const receivedQuantityTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantityReceived ?? ((row.status === "received" || row.status === "stored") ? row.quantity : 0) ?? 0), 0);
+          // Bulk lot measured weight is duplicated across its product-reference rows;
+          // count the lot-level measured total once, not once per product line.
+          const bulkLotMeasuredTotal = farmItems.reduce((max: number, row: any) => Math.max(max, Number(row.bulkShipmentMeasuredTotal || 0)), 0);
+          const receivedQuantityTotal = bulkLotMeasuredTotal > 0 ? bulkLotMeasuredTotal : farmItems.reduce((sum: number, row: any) => sum + Number(row.quantityReceived ?? ((["received", "stored"].includes(String(row.status || "").toLowerCase()) && !isBulkLotReceived(row)) ? row.quantity : 0) ?? 0), 0);
           const declaredTotal = farmItems.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
           const eligibleToReceive = farmItems.filter((row: any) => {
             const status = String(row.status || "").toLowerCase();
@@ -790,12 +795,19 @@ export default function WarehouseIncomingPage() {
           // the transfer backend decides whether it needs nearby delivery, a local hub,
           // or an inter-district warehouse. Multi-Warehouse Consolidation is reached
           // only from its dedicated bulk/multi-source workflow.
-          const farmContinueHref = (packedFarmerGroup || eventFulfillmentGroup)
+          // Bulk/event product receipt lines are packing references, not
+          // individually verified farmer-packed orders. Allocate actual quantities
+          // in Order Packing before selecting the downstream fulfillment route.
+          const farmContinueHref = packedFarmerGroup
             ? "/warehouse/farmer-fulfillment"
-            : "/warehouse/multi-warehouse-consolidation";
-          const farmContinueLabel = (packedFarmerGroup || eventFulfillmentGroup)
+            : eventFulfillmentGroup
+              ? "/packing?farm=" + encodeURIComponent(String(farmKey))
+              : "/warehouse/multi-warehouse-consolidation";
+          const farmContinueLabel = packedFarmerGroup
             ? "Farmer Fulfillment Transfers"
-            : "Multi-Warehouse Consolidation";
+            : eventFulfillmentGroup
+              ? "Order Packing"
+              : "Multi-Warehouse Consolidation";
           const confirmAllPackets = async () => {
             const receiptDescription = eventFulfillmentGroup
               ? `Confirm receipt of ${eligibleToReceive.length} event product lines from ${farmItems[0].displayFarmName}? Verify each product and its received quantity against the bulk/event order. Items not physically arrived remain pending.`
@@ -850,7 +862,7 @@ export default function WarehouseIncomingPage() {
             ? (requiresConsolidation ? "/warehouse/multi-warehouse-consolidation" : "/warehouse/farmer-fulfillment")
             : "/stock";
           return (
-            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><div><p className="font-semibold">{productName}</p><p className="mt-1 text-sm text-muted-foreground">Order: {item.displayOrderNumber || "Order reference unavailable"}</p></div><Badge variant="outline" className={cn("border", statusColors[item.status as keyof typeof statusColors])}>{statusLabels[item.status as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From farm: {item.displayFarmName || "Farm details unavailable"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); }}><Clock className="mr-2 h-4 w-4" />Track</Button>}{canReceiveStock && (isPackedFarmerTransfer ? <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Order</Button> : <Badge variant="outline">Use Receive All Stock</Badge>)}{receiptComplete && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowReceiptDialog(true); }}><Package className="mr-2 h-4 w-4" />View / Reprint Receipt</Button>}
+            <Card key={item.id}><CardContent className="p-6"><div className="flex flex-wrap items-start justify-between gap-4"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-3"><div><p className="font-semibold">{productName}</p><p className="mt-1 text-sm text-muted-foreground">Order: {item.displayOrderNumber || "Order reference unavailable"}</p></div><Badge variant="outline" className={cn("border", statusColors[(isBulkLotReceived(item) && ["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status || "").toLowerCase()) ? "received" : item.status) as keyof typeof statusColors])}>{statusLabels[(isBulkLotReceived(item) && ["scheduled", "in_transit", "ready_for_pickup"].includes(String(item.status || "").toLowerCase()) ? "received" : item.status) as keyof typeof statusLabels] || item.status}</Badge>{item.qualityCheck === "passed" && <Badge variant="success">Passed QC</Badge>}{item.qualityCheck === "failed" && <Badge variant="destructive">Failed QC</Badge>}</div><div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-muted-foreground"><span>From farm: {item.displayFarmName || "Farm details unavailable"}</span><span>Quantity: <span className="font-medium text-foreground">{item.quantity}</span></span><span className="flex items-center gap-1"><Calendar className="h-3 w-3" />Expected: {formatDate(item.expectedDate)}</span></div>{item.batchNumber && <p className="mt-1 text-sm text-muted-foreground">Batch: {item.batchNumber}</p>}{item.qualityNotes && <p className="mt-1 text-sm text-yellow-600">{item.qualityNotes}</p>}</div><div className="flex items-center gap-2">{item.status === "scheduled" && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowTrackDialog(true); }}><Clock className="mr-2 h-4 w-4" />Track</Button>}{canReceiveStock && (isPackedFarmerTransfer ? <Button size="sm" onClick={() => openReceiveDialog(item)}><CheckCircle className="mr-2 h-4 w-4" />Receive Order</Button> : <Badge variant="outline">Use Receive All Stock</Badge>)}{receiptComplete && <Button size="sm" variant="outline" onClick={() => { setSelectedIncoming(item); setShowReceiptDialog(true); }}><Package className="mr-2 h-4 w-4" />View / Reprint Receipt</Button>}
                       {isPackedFarmerTransfer && !hasPhysicallyArrived && <Badge variant="outline" className="border-amber-300 text-amber-700">Awaiting Farm Pickup / Arrival</Badge>}
                       {isPackedFarmerTransfer && (item.status === "received" || item.status === "stored") && <Button size="sm" onClick={() => { window.location.href = nextPage; }}><ArrowRight className="mr-2 h-4 w-4" />{requiresConsolidation ? "Continue to Consolidation" : "Continue to Farmer Fulfillment Transfers"}</Button>}{!isPackedFarmerTransfer && receiptComplete && String(item.qualityCheck || item.quality_check || "").toLowerCase() === "failed" && <Badge variant="destructive">Rejected · contact farm</Badge>}{!isPackedFarmerTransfer && receiptComplete && !isReceiptQualityPassed(item) && String(item.qualityCheck || item.quality_check || "").toLowerCase() !== "failed" && <Badge variant="outline">On hold · resolve receipt discrepancy</Badge>}{!isPackedFarmerTransfer && receiptComplete && isReceiptQualityPassed(item) && item.orderId && <Button size="sm" onClick={() => { window.location.href = "/packing?orderId=" + encodeURIComponent(String(item.orderId)); }}><ArrowRight className="mr-2 h-4 w-4" />Continue to Order Packing</Button>}{!isPackedFarmerTransfer && item.status === "stored" && !item.orderId && <Button size="sm" variant="outline" onClick={() => { window.location.href = "/stock"; }}><Warehouse className="mr-2 h-4 w-4" />View Inventory</Button>}{item.status === "quality_check" && <div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => openQualityDialog(item)}><XCircle className="mr-2 h-4 w-4" />Inspect</Button></div>}<div className="relative">
                         <Button type="button" variant="ghost" size="icon" aria-label={`Actions for ${productName}`} aria-expanded={openMenuId === item.id} onClick={() => setOpenMenuId((current) => current === item.id ? null : item.id)}><MoreVertical className="h-4 w-4" /></Button>
