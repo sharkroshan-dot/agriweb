@@ -1467,6 +1467,10 @@ async def get_farmer_fulfillment_transfers(
                 # Incoming Stock may classify a row as farmer-packed from its
                 # fulfillmentMethod even when older records lack sourceMode or pickupRouteId.
                 {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}, "orderId": {"$exists": True, "$nin": [None, ""]}},
+                # Receipt completion can leave legacy rows without transfer metadata.
+                # Include linked, physically received rows; the parent order's
+                # fulfillment method below decides whether they belong here.
+                {"orderId": {"$exists": True, "$nin": [None, ""]}, "status": {"$in": ["received", "quality_check", "stored"]}},
             ]},
         ],
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
