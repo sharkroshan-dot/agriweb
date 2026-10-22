@@ -406,6 +406,16 @@ async def get_my_collections(
                 "eventFulfillmentId": {"$in": [portion_id, str(portion_id)]},
                 "deletedAt": None,
             })
+            if not existing_event_job:
+                quantity = float(
+                    portion.get("allocatedQuantityKg")
+                    or portion.get("quantityKg")
+                    or portion.get("quantity")
+                    or 0
+                )
+                if quantity <= 0:
+                    logger.warning("Skipping event pickup %s because allocated quantity is not positive", portion_id)
+                    continue
                 await warehouse_collection_repository.create_job({
                     "warehouseId": warehouse["_id"],
                     "incomingStockId": None,
@@ -416,7 +426,7 @@ async def get_my_collections(
                     "productName": portion.get("productName") or portion.get("name") or "Event product",
                     "farmerId": farmer_id,
                     "productId": portion.get("productId") or portion.get("product_id"),
-                    "quantity": float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0),
+                    "quantity": quantity,
                     "collectionType": "event_fulfillment_transfer",
                     "sourceMode": "event_fulfillment_transfer",
                     "packingRequired": False,
