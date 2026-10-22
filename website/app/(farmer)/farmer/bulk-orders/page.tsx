@@ -453,7 +453,21 @@ export default function FarmerBulkOrdersPage() {
                         <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">Customer event order</Badge><p className="font-semibold">{order.number}</p></div>
                         <p className="mt-1 text-sm text-muted-foreground">{order.portions.length} product portion(s) · {order.portions.map((p: any) => `${p.productName || "Product"} ${p.allocatedQuantityKg} kg`).join(" • ")}</p>
                       </div>
-                      <Badge variant={order.status === "cancelled" ? "destructive" : order.status === "delivered" ? "success" : "secondary"}>{order.status === "delivered" ? "completed" : order.status}</Badge>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Badge variant={order.status === "cancelled" ? "destructive" : order.status === "delivered" ? "success" : "secondary"}>{order.status === "delivered" ? "completed" : order.status}</Badge>
+                        {(() => {
+                          const pending = order.portions.filter((p: any) => String(p.status || "pending_farmer_confirmation") === "pending_farmer_confirmation");
+                          const accepted = order.portions.filter((p: any) => String(p.status) === "accepted");
+                          const ids = pending.length ? pending.map((p: any) => p.id) : accepted.map((p: any) => p.id);
+                          const status = pending.length ? "accepted" : accepted.length ? "ready_for_collection" : null;
+                          const label = pending.length
+                            ? (pending.length === order.portions.length ? "Confirm Order" : "Confirm Remaining Products")
+                            : accepted.length ? "Ready for Pickup" : null;
+                          return status ? (
+                            <Button size="sm" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ ids, status })}>{label}</Button>
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
                     <div className="space-y-2">
                       {order.portions.map((portion: any) => {
@@ -469,7 +483,7 @@ export default function FarmerBulkOrdersPage() {
                         </div>;
                       })}
                     </div>
-                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3"><div><p className="font-medium">Customer order actions</p><p className="text-xs text-slate-500">Apply one action to all eligible products.</p></div>{(() => { const pending=order.portions.filter((p:any)=>String(p.status||"pending_farmer_confirmation")==="pending_farmer_confirmation"); const accepted=order.portions.filter((p:any)=>String(p.status)==="accepted"); const ids=pending.length?pending.map((p:any)=>p.id):accepted.map((p:any)=>p.id); const status=pending.length?"accepted":accepted.length?"ready_for_collection":null; const label=pending.length?(pending.length===order.portions.length?"Confirm Order":"Confirm Remaining Products"):accepted.length?"Ready for Pickup (All Eligible Products)":null; return status?<Button disabled={updateEventFulfillment.isPending} onClick={()=>updateEventFulfillment.mutate({ids,status})}>{label}</Button>:<Badge variant="success">No farmer action pending</Badge>; })()}</div>
+
                   </CardContent>
                 </Card>
               ))}
