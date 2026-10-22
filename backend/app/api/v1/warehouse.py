@@ -356,6 +356,29 @@ async def get_my_collections(
                 "_id": {"$in": request_refs},
                 "deletedAt": None,
             })
+
+        # Use the canonical bulk-event handoff helper for legacy ready portions
+        # that have no incoming_stock row. This helper creates the incoming row
+        # and the matching warehouse_collections job idempotently. The fallback
+        # reconciliation below remains for legacy records the helper cannot resolve.
+        if event_request:
+            try:
+                from app.api.v1.bulk_orders import _ensure_event_warehouse_inbound
+                canonical_incoming = await _ensure_event_warehouse_inbound(event_request, portion)
+                if canonical_incoming:
+                    logger.info(
+                        "Farm Collection reconciled event handoff via canonical helper: fulfillment=%s incoming=%s warehouse=%s",
+                        portion_id,
+                        canonical_incoming.get("_id"),
+                        canonical_incoming.get("warehouseId"),
+                    )
+                    continue
+            except Exception:
+                logger.exception(
+                    "Canonical event pickup reconciliation failed for fulfillment %s; trying legacy fallback",
+                    portion_id,
+                )
+
         # Do not silently drop a ready portion just because older event records
         # stored the request reference in a different field/type. Its explicit
         # warehouse assignment is still authoritative when present.
