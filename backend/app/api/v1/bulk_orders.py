@@ -1665,75 +1665,127 @@ async def _create_event_delivery_job(request: dict, fulfillments: list) -> Optio
 
 
 async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> Optional[dict]:
-    """Create one packed farm -> warehouse incoming shipment and collection job for a ready fulfillment."""
+    """Idempotently hand a farmer-ready event portion to the source warehouse pickup queue."""
     if str(fulfillment.get("status")) != "ready_for_collection" or not request:
         return None
-    existing = await incoming_stock_repository.find_one({"eventFulfillmentId": fulfillment["_id"], "deletedAt": None})
+
+    fulfillment_id = fulfillment.get("_id")
+    if not fulfillment_id:
+        return None
+    fulfillment_refs = [fulfillment_id, str(fulfillment_id)]
+    existing = await incoming_stock_repository.find_one({
+        "eventFulfillmentId": {"$in": fulfillment_refs},
+        "deletedAt": None,
+    })
     if existing:
-        ready_at = existing.get("readyForPickupAt") or datetime.utcnow()
-        await incoming_stock_repository.update({"_id": existing["_id"]}, {
+        # Repair the handoff record so the collection page has the exact order
+        # reference, source warehouse, farmer, product, quantity and readiness.
+        warehouse_id = (
+            fulfillment.get("sourceWarehouseId")
+            or existing.get("warehouseId")
+            or fulfillment.get("warehouseId")
+            or request.get("sourceWarehouseId")
+            or request.get("eventWarehouseId")
+        )
+        if not warehouse_id:
+            resolved_warehouse = await _find_event_consolidation_warehouse(request)
+            warehouse_id = (resolved_warehouse or {}).get("_id")
+        if not warehouse_id:
+            logger.error("Ready event fulfillment %s has no source warehouse; no collection job can be assigned", fulfillment_id)
+            return existing
+        ready_at = existing.get("readyForPickupAt") or fulfillment.get("updatedAt") or datetime.utcnow()
+        repair = {
+            "warehouseId": ObjectId(str(warehouse_id)) if ObjectId.is_valid(str(warehouse_id)) else warehouse_id,
+            "farmerId": fulfillment.get("farmerId") or existing.get("farmerId"),
+            "productId": fulfillment.get("productId") or existing.get("productId"),
+            "quantity": float(fulfillment.get("allocatedQuantityKg") or existing.get("quantity") or 0),
+            "sourceMode": "event_fulfillment_transfer",
+            "collectionType": "event_fulfillment_transfer",
+            "eventRequestId": request.get("_id"),
+            "eventFulfillmentId": fulfillment_id,
+            "eventOrderNumber": request.get("requestNumber") or request.get("orderNumber"),
+            "eventProductName": fulfillment.get("productName") or existing.get("eventProductName"),
+            "packingRequired": False,
+            "packingVerified": True,
             "readyForPickup": True,
             "readyForPickupAt": ready_at,
-        })
-        existing["readyForPickup"] = True
-        existing["readyForPickupAt"] = ready_at
-        await ensure_collection_job(existing, "event_fulfillment_transfer", "event_fulfillment_transfer")
-        return existing
-    warehouse_id = fulfillment.get("sourceWarehouseId") or fulfillment.get("warehouseId") or request.get("eventWarehouseId")
+            "updatedAt": datetime.utcnow(),
+        }
+        await incoming_stock_repository.update({"_id": existing["_id"]}, repair)
+        repaired = await incoming_stock_repository.get_by_id(str(existing["_id"])) or {**existing, **repair}
+        await ensure_collection_job(repaired, "event_fulfillment_transfer", "event_fulfillment_transfer")
+        logger.info("Reconciled event pickup handoff: request=%s fulfillment=%s incoming=%s warehouse=%s", request.get("_id"), fulfillment_id, existing.get("_id"), warehouse_id)
+        return repaired
+
+    warehouse_id = (
+        fulfillment.get("sourceWarehouseId")
+        or fulfillment.get("warehouseId")
+        or request.get("sourceWarehouseId")
+        or request.get("eventWarehouseId")
+        or request.get("destinationWarehouseId")
+    )
+    resolved_warehouse = None
     if not warehouse_id:
-        # Urgent event sourcing can create fulfillment portions without a
-        # warehouse pre-assigned. Resolve the destination/consolidation
-        # warehouse now so Ready for Pickup produces a real Farm Collection job.
         resolved_warehouse = await _find_event_consolidation_warehouse(request)
-        if not resolved_warehouse or not resolved_warehouse.get("_id"):
-            logger.warning(
-                "Event fulfillment %s is ready for pickup but no active destination warehouse could be resolved",
-                fulfillment.get("_id"),
-            )
-            return None
-        warehouse_id = resolved_warehouse["_id"]
-        await request_repo.update({"_id": request["_id"]}, {
-            "eventWarehouseId": ObjectId(str(warehouse_id)),
-            "eventWarehouseName": resolved_warehouse.get("name") or resolved_warehouse.get("warehouseName"),
-            "updatedAt": datetime.utcnow(),
-        })
-        await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
-            "warehouseId": ObjectId(str(warehouse_id)),
-            "eventWarehouseId": ObjectId(str(warehouse_id)),
-            "updatedAt": datetime.utcnow(),
-        })
-        fulfillment["warehouseId"] = ObjectId(str(warehouse_id))
-        fulfillment["eventWarehouseId"] = ObjectId(str(warehouse_id))
-    farmer = await farmer_repository.find_one({"userId": ObjectId(str(fulfillment["farmerId"]))})
-    farm_location = (farmer or {}).get("farmLocation") or (farmer or {}).get("location") or {}
+        warehouse_id = (resolved_warehouse or {}).get("_id")
+    if not warehouse_id:
+        logger.error(
+            "Event fulfillment %s is ready for pickup but request %s has no resolvable source/consolidation warehouse",
+            fulfillment_id, request.get("_id"),
+        )
+        return None
+
+    warehouse_ref = ObjectId(str(warehouse_id)) if ObjectId.is_valid(str(warehouse_id)) else warehouse_id
+    farmer_id = fulfillment.get("farmerId")
+    farmer = None
+    if farmer_id:
+        farmer_text = str(farmer_id)
+        farmer = await farmer_repository.find_one({"userId": ObjectId(farmer_text)}) if ObjectId.is_valid(farmer_text) else None
+        if not farmer:
+            farmer = await farmer_repository.find_one({"userId": farmer_id})
+    farm_location = (
+        (farmer or {}).get("farmLocation")
+        or (farmer or {}).get("farmAddress")
+        or (farmer or {}).get("location")
+        or (farmer or {}).get("address")
+        or fulfillment.get("pickupLocation")
+        or {}
+    )
     incoming_id = await incoming_stock_repository.create_incoming({
-        "warehouseId": ObjectId(str(warehouse_id)),
-        "productId": fulfillment["productId"],
-        "farmerId": fulfillment["farmerId"],
+        "warehouseId": warehouse_ref,
+        "productId": fulfillment.get("productId"),
+        "farmerId": farmer_id,
         "quantity": float(fulfillment.get("allocatedQuantityKg") or 0),
         "expectedDate": datetime.utcnow(),
         "batchNumber": fulfillment.get("batchNumber"),
         "qualityGrade": fulfillment.get("qualityGrade"),
         "storageType": fulfillment.get("storageType") or "ambient",
         "sourceMode": "event_fulfillment_transfer",
-        "eventRequestId": request["_id"],
-        "eventFulfillmentId": fulfillment["_id"],
+        "collectionType": "event_fulfillment_transfer",
+        "eventRequestId": request.get("_id"),
+        "eventFulfillmentId": fulfillment_id,
         "eventOrderNumber": request.get("requestNumber") or request.get("orderNumber"),
         "packingRequired": False,
         "packingVerified": True,
         "readyForPickup": True,
-        "readyForPickupAt": datetime.utcnow(),
+        "readyForPickupAt": fulfillment.get("updatedAt") or datetime.utcnow(),
         "pickupLocation": farm_location,
         "farmLocation": farm_location,
         "eventProductName": fulfillment.get("productName"),
     })
     if not incoming_id:
+        logger.error("Could not create incoming stock for ready event fulfillment %s", fulfillment_id)
         return None
-    incoming = await incoming_stock_repository.get_by_id(incoming_id)
+    incoming = await incoming_stock_repository.get_by_id(str(incoming_id))
     if not incoming:
+        logger.error("Incoming stock %s was created but could not be reloaded for event fulfillment %s", incoming_id, fulfillment_id)
         return None
-    await ensure_collection_job(incoming, "event_fulfillment_transfer", "event_fulfillment_transfer")
-    return await incoming_stock_repository.get_by_id(incoming_id) or incoming
+    job = await ensure_collection_job(incoming, "event_fulfillment_transfer", "event_fulfillment_transfer")
+    logger.info(
+        "Created event farm-collection handoff: request=%s fulfillment=%s incoming=%s collectionJob=%s warehouse=%s",
+        request.get("_id"), fulfillment_id, incoming_id, (job or {}).get("_id"), warehouse_id,
+    )
+    return incoming
 
 
 async def _finalize_event_after_warehouse_storage(request_id: str) -> Optional[str]:
