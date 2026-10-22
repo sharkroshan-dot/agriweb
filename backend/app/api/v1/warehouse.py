@@ -2300,17 +2300,15 @@ async def get_farmer_fulfillment_transfers(
     # Keep one parent card per original event request and include all portions.
     event_requests_collection = MongoDB.get_collection("bulk_requests")
     event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
+    # Do not rely only on parent warehouse fields: many legacy event requests
+    # keep warehouse assignments exclusively on event_fulfillments portions.
+    # Fetch active event requests, then determine this warehouse's role from
+    # each request's portions below.
     event_requests = await event_requests_collection.find({
-        "deletedAt": None,
-        "$or": [
-            {"eventWarehouseId": {"$in": warehouse_refs}},
-            {"warehouseId": {"$in": warehouse_refs}},
-            {"eventSourceWarehouseIds": {"$in": warehouse_refs}},
-            {"eventDestinationWarehouseId": {"$in": warehouse_refs}},
-        ],
+        "deletedAt": {"$in": [None, False, ""]},
         "status": {"$nin": ["cancelled", "rejected"]},
         "eventSourcingStatus": {"$nin": ["cancelled", "rejected"]},
-    }).sort("updatedAt", -1).limit(200).to_list(length=200)
+    }).sort("updatedAt", -1).limit(500).to_list(length=500)
     for event_request in event_requests:
         request_id = event_request.get("_id")
         if not request_id:
@@ -2336,10 +2334,10 @@ async def get_farmer_fulfillment_transfers(
         ]
         if not relevant_portions:
             continue
+        # Receipt rows may be stored against the source warehouse or the
+        # receiving/destination warehouse, so look up by event request first.
         incoming_rows = await incoming_stock_repository.find_many({
             "eventRequestId": {"$in": [request_id, request_id_text]},
-            "warehouseId": {"$in": warehouse_refs},
-            "deletedAt": None,
         }, skip=0, limit=1000)
         incoming_by_fulfillment = {
             str(row.get("eventFulfillmentId")): row
