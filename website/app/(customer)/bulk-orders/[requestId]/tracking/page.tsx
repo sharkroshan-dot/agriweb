@@ -113,8 +113,6 @@ export default function BulkOrderTrackingPage() {
     }
   };
 
-  const changeCodToOnline = Boolean(request?.paymentMethod === "cod" || request?.paymentMethod === "cash_on_delivery") &&
-    String(request?.paymentStatus || "").toLowerCase() === "cod_pending";
   const { data, isLoading, error } = useQuery({
     queryKey: ["bulk", "tracking", requestId],
     queryFn: () => api.get(`/bulk-orders/event-orders/${requestId}/tracking`),
@@ -127,6 +125,8 @@ export default function BulkOrderTrackingPage() {
 
   const tracking = data.data;
   const request = tracking.request;
+  const changeCodToOnline = Boolean(request?.paymentMethod === "cod" || request?.paymentMethod === "cash_on_delivery") &&
+    String(request?.paymentStatus || "").toLowerCase() === "cod_pending";
   const current = tracking.currentStage === "cancelled" ? -1 : stageIndex(tracking.currentStage);
   const isWeekly = tracking.purchaseMode === "family_weekly";
   const fulfillments = tracking.fulfillments || [];
