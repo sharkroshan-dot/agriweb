@@ -61,6 +61,7 @@ from app.services.bulk_order_service import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+event_payment_fulfillment_repo = BaseRepository("event_fulfillments")
 
 
 # ================== SCHEMAS ==================
@@ -1803,7 +1804,7 @@ async def _finalize_event_after_warehouse_storage(request_id: str) -> Optional[s
     request = await request_repo.find_one({"_id": ObjectId(str(request_id)), "deletedAt": None})
     if not request:
         return None
-    fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    fulfillments = await event_payment_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
     if not fulfillments or any(str(f.get("status")) != "stored" for f in fulfillments):
         return None
     return await _create_event_delivery_job(request, fulfillments)
