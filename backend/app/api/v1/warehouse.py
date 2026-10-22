@@ -255,9 +255,21 @@ async def get_my_collections(
                 portion.get("sourceWarehouseId")
                 or portion.get("warehouseId")
                 or portion.get("eventWarehouseId")
+                or portion.get("destinationWarehouseId")
                 or (event_request or {}).get("eventWarehouseId")
-                or warehouse["_id"]
+                or (event_request or {}).get("destinationWarehouseId")
+                or (event_request or {}).get("warehouseId")
             )
+            if not assigned_warehouse and event_request:
+                resolved = await _find_event_consolidation_warehouse(event_request)
+                if resolved and resolved.get("_id"):
+                    assigned_warehouse = resolved["_id"]
+                    await event_requests_collection.update_one(
+                        {"_id": event_request["_id"]},
+                        {"$set": {"eventWarehouseId": ObjectId(str(assigned_warehouse)), "updatedAt": datetime.utcnow()}},
+                    )
+            if not assigned_warehouse:
+                assigned_warehouse = warehouse["_id"]
             if str(assigned_warehouse) != warehouse_id:
                 continue
             farmer_id = portion.get("farmerId") or portion.get("farmerUserId") or existing_incoming.get("farmerId")
@@ -327,13 +339,28 @@ async def get_my_collections(
             portion.get("sourceWarehouseId")
             or portion.get("warehouseId")
             or portion.get("eventWarehouseId")
+            or portion.get("destinationWarehouseId")
             or (event_request or {}).get("eventWarehouseId")
+            or (event_request or {}).get("destinationWarehouseId")
+            or (event_request or {}).get("warehouseId")
         )
-        if assigned_warehouse and str(assigned_warehouse) != warehouse_id:
-            logger.info(
-                "Skipping event portion %s for warehouse %s: assigned warehouse is %s",
-                portion_id, warehouse_id, assigned_warehouse,
-            )
+        if not assigned_warehouse and event_request:
+            resolved = await _find_event_consolidation_warehouse(event_request)
+            if resolved and resolved.get("_id"):
+                assigned_warehouse = resolved["_id"]
+                await event_requests_collection.update_one(
+                    {"_id": event_request["_id"]},
+                    {"$set": {"eventWarehouseId": ObjectId(str(assigned_warehouse)), "updatedAt": datetime.utcnow()}},
+                )
+                await event_fulfillments_collection.update_one(
+                    {"_id": portion_id},
+                    {"$set": {"warehouseId": ObjectId(str(assigned_warehouse)), "eventWarehouseId": ObjectId(str(assigned_warehouse)), "updatedAt": datetime.utcnow()}},
+                )
+        if not assigned_warehouse:
+            logger.warning("Ready event portion %s has no resolvable warehouse; cannot create pickup job", portion_id)
+            continue
+        if str(assigned_warehouse) != warehouse_id:
+            logger.info("Skipping event portion %s for warehouse %s: assigned warehouse is %s", portion_id, warehouse_id, assigned_warehouse)
             continue
         farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
         if not farmer_id:
