@@ -1464,6 +1464,9 @@ async def get_farmer_fulfillment_transfers(
                 {"fulfillmentType": {"$regex": "^farmer_fulfillment$", "$options": "i"}},
                 {"shipmentType": {"$regex": "^farmer_fulfillment$", "$options": "i"}},
                 {"collectionId": {"$exists": True, "$nin": [None, ""]}},
+                # Incoming Stock may classify a row as farmer-packed from its
+                # fulfillmentMethod even when older records lack sourceMode or pickupRouteId.
+                {"fulfillmentMethod": {"$regex": "^(farmer|farm_direct)$", "$options": "i"}, "orderId": {"$exists": True, "$nin": [None, ""]}},
             ]},
         ],
     }, skip=0, limit=2000, sort=[("createdAt", -1)])
@@ -1495,6 +1498,7 @@ async def get_farmer_fulfillment_transfers(
             or str(incoming_row.get("collectionType") or "").strip().lower() == "packed_orders_transfer"
             or str(incoming_row.get("fulfillmentType") or "").strip().lower() == "farmer_fulfillment"
             or str(incoming_row.get("shipmentType") or "").strip().lower() == "farmer_fulfillment"
+            or str(incoming_row.get("fulfillmentMethod") or "").strip().lower() in ("farmer", "farm_direct")
             # Match Incoming Stock's packed-order detection for legacy rows.
             or bool(incoming_row.get("orderId") and incoming_row.get("pickupRouteId"))
         )
