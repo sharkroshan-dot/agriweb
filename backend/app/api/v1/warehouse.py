@@ -214,30 +214,17 @@ async def get_my_collections(
     # status update was interrupted. Reconcile them on page load, idempotently.
     event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
     event_requests_collection = MongoDB.get_collection("bulk_requests")
+    # Do not filter by warehouseId here: legacy event portions often keep
+    # the warehouse only on their parent bulk request.
     ready_event_portions = await event_fulfillments_collection.find({
         "deletedAt": None,
-        "$and": [
-            {
-                "$or": [
-                    {"status": {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"}},
-                    {"readyForPickup": True},
-                    {"pickupStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
-                    {"farmerStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
-                ]
-            },
-            {
-                "$or": [
-                    {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
-                    {"eventWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
-                    {"destinationWarehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
-                    {"warehouseId": {"$exists": False}},
-                    {"warehouseId": None},
-                    {"eventWarehouseId": {"$exists": False}},
-                    {"eventWarehouseId": None},
-                ]
-            },
+        "$or": [
+            {"status": {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"}},
+            {"readyForPickup": True},
+            {"pickupStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
+            {"farmerStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
         ],
-    }).to_list(length=1000)
+    }).to_list(length=2000)
     logger.info(
         "Farm Collection event reconciliation: warehouse=%s ready_event_portions=%s",
         warehouse_id,
