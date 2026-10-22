@@ -219,15 +219,38 @@ async def get_my_collections(
     ready_status = {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"}
     # Search canonical and legacy readiness fields. Some existing event portions
     # expose readiness through collectionStatus while top-level status is stale.
-    ready_event_portions = await event_fulfillments_collection.find({
-        "deletedAt": None,
+    # Legacy/event records are inconsistent: some omit deletedAt, and some
+    # have a stale top-level status while collectionStatus/farmerStatus is ready.
+    # Query readiness without requiring deletedAt to exist, then reject only
+    # explicitly deleted records and normalize status values in Python.
+    ready_event_candidates = await event_fulfillments_collection.find({
         "$or": [
             {"status": ready_status},
             {"collectionStatus": ready_status},
             {"farmerStatus": ready_status},
             {"fulfillmentStatus": ready_status},
+            {"status": {"$in": ["ready_for_collection", "ready_for_pickup", "ready for collection", "ready for pickup"]}},
+            {"collectionStatus": {"$in": ["ready_for_collection", "ready_for_pickup", "ready for collection", "ready for pickup"]}},
+            {"farmerStatus": {"$in": ["ready_for_collection", "ready_for_pickup", "ready for collection", "ready for pickup"]}},
+            {"fulfillmentStatus": {"$in": ["ready_for_collection", "ready_for_pickup", "ready for collection", "ready for pickup"]}},
         ],
-    }).to_list(length=1000)
+    }).to_list(length=2000)
+    ready_event_portions = []
+    for candidate in ready_event_candidates:
+        if candidate.get("deletedAt") not in (None, False, ""):
+            continue
+        readiness_values = [
+            candidate.get("status"),
+            candidate.get("collectionStatus"),
+            candidate.get("farmerStatus"),
+            candidate.get("fulfillmentStatus"),
+        ]
+        normalized_values = {
+            str(value or "").strip().lower().replace(" ", "_")
+            for value in readiness_values
+        }
+        if normalized_values.intersection({"ready_for_collection", "ready_for_pickup"}):
+            ready_event_portions.append(candidate)
     logger.info(
         "Farm Collection event reconciliation: warehouse=%s ready_event_portions=%s",
         warehouse_id,
