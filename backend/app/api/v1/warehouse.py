@@ -286,20 +286,31 @@ async def get_my_collections(
                 or (event_request or {}).get("destinationWarehouseId")
                 or (event_request or {}).get("warehouseId")
             )
-            if not assigned_warehouse and event_request:
-                resolved = await _find_event_consolidation_warehouse(event_request)
-                if resolved and resolved.get("_id"):
-                    assigned_warehouse = resolved["_id"]
-                    await event_requests_collection.update_one(
-                        {"_id": event_request["_id"]},
-                        {"$set": {"eventWarehouseId": ObjectId(str(assigned_warehouse)), "updatedAt": datetime.utcnow()}},
-                    )
-            if not assigned_warehouse:
+            # Farm pickup routing must be based on the farm's district, not
+            # the destination/consolidation warehouse saved on older event rows.
+            farmer_id = portion.get("farmerId") or portion.get("farmerUserId") or existing_incoming.get("farmerId")
+            farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id)) if farmer_id else None
+            if not farmer_profile and farmer_id and ObjectId.is_valid(str(farmer_id)):
+                farmer_profile = await farmer_repository.get_by_id(str(farmer_id))
+            farm_location = (
+                (farmer_profile or {}).get("farmLocation")
+                or (farmer_profile or {}).get("farmAddress")
+                or (farmer_profile or {}).get("location")
+                or (farmer_profile or {}).get("address")
+                or portion.get("pickupLocation")
+                or existing_incoming.get("pickupLocation")
+                or {}
+            )
+            coverage_districts = warehouse_collection_districts(warehouse)
+            farm_district = farmer_collection_district(farmer_profile or {}, farm_location, coverage_districts)
+            if coverage_districts and farm_district in coverage_districts:
+                assigned_warehouse = warehouse["_id"]
+            elif not assigned_warehouse:
                 assigned_warehouse = warehouse["_id"]
             if str(assigned_warehouse) != warehouse_id:
                 explicit_source = portion.get("sourceWarehouseId") or existing_incoming.get("sourceWarehouseId")
                 if explicit_source and str(explicit_source) != warehouse_id:
-                    logger.info("Event pickup %s belongs to source warehouse %s, not active warehouse %s", portion_id, explicit_source, warehouse_id)
+                    logger.info("Event pickup %s farm district %s is outside active warehouse coverage; source warehouse is %s", portion_id, farm_district, explicit_source, warehouse_id)
                     continue
                 # Legacy records often put the destination/consolidation warehouse
                 # in warehouseId. If there is no explicit source assignment, bind
