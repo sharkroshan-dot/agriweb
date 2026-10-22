@@ -216,15 +216,18 @@ async def get_my_collections(
     event_requests_collection = MongoDB.get_collection("bulk_requests")
     # Do not filter by warehouseId here: legacy event portions often keep
     # the warehouse only on their parent bulk request.
+    ready_status = {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"}
+    # Search canonical and legacy readiness fields. Some existing event portions
+    # expose readiness through collectionStatus while top-level status is stale.
     ready_event_portions = await event_fulfillments_collection.find({
         "deletedAt": None,
         "$or": [
-            {"status": {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"}},
-            {"readyForPickup": True},
-            {"pickupStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
-            {"farmerStatus": {"$regex": r"^(ready_for_pickup|ready for pickup|ready_for_collection|ready for collection)$", "$options": "i"}},
+            {"status": ready_status},
+            {"collectionStatus": ready_status},
+            {"farmerStatus": ready_status},
+            {"fulfillmentStatus": ready_status},
         ],
-    }).to_list(length=2000)
+    }).to_list(length=1000)
     logger.info(
         "Farm Collection event reconciliation: warehouse=%s ready_event_portions=%s",
         warehouse_id,
