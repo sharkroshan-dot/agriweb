@@ -795,19 +795,17 @@ export default function WarehouseIncomingPage() {
           // the transfer backend decides whether it needs nearby delivery, a local hub,
           // or an inter-district warehouse. Multi-Warehouse Consolidation is reached
           // only from its dedicated bulk/multi-source workflow.
-          // Bulk/event product receipt lines are packing references, not
-          // individually verified farmer-packed orders. Allocate actual quantities
-          // in Order Packing before selecting the downstream fulfillment route.
+          // Event fulfillment rows are receipt/fulfillment portions, not standard
+          // customer-order packing tasks. The packing queue is backed by ordinary
+          // warehouse order documents, so sending event rows there produces an
+          // empty task list. Continue event receipts into the event consolidation
+          // workflow; only farmer-packed ordinary orders go to transfer routing.
           const farmContinueHref = packedFarmerGroup
             ? "/warehouse/farmer-fulfillment"
-            : eventFulfillmentGroup
-              ? "/packing?farm=" + encodeURIComponent(String(farmKey))
-              : "/warehouse/multi-warehouse-consolidation";
+            : "/warehouse/multi-warehouse-consolidation";
           const farmContinueLabel = packedFarmerGroup
             ? "Farmer Fulfillment Transfers"
-            : eventFulfillmentGroup
-              ? "Order Packing"
-              : "Multi-Warehouse Consolidation";
+            : "Multi-Warehouse Consolidation";
           const confirmAllPackets = async () => {
             const receiptDescription = eventFulfillmentGroup
               ? `Confirm receipt of ${eligibleToReceive.length} event product lines from ${farmItems[0].displayFarmName}? Verify each product and its received quantity against the bulk/event order. Items not physically arrived remain pending.`
