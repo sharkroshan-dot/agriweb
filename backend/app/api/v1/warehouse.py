@@ -241,11 +241,75 @@ async def get_my_collections(
             "deletedAt": None,
         })
         if existing_incoming:
-            await ensure_collection_job(
-                existing_incoming,
-                "event_fulfillment_transfer",
-                "event_fulfillment_transfer",
+            # Repair stale event-to-incoming handoffs in place. Older versions
+            # could create a generic incoming row without the customer event
+            # number, current farmer/product fields, or the ready flag. Do not
+            # create a second incoming row for the same event portion.
+            request_id = portion.get("requestId") or portion.get("eventRequestId") or portion.get("bulkRequestId")
+            request_refs = [request_id] if request_id else []
+            if request_id and ObjectId.is_valid(str(request_id)):
+                request_refs.append(ObjectId(str(request_id)))
+            event_request = await event_requests_collection.find_one({
+                "_id": {"$in": request_refs},
+                "deletedAt": None,
+            }) if request_refs else None
+            assigned_warehouse = (
+                portion.get("sourceWarehouseId")
+                or portion.get("warehouseId")
+                or portion.get("eventWarehouseId")
+                or (event_request or {}).get("eventWarehouseId")
+                or warehouse["_id"]
             )
+            if str(assigned_warehouse) != warehouse_id:
+                continue
+            farmer_id = portion.get("farmerId") or portion.get("farmerUserId") or existing_incoming.get("farmerId")
+            farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id)) if farmer_id else None
+            if not farmer_profile and farmer_id and ObjectId.is_valid(str(farmer_id)):
+                farmer_profile = await farmer_repository.get_by_id(str(farmer_id))
+            farm_location = (
+                (farmer_profile or {}).get("farmLocation")
+                or (farmer_profile or {}).get("farmAddress")
+                or (farmer_profile or {}).get("location")
+                or (farmer_profile or {}).get("address")
+                or portion.get("pickupLocation")
+                or existing_incoming.get("pickupLocation")
+                or {}
+            )
+            product_id = portion.get("productId") or portion.get("product_id") or existing_incoming.get("productId")
+            quantity = float(
+                portion.get("allocatedQuantityKg")
+                or portion.get("quantityKg")
+                or portion.get("quantity")
+                or existing_incoming.get("quantity")
+                or 0
+            )
+            repair_fields = {
+                "warehouseId": warehouse["_id"],
+                "farmerId": farmer_id,
+                "productId": product_id,
+                "quantity": quantity,
+                "sourceMode": "event_fulfillment_transfer",
+                "collectionType": "event_fulfillment_transfer",
+                "eventRequestId": request_id,
+                "eventFulfillmentId": portion_id,
+                "eventOrderNumber": (event_request or {}).get("requestNumber") or (event_request or {}).get("orderNumber"),
+                "packingRequired": False,
+                "packingVerified": True,
+                "readyForPickup": True,
+                "readyForPickupAt": portion.get("updatedAt") or existing_incoming.get("readyForPickupAt") or datetime.utcnow(),
+                "pickupLocation": farm_location,
+                "farmLocation": farm_location,
+                "eventProductName": portion.get("productName") or portion.get("name") or existing_incoming.get("eventProductName"),
+                "updatedAt": datetime.utcnow(),
+            }
+            await incoming_stock_repository.update({"_id": existing_incoming["_id"]}, repair_fields)
+            repaired_incoming = await incoming_stock_repository.get_by_id(str(existing_incoming["_id"]))
+            if repaired_incoming:
+                await ensure_collection_job(
+                    repaired_incoming,
+                    "event_fulfillment_transfer",
+                    "event_fulfillment_transfer",
+                )
             continue
         request_id = portion.get("requestId") or portion.get("eventRequestId") or portion.get("bulkRequestId")
         event_request = None
