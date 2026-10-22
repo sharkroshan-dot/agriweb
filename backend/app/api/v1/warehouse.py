@@ -215,7 +215,9 @@ async def get_my_collections(
     event_fulfillments_collection = MongoDB.get_collection("event_fulfillments")
     event_requests_collection = MongoDB.get_collection("bulk_requests")
     ready_event_portions = await event_fulfillments_collection.find({
-        "status": "ready_for_collection",
+        # Older event workflows used both collection and pickup status names,
+        # and some records stored display labels with spaces.
+        "status": {"$regex": r"^(ready_for_collection|ready_for_pickup|ready for collection|ready for pickup)$", "$options": "i"},
         "deletedAt": None,
         "$or": [
             {"warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]}},
@@ -225,12 +227,17 @@ async def get_my_collections(
             {"warehouseId": None},
         ],
     }).to_list(length=1000)
+    logger.info(
+        "Farm Collection event reconciliation: warehouse=%s ready_event_portions=%s",
+        warehouse_id,
+        len(ready_event_portions),
+    )
     for portion in ready_event_portions:
         portion_id = portion.get("_id")
         if not portion_id:
             continue
         existing_incoming = await incoming_stock_repository.find_one({
-            "eventFulfillmentId": portion_id,
+            "eventFulfillmentId": {"$in": [portion_id, str(portion_id)]},
             "deletedAt": None,
         })
         if existing_incoming:
@@ -261,9 +268,14 @@ async def get_my_collections(
             or (event_request or {}).get("eventWarehouseId")
         )
         if assigned_warehouse and str(assigned_warehouse) != warehouse_id:
+            logger.info(
+                "Skipping event portion %s for warehouse %s: assigned warehouse is %s",
+                portion_id, warehouse_id, assigned_warehouse,
+            )
             continue
         farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
         if not farmer_id:
+            logger.warning("Skipping ready event portion %s: farmerId/farmerUserId is missing", portion_id)
             continue
         farmer_refs = [farmer_id]
         farmer_id_text = str(farmer_id)
@@ -288,7 +300,7 @@ async def get_my_collections(
             or 0
         )
         if quantity <= 0:
-            logger.warning("Skipping ready event portion %s: no positive allocated quantity", portion_id)
+            logger.warning("Skipping ready event portion %s: no positive allocated quantity (fields: allocatedQuantityKg/quantityKg/quantity)", portion_id)
             continue
         incoming_id = await incoming_stock_repository.create_incoming({
             "warehouseId": warehouse["_id"],
