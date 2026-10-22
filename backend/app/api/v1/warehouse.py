@@ -357,27 +357,69 @@ async def get_my_collections(
                 "deletedAt": None,
             })
 
-        # Use the canonical bulk-event handoff helper for legacy ready portions
-        # that have no incoming_stock row. This helper creates the incoming row
-        # and the matching warehouse_collections job idempotently. The fallback
-        # reconciliation below remains for legacy records the helper cannot resolve.
-        if event_request:
-            try:
-                from app.api.v1.bulk_orders import _ensure_event_warehouse_inbound
-                canonical_incoming = await _ensure_event_warehouse_inbound(event_request, portion)
-                if canonical_incoming:
-                    logger.info(
-                        "Farm Collection reconciled event handoff via canonical helper: fulfillment=%s incoming=%s warehouse=%s",
-                        portion_id,
-                        canonical_incoming.get("_id"),
-                        canonical_incoming.get("warehouseId"),
-                    )
-                    continue
-            except Exception:
-                logger.exception(
-                    "Canonical event pickup reconciliation failed for fulfillment %s; trying legacy fallback",
-                    portion_id,
+        # Event pickup jobs are created directly from ready fulfillment portions.
+        # Incoming stock is a receiving record and must not be required before
+        # the pickup team collects the goods and arrives at the warehouse.
+        assigned_warehouse = (
+            portion.get("sourceWarehouseId")
+            or portion.get("warehouseId")
+            or portion.get("eventWarehouseId")
+            or portion.get("destinationWarehouseId")
+            or (event_request or {}).get("sourceWarehouseId")
+            or (event_request or {}).get("eventWarehouseId")
+            or (event_request or {}).get("destinationWarehouseId")
+            or (event_request or {}).get("warehouseId")
+        )
+        if not assigned_warehouse:
+            assigned_warehouse = warehouse["_id"]
+        if str(assigned_warehouse) != warehouse_id:
+            explicit_source = portion.get("sourceWarehouseId")
+            if explicit_source and str(explicit_source) != warehouse_id:
+                logger.info("Event pickup %s belongs to source warehouse %s, not active warehouse %s", portion_id, explicit_source, warehouse_id)
+                continue
+            # If only a legacy destination warehouse was stored, keep the ready
+            # pickup visible to the manager currently servicing farm collection.
+            assigned_warehouse = warehouse["_id"]
+        if str(assigned_warehouse) == warehouse_id:
+            existing_event_job = await warehouse_collection_repository.find_one({
+                "eventFulfillmentId": {"$in": [portion_id, str(portion_id)]},
+                "deletedAt": None,
+            })
+            if not existing_event_job:
+                farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
+                farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id)) if farmer_id else None
+                if not farmer_profile and farmer_id and ObjectId.is_valid(str(farmer_id)):
+                    farmer_profile = await farmer_repository.get_by_id(str(farmer_id))
+                farm_location = (
+                    (farmer_profile or {}).get("farmLocation")
+                    or (farmer_profile or {}).get("farmAddress")
+                    or (farmer_profile or {}).get("location")
+                    or (farmer_profile or {}).get("address")
+                    or portion.get("pickupLocation")
+                    or {}
                 )
+                await warehouse_collection_repository.create_job({
+                    "warehouseId": warehouse["_id"],
+                    "incomingStockId": None,
+                    "orderId": None,
+                    "eventRequestId": (event_request or {}).get("_id") or portion.get("requestId"),
+                    "eventFulfillmentId": portion_id,
+                    "eventOrderNumber": (event_request or {}).get("requestNumber") or (event_request or {}).get("orderNumber") or portion.get("requestNumber"),
+                    "productName": portion.get("productName") or portion.get("name") or "Event product",
+                    "farmerId": farmer_id,
+                    "productId": portion.get("productId") or portion.get("product_id"),
+                    "quantity": float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0),
+                    "collectionType": "event_fulfillment_transfer",
+                    "sourceMode": "event_fulfillment_transfer",
+                    "packingRequired": False,
+                    "packingVerified": True,
+                    "readyForPickup": True,
+                    "status": "ready_for_pickup",
+                    "pickupLocation": farm_location,
+                    "readyAt": portion.get("updatedAt") or datetime.utcnow(),
+                })
+                logger.info("Created direct event farm-collection job: fulfillment=%s warehouse=%s", portion_id, warehouse_id)
+            continue
 
         # Do not silently drop a ready portion just because older event records
         # stored the request reference in a different field/type. Its explicit
