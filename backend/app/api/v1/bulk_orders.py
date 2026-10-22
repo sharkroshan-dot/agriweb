@@ -1680,12 +1680,16 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
     if existing:
         # Repair the handoff record so the collection page has the exact order
         # reference, source warehouse, farmer, product, quantity and readiness.
+        # Farm pickup belongs to the source/collection warehouse, not
+        # necessarily the event's destination/consolidation warehouse.
         warehouse_id = (
             fulfillment.get("sourceWarehouseId")
+            or request.get("sourceWarehouseId")
+            or existing.get("sourceWarehouseId")
             or existing.get("warehouseId")
             or fulfillment.get("warehouseId")
-            or request.get("sourceWarehouseId")
             or request.get("eventWarehouseId")
+            or request.get("destinationWarehouseId")
         )
         if not warehouse_id:
             resolved_warehouse = await _find_event_consolidation_warehouse(request)
@@ -1717,10 +1721,13 @@ async def _ensure_event_warehouse_inbound(request: dict, fulfillment: dict) -> O
         logger.info("Reconciled event pickup handoff: request=%s fulfillment=%s incoming=%s warehouse=%s", request.get("_id"), fulfillment_id, existing.get("_id"), warehouse_id)
         return repaired
 
+    # Prefer an explicitly configured source collection warehouse. The
+    # eventWarehouseId may refer to consolidation/destination, which can make
+    # a valid farm pickup invisible to the source warehouse's Farm Collection.
     warehouse_id = (
         fulfillment.get("sourceWarehouseId")
-        or fulfillment.get("warehouseId")
         or request.get("sourceWarehouseId")
+        or fulfillment.get("warehouseId")
         or request.get("eventWarehouseId")
         or request.get("destinationWarehouseId")
     )
