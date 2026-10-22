@@ -274,7 +274,28 @@ async def get_my_collections(
             if not assigned_warehouse:
                 assigned_warehouse = warehouse["_id"]
             if str(assigned_warehouse) != warehouse_id:
-                continue
+                explicit_source = portion.get("sourceWarehouseId") or existing_incoming.get("sourceWarehouseId")
+                if explicit_source and str(explicit_source) != warehouse_id:
+                    logger.info("Event pickup %s belongs to source warehouse %s, not active warehouse %s", portion_id, explicit_source, warehouse_id)
+                    continue
+                # Legacy records often put the destination/consolidation warehouse
+                # in warehouseId. If there is no explicit source assignment, bind
+                # the ready farm pickup to the active warehouse and repair the
+                # event request so the job is visible to this manager.
+                logger.warning(
+                    "Repairing legacy event pickup warehouse assignment: fulfillment=%s old=%s active=%s",
+                    portion_id, assigned_warehouse, warehouse_id,
+                )
+                assigned_warehouse = warehouse["_id"]
+                await event_fulfillments_collection.update_one(
+                    {"_id": portion_id},
+                    {"$set": {"warehouseId": warehouse["_id"], "eventWarehouseId": warehouse["_id"], "updatedAt": datetime.utcnow()}},
+                )
+                if event_request:
+                    await event_requests_collection.update_one(
+                        {"_id": event_request["_id"]},
+                        {"$set": {"eventWarehouseId": warehouse["_id"], "updatedAt": datetime.utcnow()}},
+                    )
             farmer_id = portion.get("farmerId") or portion.get("farmerUserId") or existing_incoming.get("farmerId")
             farmer_profile = await farmer_repository.get_by_user_id(str(farmer_id)) if farmer_id else None
             if not farmer_profile and farmer_id and ObjectId.is_valid(str(farmer_id)):
@@ -363,8 +384,26 @@ async def get_my_collections(
             logger.warning("Ready event portion %s has no resolvable warehouse; cannot create pickup job", portion_id)
             continue
         if str(assigned_warehouse) != warehouse_id:
-            logger.info("Skipping event portion %s for warehouse %s: assigned warehouse is %s", portion_id, warehouse_id, assigned_warehouse)
-            continue
+            explicit_source = portion.get("sourceWarehouseId")
+            if explicit_source and str(explicit_source) != warehouse_id:
+                logger.info("Event pickup %s belongs to source warehouse %s, not active warehouse %s", portion_id, explicit_source, warehouse_id)
+                continue
+            # A legacy destination/consolidation assignment must not hide an
+            # otherwise-ready farm pickup from the active collection manager.
+            logger.warning(
+                "Repairing legacy event pickup warehouse assignment: fulfillment=%s old=%s active=%s",
+                portion_id, assigned_warehouse, warehouse_id,
+            )
+            assigned_warehouse = warehouse["_id"]
+            await event_fulfillments_collection.update_one(
+                {"_id": portion_id},
+                {"$set": {"warehouseId": warehouse["_id"], "eventWarehouseId": warehouse["_id"], "updatedAt": datetime.utcnow()}},
+            )
+            if event_request:
+                await event_requests_collection.update_one(
+                    {"_id": event_request["_id"]},
+                    {"$set": {"eventWarehouseId": warehouse["_id"], "updatedAt": datetime.utcnow()}},
+                )
         farmer_id = portion.get("farmerId") or portion.get("farmerUserId")
         if not farmer_id:
             logger.warning("Skipping ready event portion %s: farmerId/farmerUserId is missing", portion_id)
