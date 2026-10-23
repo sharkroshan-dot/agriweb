@@ -3987,29 +3987,55 @@ async def complete_event_delivery_with_otp_and_pod(
 
 @router.get("/me/farmer-fulfillment-warehouse-transfers")
 async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Depends(get_current_user)):
-    """List inter-district warehouse legs assigned to this delivery partner."""
+    """List assigned destination-warehouse transfer legs, including Bulk/Event requests."""
     if current_user.get("role") != "delivery":
         raise HTTPException(status_code=403, detail="Only delivery partners can view warehouse transfers")
+    user_oid = ObjectId(str(current_user["_id"]))
+    # Resolve this login to its delivery-partner profile too. Older assignments
+    # sometimes persisted the profile ID in assignedPartnerUserId.
+    partner_profile = await MongoDB.get_collection("delivery_partners").find_one({
+        "$or": [{"userId": user_oid}, {"userId": str(current_user["_id"])}, {"user_id": user_oid}, {"user_id": str(current_user["_id"])}],
+        "deletedAt": {"$in": [None, False, ""]},
+    })
+    profile_ids = [ObjectId(str(partner_profile["_id"]))] if partner_profile and ObjectId.is_valid(str(partner_profile.get("_id"))) else []
+    assigned_user_values = [user_oid, str(current_user["_id"])]
+    assigned_profile_values = profile_ids + [str(x) for x in profile_ids]
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
-    rows = await legs.find({
+    query = {
         "legType": "warehouse_to_destination_warehouse",
-        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
-        "deletedAt": None,
+        "deletedAt": {"$in": [None, False, ""]},
         "status": {"$in": ["assigned", "in_transit", "arrived_at_destination"]},
-    }).sort("assignedAt", -1).to_list(length=200)
+        "$or": [
+            {"assignedPartnerUserId": {"$in": assigned_user_values}},
+            {"assignedDeliveryPartnerId": {"$in": assigned_profile_values}},
+        ],
+    }
+    rows = await legs.find(query).sort("assignedAt", -1).to_list(length=200)
     output = []
+    seen = set()
     for row in rows:
+        leg_id = str(row.get("_id") or "")
+        if leg_id in seen:
+            continue
+        seen.add(leg_id)
         item = dict(row)
-        for key in ("_id", "orderId", "sourceWarehouseId", "destinationWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId"):
+        for key in ("_id", "orderId", "sourceWarehouseId", "destinationWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId", "eventRequestId"):
             if item.get(key) is not None:
                 item[key] = str(item[key])
-        item["id"] = item.pop("_id", str(row.get("_id")))
-        order = await order_repository.get_by_id(str(row.get("orderId") or ""))
+        item["id"] = item.pop("_id", leg_id)
+        item["isEventOrder"] = bool(item.get("isEventOrder") or item.get("eventRequestId"))
+        order_id = str(row.get("orderId") or row.get("eventRequestId") or "")
+        order = await order_repository.get_by_id(order_id) if order_id else None
         if order:
             item["orderNumber"] = order.get("orderNumber") or item.get("orderNumber")
+        elif item["isEventOrder"] and order_id and ObjectId.is_valid(order_id):
+            event_request = await MongoDB.get_collection("bulk_requests").find_one({"_id": ObjectId(order_id)})
+            if event_request:
+                item["orderNumber"] = event_request.get("requestNumber") or event_request.get("orderNumber") or item.get("orderNumber") or ("EVENT-" + order_id[-6:].upper())
+                item["items"] = event_request.get("items") or event_request.get("products") or event_request.get("fulfillmentItems") or []
+                item["purpose"] = event_request.get("purpose") or event_request.get("eventName")
         output.append(item)
     return {"success": True, "data": {"transfers": output}}
-
 
 @router.put("/me/farmer-fulfillment-warehouse-transfers/{transfer_id}/status")
 async def update_my_farmer_fulfillment_warehouse_transfer_status(
