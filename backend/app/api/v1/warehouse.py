@@ -3963,8 +3963,129 @@ async def assign_farmer_fulfillment_destination_warehouse(
         raise HTTPException(status_code=400, detail="Invalid order ID")
     source_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     order = await order_repository.get_by_id(order_id)
-    if not source_warehouse or not order:
-        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if not source_warehouse:
+        raise HTTPException(status_code=404, detail="Source warehouse not found")
+
+    # Bulk/Event requests live in bulk_requests/event_fulfillments, not orders.
+    # The transfer card's ID is the event request ID, so resolve and route that
+    # aggregate explicitly rather than incorrectly querying the normal orders collection.
+    if not order:
+        event_requests = MongoDB.get_collection("bulk_requests")
+        event_request = await event_requests.find_one({
+            "_id": ObjectId(order_id),
+            "deletedAt": {"$in": [None, False, ""]},
+        })
+        if not event_request:
+            raise HTTPException(status_code=404, detail="Customer order or Bulk/Event request not found")
+        source_id = str(event_request.get("eventWarehouseId") or event_request.get("sourceWarehouseId") or event_request.get("warehouseId") or "")
+        if not source_id:
+            event_fulfillments = MongoDB.get_collection("event_fulfillments")
+            event_portions = await event_fulfillments.find({
+                "$or": [
+                    {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                    {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                    {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                ],
+                "deletedAt": {"$in": [None, False, ""]},
+            }).to_list(length=500)
+            source_id = next((str(p.get("sourceWarehouseId") or p.get("warehouseId") or "") for p in event_portions if p.get("sourceWarehouseId") or p.get("warehouseId")), "")
+        if source_id != str(source_warehouse["_id"]):
+            raise HTTPException(status_code=403, detail="Only the assigned source warehouse can create this Bulk/Event destination transfer")
+        address = event_request.get("deliveryAddress") or event_request.get("shippingAddress") or event_request.get("address") or {}
+        if not isinstance(address, dict):
+            address = {}
+        destination_district = str(
+            address.get("district") or address.get("districtName") or address.get("district_name")
+            or address.get("city") or address.get("town") or address.get("municipality")
+            or event_request.get("deliveryDistrict") or event_request.get("customerDistrict")
+            or event_request.get("district") or ""
+        ).strip()
+        source_address_value = source_warehouse.get("address")
+        source_address = source_address_value if isinstance(source_address_value, dict) else {}
+        source_location_value = source_warehouse.get("location")
+        source_location = source_location_value if isinstance(source_location_value, dict) else {}
+        source_district = str(
+            source_warehouse.get("district") or source_warehouse.get("districtName") or source_warehouse.get("city")
+            or source_address.get("district") or source_address.get("districtName") or source_address.get("city")
+            or source_location.get("district") or source_location.get("districtName") or source_location.get("city")
+            or ""
+        ).strip()
+        if not destination_district:
+            raise HTTPException(status_code=409, detail="Bulk/Event request is missing the customer delivery district. Add the delivery district before creating a destination transfer.")
+        if not source_district:
+            raise HTTPException(status_code=409, detail="Source warehouse is missing its physical district/city. Configure it before creating a destination transfer.")
+        if source_district.casefold() == destination_district.casefold():
+            raise HTTPException(status_code=409, detail="This Bulk/Event order belongs in Same-District Warehouse Fulfillment, not Inter-District routing.")
+        destination = await warehouse_for_district(
+            destination_district.casefold(), required_capacity=0.0,
+            exclude_warehouse_id=source_id, allow_capacity_override=False,
+        )
+        if not destination:
+            raise HTTPException(status_code=409, detail="No active destination warehouse serves the Bulk/Event customer's district. Activate or configure a destination warehouse first.")
+        destination_id = str(destination["_id"])
+        destination_name = destination.get("name") or destination.get("warehouseName") or "Destination Warehouse"
+        now = datetime.utcnow()
+        event_request_number = str(event_request.get("requestNumber") or event_request.get("orderNumber") or ("EVENT-" + order_id[-6:].upper()))
+        await event_requests.update_one({"_id": ObjectId(order_id)}, {"$set": {
+            "eventWarehouseId": ObjectId(source_id),
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": source_warehouse.get("name") or source_warehouse.get("warehouseName") or "Source Warehouse",
+            "sourceDistrict": source_district,
+            "eventDestinationWarehouseId": ObjectId(destination_id),
+            "eventDestinationWarehouseName": destination_name,
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": destination_name,
+            "destinationDistrict": destination_district,
+            "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+            "transferStatus": "destination_warehouse_assignment_confirmed",
+            "warehouseFulfillmentStage": "destination_warehouse_assignment_confirmed",
+            "updatedAt": now,
+        }})
+        await MongoDB.get_collection("event_fulfillments").update_many({
+            "$or": [
+                {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
+            ],
+            "deletedAt": {"$in": [None, False, ""]},
+        }, {"$set": {
+            "sourceWarehouseId": ObjectId(source_id),
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": destination_name,
+            "destinationDistrict": destination_district,
+            "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+            "updatedAt": now,
+        }})
+        for collection_name in ("incoming_stock", "warehouse_collections"):
+            await MongoDB.get_collection(collection_name).update_many({
+                "warehouseId": {"$in": [ObjectId(source_id), source_id]},
+                "deletedAt": {"$in": [None, False, ""]},
+                "$or": [
+                    {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                    {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                    {"eventOrderNumber": event_request_number},
+                    {"orderNumber": event_request_number},
+                ],
+            }, {"$set": {
+                "sourceWarehouseId": ObjectId(source_id),
+                "destinationWarehouseId": ObjectId(destination_id),
+                "destinationWarehouseName": destination_name,
+                "destinationDistrict": destination_district,
+                "updatedAt": now,
+            }})
+        return {
+            "success": True,
+            "data": {
+                "destinationWarehouseId": destination_id,
+                "destinationWarehouseName": destination_name,
+                "destinationDistrict": destination_district,
+                "destinationWarehouseCapacityOverrideRequired": False,
+                "alreadyAssigned": False,
+                "isEventOrder": True,
+            },
+            "message": f"Destination warehouse {destination_name} assigned to Bulk/Event order {event_request_number}.",
+        }
+
     logistics_mode = str(order.get("logisticsMode") or "").strip().lower()
     fulfillment_method = str(order.get("fulfillmentMethod") or order.get("fulfillment_route") or "").strip().lower()
 
