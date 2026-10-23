@@ -1842,13 +1842,9 @@ async def list_b2b_payments(current_user: dict = Depends(get_current_user)):
         ps = o.get("paymentStatus") or PAYMENT_PENDING
         if o.get("startedAt") and o["startedAt"] >= month_start:
             total_month += total
-        if ps == PAYMENT_PAID:
-            paid += total
-        elif ps == PAYMENT_ADVANCE:
-            paid += float(o.get("advanceAmount") or 0)
-            pending += total - float(o.get("advanceAmount") or 0)
-        else:
-            pending += total
+        paid_amount = min(total, max(0.0, float(o.get("paidAmount") or (total if ps == PAYMENT_PAID else 0.0))))
+        paid += paid_amount
+        pending += max(0.0, total - paid_amount)
         farmer = await farmer_repository.find_one({"userId": str(o.get("farmerId"))})
         payments.append({
             "orderId": str(o["_id"]),
@@ -1856,6 +1852,9 @@ async def list_b2b_payments(current_user: dict = Depends(get_current_user)):
             "productName": o.get("productName"),
             "quantityKg": o.get("quantityKg"),
             "totalAmount": round(total, 2),
+            "paidAmount": round(paid_amount, 2),
+            "balanceDue": round(max(0.0, total - paid_amount), 2),
+            "deliveryCharge": round(float(o.get("deliveryCharge") or 0), 2),
             "paymentStatus": ps,
             "paymentMode": o.get("paymentMode"),
             "advanceAmount": round(float(o.get("advanceAmount") or 0), 2),
