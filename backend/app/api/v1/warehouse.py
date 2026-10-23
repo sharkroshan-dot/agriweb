@@ -2308,7 +2308,7 @@ async def get_farmer_fulfillment_transfers(
         "deletedAt": {"$in": [None, False, ""]},
         "status": {"$nin": ["cancelled", "rejected"]},
         "eventSourcingStatus": {"$nin": ["cancelled", "rejected"]},
-    }).sort("updatedAt", -1).limit(500).to_list(length=500)
+    }).sort("updatedAt", -1).limit(2000).to_list(length=2000)
     for event_request in event_requests:
         request_id = event_request.get("_id")
         if not request_id:
@@ -2318,8 +2318,31 @@ async def get_farmer_fulfillment_transfers(
             continue
         event_portions = await event_fulfillments_collection.find({
             "requestId": {"$in": [request_id, request_id_text]},
-            "deletedAt": None,
+            "deletedAt": {"$in": [None, False, ""]},
         }).to_list(length=500)
+        # Some legacy event receipts exist before (or without) a matching
+        # fulfillment document. Do not hide a dispatch-ready event just because
+        # that secondary link is missing: synthesize display-only portions from
+        # this warehouse's Incoming Stock rows, preserving the physical receipt
+        # as the source of truth for quantities and status.
+        incoming_collection = MongoDB.get_collection("incoming_stock")
+        if not event_portions:
+            fallback_receipts = await incoming_collection.find({
+                "eventRequestId": {"$in": [request_id, request_id_text]},
+                "warehouseId": {"$in": warehouse_refs},
+                "deletedAt": {"$in": [None, False, ""]},
+            }).limit(500).to_list(length=500)
+            if fallback_receipts:
+                event_portions = [{
+                    "_id": row.get("eventFulfillmentId") or row.get("_id"),
+                    "requestId": request_id,
+                    "productId": row.get("productId"),
+                    "productName": row.get("eventProductName") or row.get("productName") or "Event product",
+                    "allocatedQuantityKg": row.get("expectedQuantity") or row.get("quantity") or 0,
+                    "sourceWarehouseId": row.get("sourceWarehouseId") or row.get("warehouseId"),
+                    "warehouseId": row.get("warehouseId"),
+                    "_receiptFallback": True,
+                } for row in fallback_receipts]
         if not event_portions:
             continue
         # Receipt rows are the most reliable link to this warehouse. Event
@@ -2338,7 +2361,6 @@ async def get_farmer_fulfillment_transfers(
             for value in (portion.get("_id"), str(portion.get("_id") or ""))
             if value
         ]
-        incoming_collection = MongoDB.get_collection("incoming_stock")
         incoming_rows = await incoming_collection.find({
             "$or": [
                 {"eventRequestId": {"$in": [request_id, request_id_text]}},
