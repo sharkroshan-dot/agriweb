@@ -226,6 +226,56 @@ export default function BusinessDashboard() {
         </Card>
       </div>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">B2B order pipeline</CardTitle>
+              <CardDescription>Live status counts from your purchase orders.</CardDescription>
+            </div>
+            <Link href="/business/orders"><Button variant="outline" size="sm">All orders <ArrowRight className="ml-1 h-4 w-4" /></Button></Link>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[
+              { label: "Confirmed", statuses: ["confirmed"] },
+              { label: "Preparing", statuses: ["preparing"] },
+              { label: "Quality check", statuses: ["quality_check"] },
+              { label: "Dispatched", statuses: ["dispatched"] },
+              { label: "In transit", statuses: ["in_transit"] },
+              { label: "Delivered", statuses: ["delivered"] },
+            ].map((stage) => (
+              <div key={stage.label} className="rounded-lg border p-3">
+                <p className="text-xs text-gray-500">{stage.label}</p>
+                <p className="mt-1 text-xl font-semibold">{orders.filter((o: any) => stage.statuses.includes(o.status)).length}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Recent B2B orders</CardTitle>
+              <CardDescription>Track each order through farmer fulfillment and direct business delivery.</CardDescription>
+            </div>
+            <Link href="/business/deliveries"><Button variant="ghost" size="sm">Deliveries <ArrowRight className="ml-1 h-4 w-4" /></Button></Link>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {orders.length === 0 ? (
+              <p className="py-5 text-center text-sm text-gray-400">No orders yet. Accept a farmer quote to create your first B2B order.</p>
+            ) : orders.slice(0, 4).map((o: any) => (
+              <Link key={o.id} href="/business/orders" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 hover:bg-gray-50">
+                <div>
+                  <p className="font-medium">{o.orderNumber || o.id}</p>
+                  <p className="text-xs text-gray-500">{o.productName} · {o.quantityKg} kg · {o.farmerInfo?.farmName || "Supplier"}</p>
+                </div>
+                <Badge variant={o.status === "completed" ? "success" : o.status === "cancelled" ? "destructive" : "outline"}>{String(o.status || "confirmed").replace(/_/g, " ")}</Badge>
+              </Link>
+            ))}
+            <p className="text-[11px] text-gray-500">B2B deliveries go directly to the business; Local Hub is not part of this buyer route.</p>
+          </CardContent>
+        </Card>
+      </div>
+
       <Card className="border-violet-200">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
