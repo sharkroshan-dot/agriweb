@@ -40,13 +40,14 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
   const [aiRec, setAiRec] = useState<any>(null);
 
   const createMutation = useMutation({
-    mutationFn: (payload: any) => api.post("/b2b/rfqs", payload),
-    onSuccess: () => {
-      toast.success("RFQ published! Farmers near you are now notified.");
+    mutationFn: ({ payload, saveAsDraft }: { payload: any; saveAsDraft: boolean }) =>
+      api.post("/b2b/rfqs", { ...payload, saveAsDraft }),
+    onSuccess: (_res: any, variables) => {
+      toast.success(variables.saveAsDraft ? "RFQ saved as draft." : "RFQ published! Farmers near you are now notified.");
       if (onDone) onDone();
       queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
     },
-    onError: (err: any) => toast.error(err?.message || "Failed to publish RFQ"),
+    onError: (err: any) => toast.error(err?.message || "Failed to save RFQ"),
   });
 
   const aiMutation = useMutation({
@@ -264,11 +265,12 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </div>
         )}
 
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-2 flex flex-wrap gap-2">
           <Button
-            disabled={!form.productName || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
-            onClick={() =>
-              createMutation.mutate({
+            variant="outline"
+            disabled={!form.productName.trim() || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0)}
+            onClick={() => createMutation.mutate({
+              payload: {
                 ...form,
                 priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
                 budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
@@ -276,8 +278,27 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
                 quantityKg: form.recurring ? null : form.quantityKg,
                 quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
-              })
-            }
+              },
+              saveAsDraft: true,
+            })}
+          >
+            {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Save Draft
+          </Button>
+          <Button
+            disabled={!form.productName.trim() || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity.trim()}
+            onClick={() => createMutation.mutate({
+              payload: {
+                ...form,
+                priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
+                budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
+                budgetMaxPerKg: form.budgetMaxPerKg ? Number(form.budgetMaxPerKg) : null,
+                deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
+                quantityKg: form.recurring ? null : form.quantityKg,
+                quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
+              },
+              saveAsDraft: false,
+            })}
           >
             {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
             Publish RFQ
