@@ -62,6 +62,51 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
+  const geocodeManualAddress = async () => {
+    const query = form.deliveryAddress.trim();
+    if (!query) {
+      toast.error("Enter a delivery address first.");
+      return;
+    }
+
+    setLocationLoading(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error("Address lookup failed");
+      const results = await response.json();
+      const match = results?.[0];
+      if (!match) {
+        toast.error("Could not find that address on the map. Check the address or use live location.");
+        return;
+      }
+
+      const latitude = Number(match.lat);
+      const longitude = Number(match.lon);
+      const address = match.address || {};
+      setForm((current) => ({
+        ...current,
+        deliveryAddress: current.deliveryAddress.trim() || match.display_name || query,
+        deliveryCity: current.deliveryCity || address.city || address.town || address.village || address.municipality || address.county || "",
+        deliveryState: current.deliveryState || address.state || address.region || "",
+        deliveryDistrict: current.deliveryDistrict || address.state_district || address.county || address.city_district || "",
+        deliveryLocation: {
+          type: "Point",
+          coordinates: [longitude, latitude],
+          latitude,
+          longitude,
+        },
+      }));
+      toast.success("Address location found and saved for delivery routing.");
+    } catch {
+      toast.error("Could not look up the address. You can still enter it manually or use live location.");
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
   const useLiveLocation = () => {
     if (!("geolocation" in navigator)) {
       toast.error("Live location is not supported by this browser. Enter the address manually.");
@@ -250,10 +295,16 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         <div className="space-y-2 sm:col-span-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="text-xs font-medium text-gray-500">Delivery address *</label>
-            <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
-              {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
-              {locationLoading ? "Getting location…" : "Use my live location"}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading || !form.deliveryAddress.trim()} onClick={geocodeManualAddress}>
+                <MapPin className="mr-1.5 h-4 w-4" />
+                Find address on map
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
+                {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
+                {locationLoading ? "Getting location…" : "Use my live location"}
+              </Button>
+            </div>
           </div>
           <Input
             value={form.deliveryAddress}
@@ -261,7 +312,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
             placeholder="Enter full business delivery address manually"
           />
           <p className="text-xs text-gray-500">
-            Enter the complete address manually, or allow browser location access to fill it automatically. Verify the address before publishing.
+            Enter the complete address manually, choose Find address on map to save coordinates for distance routing, or use live location. Verify the address before publishing.
           </p>
           {form.deliveryLocation?.coordinates?.length === 2 && (
             <p className="flex items-center gap-1 text-xs text-emerald-700">
