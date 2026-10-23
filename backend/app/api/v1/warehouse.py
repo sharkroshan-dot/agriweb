@@ -2426,6 +2426,11 @@ async def get_farmer_fulfillment_transfers(
             or _event_warehouse_matches(receipt_warehouse_ids.get(str(portion.get("_id") or "")))
             or has_request_receipt_here
         ]
+        if not relevant_portions and linked_receipts:
+            # A warehouse-scoped receipt linked by event order number is enough
+            # to keep the event visible even when the event fulfillment itself
+            # has no warehouse assignment fields.
+            relevant_portions = event_portions
         if not relevant_portions:
             continue
         portions_for_card = []
