@@ -11,7 +11,7 @@ import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 
 const labels: Record<string,string> = {
-  awaiting_warehouse_receipt:"Awaiting Farm Pickup",
+  awaiting_warehouse_receipt:"Awaiting Warehouse Receipt",
   collection_team_assigned:"Collection Team Assigned",
   warehouse_arrived:"Arrived at Warehouse — Receive & Inspect",
   received_transfer:"Received — Ready for Transfer",
