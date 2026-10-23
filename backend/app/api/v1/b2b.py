@@ -275,6 +275,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "deliveryCity": rfq.get("deliveryCity"),
         "deliveryState": rfq.get("deliveryState"),
         "deliveryAddress": rfq.get("deliveryAddress"),
+        "deliveryLocation": rfq.get("deliveryLocation"),
         "expectedDeliveryDate": offer.get("expectedDeliveryDate"),
         "paymentMode": (accept.paymentMode if accept and accept.paymentMode else "cod"),
         "advanceAmount": float(accept.advanceAmount) if accept and accept.advanceAmount else 0.0,
