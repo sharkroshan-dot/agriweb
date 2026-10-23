@@ -242,7 +242,17 @@ export default function WarehouseIncomingPage() {
         ...item,
         displayFarmName: getFarmDisplayName(item),
         displayProductName: getProductDisplayName(item),
-        displayOrderNumber: humanIdFallback(item.orderNumber || item.order?.orderNumber || item.eventOrderNumber || item.requestNumber || item.eventRequest?.requestNumber, "Event request reference unavailable"),
+        displayOrderNumber: humanIdFallback(
+          item.orderNumber || item.order?.orderNumber || item.eventOrderNumber ||
+          item.requestNumber || item.eventRequest?.requestNumber || item.eventRequest?.orderNumber,
+          item.eventRequestId
+            ? "EVENT-" + String(item.eventRequestId).slice(-6).toUpperCase()
+            : item.eventFulfillmentId
+              ? "EVENT-" + String(item.eventFulfillmentId).slice(-6).toUpperCase()
+              : item.orderId
+                ? "ORDER-" + String(item.orderId).slice(-6).toUpperCase()
+                : "RECEIPT-" + String(item.id || item._id || "UNKNOWN").slice(-6).toUpperCase()
+        ),
       }))
       .filter((item: any) => {
         if (fulfillmentFilter === "received_warehouse") return false;
