@@ -98,7 +98,11 @@ export function BusinessSidebar() {
               <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
               <div className="space-y-1">
                 {group.items.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                  const isCreateRfqRoute = pathname === "/business/rfqs/new" || pathname?.startsWith("/business/rfqs/new/");
+                  const isActive =
+                    pathname === item.href ||
+                    (pathname?.startsWith(item.href + "/") &&
+                      !(item.href === "/business/rfqs" && isCreateRfqRoute));
                   return (
                     <Link
                       key={item.name}
