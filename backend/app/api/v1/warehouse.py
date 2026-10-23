@@ -4912,7 +4912,7 @@ async def assign_farmer_fulfillment_destination_pickup_team(
             "$or": [
                 {"requestId": {"$in": [ObjectId(order_id), order_id]}},
                 {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
-                {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]},
+                {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
             ],
             "deletedAt": {"$in": [None, False, ""]},
         }, {"$set": {"transferStatus": "destination_warehouse_in_transit", "updatedAt": now}})
