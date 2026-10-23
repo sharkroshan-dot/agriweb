@@ -2614,14 +2614,48 @@ async def get_farmer_fulfillment_transfers(
                 "qualityCheck": receipt.get("qualityCheck") or "pending",
                 "incomingStockId": str(receipt.get("_id") or "") or None,
             })
-        destination_id = str(event_request.get("eventDestinationWarehouseId") or event_request.get("eventWarehouseId") or "")
-        customer_address = event_request.get("deliveryAddress") or event_request.get("shippingAddress") or event_request.get("address") or {}
-        destination_district = str(
-            customer_address.get("district") or customer_address.get("city") or event_request.get("district")
-            or event_request.get("deliveryDistrict") or ""
+        # Resolve source and destination independently. Legacy Bulk/Event data often
+        # stores eventWarehouseId as the source warehouse; never reuse it as the
+        # destination when that would make an inter-district route point to itself.
+        source_id = str(
+            event_request.get("sourceWarehouseId")
+            or event_request.get("eventWarehouseId")
+            or next((p.get("sourceWarehouseId") or p.get("warehouseId") for p in event_portions if p.get("sourceWarehouseId") or p.get("warehouseId")), "")
+            or ""
         )
+        destination_id = str(event_request.get("eventDestinationWarehouseId") or event_request.get("destinationWarehouseId") or "")
+        customer_address = event_request.get("deliveryAddress") or event_request.get("shippingAddress") or event_request.get("address") or {}
+        if not isinstance(customer_address, dict):
+            customer_address = {}
+        destination_district = str(
+            customer_address.get("district") or customer_address.get("districtName") or customer_address.get("city")
+            or event_request.get("deliveryDistrict") or event_request.get("customerDistrict") or event_request.get("district") or ""
+        ).strip()
         source_districts = [str(p.get("sourceDistrict") or p.get("farmDistrict") or "") for p in event_portions]
         source_district = next((x for x in source_districts if x), "")
+        # Use the current warehouse's configured district as a reliable fallback
+        # when older event portions did not persist farm/source district.
+        if not source_district:
+            source_address_value = warehouse.get("address")
+            source_address = source_address_value if isinstance(source_address_value, dict) else {}
+            source_location_value = warehouse.get("location")
+            source_location = source_location_value if isinstance(source_location_value, dict) else {}
+            source_district = str(
+                warehouse.get("district") or warehouse.get("districtName") or warehouse.get("city")
+                or source_address.get("district") or source_address.get("districtName") or source_address.get("city")
+                or source_location.get("district") or source_location.get("districtName") or source_location.get("city") or ""
+            ).strip()
+        # If destination metadata is absent or points back to this source, find
+        # an active warehouse serving the customer district, excluding the source.
+        if destination_district and (not destination_id or destination_id == source_id or destination_id == warehouse_id):
+            resolved_destination = await warehouse_for_district(
+                destination_district.casefold(), required_capacity=0.0,
+                exclude_warehouse_id=source_id or warehouse_id, allow_capacity_override=False,
+            )
+            if resolved_destination:
+                destination_id = str(resolved_destination.get("_id") or "")
+                event_request["eventDestinationWarehouseId"] = destination_id
+                event_request["eventDestinationWarehouseName"] = resolved_destination.get("name") or resolved_destination.get("warehouseName")
         statuses = [str(p.get("status") or "").lower() for p in event_portions]
         # Use the same receipt rows shown on the transfer card (including
         # legacy product/quantity matches) so the card and route eligibility
