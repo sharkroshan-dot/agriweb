@@ -136,10 +136,26 @@ export default function DeliveriesPage() {
 
 
                 {o.logistics ? (
-                  <div className="mt-3 grid gap-2 rounded-lg border bg-slate-50 p-3 text-xs sm:grid-cols-3">
-                    <div><span className="text-slate-400">Warehouse</span><p className="font-medium">{o.logistics.warehouseName || (o.logistics.warehouseId ? "Assigned warehouse" : "Not used")}</p></div>
-                    <div><span className="text-slate-400">Local hub</span><p className="font-medium">{o.logistics.hubName || (o.logistics.hubId ? "Assigned hub" : "Not used")}</p></div>
-                    <div><span className="text-slate-400">Delivery partner</span><p className="font-medium">{o.logistics.deliveryPartnerName || (o.logistics.deliveryPartnerId ? "Assigned" : "Not assigned")}</p></div>
+                  <div className="mt-3 rounded-lg border bg-slate-50 p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">B2B delivery route · direct to business</p>
+                    {o.deliveryMethod === "buyer_pickup" ? (
+                      <div className="grid gap-2 text-xs sm:grid-cols-2">
+                        <div><span className="text-slate-400">Collection</span><p className="font-medium">Business pickup from farmer / warehouse</p></div>
+                        <div><span className="text-slate-400">Destination</span><p className="font-medium">{o.deliveryCity || "Business location"}</p></div>
+                      </div>
+                    ) : o.deliveryMethod === "farmer_delivery" ? (
+                      <div className="grid gap-2 text-xs sm:grid-cols-2">
+                        <div><span className="text-slate-400">Pickup</span><p className="font-medium">{o.farmerInfo?.farmName || "Supplier farm"}</p></div>
+                        <div><span className="text-slate-400">Direct delivery to</span><p className="font-medium">{o.deliveryCity || "Business location"}</p></div>
+                      </div>
+                    ) : (
+                      <div className="grid gap-2 text-xs sm:grid-cols-3">
+                        <div><span className="text-slate-400">Origin</span><p className="font-medium">{o.logistics.warehouseName || "Farmer / assigned warehouse"}</p></div>
+                        <div><span className="text-slate-400">Transport</span><p className="font-medium">{o.logistics.deliveryPartnerName || (o.logistics.deliveryPartnerId ? "Assigned delivery partner" : "Awaiting transport assignment")}</p></div>
+                        <div><span className="text-slate-400">Destination</span><p className="font-medium">{o.deliveryCity || "Business location"}</p></div>
+                      </div>
+                    )}
+                    <p className="mt-2 text-[11px] text-slate-500">B2B orders are delivered directly to the business; the normal customer Local Hub route is not part of this screen.</p>
                   </div>
                 ) : null}
                 <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500">
