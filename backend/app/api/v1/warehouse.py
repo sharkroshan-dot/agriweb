@@ -2363,6 +2363,15 @@ async def get_farmer_fulfillment_transfers(
             for row in incoming_rows
             if row.get("eventFulfillmentId") and _event_warehouse_matches(row.get("warehouseId"))
         }
+        # Some historical incoming rows link only to the parent event request
+        # and omit eventFulfillmentId. Treat those as valid evidence that this
+        # warehouse owns an operational step for the request; otherwise the
+        # request was silently skipped even though it is visible in Incoming Stock.
+        has_request_receipt_here = any(
+            _event_warehouse_matches(row.get("warehouseId"))
+            and str(row.get("eventRequestId") or "") in (request_id_text, str(request_id))
+            for row in incoming_rows
+        )
         relevant_portions = [
             portion for portion in event_portions
             if any(_event_warehouse_matches(portion.get(field)) for field in (
@@ -2370,6 +2379,7 @@ async def get_farmer_fulfillment_transfers(
             ))
             or _event_warehouse_matches(event_request.get("eventWarehouseId"))
             or _event_warehouse_matches(receipt_warehouse_ids.get(str(portion.get("_id") or "")))
+            or has_request_receipt_here
         ]
         if not relevant_portions:
             continue
