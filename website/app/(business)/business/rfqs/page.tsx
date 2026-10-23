@@ -91,44 +91,49 @@ export default function BusinessRfqsPage() {
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
         <button
           onClick={() => setView("one-off")}
+          aria-pressed={view === "one-off"}
           className={cn(
             "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
             view === "one-off"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700",
           )}
         >
           <ShoppingBag className="h-4 w-4" />
           One-off Order
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "one-off" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "one-off" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"}`}>
             {oneOffRfqs.length}
           </span>
         </button>
         <button
           onClick={() => setView("recurring")}
+          aria-pressed={view === "recurring"}
           className={cn(
             "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
             view === "recurring"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700",
           )}
         >
           <RefreshCw className="h-4 w-4" />
           Recurring Order
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "recurring" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "recurring" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"}`}>
             {recurringRfqs.length}
           </span>
         </button>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {RFQ_STATUSES.map((s) => (
             <button
-              key={s}
+              key={s || "all"}
               onClick={() => setStatusFilter(s)}
+              aria-pressed={statusFilter === s}
               className={`rounded-full px-4 py-2 text-sm font-medium capitalize transition-colors ${
-                statusFilter === s ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                statusFilter === s
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
               }`}
             >
               {s === "" ? "All" : s}
