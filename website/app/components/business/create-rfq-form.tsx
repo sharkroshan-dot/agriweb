@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Loader2, Plus } from "lucide-react";
+import { Bot, Loader2, Plus, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -27,6 +27,7 @@ const emptyForm = {
   deliveryState: "",
   deliveryDistrict: "",
   deliveryAddress: "",
+  deliveryLocation: null as { type: string; coordinates: [number, number]; latitude: number; longitude: number } | null,
   priceCeilingPerKg: "",
   budgetMinPerKg: "",
   budgetMaxPerKg: "",
@@ -57,7 +58,75 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
     onError: (err: any) => toast.error(err?.message || "AI price check failed"),
   });
 
+  const [locationLoading, setLocationLoading] = useState(false);
+
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  const useLiveLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Live location is not supported by this browser. Enter the address manually.");
+      return;
+    }
+
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        const latitude = coords.latitude;
+        const longitude = coords.longitude;
+        const location = {
+          type: "Point",
+          coordinates: [longitude, latitude] as [number, number],
+          latitude,
+          longitude,
+        };
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            { headers: { Accept: "application/json" } },
+          );
+          if (!response.ok) throw new Error("Address lookup failed");
+
+          const result = await response.json();
+          const address = result.address || {};
+          const city = address.city || address.town || address.village || address.municipality || address.county || "";
+          const state = address.state || address.region || "";
+          const district = address.state_district || address.county || address.city_district || "";
+          const formattedAddress = result.display_name || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+
+          setForm((current) => ({
+            ...current,
+            deliveryAddress: formattedAddress,
+            deliveryCity: current.deliveryCity || city,
+            deliveryState: current.deliveryState || state,
+            deliveryDistrict: current.deliveryDistrict || district,
+            deliveryLocation: location,
+          }));
+          toast.success("Live location added. Please verify the address before publishing.");
+        } catch {
+          setForm((current) => ({
+            ...current,
+            deliveryAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            deliveryLocation: location,
+          }));
+          toast.error("Coordinates saved, but the street address could not be found. Enter the address manually.");
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+        toast.error(
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission denied. Allow location access or enter the address manually."
+            : error.code === error.TIMEOUT
+              ? "Getting your location timed out. Please try again."
+              : "Could not get your live location. Enter the address manually.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
 
   return (
     <Card className="border-emerald-200">
@@ -178,9 +247,28 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </select>
         </div>
 
-        <div className="space-y-1 sm:col-span-2">
-          <label className="text-xs font-medium text-gray-500">Delivery address</label>
-          <Input value={form.deliveryAddress} onChange={(e) => set("deliveryAddress", e.target.value)} placeholder="Business address for pickup/delivery" />
+        <div className="space-y-2 sm:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-gray-500">Delivery address *</label>
+            <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
+              {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
+              {locationLoading ? "Getting location…" : "Use my live location"}
+            </Button>
+          </div>
+          <Input
+            value={form.deliveryAddress}
+            onChange={(e) => setForm((current) => ({ ...current, deliveryAddress: e.target.value, deliveryLocation: null }))}
+            placeholder="Enter full business delivery address manually"
+          />
+          <p className="text-xs text-gray-500">
+            Enter the complete address manually, or allow browser location access to fill it automatically. Verify the address before publishing.
+          </p>
+          {form.deliveryLocation?.coordinates?.length === 2 && (
+            <p className="flex items-center gap-1 text-xs text-emerald-700">
+              <MapPin className="h-3.5 w-3.5" />
+              GPS coordinates saved ({form.deliveryLocation.latitude.toFixed(5)}, {form.deliveryLocation.longitude.toFixed(5)}).
+            </p>
+          )}
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-gray-500">Additional requirements</label>
@@ -276,7 +364,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
+            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
             onClick={() =>
               createMutation.mutate({
                 ...form,
