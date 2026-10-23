@@ -12,28 +12,33 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import toast from "react-hot-toast";
 
-const BUSINESS_TYPES = [
-  "restaurant",
-  "hotel",
-  "cafe",
-  "cloud_kitchen",
-  "canteen",
-  "caterer",
-  "supermarket",
-  "retail_store",
-  "wholesaler",
-  "food_processor",
-  "institution",
-  "food_processing",
-  "food_manufacturer",
-  "supermarket_chain",
-  "grocery_chain",
-  "distributor",
-  "exporter",
-  "hospital",
-  "school_college_hostel",
-  "corporate_canteen",
-  "animal_feed",
+const BUSINESS_TYPE_OPTIONS = [
+  { value: "food_processing", label: "Food Processing Company" },
+  { value: "hotel", label: "Hotel" },
+  { value: "resort", label: "Resort" },
+  { value: "restaurant", label: "Restaurant" },
+  { value: "restaurant_chain", label: "Restaurant Chain" },
+  { value: "supermarket", label: "Supermarket" },
+  { value: "supermarket_chain", label: "Supermarket Chain" },
+  { value: "retail_store", label: "Retail Store" },
+  { value: "retail_chain", label: "Retail Chain" },
+  { value: "wholesaler", label: "Wholesaler" },
+  { value: "distributor", label: "Distributor" },
+  { value: "food_manufacturer", label: "Food Manufacturer" },
+  { value: "school_college_hostel", label: "School / College / Hostel" },
+  { value: "hospital", label: "Hospital" },
+  { value: "corporate_canteen", label: "Corporate Canteen" },
+  { value: "dairy", label: "Dairy Company" },
+  { value: "animal_feed", label: "Animal Feed Company" },
+  { value: "agri_processing", label: "Agri-processing Company" },
+  { value: "exporter", label: "Agricultural Export Company" },
+  { value: "caterer", label: "Catering Company" },
+  { value: "grocery_chain", label: "Local Grocery Chain" },
+  { value: "cafe", label: "Cafe" },
+  { value: "cloud_kitchen", label: "Cloud Kitchen" },
+  { value: "canteen", label: "Canteen" },
+  { value: "food_processor", label: "Food Processor" },
+  { value: "institution", label: "Other Institution" },
 ];
 
 export default function BusinessProfilePage() {
@@ -143,8 +148,8 @@ export default function BusinessProfilePage() {
               onChange={(e) => setForm({ ...form, businessType: e.target.value })}
               className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
             >
-              {BUSINESS_TYPES.map((t) => (
-                <option key={t} value={t}>{t.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
+              {BUSINESS_TYPE_OPTIONS.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
               ))}
             </select>
           </div>
