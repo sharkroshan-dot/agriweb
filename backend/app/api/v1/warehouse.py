@@ -2626,12 +2626,55 @@ async def get_farmer_fulfillment_transfers(
         # Use the same receipt rows shown on the transfer card (including
         # legacy product/quantity matches) so the card and route eligibility
         # cannot disagree about whether warehouse receiving is complete.
-        all_received = bool(portions_for_card) and all(
-            str(p.get("status") or "").lower() in ("received", "stored")
-            and float(p.get("quantityReceived") or 0) + 1e-9 >= float(p.get("expectedQuantity") or p.get("quantity") or 0)
-            and str(p.get("qualityCheck") or "").lower() in ("passed", "approved", "accepted", "good", "ok")
-            for p in portions_for_card
+        # Bulk/event farm receipts are weighed once as a single lot. In that
+        # workflow the per-order label rows intentionally keep quantityReceived=0
+        # until order packing allocates the lot, while the receipt itself records
+        # the measured lot total and overall quality result. Treat the lot as
+        # physically received only when the measured weight covers all linked
+        # event portions and the lot receipt has a passing quality result.
+        bulk_lot_rows = [
+            row for row in linked_receipts
+            if row.get("bulkShipmentMeasuredTotal") is not None
+            and row.get("bulkShipmentReceivedAt")
+        ]
+        bulk_lot_confirmed = False
+        if bulk_lot_rows and portions_for_card:
+            expected_event_total = sum(
+                float(p.get("expectedQuantity") or p.get("quantity") or 0)
+                for p in portions_for_card
+            )
+            lot_measured_total = max(
+                float(row.get("bulkShipmentMeasuredTotal") or 0)
+                for row in bulk_lot_rows
+            )
+            lot_quality_passed = all(
+                str(row.get("qualityCheck") or "").strip().lower()
+                in ("passed", "approved", "accepted", "good", "ok")
+                for row in bulk_lot_rows
+            )
+            bulk_lot_confirmed = (
+                expected_event_total > 0
+                and lot_measured_total + 1e-9 >= expected_event_total
+                and lot_quality_passed
+            )
+        all_received = bool(portions_for_card) and (
+            bulk_lot_confirmed
+            or all(
+                str(p.get("status") or "").lower() in ("received", "stored")
+                and float(p.get("quantityReceived") or 0) + 1e-9 >= float(p.get("expectedQuantity") or p.get("quantity") or 0)
+                and str(p.get("qualityCheck") or "").lower() in ("passed", "approved", "accepted", "good", "ok")
+                for p in portions_for_card
+            )
         )
+        if bulk_lot_confirmed:
+            for portion in portions_for_card:
+                portion["quantityReceived"] = float(
+                    portion.get("expectedQuantity") or portion.get("quantity") or 0
+                )
+                if str(portion.get("qualityCheck") or "").lower() not in ("passed", "approved", "accepted", "good", "ok"):
+                    portion["qualityCheck"] = "passed"
+                if str(portion.get("status") or "").lower() not in ("stored",):
+                    portion["status"] = "received"
         any_collection_arrived = any(
             str((collection_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("status") or "").lower() == "arrived_warehouse"
             for p in event_portions
@@ -2651,6 +2694,13 @@ async def get_farmer_fulfillment_transfers(
             "physicalReceiptConfirmed": all_received,
             "sourceWarehouseId": warehouse_id,
             "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "This warehouse",
+            # The UI uses this role to decide which dispatch queue owns the card.
+            # Event cards previously omitted it, so inter-district orders were
+            # filtered out of the outbound list despite having valid portions.
+            "currentWarehouseRole": (
+                "destination" if destination_id and destination_id == warehouse_id
+                else "source"
+            ),
             "sourceDistrict": source_district or None,
             "destinationWarehouseId": destination_id or None,
             "destinationWarehouseName": event_request.get("eventDestinationWarehouseName") or event_request.get("eventWarehouseName"),
