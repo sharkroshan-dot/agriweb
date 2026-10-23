@@ -6687,6 +6687,41 @@ async def get_my_incoming_stock(
                     ])).strip() or "Customer details unavailable"
             except Exception:
                 logger.exception("Could not resolve order details for incoming shipment %s", safe_item["id"])
+        # Event/Bulk transfer rows are not linked through the normal customer orderId.
+        # Prefer the explicit event order number carried by the incoming row or its
+        # collection record before falling back to a generic unavailable label.
+        if not safe_item.get("eventOrderNumber"):
+            safe_item["eventOrderNumber"] = safe_item.get("event_order_number")
+        if not safe_item.get("eventRequestId"):
+            safe_item["eventRequestId"] = safe_item.get("event_request_id")
+        if not safe_item.get("eventFulfillmentId"):
+            safe_item["eventFulfillmentId"] = safe_item.get("event_fulfillment_id")
+        safe_item["orderNumber"] = (
+            safe_item.get("orderNumber")
+            if safe_item.get("orderNumber") and str(safe_item.get("orderNumber")).strip().lower() != "order reference unavailable"
+            else safe_item.get("eventOrderNumber")
+            or safe_item.get("event_order_number")
+            or safe_item.get("requestNumber")
+            or safe_item.get("request_number")
+            or (
+                "EVENT-" + str(safe_item.get("eventRequestId") or safe_item.get("event_request_id"))[-6:].upper()
+                if safe_item.get("eventRequestId") or safe_item.get("event_request_id")
+                else None
+            )
+            or (
+                "EVENT-" + str(safe_item.get("eventFulfillmentId") or safe_item.get("event_fulfillment_id"))[-6:].upper()
+                if safe_item.get("eventFulfillmentId") or safe_item.get("event_fulfillment_id")
+                else None
+            )
+            or safe_item.get("orderNumber")
+            or "ORDER-" + str(safe_item.get("orderId") or safe_item.get("order_id"))[-6:].upper()
+            if safe_item.get("orderId") or safe_item.get("order_id")
+            else safe_item.get("eventOrderNumber")
+            or safe_item.get("event_order_number")
+            or safe_item.get("requestNumber")
+            or safe_item.get("request_number")
+            or "RECEIPT-" + str(safe_item.get("id") or safe_item.get("_id") or "UNKNOWN")[-6:].upper()
+        )
         safe_item["farmName"] = safe_item.get("farmName") or safe_item.get("farmerName") or "Farm details unavailable"
         safe_item["farmerName"] = safe_item.get("farmerName") or safe_item["farmName"]
         safe_item["productName"] = safe_item.get("productName") or "Product name unavailable"
