@@ -1482,6 +1482,29 @@ async def get_farmer_fulfillment_transfers(
         collection_id = str(incoming_row.get("collectionId") or "")
         if collection_id and ObjectId.is_valid(collection_id):
             collection_job = await warehouse_collection_repository.get_by_id(collection_id)
+
+        # Bulk/Event fulfillment has its own bulk_requests/event_fulfillments
+        # transfer cards below. These rows often have no normal orderId, so
+        # treating them as "unlinked packed packets" creates duplicate cards
+        # with "Packed order" / "Order reference unavailable". Exclude them
+        # from the normal packed-order recovery queue; their event order number
+        # is resolved by the dedicated event reconciliation path.
+        incoming_source_mode = str(incoming_row.get("sourceMode") or "").strip().lower()
+        collection_source_mode = str((collection_job or {}).get("sourceMode") or "").strip().lower()
+        incoming_collection_type = str(incoming_row.get("collectionType") or "").strip().lower()
+        collection_type = str((collection_job or {}).get("collectionType") or "").strip().lower()
+        is_event_fulfillment_receipt = (
+            incoming_row.get("eventFulfillmentId") is not None
+            or incoming_row.get("eventRequestId") is not None
+            or incoming_row.get("bulkRequestId") is not None
+            or incoming_source_mode == "event_fulfillment_transfer"
+            or collection_source_mode == "event_fulfillment_transfer"
+            or incoming_collection_type == "event_fulfillment_transfer"
+            or collection_type == "event_fulfillment_transfer"
+        )
+        if is_event_fulfillment_receipt:
+            continue
+
         linked_order_id = str(incoming_row.get("orderId") or "")
         if not linked_order_id and collection_job:
             linked_order_id = str(collection_job.get("orderId") or "")
