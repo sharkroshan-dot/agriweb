@@ -269,6 +269,14 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
     }
 
     if source in ("farmer", "b2b"):
+        if source == "b2b":
+            # Clear stale hub assignments if an order was evaluated before its
+            # B2B source was identified. B2B must always go directly to business.
+            result.update({
+                "nearbyFulfillmentLocationId": None,
+                "nearbyFulfillmentLocation": None,
+                "nearbyFulfillmentType": "delivery_partner",
+            })
         if _should_use_warehouse(distance, minutes, risk) or capacity_sufficient is False:
             result.update({
                 "fulfillmentSource": "warehouse",
