@@ -244,8 +244,10 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
     nearby_stock = await _nearby_stock_available(destination, product) if destination else 0.0
     delivery_capacity, capacity_sufficient = await _delivery_capacity_available(origin, quantity) if origin else (None, None)
 
-    source = "farmer"
-    if order.get("warehouseId") and order.get("fulfillmentSource") == "warehouse":
+    # B2B orders use direct-to-business transport and must never be routed
+    # through the Local Hub used by normal customer deliveries.
+    source = "b2b" if order.get("source") == "b2b" or order.get("b2bOrderId") else "farmer"
+    if source != "b2b" and order.get("warehouseId") and order.get("fulfillmentSource") == "warehouse":
         source = "warehouse"
 
     result: Dict[str, Any] = {
@@ -266,7 +268,7 @@ async def evaluate_order(order_id: str, persist: bool = True) -> Dict[str, Any]:
         "decisionAt": datetime.utcnow(),
     }
 
-    if source == "farmer":
+    if source in ("farmer", "b2b"):
         if _should_use_warehouse(distance, minutes, risk) or capacity_sufficient is False:
             result.update({
                 "fulfillmentSource": "warehouse",
