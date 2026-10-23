@@ -482,6 +482,7 @@ class RFQCreate(BaseModel):
     deadline: Optional[datetime] = None
     visibility: str = "state"
     notes: Optional[str] = None
+    saveAsDraft: bool = False
 
 
 @router.post("/rfqs")
@@ -499,6 +500,10 @@ async def create_rfq(
         raise HTTPException(status_code=400, detail="quantityKg is required for one-off RFQs")
     if data.visibility not in VISIBILITY:
         raise HTTPException(status_code=400, detail="visibility must be nearby, district, state or national")
+    if not data.saveAsDraft and (not data.deliveryCity or not data.deliveryCity.strip()):
+        raise HTTPException(status_code=400, detail="Delivery city is required to publish an RFQ")
+    if data.budgetMinPerKg is not None and data.budgetMaxPerKg is not None and data.budgetMinPerKg > data.budgetMaxPerKg:
+        raise HTTPException(status_code=400, detail="Minimum budget cannot exceed maximum budget")
 
     deadline = data.deadline
     if deadline is not None:
@@ -532,7 +537,7 @@ async def create_rfq(
         "deadline": deadline,
         "visibility": data.visibility,
         "notes": data.notes,
-        "status": RFQ_OPEN,
+        "status": "draft" if data.saveAsDraft else RFQ_OPEN,
         "acceptedQuantityKg": 0.0,
         "awardedOfferIds": [],
         "createdAt": datetime.utcnow(),
@@ -543,7 +548,7 @@ async def create_rfq(
     rfq["_id"] = ObjectId(rfq_id)
     rfq["id"] = str(rfq_id)
 
-    farmer_docs = await farmer_profile_repo.find_many({"deletedAt": None}, limit=20)
+    farmer_docs = [] if data.saveAsDraft else await farmer_profile_repo.find_many({"deletedAt": None}, limit=20)
     for fdoc in farmer_docs:
         try:
             await NotificationService.create_in_app_notification(
@@ -556,7 +561,7 @@ async def create_rfq(
             )
         except Exception as exc:  # broadcast must never block RFQ creation
             logger.warning("B2B RFQ broadcast failed: %s", exc)
-    return {"success": True, "data": rfq, "message": "RFQ published"}
+    return {"success": True, "data": rfq, "message": "RFQ saved as draft" if data.saveAsDraft else "RFQ published"}
 
 
 @router.get("/rfqs")
@@ -1083,10 +1088,11 @@ async def update_order_status(
         if current != ORDER_DELIVERED:
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
         update["completedAt"] = datetime.utcnow()
+        # Completion confirms physical receipt only; payment is settled separately.
         if data.paymentStatus in (PAYMENT_PAID, PAYMENT_ADVANCE):
             update["paymentStatus"] = data.paymentStatus
         else:
-            update["paymentStatus"] = PAYMENT_PAID
+            update["paymentStatus"] = order.get("paymentStatus") or PAYMENT_PENDING
         await order_repo.update({"_id": order["_id"]}, update)
         await NotificationService.create_in_app_notification(
             str(order.get("farmerId")), NotificationType.ORDER, "Order completed & settled ✅",
@@ -1096,6 +1102,75 @@ async def update_order_status(
         return {"success": True, "message": "Order completed"}
 
     raise HTTPException(status_code=400, detail="Business buyers can only complete or cancel orders")
+
+
+class BusinessReceiptCreate(BaseModel):
+    receivedQuantityKg: float = Field(..., ge=0)
+    condition: str = Field(..., pattern="^(good|partial|damaged)$")
+    notes: Optional[str] = Field(None, max_length=2000)
+    proofUrl: Optional[str] = Field(None, max_length=1000)
+
+
+@router.post("/orders/{order_id}/receipt")
+async def confirm_business_receipt(
+    order_id: str,
+    data: BusinessReceiptCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record the buyer's physical receipt; do not imply that payment was collected."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can confirm receipt")
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid order id")
+    order = await order_repo.find_one({"_id": oid, "deletedAt": None})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if str(order.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="This order does not belong to your business")
+    if order.get("status") != ORDER_DELIVERED:
+        raise HTTPException(status_code=400, detail="Receipt can only be confirmed after the order is delivered")
+    if data.receivedQuantityKg > float(order.get("quantityKg") or 0):
+        raise HTTPException(status_code=400, detail="Received quantity cannot exceed the ordered quantity")
+    if data.condition == "good" and data.receivedQuantityKg < float(order.get("quantityKg") or 0):
+        raise HTTPException(status_code=400, detail="Use Partial condition when the received quantity is short")
+    if data.condition == "damaged" and not (data.notes or "").strip():
+        raise HTTPException(status_code=400, detail="Add notes describing the damaged goods")
+    now = datetime.utcnow()
+    receipt = {
+        "expectedQuantityKg": float(order.get("quantityKg") or 0),
+        "receivedQuantityKg": round(float(data.receivedQuantityKg), 2),
+        "condition": data.condition,
+        "notes": (data.notes or "").strip() or None,
+        "proofUrl": data.proofUrl,
+        "confirmedBy": ObjectId(current_user["_id"]),
+        "confirmedAt": now,
+    }
+    update = {
+        "status": ORDER_COMPLETED,
+        "completedAt": now,
+        "receipt": receipt,
+        "qualityCheck": "passed" if data.condition == "good" else "failed",
+        "updatedAt": now,
+    }
+    # Receipt completion and payment settlement are separate business events.
+    await order_repo.update({"_id": oid}, update)
+    try:
+        op_id = order.get("operationalOrderId")
+        if op_id:
+            operational = MongoDB.get_collection("orders")
+            await operational.update_one(
+                {"_id": ObjectId(str(op_id))},
+                {"$set": {"businessReceipt": receipt, "updatedAt": now}},
+            )
+    except Exception as exc:
+        logger.warning("Could not sync B2B receipt to operational order %s: %s", order_id, exc)
+    return {
+        "success": True,
+        "message": "Receipt confirmed. Payment remains " + str(order.get("paymentStatus") or PAYMENT_PENDING) + ".",
+        "data": {"orderId": order_id, "status": ORDER_COMPLETED, "receipt": receipt},
+    }
 
 
 @router.get("/orders/{order_id}/invoice")
