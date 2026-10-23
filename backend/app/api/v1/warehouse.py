@@ -2320,29 +2320,47 @@ async def get_farmer_fulfillment_transfers(
             "requestId": {"$in": [request_id, request_id_text]},
             "deletedAt": {"$in": [None, False, ""]},
         }).to_list(length=500)
+        # Event receipts created by older Bulk/Event flows may have only the
+        # event order number and sourceMode, without eventRequestId. Search
+        # this warehouse's receipts by both stable identifiers before giving
+        # up on the event card.
+        incoming_collection = MongoDB.get_collection("incoming_stock")
+        event_order_number = str(event_request.get("requestNumber") or event_request.get("orderNumber") or "")
+        receipt_or = [
+            {"eventRequestId": {"$in": [request_id, request_id_text]}},
+            {"eventFulfillmentId": {"$in": [
+                value for portion in event_portions
+                for value in (portion.get("_id"), str(portion.get("_id") or ""))
+                if value
+            ]}},
+        ]
+        if event_order_number:
+            receipt_or.extend([
+                {"eventOrderNumber": event_order_number},
+                {"orderNumber": event_order_number},
+                {"orderNo": event_order_number},
+            ])
+        linked_receipts = await incoming_collection.find({
+            "warehouseId": {"$in": warehouse_refs},
+            "deletedAt": {"$in": [None, False, ""]},
+            "$or": receipt_or,
+        }).limit(1000).to_list(length=1000)
         # Some legacy event receipts exist before (or without) a matching
         # fulfillment document. Do not hide a dispatch-ready event just because
         # that secondary link is missing: synthesize display-only portions from
         # this warehouse's Incoming Stock rows, preserving the physical receipt
         # as the source of truth for quantities and status.
-        incoming_collection = MongoDB.get_collection("incoming_stock")
-        if not event_portions:
-            fallback_receipts = await incoming_collection.find({
-                "eventRequestId": {"$in": [request_id, request_id_text]},
-                "warehouseId": {"$in": warehouse_refs},
-                "deletedAt": {"$in": [None, False, ""]},
-            }).limit(500).to_list(length=500)
-            if fallback_receipts:
-                event_portions = [{
-                    "_id": row.get("eventFulfillmentId") or row.get("_id"),
-                    "requestId": request_id,
-                    "productId": row.get("productId"),
-                    "productName": row.get("eventProductName") or row.get("productName") or "Event product",
-                    "allocatedQuantityKg": row.get("expectedQuantity") or row.get("quantity") or 0,
-                    "sourceWarehouseId": row.get("sourceWarehouseId") or row.get("warehouseId"),
-                    "warehouseId": row.get("warehouseId"),
-                    "_receiptFallback": True,
-                } for row in fallback_receipts]
+        if not event_portions and linked_receipts:
+            event_portions = [{
+                "_id": row.get("eventFulfillmentId") or row.get("_id"),
+                "requestId": request_id,
+                "productId": row.get("productId"),
+                "productName": row.get("eventProductName") or row.get("productName") or "Event product",
+                "allocatedQuantityKg": row.get("expectedQuantity") or row.get("quantity") or 0,
+                "sourceWarehouseId": row.get("sourceWarehouseId") or row.get("warehouseId"),
+                "warehouseId": row.get("warehouseId"),
+                "_receiptFallback": True,
+            } for row in linked_receipts]
         if not event_portions:
             continue
         # Receipt rows are the most reliable link to this warehouse. Event
@@ -2365,9 +2383,14 @@ async def get_farmer_fulfillment_transfers(
             "$or": [
                 {"eventRequestId": {"$in": [request_id, request_id_text]}},
                 {"eventFulfillmentId": {"$in": fulfillment_ids}},
+                *([{"eventOrderNumber": event_order_number}, {"orderNumber": event_order_number}, {"orderNo": event_order_number}] if event_order_number else []),
             ],
             "deletedAt": {"$in": [None, False, ""]},
         }).limit(2000).to_list(length=2000)
+        # Merge in the warehouse-scoped rows found by order number, since they
+        # may lack eventRequestId and eventFulfillmentId altogether.
+        incoming_seen = {str(row.get("_id") or "") for row in incoming_rows}
+        incoming_rows.extend(row for row in linked_receipts if str(row.get("_id") or "") not in incoming_seen)
         incoming_by_fulfillment = {}
         for incoming_row in incoming_rows:
             fulfillment_key = str(incoming_row.get("eventFulfillmentId") or "")
