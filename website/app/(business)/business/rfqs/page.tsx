@@ -12,7 +12,7 @@ import { Badge } from "../../../components/ui/badge";
 import { CreateRfqForm } from "../../../components/business/create-rfq-form";
 import { AcceptOfferDialog } from "../../../components/business/accept-offer-dialog";
 
-const RFQ_STATUSES = ["", "open", "awarded", "closed", "cancelled"];
+const RFQ_STATUSES = ["", "draft", "open", "awarded", "closed", "cancelled"];
 
 const statusVariant: Record<string, any> = {
   open: "success",
@@ -27,6 +27,7 @@ function AcceptDialog({ offer, rfq, onClose }: { offer: any; rfq: any; onClose: 
 
 export default function BusinessRfqsPage() {
   const [showForm, setShowForm] = useState(false);
+  const [editingRfq, setEditingRfq] = useState<any>(null);
   const [expandedRfq, setExpandedRfq] = useState<string | null>(null);
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState("");
@@ -79,13 +80,16 @@ export default function BusinessRfqsPage() {
           <FileText className="h-6 w-6 text-emerald-600" />
           <h1 className="text-2xl font-bold">My Requests for Quote</h1>
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
+        <Button onClick={() => {
+          if (showForm) setEditingRfq(null);
+          setShowForm(!showForm);
+        }}>
           {showForm ? <RefreshCw className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
           {showForm ? "Cancel" : "New RFQ"}
         </Button>
       </div>
 
-      {showForm && <CreateRfqForm onDone={() => setShowForm(false)} />}
+      {showForm && <CreateRfqForm initialData={editingRfq} onDone={() => { setShowForm(false); setEditingRfq(null); }} />}
 
       {/* One-off / Recurring toggle */}
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
@@ -177,8 +181,15 @@ export default function BusinessRfqsPage() {
                       {r.closingIn ? <span>⏰ closes in {r.closingIn}</span> : null}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={statusVariant[r.status] || "secondary"}>{r.status}</Badge>
+                    {(r.status === "draft" || r.status === "open") && !(Number(r.acceptedQuantityKg) > 0) && (
+                      <Button variant="outline" size="sm" onClick={() => {
+                        setEditingRfq(r);
+                        setShowForm(true);
+                        setExpandedRfq(null);
+                      }}>Edit RFQ</Button>
+                    )}
                     {(r.status === "open" || r.status === "awarded") && (
                       <Button variant="outline" size="sm" onClick={() => setExpandedRfq(expandedRfq === r.id ? null : r.id)}>
                         {expandedRfq === r.id ? "Hide offers" : "View offers"}
