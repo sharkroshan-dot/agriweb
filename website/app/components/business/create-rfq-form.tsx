@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Loader2, Plus } from "lucide-react";
+import { Bot, Loader2, Plus, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -26,6 +26,7 @@ const emptyForm = {
   deliveryState: "",
   deliveryDistrict: "",
   deliveryAddress: "",
+  deliveryLocation: null as { type: string; coordinates: [number, number]; latitude: number; longitude: number } | null,
   priceCeilingPerKg: "",
   budgetMinPerKg: "",
   budgetMaxPerKg: "",
@@ -44,9 +45,49 @@ export function CreateRfqForm({ onDone, initialData }: { onDone?: () => void; in
     budgetMinPerKg: initialData?.budgetMinPerKg != null ? String(initialData.budgetMinPerKg) : "",
     budgetMaxPerKg: initialData?.budgetMaxPerKg != null ? String(initialData.budgetMaxPerKg) : "",
     deliveryAddress: initialData?.deliveryAddress || "",
+    deliveryLocation: initialData?.deliveryLocation || null,
     notes: initialData?.notes || "",
   }));
   const [aiRec, setAiRec] = useState<any>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+
+  const useLiveLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Live location is not supported by this browser.");
+      return;
+    }
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        const latitude = coords.latitude;
+        const longitude = coords.longitude;
+        const location = { type: "Point", coordinates: [longitude, latitude] as [number, number], latitude, longitude };
+        set("deliveryLocation", location);
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, { headers: { Accept: "application/json" } });
+          if (!response.ok) throw new Error("Address lookup failed");
+          const result = await response.json();
+          const address = result.address || {};
+          const city = address.city || address.town || address.village || address.municipality || address.county || "";
+          const state = address.state || address.region || "";
+          const district = address.state_district || address.county || address.city_district || "";
+          const formattedAddress = result.display_name || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+          setForm((current) => ({ ...current, deliveryAddress: formattedAddress, deliveryCity: current.deliveryCity || city, deliveryState: current.deliveryState || state, deliveryDistrict: current.deliveryDistrict || district, deliveryLocation: location }));
+          toast.success("Live location added. Please verify the address before publishing.");
+        } catch {
+          setForm((current) => ({ ...current, deliveryAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`, deliveryLocation: location }));
+          toast.error("Coordinates saved, but the address could not be resolved. Enter the street address manually.");
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+        toast.error(error.code === error.PERMISSION_DENIED ? "Location permission denied. Allow location access or enter the address manually." : error.code === error.TIMEOUT ? "Getting your location timed out. Please try again." : "Could not get your live location. Enter the address manually.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
 
   const createMutation = useMutation({
     mutationFn: ({ payload, saveAsDraft }: { payload: any; saveAsDraft: boolean }) =>
