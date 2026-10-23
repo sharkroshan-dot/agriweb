@@ -4824,20 +4824,37 @@ async def assign_farmer_fulfillment_destination_pickup_team(
     deliveryPartnerId: str = Query(...),
     current_user: dict = Depends(get_current_user),
 ):
-    """Assign an approved source-warehouse pickup team to the inter-district leg."""
+    """Assign an approved source-warehouse team to an inter-district order or Bulk/Event request."""
     if current_user.get("role") != "warehouse":
         raise HTTPException(status_code=403, detail="Only warehouse managers can assign transfer teams")
     if not ObjectId.is_valid(order_id):
-        raise HTTPException(status_code=400, detail="Invalid order ID")
+        raise HTTPException(status_code=400, detail="Invalid order or Bulk/Event request ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    source_id = str(warehouse["_id"])
     order = await order_repository.get_by_id(order_id)
-    if not warehouse or not order:
-        raise HTTPException(status_code=404, detail="Order or warehouse not found")
-    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
-    if str(warehouse["_id"]) != source_id:
-        raise HTTPException(status_code=403, detail="Only the source warehouse can assign the destination transfer team")
-    if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
-        raise HTTPException(status_code=400, detail="This order does not use an inter-district transfer")
+    event_request = None
+    if not order:
+        event_request = await MongoDB.get_collection("bulk_requests").find_one({
+            "_id": ObjectId(order_id), "deletedAt": {"$in": [None, False, ""]}
+        })
+        if not event_request:
+            raise HTTPException(status_code=404, detail="Order or Bulk/Event request not found")
+        request_source = str(event_request.get("sourceWarehouseId") or event_request.get("eventWarehouseId") or event_request.get("warehouseId") or "")
+        if request_source != source_id:
+            raise HTTPException(status_code=403, detail="Only the assigned source warehouse can assign this Bulk/Event transfer team")
+        logistics_mode = "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner"
+        display_number = str(event_request.get("requestNumber") or event_request.get("orderNumber") or ("EVENT-" + order_id[-6:].upper()))
+    else:
+        order_source = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+        if order_source != source_id:
+            raise HTTPException(status_code=403, detail="Only the source warehouse can assign the destination transfer team")
+        logistics_mode = str(order.get("logisticsMode") or "")
+        display_number = str(order.get("orderNumber") or order_id)
+        if logistics_mode != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
+            raise HTTPException(status_code=400, detail="This order does not use an inter-district transfer")
+
     members = await warehouse_pickup_team_repository.get_approved_members(source_id)
     member = next((m for m in members if str(m.get("deliveryPartnerId") or "") == deliveryPartnerId), None)
     if not member:
@@ -4847,7 +4864,10 @@ async def assign_farmer_fulfillment_destination_pickup_team(
     if not ObjectId.is_valid(profile_id) or not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=400, detail="The selected team is missing a valid partner profile or user account")
     legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
-    leg = await legs.find_one({"orderId": ObjectId(order_id), "legType": "warehouse_to_destination_warehouse", "sourceWarehouseId": ObjectId(source_id), "deletedAt": None})
+    leg = await legs.find_one({
+        "orderId": ObjectId(order_id), "legType": "warehouse_to_destination_warehouse",
+        "sourceWarehouseId": ObjectId(source_id), "deletedAt": None,
+    })
     if not leg:
         raise HTTPException(status_code=409, detail="Dispatch the sealed order to create the transfer manifest first")
     if str(leg.get("status") or "") not in ("awaiting_team_assignment", "assigned"):
@@ -4855,10 +4875,7 @@ async def assign_farmer_fulfillment_destination_pickup_team(
     required_capacity = float(leg.get("quantity") or 0)
     vehicle_profile = await delivery_repository.get_by_id(profile_id)
     vehicle_data = {**(vehicle_profile or {}), **member}
-    team_capacity = float(
-        member.get("capacity") or member.get("vehicleCapacity")
-        or (vehicle_profile or {}).get("capacity") or 0
-    )
+    team_capacity = float(member.get("capacity") or member.get("vehicleCapacity") or (vehicle_profile or {}).get("capacity") or 0)
     if required_capacity <= 0:
         raise HTTPException(status_code=400, detail="Transfer quantity is missing; cannot validate vehicle capacity")
     if not passes_vehicle_type(vehicle_data, required_capacity):
@@ -4867,27 +4884,54 @@ async def assign_farmer_fulfillment_destination_pickup_team(
         raise HTTPException(status_code=400, detail="Set a positive vehicle capacity before assigning this transfer")
     if team_capacity < required_capacity:
         raise HTTPException(status_code=400, detail=f"Selected vehicle capacity ({team_capacity:g} kg) is below the shipment quantity ({required_capacity:g} kg)")
-    if leg.get("assignedDeliveryPartnerId") and str(leg.get("assignedDeliveryPartnerId")) != profile_id:
+    existing_partner = str(leg.get("assignedDeliveryPartnerId") or "")
+    if existing_partner and existing_partner != profile_id:
         raise HTTPException(status_code=409, detail="A team is already assigned to this transfer")
     now = datetime.utcnow()
-    assignment_result = await legs.update_one({"_id": leg["_id"], "status": {"$in": ["awaiting_team_assignment", "assigned"]}}, {"$set": {
-        "status": "assigned", "assignedDeliveryPartnerId": ObjectId(profile_id),
+    assignment_result = await legs.update_one({
+        "_id": leg["_id"], "status": {"$in": ["awaiting_team_assignment", "assigned"]}
+    }, {"$set": {
+        "status": "assigned", "orderNumber": leg.get("orderNumber") or display_number,
+        "isEventOrder": bool(event_request) or bool(leg.get("isEventOrder")),
+        "eventRequestId": ObjectId(order_id) if event_request else leg.get("eventRequestId"),
+        "assignedDeliveryPartnerId": ObjectId(profile_id),
         "assignedPartnerUserId": ObjectId(user_id), "assignedBy": ObjectId(str(current_user["_id"])),
         "assignedAt": now, "updatedAt": now,
     }})
     if not assignment_result.modified_count and str(leg.get("status") or "") != "assigned":
-        raise HTTPException(status_code=409, detail="Transfer assignment changed. Refresh and try again.")
-    await order_repository.update({"_id": ObjectId(order_id)}, {
-        "transferStatus": "destination_warehouse_in_transit",
-        "warehouseFulfillmentStage": "destination_warehouse_transfer_pending",
-        "updatedAt": now,
-    })
+        raise HTTPException(status_code=409, detail="Transfer assignment changed. Refresh and try again")
+    if event_request:
+        await MongoDB.get_collection("bulk_requests").update_one({"_id": ObjectId(order_id)}, {"$set": {
+            "transferStatus": "destination_warehouse_in_transit",
+            "warehouseFulfillmentStage": "destination_warehouse_transfer_pending",
+            "assignedTransferPartnerId": ObjectId(profile_id),
+            "assignedTransferPartnerUserId": ObjectId(user_id),
+            "transferAssignedAt": now, "updatedAt": now,
+        }})
+        await MongoDB.get_collection("event_fulfillments").update_many({
+            "$or": [
+                {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]},
+            ],
+            "deletedAt": {"$in": [None, False, ""]},
+        }, {"$set": {"transferStatus": "destination_warehouse_in_transit", "updatedAt": now}})
+    else:
+        await order_repository.update({"_id": ObjectId(order_id)}, {
+            "transferStatus": "destination_warehouse_in_transit",
+            "warehouseFulfillmentStage": "destination_warehouse_transfer_pending",
+            "updatedAt": now,
+        })
     try:
-        await NotificationService.send_custom_notification(user_id, f"Inter-district transfer for order {order.get('orderNumber') or order_id} is assigned to you. Start the route and confirm arrival at the destination warehouse.", title="Warehouse Transfer Assigned", data={"type": "farmer_fulfillment_warehouse_transfer", "orderId": order_id})
+        await NotificationService.send_custom_notification(
+            user_id,
+            f"Inter-district transfer for {display_number} is assigned to you. Start the route and confirm arrival at the destination warehouse.",
+            title="Warehouse Transfer Assigned",
+            data={"type": "farmer_fulfillment_warehouse_transfer", "orderId": order_id, "orderNumber": display_number, "isEventOrder": bool(event_request)},
+        )
     except Exception:
         logger.exception("Unable to notify partner about inter-district transfer")
-    return {"success": True, "data": {"orderId": order_id, "status": "assigned", "deliveryPartnerId": profile_id}, "message": "Approved pickup team assigned to destination transfer"}
-
+    return {"success": True, "data": {"orderId": order_id, "orderNumber": display_number, "status": "assigned", "deliveryPartnerId": profile_id, "isEventOrder": bool(event_request)}, "message": "Approved pickup team assigned to destination transfer"}
 
 @router.post("/me/farmer-fulfillment/{order_id}/receive-at-destination")
 async def receive_farmer_fulfillment_at_destination(
