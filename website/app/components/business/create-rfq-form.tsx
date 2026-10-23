@@ -252,18 +252,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </>
         )}
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery city *</label>
-          <Input value={form.deliveryCity} onChange={(e) => set("deliveryCity", e.target.value)} placeholder="e.g. Coimbatore" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">State</label>
-          <Input value={form.deliveryState} onChange={(e) => set("deliveryState", e.target.value)} placeholder="e.g. Tamil Nadu" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">District</label>
-          <Input value={form.deliveryDistrict} onChange={(e) => set("deliveryDistrict", e.target.value)} placeholder="e.g. Coimbatore" />
-        </div>
+        {/* City, state and district are derived from the delivery address lookup or live location. */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
           <Input type="number" min="0" value={form.priceCeilingPerKg} onChange={(e) => set("priceCeilingPerKg", e.target.value)} />
