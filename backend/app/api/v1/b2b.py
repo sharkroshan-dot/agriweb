@@ -401,11 +401,11 @@ async def create_business_profile(
         raise HTTPException(status_code=403, detail="Only business accounts can create a business profile")
 
     eligible_types = {
-        "restaurant", "hotel", "cafe", "cloud_kitchen", "canteen", "caterer",
-        "supermarket", "retail_store", "wholesaler", "food_processor", "institution",
-        "food_processing", "food_manufacturer", "supermarket_chain", "grocery_chain",
-        "distributor", "exporter", "hospital", "school_college_hostel",
-        "corporate_canteen", "animal_feed",
+        "restaurant", "hotel", "resort", "cafe", "cloud_kitchen", "canteen", "caterer",
+        "restaurant_chain", "supermarket", "retail_store", "retail_chain", "wholesaler",
+        "food_processor", "institution", "food_processing", "food_manufacturer",
+        "supermarket_chain", "grocery_chain", "distributor", "exporter", "hospital",
+        "school_college_hostel", "corporate_canteen", "animal_feed", "dairy", "agri_processing",
     }
     if data.businessType not in eligible_types:
         raise HTTPException(status_code=400, detail="Business type is not eligible for B2B procurement")
