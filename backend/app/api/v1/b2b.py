@@ -577,6 +577,85 @@ async def create_rfq(
     return {"success": True, "data": rfq, "message": "RFQ saved as draft" if data.saveAsDraft else "RFQ published"}
 
 
+@router.put("/rfqs/{rfq_id}")
+async def update_rfq(
+    rfq_id: str,
+    data: RFQCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Edit a buyer-owned draft/open RFQ before any procurement has been awarded."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business accounts can edit RFQs")
+    try:
+        oid = ObjectId(rfq_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid RFQ id")
+    rfq = await rfq_repo.find_one({"_id": oid, "deletedAt": None})
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    if str(rfq.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="This RFQ does not belong to your business")
+    if rfq.get("status") not in ("draft", RFQ_OPEN) or float(rfq.get("acceptedQuantityKg") or 0) > 0:
+        raise HTTPException(status_code=409, detail="RFQs can only be edited before any quote is awarded")
+    if not data.productName.strip():
+        raise HTTPException(status_code=400, detail="Product name is required")
+    if data.recurring and not data.quantityPerWeekKg:
+        raise HTTPException(status_code=400, detail="Weekly quantity is required for recurring RFQs")
+    if not data.recurring and not data.quantityKg:
+        raise HTTPException(status_code=400, detail="Quantity is required for one-off RFQs")
+    if data.visibility not in VISIBILITY:
+        raise HTTPException(status_code=400, detail="Invalid RFQ visibility")
+    if not data.saveAsDraft and not (data.deliveryCity or "").strip():
+        raise HTTPException(status_code=400, detail="Delivery city is required to publish an RFQ")
+    if data.budgetMinPerKg is not None and data.budgetMaxPerKg is not None and data.budgetMinPerKg > data.budgetMaxPerKg:
+        raise HTTPException(status_code=400, detail="Minimum budget cannot exceed maximum budget")
+    deadline = data.deadline
+    if deadline is not None:
+        if deadline.tzinfo is not None:
+            deadline = deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        if deadline < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="RFQ deadline must be in the future")
+    update = {
+        "productName": data.productName.strip(),
+        "category": data.category,
+        "recurring": bool(data.recurring),
+        "quantityPerWeekKg": data.quantityPerWeekKg if data.recurring else None,
+        "quantityKg": data.quantityKg if not data.recurring else None,
+        "qualityGrade": data.qualityGrade,
+        "priceCeilingPerKg": data.priceCeilingPerKg,
+        "budgetMinPerKg": data.budgetMinPerKg,
+        "budgetMaxPerKg": data.budgetMaxPerKg,
+        "requiredDate": data.requiredDate,
+        "deliveryTimeSlot": data.deliveryTimeSlot,
+        "deliveryCity": data.deliveryCity,
+        "deliveryState": data.deliveryState,
+        "deliveryDistrict": data.deliveryDistrict,
+        "deliveryAddress": data.deliveryAddress,
+        "deliveryLocation": data.deliveryLocation,
+        "deliveryDays": data.deliveryDays,
+        "deadline": deadline,
+        "visibility": data.visibility,
+        "notes": data.notes,
+        "status": "draft" if data.saveAsDraft else RFQ_OPEN,
+        "updatedAt": datetime.utcnow(),
+    }
+    await rfq_repo.update({"_id": oid}, update)
+    if not data.saveAsDraft and rfq.get("status") == "draft":
+        for farmer_doc in await farmer_profile_repo.find_many({"deletedAt": None}, limit=20):
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(farmer_doc.get("userId")), NotificationType.PROMOTION,
+                    "New B2B opportunity 💼",
+                    f"{update['productName']} {update['quantityKg'] or update['quantityPerWeekKg']} kg needed near {update['deliveryCity'] or 'you'}.",
+                    {"rfqId": str(oid), "type": "b2b"}, NotificationPriority.HIGH,
+                )
+            except Exception as exc:
+                logger.warning("RFQ publish notification failed: %s", exc)
+    updated = await rfq_repo.find_one({"_id": oid, "deletedAt": None})
+    await _stringify_rfq(updated)
+    return {"success": True, "data": updated, "message": "RFQ saved as draft" if data.saveAsDraft else "RFQ published"}
+
+
 @router.get("/rfqs")
 async def list_rfqs(
     status: Optional[str] = Query(RFQ_OPEN),
