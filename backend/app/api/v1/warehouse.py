@@ -4631,7 +4631,7 @@ async def dispatch_farmer_fulfillment_to_destination(
                 "$or": [
                     {"requestId": {"$in": [ObjectId(order_id), order_id]}},
                     {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
-                    {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]},
+                    {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
                 ],
                 "deletedAt": {"$in": [None, False, ""]},
             }, {"$set": {"sourceWarehouseId": ObjectId(warehouse_id), "warehouseId": ObjectId(warehouse_id), "updatedAt": now}})
