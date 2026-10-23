@@ -2654,8 +2654,40 @@ async def get_farmer_fulfillment_transfers(
             )
             if resolved_destination:
                 destination_id = str(resolved_destination.get("_id") or "")
+                destination_name = resolved_destination.get("name") or resolved_destination.get("warehouseName") or "Destination Warehouse"
                 event_request["eventDestinationWarehouseId"] = destination_id
-                event_request["eventDestinationWarehouseName"] = resolved_destination.get("name") or resolved_destination.get("warehouseName")
+                event_request["eventDestinationWarehouseName"] = destination_name
+                # Persist the repaired route so action endpoints and subsequent
+                # reads agree with this queue's resolved destination.
+                await event_requests_collection.update_one(
+                    {"_id": request_id},
+                    {"$set": {
+                        "sourceWarehouseId": ObjectId(source_id) if ObjectId.is_valid(source_id) else source_id,
+                        "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Source Warehouse",
+                        "eventDestinationWarehouseId": ObjectId(destination_id) if ObjectId.is_valid(destination_id) else destination_id,
+                        "eventDestinationWarehouseName": destination_name,
+                        "destinationWarehouseId": ObjectId(destination_id) if ObjectId.is_valid(destination_id) else destination_id,
+                        "destinationWarehouseName": destination_name,
+                        "destinationDistrict": destination_district,
+                        "sourceDistrict": source_district or None,
+                        "logisticsMode": "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner",
+                        "updatedAt": datetime.utcnow(),
+                    }},
+                )
+                await event_fulfillments_collection.update_many(
+                    {"$or": [
+                        {"requestId": {"$in": [request_id, request_id_text]}},
+                        {"eventRequestId": {"$in": [request_id, request_id_text]}},
+                        {"bulkRequestId": {"$in": [request_id, request_id_text]}},
+                    ], "deletedAt": {"$in": [None, False, ""]}},
+                    {"$set": {
+                        "sourceWarehouseId": ObjectId(source_id) if ObjectId.is_valid(source_id) else source_id,
+                        "destinationWarehouseId": ObjectId(destination_id) if ObjectId.is_valid(destination_id) else destination_id,
+                        "sourceDistrict": source_district or None,
+                        "destinationDistrict": destination_district,
+                        "updatedAt": datetime.utcnow(),
+                    }},
+                )
         statuses = [str(p.get("status") or "").lower() for p in event_portions]
         # Use the same receipt rows shown on the transfer card (including
         # legacy product/quantity matches) so the card and route eligibility
