@@ -254,16 +254,16 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         {/* City, state and district are derived from the delivery address lookup or live location. */}
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
-          <Input type="number" min="0" value={form.priceCeilingPerKg} onChange={(e) => set("priceCeilingPerKg", e.target.value)} />
-        </div>
-        <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Budget min (₹/kg)</label>
           <Input type="number" min="0" value={form.budgetMinPerKg} onChange={(e) => set("budgetMinPerKg", e.target.value)} />
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Budget max (₹/kg)</label>
           <Input type="number" min="0" value={form.budgetMaxPerKg} onChange={(e) => set("budgetMaxPerKg", e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
+          <Input type="number" min="0" value={form.priceCeilingPerKg} onChange={(e) => set("priceCeilingPerKg", e.target.value)} />
         </div>
 
         <div className="space-y-1">
