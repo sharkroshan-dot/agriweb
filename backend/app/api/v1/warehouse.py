@@ -2433,6 +2433,32 @@ async def get_farmer_fulfillment_transfers(
             "deletedAt": {"$in": [None, False, ""]},
             "$or": collection_or,
         }).limit(2000).to_list(length=2000)
+
+        # Critical legacy join: Farm Collection stores incomingStockId as a
+        # separate reference, while its own _id is NOT the Incoming Stock _id.
+        # Resolve those exact IDs before falling back to product/quantity so
+        # the transfer card reads the same receipt status that Incoming Stock
+        # updated (received, quality approved, stored).
+        linked_incoming_ids = []
+        for collection_row in collection_rows:
+            raw_incoming_id = collection_row.get("incomingStockId") or collection_row.get("incoming_stock_id")
+            if raw_incoming_id:
+                linked_incoming_ids.extend([raw_incoming_id, str(raw_incoming_id)])
+        if linked_incoming_ids:
+            exact_linked_incoming = await incoming_collection.find({
+                "_id": {"$in": [
+                    value if isinstance(value, ObjectId) else ObjectId(value)
+                    for value in set(str(v) for v in linked_incoming_ids)
+                    if ObjectId.is_valid(str(value))
+                ]},
+                "deletedAt": {"$in": [None, False, ""]},
+            }).to_list(length=2000)
+            known_incoming_ids = {str(row.get("_id") or "") for row in incoming_rows}
+            incoming_rows.extend(
+                row for row in exact_linked_incoming
+                if str(row.get("_id") or "") not in known_incoming_ids
+            )
+
         collection_by_fulfillment = {}
         for collection_row in collection_rows:
             fulfillment_key = str(collection_row.get("eventFulfillmentId") or "")
@@ -2447,6 +2473,22 @@ async def get_farmer_fulfillment_transfers(
             existing_rank = collection_rank.get(str(existing.get("status") or "").lower(), -1) if existing else -2
             if existing is None or current_rank > existing_rank:
                 collection_by_fulfillment[fulfillment_key] = collection_row
+        # Join by the explicit collection -> incomingStockId link first.
+        # Some legacy Incoming Stock rows do not carry eventFulfillmentId.
+        for collection_row in collection_rows:
+            fulfillment_key = str(collection_row.get("eventFulfillmentId") or "")
+            incoming_ref = str(collection_row.get("incomingStockId") or collection_row.get("incoming_stock_id") or "")
+            if not fulfillment_key or not incoming_ref:
+                continue
+            exact_receipt = next(
+                (row for row in incoming_rows if str(row.get("_id") or "") == incoming_ref),
+                None,
+            )
+            if exact_receipt:
+                existing = incoming_by_fulfillment.get(fulfillment_key)
+                if not existing or str(existing.get("status") or "").lower() in ("in_transit", "pending", "scheduled"):
+                    incoming_by_fulfillment[fulfillment_key] = exact_receipt
+
         receipt_warehouse_ids = {
             str(row.get("eventFulfillmentId") or ""): str(row.get("warehouseId") or "")
             for row in incoming_rows
