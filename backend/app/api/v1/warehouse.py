@@ -2322,18 +2322,12 @@ async def get_farmer_fulfillment_transfers(
         }).to_list(length=500)
         if not event_portions:
             continue
-        # Include only requests where this warehouse has an operational role:
-        # source, selected destination, or the current receiving warehouse.
+        # Receipt rows are the most reliable link to this warehouse. Event
+        # fulfillment assignments may be missing on older records even though
+        # Incoming Stock has already created a pickup/receipt row for this
+        # warehouse. Query receipts first, then determine the warehouse's role.
         def _event_warehouse_matches(value: Any) -> bool:
             return str(value or "") == warehouse_id
-        relevant_portions = [
-            portion for portion in event_portions
-            if any(_event_warehouse_matches(portion.get(field)) for field in (
-                "sourceWarehouseId", "warehouseId", "destinationWarehouseId", "eventWarehouseId"
-            )) or _event_warehouse_matches(event_request.get("eventWarehouseId"))
-        ]
-        if not relevant_portions:
-            continue
         # Receipt rows may be stored against the source warehouse or the
         # receiving/destination warehouse, so look up by event request first.
         # Older incoming-stock rows sometimes have eventFulfillmentId but
@@ -2364,6 +2358,21 @@ async def get_farmer_fulfillment_transfers(
             candidate_rank = rank.get(str(incoming_row.get("status") or "").lower(), 0)
             if existing is None or candidate_rank > current_rank:
                 incoming_by_fulfillment[fulfillment_key] = incoming_row
+        receipt_warehouse_ids = {
+            str(row.get("eventFulfillmentId") or ""): str(row.get("warehouseId") or "")
+            for row in incoming_rows
+            if row.get("eventFulfillmentId") and _event_warehouse_matches(row.get("warehouseId"))
+        }
+        relevant_portions = [
+            portion for portion in event_portions
+            if any(_event_warehouse_matches(portion.get(field)) for field in (
+                "sourceWarehouseId", "warehouseId", "destinationWarehouseId", "eventWarehouseId"
+            ))
+            or _event_warehouse_matches(event_request.get("eventWarehouseId"))
+            or _event_warehouse_matches(receipt_warehouse_ids.get(str(portion.get("_id") or "")))
+        ]
+        if not relevant_portions:
+            continue
         portions_for_card = []
         for portion in event_portions:
             fid = str(portion.get("_id") or "")
