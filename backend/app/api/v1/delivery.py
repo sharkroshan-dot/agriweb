@@ -4092,7 +4092,8 @@ async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Dep
         rows.append(leg_doc)
         known_event_ids.add(event_id)
 
-    output = []    seen = set()
+    output = []
+    seen = set()
     for row in rows:
         leg_id = str(row.get("_id") or "")
         if leg_id in seen:
