@@ -15,6 +15,8 @@ Collections:
 """
 import random
 import re
+import hashlib
+import hmac
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from typing import Any, Dict, List, Optional, Tuple
@@ -49,6 +51,8 @@ from app.services.bulk_order_service import haversine_km, _coords, _farmer_locat
 from app.database.mongodb import MongoDB
 from app.services.fulfillment_engine import evaluate_order
 from app.core.security import Security
+from app.core.config import settings
+from app.services.payment_service import razorpay_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -274,6 +278,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "expectedDeliveryDate": offer.get("expectedDeliveryDate"),
         "paymentMode": (accept.paymentMode if accept and accept.paymentMode else "cod"),
         "advanceAmount": float(accept.advanceAmount) if accept and accept.advanceAmount else 0.0,
+        "paidAmount": 0.0,
         "paymentStatus": PAYMENT_PENDING,
         "status": ORDER_CONFIRMED,
         "qualityCheck": "pending",
@@ -1115,6 +1120,130 @@ async def update_order_status(
         return {"success": True, "message": "Order completed"}
 
     raise HTTPException(status_code=400, detail="Business buyers can only complete or cancel orders")
+
+
+class B2BPaymentIntentCreate(BaseModel):
+    amount: Optional[float] = Field(None, gt=0)
+
+
+@router.post("/orders/{order_id}/payment-intent")
+async def create_b2b_payment_intent(
+    order_id: str,
+    data: B2BPaymentIntentCreate = Body(default=B2BPaymentIntentCreate()),
+    current_user: dict = Depends(get_current_user),
+):
+    """Create a Razorpay checkout for the unpaid balance of a B2B purchase order."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can pay this order")
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid order id")
+    order = await order_repo.find_one({"_id": oid, "deletedAt": None})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if str(order.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="This order does not belong to your business")
+    total = round(float(order.get("totalAmount") or 0), 2)
+    paid = round(float(order.get("paidAmount") or 0), 2)
+    balance = round(max(0, total - paid), 2)
+    if balance <= 0 or order.get("paymentStatus") == PAYMENT_PAID:
+        raise HTTPException(status_code=400, detail="This B2B order is already paid")
+    amount = round(float(data.amount if data.amount is not None else balance), 2)
+    if amount <= 0 or amount > balance:
+        raise HTTPException(status_code=400, detail=f"Payment amount must be between ₹0.01 and ₹{balance}")
+    if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+        raise HTTPException(status_code=503, detail="Online payments are not configured. Configure Razorpay keys to enable payment.")
+    try:
+        gateway_order = razorpay_client.order.create({
+            "amount": int(round(amount * 100)),
+            "currency": "INR",
+            "receipt": f"b2b_{str(order['_id'])[-14:]}",
+            "notes": {"b2b_order_id": str(order["_id"]), "business_user_id": str(current_user["_id"])},
+        })
+    except Exception as exc:
+        logger.exception("Razorpay B2B order creation failed")
+        raise HTTPException(status_code=502, detail="Payment gateway could not create an order. Please retry.")
+    now = datetime.utcnow()
+    intent = {
+        "gatewayOrderId": gateway_order["id"],
+        "amount": amount,
+        "status": "pending",
+        "createdAt": now,
+    }
+    await order_repo.update({"_id": oid}, {"paymentIntent": intent, "updatedAt": now})
+    return {"success": True, "data": {
+        "key_id": settings.RAZORPAY_KEY_ID,
+        "order_id": gateway_order["id"],
+        "amount": gateway_order["amount"],
+        "currency": gateway_order["currency"],
+        "paymentAmount": amount,
+        "description": f"B2B order {order.get('orderNumber')} balance payment",
+        "orderId": str(oid),
+    }}
+
+
+class B2BPaymentConfirm(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.post("/orders/{order_id}/payment-confirm")
+async def confirm_b2b_payment(
+    order_id: str,
+    data: B2BPaymentConfirm,
+    current_user: dict = Depends(get_current_user),
+):
+    """Verify Razorpay's signature before recording a B2B payment."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can confirm payment")
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid order id")
+    order = await order_repo.find_one({"_id": oid, "deletedAt": None})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if str(order.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="This order does not belong to your business")
+    intent = order.get("paymentIntent") or {}
+    if intent.get("status") != "pending" or intent.get("gatewayOrderId") != data.razorpay_order_id:
+        raise HTTPException(status_code=400, detail="No matching pending payment was found")
+    expected = hmac.new(
+        str(settings.RAZORPAY_KEY_SECRET).encode(),
+        f"{data.razorpay_order_id}|{data.razorpay_payment_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, data.razorpay_signature):
+        raise HTTPException(status_code=400, detail="Razorpay payment signature verification failed")
+    amount = round(float(intent.get("amount") or 0), 2)
+    total = round(float(order.get("totalAmount") or 0), 2)
+    paid = round(float(order.get("paidAmount") or 0) + amount, 2)
+    paid = min(paid, total)
+    now = datetime.utcnow()
+    status = PAYMENT_PAID if paid >= total - 0.01 else PAYMENT_ADVANCE
+    await order_repo.update({"_id": oid}, {
+        "paidAmount": paid,
+        "paymentStatus": status,
+        "paymentIntent.status": "paid",
+        "paymentIntent.paymentId": data.razorpay_payment_id,
+        "paymentIntent.verifiedAt": now,
+        "updatedAt": now,
+    })
+    try:
+        op_id = order.get("operationalOrderId")
+        if op_id:
+            await MongoDB.get_collection("orders").update_one(
+                {"_id": ObjectId(str(op_id))},
+                {"$set": {"paymentStatus": status, "paidAmount": paid, "updatedAt": now}},
+            )
+    except Exception as exc:
+        logger.warning("Could not sync B2B payment to operational order %s: %s", order_id, exc)
+    return {"success": True, "message": "Payment verified", "data": {
+        "orderId": str(oid), "paymentStatus": status, "paidAmount": paid,
+        "balanceDue": round(max(0, total - paid), 2),
+    }}
 
 
 class BusinessReceiptCreate(BaseModel):
