@@ -18,8 +18,15 @@ const statusVariant: Record<string, any> = {
 };
 
 const statusLabel: Record<string, string> = {
+  confirmed: "Confirmed",
+  processing: "Farmer Processing",
   preparing: "Preparing",
   quality_check: "Quality Check",
+  ready_for_delivery: "Ready for Delivery",
+  transfer_pending: "Warehouse Transfer Pending",
+  transferred: "At Warehouse",
+  hub_received: "Hub Received",
+  local_dispatch: "Local Dispatch",
   dispatched: "Dispatched",
   in_transit: "In Transit",
   delivered: "Delivered",
@@ -68,7 +75,10 @@ export default function DeliveriesPage() {
     );
   }
 
-  const all = (ordersData?.data?.deliveries || []).filter((o: any) => deliveryStatuses.includes(o.status));
+  const all = (ordersData?.data?.deliveries || []).filter((o: any) => {
+    const stage = o.logistics?.status || o.status;
+    return deliveryStatuses.includes(stage) || ["preparing", "quality_check"].includes(o.status);
+  });
   const deliveries = filter ? all.filter((o: any) => (o.logistics?.status || o.status) === filter) : all;
   const countByStatus = (s: string) => all.filter((o: any) => (o.logistics?.status || o.status) === s).length;
 
