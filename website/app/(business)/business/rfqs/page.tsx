@@ -34,8 +34,10 @@ export default function BusinessRfqsPage() {
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
 
   const { data: rfqData, isLoading } = useQuery({
+    // Load the complete RFQ list once; status tabs filter it locally so each
+    // tab reliably shows only matching orders regardless of backend query behavior.
     queryKey: ["b2b", "rfqs"],
-    queryFn: () => api.get("/b2b/rfqs", { params: { status: statusFilter || "" } }),
+    queryFn: () => api.get("/b2b/rfqs", { params: { status: "" } }),
   });
 
   const { data: offersData, isFetching: offersLoading } = useQuery({
@@ -52,9 +54,14 @@ export default function BusinessRfqsPage() {
     );
   }
 
-  const rfqs = (rfqData?.data?.rfqs || []).filter((r: any) =>
-    !search.trim() || (r.productName || "").toLowerCase().includes(search.trim().toLowerCase())
-  );
+  const allRfqs = rfqData?.data?.rfqs || [];
+  const rfqs = allRfqs.filter((r: any) => {
+    const matchesStatus =
+      !statusFilter || String(r.status || "").toLowerCase() === statusFilter.toLowerCase();
+    const matchesSearch =
+      !search.trim() || String(r.productName || "").toLowerCase().includes(search.trim().toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
 
   const oneOffRfqs = rfqs.filter((r: any) => !r.recurring);
   const recurringRfqs = rfqs.filter((r: any) => r.recurring);
