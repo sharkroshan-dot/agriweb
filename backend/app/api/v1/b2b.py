@@ -310,7 +310,7 @@ async def _ensure_operational_order(b2b: Dict[str, Any]) -> Optional[Dict[str, A
         # Re-evaluate older operational orders after they are identified as B2B.
         # This clears legacy Local Hub assignments and refreshes warehouse/direct
         # transport routing without creating a duplicate operational order.
-        if b2b.get("source") == "b2b" or b2b.get("b2bOrderId") or b2b.get("orderNumber", "").startswith("B2B-"):
+        if b2b.get("source") == "b2b" or b2b.get("b2bOrderId") or (b2b.get("orderNumber") or "").startswith("B2B-"):
             try:
                 await evaluate_order(str(existing["_id"]), persist=True)
                 existing = await orders.find_one({"_id": existing["_id"]}) or existing
