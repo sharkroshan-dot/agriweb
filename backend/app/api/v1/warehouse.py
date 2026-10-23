@@ -2745,6 +2745,24 @@ async def get_farmer_fulfillment_transfers(
             str((collection_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("status") or "").lower() == "arrived_warehouse"
             for p in event_portions
         ) or any(str(row.get("status") or "").lower() == "arrived_warehouse" for row in collection_rows)
+        # For event requests, the transfer leg is the source of truth for
+        # warehouse-to-warehouse progress. Do not trust stale parent status
+        # values that can incorrectly mark a shipment as already received.
+        event_transfer_legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+        event_transfer_leg = await event_transfer_legs.find_one({
+            "orderId": {"$in": [request_id, request_id_text]},
+            "legType": "warehouse_to_destination_warehouse",
+            "deletedAt": None,
+        }, sort=[("updatedAt", -1)])
+        leg_status = str((event_transfer_leg or {}).get("status") or "").lower()
+        transfer_status_by_leg = {
+            "awaiting_team_assignment": "destination_warehouse_transfer_pending",
+            "assigned": "destination_warehouse_transfer_pending",
+            "in_transit": "destination_warehouse_in_transit",
+            "arrived_at_destination": "destination_warehouse_arrived_pending_receipt",
+            "received_at_destination": "destination_warehouse_received",
+        }
+        event_transfer_status = transfer_status_by_leg.get(leg_status)
         result.append({
             "id": request_id_text,
             "requestId": request_id_text,
@@ -2758,7 +2776,15 @@ async def get_farmer_fulfillment_transfers(
             "eventRequestId": request_id_text,
             "isUnassigned": False,
             "physicalReceiptConfirmed": all_received,
-            "sourceWarehouseId": warehouse_id,
+            "transferStatus": event_transfer_status,
+            "destinationTransferStatus": (
+                "received_at_destination" if leg_status == "received_at_destination"
+                else "arrived_at_destination" if leg_status == "arrived_at_destination"
+                else "in_transit" if leg_status == "in_transit"
+                else "assigned" if leg_status == "assigned"
+                else None
+            ),
+            "sourceWarehouseId": source_id or warehouse_id,
             "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "This warehouse",
             # The UI uses this role to decide which dispatch queue owns the card.
             # Event cards previously omitted it, so inter-district orders were
