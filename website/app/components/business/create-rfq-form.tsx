@@ -296,7 +296,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="text-xs font-medium text-gray-500">Delivery address *</label>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" disabled={locationLoading || !form.deliveryAddress.trim()} onClick={geocodeManualAddress}>
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={geocodeManualAddress}>
                 <MapPin className="mr-1.5 h-4 w-4" />
                 Find address on map
               </Button>
