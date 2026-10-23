@@ -2317,7 +2317,11 @@ async def get_farmer_fulfillment_transfers(
         if any(str(row.get("id") or "") == request_id_text for row in result):
             continue
         event_portions = await event_fulfillments_collection.find({
-            "requestId": {"$in": [request_id, request_id_text]},
+            "$or": [
+                {"requestId": {"$in": [request_id, request_id_text]}},
+                {"eventRequestId": {"$in": [request_id, request_id_text]}},
+                {"bulkRequestId": {"$in": [request_id, request_id_text]}},
+            ],
             "deletedAt": {"$in": [None, False, ""]},
         }).to_list(length=500)
         # Event receipts created by older Bulk/Event flows may have only the
@@ -2328,6 +2332,8 @@ async def get_farmer_fulfillment_transfers(
         event_order_number = str(event_request.get("requestNumber") or event_request.get("orderNumber") or "")
         receipt_or = [
             {"eventRequestId": {"$in": [request_id, request_id_text]}},
+            {"requestId": {"$in": [request_id, request_id_text]}},
+            {"bulkRequestId": {"$in": [request_id, request_id_text]}},
             {"eventFulfillmentId": {"$in": [
                 value for portion in event_portions
                 for value in (portion.get("_id"), str(portion.get("_id") or ""))
@@ -2382,6 +2388,8 @@ async def get_farmer_fulfillment_transfers(
         incoming_rows = await incoming_collection.find({
             "$or": [
                 {"eventRequestId": {"$in": [request_id, request_id_text]}},
+                {"requestId": {"$in": [request_id, request_id_text]}},
+                {"bulkRequestId": {"$in": [request_id, request_id_text]}},
                 {"eventFulfillmentId": {"$in": fulfillment_ids}},
                 *([{"eventOrderNumber": event_order_number}, {"orderNumber": event_order_number}, {"orderNo": event_order_number}] if event_order_number else []),
             ],
@@ -2490,7 +2498,7 @@ async def get_farmer_fulfillment_transfers(
             "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
             "isEventOrder": True,
             "eventRequestId": request_id_text,
-            "isUnassigned": not bool(destination_id),
+            "isUnassigned": False,
             "physicalReceiptConfirmed": all_received,
             "sourceWarehouseId": warehouse_id,
             "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "This warehouse",
