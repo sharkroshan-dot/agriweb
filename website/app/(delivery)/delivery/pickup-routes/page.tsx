@@ -190,7 +190,7 @@ const stopStatusLabel = (value: string) => ({
 } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function DeliveryPickupRoutesPage() {
-  const [routeView, setRouteView] = useState<"pickup" | "transfers">("pickup");
+  const [routeView, setRouteView] = useState<"pickup" | "transfers">("transfers");
   const [datePeriod, setDatePeriod] = useState<"today" | "yesterday">("today");
   const offersQ = useQuery({
     queryKey: ["myPickupOffers"],
@@ -406,6 +406,17 @@ export default function DeliveryPickupRoutesPage() {
 
       {routeView === "transfers" && (
         <>
+      {warehouseTransfers.length === 0 && hubTransfers.length === 0 && (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <Truck className="mx-auto h-10 w-10 text-slate-400" />
+            <h3 className="mt-3 font-semibold text-slate-900">No transfers for {datePeriod}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">Transfers assigned to your delivery-partner account appear here. Check Today/Yesterday or confirm that the warehouse assigned the transfer to your account.</p>
+            <Button className="mt-4" variant="outline" onClick={() => { void Promise.all([warehouseTransfersQ.refetch(), hubTransfersQ.refetch()]); }}>Refresh transfers</Button>
+          </CardContent>
+        </Card>
+      )}
+
       {warehouseTransfers.length > 0 && (
         <Card className="border-amber-200">
           <CardHeader className="border-b bg-amber-50/70">
