@@ -307,6 +307,15 @@ async def _ensure_operational_order(b2b: Dict[str, Any]) -> Optional[Dict[str, A
     if existing:
         if str(b2b.get("operationalOrderId")) != str(existing["_id"]):
             await order_repo.update({"_id": b2b["_id"]}, {"operationalOrderId": existing["_id"], "updatedAt": datetime.utcnow()})
+        # Re-evaluate older operational orders after they are identified as B2B.
+        # This clears legacy Local Hub assignments and refreshes warehouse/direct
+        # transport routing without creating a duplicate operational order.
+        if b2b.get("source") == "b2b" or b2b.get("b2bOrderId") or b2b.get("orderNumber", "").startswith("B2B-"):
+            try:
+                await evaluate_order(str(existing["_id"]), persist=True)
+                existing = await orders.find_one({"_id": existing["_id"]}) or existing
+            except Exception as exc:
+                logger.warning("B2B logistics refresh failed for %s: %s", b2b.get("orderNumber"), exc)
         return existing
     farmer_id = b2b.get("farmerId")
     farmer = await farmer_repository.find_one({"userId": str(farmer_id)}) if farmer_id else None
