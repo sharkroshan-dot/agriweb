@@ -4557,12 +4557,86 @@ async def dispatch_farmer_fulfillment_to_destination(
         source_id = str(event_request.get("sourceWarehouseId") or event_request.get("eventWarehouseId") or event_request.get("warehouseId") or "")
         destination_id = str(event_request.get("eventDestinationWarehouseId") or event_request.get("destinationWarehouseId") or "")
         warehouse_id = str(warehouse["_id"])
-        if not source_id or source_id != warehouse_id:
-            raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this Bulk/Event order")
-        if not destination_id or destination_id == source_id:
-            raise HTTPException(status_code=409, detail="Assign a different destination warehouse before creating the transfer")
         event_number = str(event_request.get("requestNumber") or event_request.get("orderNumber") or ("EVENT-" + order_id[-6:].upper()))
         incoming_collection = MongoDB.get_collection("incoming_stock")
+
+        # The physical Incoming Stock receipt is authoritative for legacy event
+        # orders: some records retained the farm/source warehouse on the parent
+        # request even after the sealed bulk lot was received into this warehouse.
+        # Allow correcting that stale assignment only when this warehouse owns
+        # the matching receipt and the lot has a measured weight + passing QC.
+        if not source_id or source_id != warehouse_id:
+            current_receipt_or = [
+                {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"eventOrderNumber": event_number},
+                {"orderNumber": event_number},
+                {"orderNo": event_number},
+            ]
+            current_receipts = await incoming_collection.find({
+                "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+                "deletedAt": {"$in": [None, False, ""]},
+                "$or": current_receipt_or,
+            }).to_list(length=1000)
+            # Legacy collection records may identify the receipt through incomingStockId.
+            current_collections = await MongoDB.get_collection("warehouse_collections").find({
+                "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+                "deletedAt": {"$in": [None, False, ""]},
+                "$or": current_receipt_or,
+            }).to_list(length=1000)
+            current_incoming_ids = {
+                str(row.get("incomingStockId") or row.get("incoming_stock_id") or "")
+                for row in current_collections
+                if row.get("incomingStockId") or row.get("incoming_stock_id")
+            }
+            if current_incoming_ids:
+                existing_ids = {str(row.get("_id") or "") for row in current_receipts}
+                current_receipts.extend(await incoming_collection.find({
+                    "_id": {"$in": [ObjectId(v) for v in current_incoming_ids if ObjectId.is_valid(v)]},
+                    "warehouseId": {"$in": [ObjectId(warehouse_id), warehouse_id]},
+                    "deletedAt": {"$in": [None, False, ""]},
+                }).to_list(length=1000))
+                current_receipts = list({str(row.get("_id") or ""): row for row in current_receipts}.values())
+            current_lot_rows = [
+                row for row in current_receipts
+                if row.get("bulkShipmentMeasuredTotal") is not None and row.get("bulkShipmentReceivedAt")
+            ]
+            if not current_lot_rows:
+                raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this Bulk/Event order. This warehouse has no matching confirmed bulk-lot receipt.")
+            current_measured = max(float(row.get("bulkShipmentMeasuredTotal") or 0) for row in current_lot_rows)
+            current_expected = sum(float(row.get("quantity") or row.get("expectedQuantity") or 0) for row in current_receipts)
+            current_qc_passed = all(
+                str(row.get("qualityCheck") or "").strip().lower() in ("passed", "approved", "accepted", "good", "ok")
+                for row in current_lot_rows
+            )
+            if current_expected <= 0 or current_measured + 1e-9 < current_expected or not current_qc_passed:
+                raise HTTPException(status_code=409, detail="This warehouse's Bulk/Event lot receipt is incomplete or quality approval has not passed; cannot correct the source assignment.")
+            # Correct stale routing metadata using the warehouse that physically
+            # received the complete, quality-approved lot as the source.
+            source_id = warehouse_id
+            now = datetime.utcnow()
+            await MongoDB.get_collection("bulk_requests").update_one(
+                {"_id": ObjectId(order_id)},
+                {"$set": {
+                    "sourceWarehouseId": ObjectId(warehouse_id),
+                    "eventWarehouseId": ObjectId(warehouse_id),
+                    "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "Source Warehouse",
+                    "transferSourceCorrectedFromReceipt": True,
+                    "transferSourceCorrectedAt": now,
+                    "updatedAt": now,
+                }},
+            )
+            await MongoDB.get_collection("event_fulfillments").update_many({
+                "$or": [
+                    {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                    {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                    {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]},
+                ],
+                "deletedAt": {"$in": [None, False, ""]},
+            }, {"$set": {"sourceWarehouseId": ObjectId(warehouse_id), "warehouseId": ObjectId(warehouse_id), "updatedAt": now}})
+        if not destination_id or destination_id == source_id:
+            raise HTTPException(status_code=409, detail="Assign a different destination warehouse before creating the transfer")
         receipt_or = [
             {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
             {"requestId": {"$in": [ObjectId(order_id), order_id]}},
