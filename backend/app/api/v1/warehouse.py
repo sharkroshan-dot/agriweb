@@ -2558,15 +2558,14 @@ async def get_farmer_fulfillment_transfers(
         source_districts = [str(p.get("sourceDistrict") or p.get("farmDistrict") or "") for p in event_portions]
         source_district = next((x for x in source_districts if x), "")
         statuses = [str(p.get("status") or "").lower() for p in event_portions]
-        all_received = bool(event_portions) and all(
-            str((incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("status") or "").lower() in ("received", "stored")
-            and float(
-                (incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("quantityReceived")
-                or (incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("receivedQuantity")
-                or (incoming_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("actualQuantityReceived")
-                or 0
-            ) + 1e-9 >= float(p.get("allocatedQuantityKg") or p.get("quantityKg") or p.get("quantity") or 0)
-            for p in event_portions
+        # Use the same receipt rows shown on the transfer card (including
+        # legacy product/quantity matches) so the card and route eligibility
+        # cannot disagree about whether warehouse receiving is complete.
+        all_received = bool(portions_for_card) and all(
+            str(p.get("status") or "").lower() in ("received", "stored")
+            and float(p.get("quantityReceived") or 0) + 1e-9 >= float(p.get("expectedQuantity") or p.get("quantity") or 0)
+            and str(p.get("qualityCheck") or "").lower() in ("passed", "approved", "accepted", "good", "ok")
+            for p in portions_for_card
         )
         any_collection_arrived = any(
             str((collection_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("status") or "").lower() == "arrived_warehouse"
