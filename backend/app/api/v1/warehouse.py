@@ -2405,12 +2405,48 @@ async def get_farmer_fulfillment_transfers(
             if not fulfillment_key:
                 continue
             existing = incoming_by_fulfillment.get(fulfillment_key)
-            # Prefer the most advanced receipt record if legacy duplicates exist.
-            rank = {"stored": 4, "received": 3, "approved": 2, "pending": 1}
+            # Prefer the most advanced formal warehouse receipt record if legacy duplicates exist.
+            rank = {"stored": 5, "received": 4, "approved": 3, "quality_check": 2, "pending": 1, "in_transit": 0}
             current_rank = rank.get(str(existing.get("status") or "").lower(), 0) if existing else -1
             candidate_rank = rank.get(str(incoming_row.get("status") or "").lower(), 0)
             if existing is None or candidate_rank > current_rank:
                 incoming_by_fulfillment[fulfillment_key] = incoming_row
+
+        # Farm Collection and Incoming Stock are separate operational records.
+        # A collection marked arrived_warehouse proves the packet physically
+        # reached this warehouse, but it must NOT count as formal stock receipt:
+        # warehouse staff still need to verify quantity and quality in Incoming Stock.
+        collection_jobs = MongoDB.get_collection("warehouse_collections")
+        collection_or = [
+            {"eventRequestId": {"$in": [request_id, request_id_text]}},
+            {"requestId": {"$in": [request_id, request_id_text]}},
+            {"eventFulfillmentId": {"$in": fulfillment_ids}},
+        ]
+        if event_order_number:
+            collection_or.extend([
+                {"eventOrderNumber": event_order_number},
+                {"orderNumber": event_order_number},
+                {"orderNo": event_order_number},
+            ])
+        collection_rows = await collection_jobs.find({
+            "warehouseId": {"$in": warehouse_refs},
+            "deletedAt": {"$in": [None, False, ""]},
+            "$or": collection_or,
+        }).limit(2000).to_list(length=2000)
+        collection_by_fulfillment = {}
+        for collection_row in collection_rows:
+            fulfillment_key = str(collection_row.get("eventFulfillmentId") or "")
+            if not fulfillment_key:
+                continue
+            existing = collection_by_fulfillment.get(fulfillment_key)
+            collection_rank = {
+                "arrived_warehouse": 5, "departed_farm": 4, "collected": 3,
+                "arrived_at_farm": 2, "en_route": 1, "team_assigned": 0,
+            }
+            current_rank = collection_rank.get(str(collection_row.get("status") or "").lower(), -1)
+            existing_rank = collection_rank.get(str(existing.get("status") or "").lower(), -1) if existing else -2
+            if existing is None or current_rank > existing_rank:
+                collection_by_fulfillment[fulfillment_key] = collection_row
         receipt_warehouse_ids = {
             str(row.get("eventFulfillmentId") or ""): str(row.get("warehouseId") or "")
             for row in incoming_rows
@@ -2463,11 +2499,36 @@ async def get_farmer_fulfillment_transfers(
                     if abs(float(row.get("expectedQuantity") or row.get("quantity") or 0) - portion_qty) < 1e-6
                 ), candidates[0] if candidates else {})
             receipt = receipt or {}
+            collection = collection_by_fulfillment.get(fid) or {}
+            if not collection:
+                # Legacy collection jobs may have only the event order number
+                # plus product and quantity, without eventFulfillmentId.
+                portion_product_id = str(portion.get("productId") or "")
+                portion_product_name = str(portion.get("productName") or portion.get("name") or "").strip().lower()
+                portion_qty = float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0)
+                collection_candidates = [
+                    row for row in collection_rows
+                    if (
+                        portion_product_id and str(row.get("productId") or "") == portion_product_id
+                        or portion_product_name and str(row.get("productName") or row.get("eventProductName") or "").strip().lower() == portion_product_name
+                    )
+                ]
+                collection = next((
+                    row for row in collection_candidates
+                    if abs(float(row.get("expectedQuantity") or row.get("quantity") or 0) - portion_qty) < 1e-6
+                ), collection_candidates[0] if collection_candidates else {})
             source_id = str(portion.get("sourceWarehouseId") or portion.get("warehouseId") or event_request.get("eventWarehouseId") or "")
             destination_id = str(portion.get("destinationWarehouseId") or event_request.get("eventDestinationWarehouseId") or event_request.get("eventWarehouseId") or "")
             qty = float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0)
             receipt_status = str(receipt.get("status") or "")
+            collection_status = str(collection.get("status") or "").lower()
+            # Surface arrival in the transfer card even if the stale Incoming
+            # Stock row still says in_transit; formal receipt remains unchanged.
+            display_status = receipt_status or str(portion.get("status") or "pending")
+            if collection_status == "arrived_warehouse" and display_status.lower() in ("", "pending", "in_transit", "departed_farm", "collected"):
+                display_status = "arrived_warehouse"
             received_qty = float(receipt.get("quantityReceived") or receipt.get("receivedQuantity") or receipt.get("actualQuantityReceived") or 0)
+            collected_qty = float(collection.get("actualCollectedQuantity") or collection.get("collectedQuantity") or 0)
             portions_for_card.append({
                 "id": fid,
                 "eventFulfillmentId": fid,
@@ -2477,12 +2538,14 @@ async def get_farmer_fulfillment_transfers(
                 "quantity": qty,
                 "expectedQuantity": qty,
                 "quantityReceived": received_qty,
+                "actualCollectedQuantity": collected_qty,
+                "collectionStatus": collection_status or None,
                 "unit": portion.get("unit") or "kg",
                 "warehouseId": source_id,
                 "sourceWarehouseId": source_id,
                 "destinationWarehouseId": destination_id,
                 "warehouseName": portion.get("sourceWarehouseName") or "",
-                "status": receipt_status or str(portion.get("status") or "pending"),
+                "status": display_status,
                 "qualityCheck": receipt.get("qualityCheck") or "pending",
                 "incomingStockId": str(receipt.get("_id") or "") or None,
             })
@@ -2505,6 +2568,10 @@ async def get_farmer_fulfillment_transfers(
             ) + 1e-9 >= float(p.get("allocatedQuantityKg") or p.get("quantityKg") or p.get("quantity") or 0)
             for p in event_portions
         )
+        any_collection_arrived = any(
+            str((collection_by_fulfillment.get(str(p.get("_id") or "")) or {}).get("status") or "").lower() == "arrived_warehouse"
+            for p in event_portions
+        ) or any(str(row.get("status") or "").lower() == "arrived_warehouse" for row in collection_rows)
         result.append({
             "id": request_id_text,
             "requestId": request_id_text,
@@ -2512,7 +2579,7 @@ async def get_farmer_fulfillment_transfers(
             "buyerName": event_request.get("buyerName") or event_request.get("customerName") or "Bulk/Event customer",
             "farmerName": "Bulk/Event fulfillment",
             "orderStatus": event_request.get("status") or event_request.get("eventSourcingStatus") or "active",
-            "stage": "stored" if all_received else "awaiting_warehouse_receipt",
+            "stage": "stored" if all_received else ("warehouse_arrived" if any_collection_arrived else "awaiting_warehouse_receipt"),
             "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
             "isEventOrder": True,
             "eventRequestId": request_id_text,
