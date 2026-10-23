@@ -11,6 +11,7 @@ redis==5.0.1
 
 # Authentication
 python-jose[cryptography]==3.3.0
+cryptography==42.0.8
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
 

@@ -12,18 +12,33 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import toast from "react-hot-toast";
 
-const BUSINESS_TYPES = [
-  "restaurant",
-  "hotel",
-  "cafe",
-  "cloud_kitchen",
-  "canteen",
-  "caterer",
-  "supermarket",
-  "retail_store",
-  "wholesaler",
-  "food_processor",
-  "institution",
+const BUSINESS_TYPE_OPTIONS = [
+  { value: "food_processing", label: "Food Processing Company" },
+  { value: "hotel", label: "Hotel" },
+  { value: "resort", label: "Resort" },
+  { value: "restaurant", label: "Restaurant" },
+  { value: "restaurant_chain", label: "Restaurant Chain" },
+  { value: "supermarket", label: "Supermarket" },
+  { value: "supermarket_chain", label: "Supermarket Chain" },
+  { value: "retail_store", label: "Retail Store" },
+  { value: "retail_chain", label: "Retail Chain" },
+  { value: "wholesaler", label: "Wholesaler" },
+  { value: "distributor", label: "Distributor" },
+  { value: "food_manufacturer", label: "Food Manufacturer" },
+  { value: "school_college_hostel", label: "School / College / Hostel" },
+  { value: "hospital", label: "Hospital" },
+  { value: "corporate_canteen", label: "Corporate Canteen" },
+  { value: "dairy", label: "Dairy Company" },
+  { value: "animal_feed", label: "Animal Feed Company" },
+  { value: "agri_processing", label: "Agri-processing Company" },
+  { value: "exporter", label: "Agricultural Export Company" },
+  { value: "caterer", label: "Catering Company" },
+  { value: "grocery_chain", label: "Local Grocery Chain" },
+  { value: "cafe", label: "Cafe" },
+  { value: "cloud_kitchen", label: "Cloud Kitchen" },
+  { value: "canteen", label: "Canteen" },
+  { value: "food_processor", label: "Food Processor" },
+  { value: "institution", label: "Other Institution" },
 ];
 
 export default function BusinessProfilePage() {
@@ -31,6 +46,7 @@ export default function BusinessProfilePage() {
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
 
+  const [gstinMasked, setGstinMasked] = useState("");
   const [form, setForm] = useState({
     businessName: "",
     businessType: "restaurant",
@@ -41,6 +57,7 @@ export default function BusinessProfilePage() {
     state: "",
     district: "",
     address: "",
+    procurementRequirements: "",
   });
 
   const { data: profileData, isLoading } = useQuery({
@@ -53,16 +70,18 @@ export default function BusinessProfilePage() {
   useEffect(() => {
     const p = (profileData as any)?.data;
     if (p) {
+      setGstinMasked(p.gstinMasked || "");
       setForm({
         businessName: p.businessName || "",
         businessType: p.businessType || "restaurant",
-        gstin: p.gstin || "",
+        gstin: "",
         contactPerson: p.contactPerson || "",
         phone: p.phone || "",
         city: p.city || "",
         state: p.state || "",
         district: p.district || "",
         address: p.address || "",
+        procurementRequirements: p.procurementRequirements || "",
       });
     }
   }, [profileData]);
@@ -129,14 +148,14 @@ export default function BusinessProfilePage() {
               onChange={(e) => setForm({ ...form, businessType: e.target.value })}
               className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
             >
-              {BUSINESS_TYPES.map((t) => (
-                <option key={t} value={t}>{t.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
+              {BUSINESS_TYPE_OPTIONS.map((type) => (
+                <option key={type.value} value={type.value}>{type.label}</option>
               ))}
             </select>
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">GSTIN (optional)</label>
-            <Input value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} placeholder="e.g. 33ABCDE1234F1Z5" />
+            <Input value={form.gstin} onChange={(e) => setForm({ ...form, gstin: e.target.value })} placeholder={gstinMasked ? `${gstinMasked} — enter a new GSTIN to replace` : "e.g. 33ABCDE1234F1Z5"} />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Contact person</label>
@@ -161,6 +180,10 @@ export default function BusinessProfilePage() {
           <div className="space-y-1 sm:col-span-2">
             <label className="text-xs font-medium text-gray-500">Address</label>
             <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <label className="text-xs font-medium text-gray-500">Procurement requirements</label>
+            <textarea value={form.procurementRequirements} onChange={(e) => setForm({ ...form, procurementRequirements: e.target.value })} maxLength={2000} className="min-h-24 w-full rounded-md border border-gray-200 p-2 text-sm" placeholder="Products, quantities, quality and procurement frequency" />
           </div>
           <div className="sm:col-span-2">
             <Button

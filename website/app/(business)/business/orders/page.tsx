@@ -118,6 +118,71 @@ function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
   );
 }
 
+function ReceiptModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [receivedQuantityKg, setReceivedQuantityKg] = useState(String(order.quantityKg ?? ""));
+  const [condition, setCondition] = useState("good");
+  const [notes, setNotes] = useState("");
+  const [proofUrl, setProofUrl] = useState("");
+  const receipt = useMutation({
+    mutationFn: () => api.post(`/b2b/orders/${order.id}/receipt`, {
+      receivedQuantityKg: Number(receivedQuantityKg),
+      condition,
+      notes: notes.trim() || null,
+      proofUrl: proofUrl.trim() || null,
+    }),
+    onSuccess: (res: any) => {
+      toast.success(res?.data?.message || "Receipt confirmed. Payment remains separate.");
+      queryClient.invalidateQueries({ queryKey: ["b2b", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] });
+      queryClient.invalidateQueries({ queryKey: ["b2b", "invoices"] });
+      onClose();
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not confirm receipt"),
+  });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <Card className="w-full max-w-md">
+        <CardContent className="space-y-4 p-5" onClick={(e) => e.stopPropagation()}>
+          <div>
+            <p className="text-lg font-semibold">Confirm Business Receipt</p>
+            <p className="text-sm text-gray-500">{order.orderNumber} · {order.productName}</p>
+            <p className="text-sm text-gray-500">Expected: {order.quantityKg} kg</p>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">Actual quantity received (kg) *</label>
+            <Input type="number" min="0" max={order.quantityKg} step="0.01" value={receivedQuantityKg} onChange={(e) => setReceivedQuantityKg(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">Product condition *</label>
+            <select value={condition} onChange={(e) => setCondition(e.target.value)} className="h-10 w-full rounded-md border border-gray-200 px-3 text-sm">
+              <option value="good">Good — full quantity received</option>
+              <option value="partial">Partial — shortage / partial delivery</option>
+              <option value="damaged">Damaged — issue found</option>
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">Shortage / damage notes</label>
+            <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe any shortage or damage" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">Receiving proof URL (optional)</label>
+            <Input type="url" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} placeholder="Paste a link to the receiving photo/document" />
+            <p className="text-xs text-gray-400">Paste a link to proof stored in your approved file storage.</p>
+          </div>
+          <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">Confirming receipt completes the delivery record; it does not mark the invoice as paid. Payment is handled separately.</p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+            <Button className="flex-1" disabled={receipt.isPending || receivedQuantityKg.trim() === "" || !Number.isFinite(Number(receivedQuantityKg)) || Number(receivedQuantityKg) < 0 || Number(receivedQuantityKg) > Number(order.quantityKg) || (condition === "good" && Number(receivedQuantityKg) !== Number(order.quantityKg)) || (condition === "damaged" && !notes.trim())} onClick={() => receipt.mutate()}>
+              {receipt.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />} Confirm Receipt
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function RateFarmerModal({ order, onClose }: { order: any; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [ratings, setRatings] = useState<Record<string, number>>({ quality: 5, quantityAccuracy: 5, delivery: 5, communication: 5 });
@@ -184,6 +249,7 @@ export default function BusinessOrdersPage() {
   const [filter, setFilter] = useState("");
   const [invoiceFor, setInvoiceFor] = useState<any>(null);
   const [rateFor, setRateFor] = useState<any>(null);
+  const [receiptFor, setReceiptFor] = useState<any>(null);
 
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["b2b", "orders"],
@@ -284,8 +350,8 @@ export default function BusinessOrdersPage() {
                 <div className="flex flex-wrap gap-2">
                   {o.status === "delivered" && (
                     <>
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: o.id, payload: { status: "completed", paymentStatus: "paid" } })}>
-                        <CheckCircle className="mr-1.5 h-4 w-4" /> Confirm Receipt & Complete
+                      <Button size="sm" onClick={() => setReceiptFor(o)}>
+                        <CheckCircle className="mr-1.5 h-4 w-4" /> Confirm Receipt
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setRateFor(o)}>
                         <Star className="mr-1.5 h-4 w-4" /> Rate Farmer
@@ -311,6 +377,7 @@ export default function BusinessOrdersPage() {
 
       {invoiceFor && <InvoiceModal order={invoiceFor} onClose={() => setInvoiceFor(null)} />}
       {rateFor && <RateFarmerModal order={rateFor} onClose={() => setRateFor(null)} />}
+      {receiptFor && <ReceiptModal order={receiptFor} onClose={() => setReceiptFor(null)} />}
     </div>
   );
 }

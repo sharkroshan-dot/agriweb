@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Loader2, Plus } from "lucide-react";
+import { Bot, Loader2, Plus, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -26,6 +26,7 @@ const emptyForm = {
   deliveryState: "",
   deliveryDistrict: "",
   deliveryAddress: "",
+  deliveryLocation: null as { type: string; coordinates: [number, number]; latitude: number; longitude: number } | null,
   priceCeilingPerKg: "",
   budgetMinPerKg: "",
   budgetMaxPerKg: "",
@@ -34,19 +35,73 @@ const emptyForm = {
   notes: "",
 };
 
-export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
+export function CreateRfqForm({ onDone, initialData }: { onDone?: () => void; initialData?: any }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => ({
+    ...emptyForm,
+    ...(initialData || {}),
+    deadline: initialData?.deadline ? new Date(initialData.deadline).toISOString().slice(0, 16) : "",
+    priceCeilingPerKg: initialData?.priceCeilingPerKg != null ? String(initialData.priceCeilingPerKg) : "",
+    budgetMinPerKg: initialData?.budgetMinPerKg != null ? String(initialData.budgetMinPerKg) : "",
+    budgetMaxPerKg: initialData?.budgetMaxPerKg != null ? String(initialData.budgetMaxPerKg) : "",
+    deliveryAddress: initialData?.deliveryAddress || "",
+    deliveryLocation: initialData?.deliveryLocation || null,
+    notes: initialData?.notes || "",
+  }));
   const [aiRec, setAiRec] = useState<any>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+
+  const useLiveLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Live location is not supported by this browser.");
+      return;
+    }
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        const latitude = coords.latitude;
+        const longitude = coords.longitude;
+        const location = { type: "Point", coordinates: [longitude, latitude] as [number, number], latitude, longitude };
+        set("deliveryLocation", location);
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`, { headers: { Accept: "application/json" } });
+          if (!response.ok) throw new Error("Address lookup failed");
+          const result = await response.json();
+          const address = result.address || {};
+          const city = address.city || address.town || address.village || address.municipality || address.county || "";
+          const state = address.state || address.region || "";
+          const district = address.state_district || address.county || address.city_district || "";
+          const formattedAddress = result.display_name || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+          setForm((current) => ({ ...current, deliveryAddress: formattedAddress, deliveryCity: current.deliveryCity || city, deliveryState: current.deliveryState || state, deliveryDistrict: current.deliveryDistrict || district, deliveryLocation: location }));
+          toast.success("Live location added. Please verify the address before publishing.");
+        } catch {
+          setForm((current) => ({ ...current, deliveryAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`, deliveryLocation: location }));
+          toast.error("Coordinates saved, but the address could not be resolved. Enter the street address manually.");
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+        toast.error(error.code === error.PERMISSION_DENIED ? "Location permission denied. Allow location access or enter the address manually." : error.code === error.TIMEOUT ? "Getting your location timed out. Please try again." : "Could not get your live location. Enter the address manually.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
 
   const createMutation = useMutation({
-    mutationFn: (payload: any) => api.post("/b2b/rfqs", payload),
-    onSuccess: () => {
-      toast.success("RFQ published! Farmers near you are now notified.");
+    mutationFn: ({ payload, saveAsDraft }: { payload: any; saveAsDraft: boolean }) =>
+      initialData?.id
+        ? api.put(`/b2b/rfqs/${initialData.id}`, { ...payload, saveAsDraft })
+        : api.post("/b2b/rfqs", { ...payload, saveAsDraft }),
+    onSuccess: (_res: any, variables) => {
+      toast.success(initialData?.id
+        ? (variables.saveAsDraft ? "RFQ draft updated." : "RFQ updated and published.")
+        : (variables.saveAsDraft ? "RFQ saved as draft." : "RFQ published! Farmers near you are now notified."));
       if (onDone) onDone();
       queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
     },
-    onError: (err: any) => toast.error(err?.message || "Failed to publish RFQ"),
+    onError: (err: any) => toast.error(err?.message || "Failed to save RFQ"),
   });
 
   const aiMutation = useMutation({
@@ -61,7 +116,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
   return (
     <Card className="border-emerald-200">
       <CardHeader>
-        <CardTitle className="text-base">Publish a Request for Quote</CardTitle>
+        <CardTitle className="text-base">{initialData?.id ? "Edit Request for Quote" : "Publish a Request for Quote"}</CardTitle>
         <CardDescription>
           Tell farmers what your business needs and they will bid with their best price.
         </CardDescription>
@@ -168,9 +223,19 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </select>
         </div>
 
-        <div className="space-y-1 sm:col-span-2">
-          <label className="text-xs font-medium text-gray-500">Delivery address</label>
-          <Input value={form.deliveryAddress} onChange={(e) => set("deliveryAddress", e.target.value)} placeholder="Business address for pickup/delivery" />
+        <div className="space-y-2 sm:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-gray-500">Delivery address</label>
+            <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
+              {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
+              {locationLoading ? "Getting location…" : "Use my live location"}
+            </Button>
+          </div>
+          <Input value={form.deliveryAddress} onChange={(e) => setForm((current) => ({ ...current, deliveryAddress: e.target.value, deliveryLocation: null }))} placeholder="Enter full business delivery address manually" />
+          <p className="text-xs text-gray-500">Type an address yourself, or allow browser location access to fill it automatically. Check the address before publishing.</p>
+          {form.deliveryLocation?.coordinates?.length === 2 && (
+            <p className="flex items-center gap-1 text-xs text-emerald-700"><MapPin className="h-3.5 w-3.5" /> Location coordinates saved ({form.deliveryLocation.latitude.toFixed(5)}, {form.deliveryLocation.longitude.toFixed(5)}).</p>
+          )}
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-gray-500">Additional requirements</label>
@@ -264,11 +329,12 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </div>
         )}
 
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-2 flex flex-wrap gap-2">
           <Button
-            disabled={!form.productName || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
-            onClick={() =>
-              createMutation.mutate({
+            variant="outline"
+            disabled={!form.productName.trim() || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0)}
+            onClick={() => createMutation.mutate({
+              payload: {
                 ...form,
                 priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
                 budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
@@ -276,11 +342,30 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
                 quantityKg: form.recurring ? null : form.quantityKg,
                 quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
-              })
-            }
+              },
+              saveAsDraft: true,
+            })}
+          >
+            {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Save Draft
+          </Button>
+          <Button
+            disabled={!form.productName.trim() || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity.trim()}
+            onClick={() => createMutation.mutate({
+              payload: {
+                ...form,
+                priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
+                budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
+                budgetMaxPerKg: form.budgetMaxPerKg ? Number(form.budgetMaxPerKg) : null,
+                deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
+                quantityKg: form.recurring ? null : form.quantityKg,
+                quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
+              },
+              saveAsDraft: false,
+            })}
           >
             {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-            Publish RFQ
+            {initialData?.id ? "Save & Publish RFQ" : "Publish RFQ"}
           </Button>
         </div>
       </CardContent>

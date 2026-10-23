@@ -28,16 +28,41 @@ class AuthService:
         normalized_data["firstName"] = first_name.strip()
         normalized_data["lastName"] = last_name.strip()
 
+        business_fields = {
+            "businessName", "businessType", "gstin", "businessAddress",
+            "businessCity", "businessState", "businessDistrict",
+            "contactPerson", "procurementRequirements",
+        }
+        vehicle_fields = {"vehicleType", "vehicleNumber", "vehicleModel", "vehicleYear", "capacity", "fuelType"}
+        if role != "business":
+            for field in business_fields:
+                normalized_data.pop(field, None)
+        if role != "delivery":
+            for field in vehicle_fields:
+                normalized_data.pop(field, None)
+        if role == "business":
+            required = ("businessName", "businessType", "businessAddress", "businessCity", "businessState", "contactPerson")
+            missing = [field for field in required if not str(normalized_data.get(field) or "").strip()]
+            if missing:
+                raise ValueError("Business registration requires: " + ", ".join(missing))
+            if normalized_data.get("gstin"):
+                normalized_data["gstin"] = str(normalized_data["gstin"]).strip().upper()
+
         return normalized_data
     
     @staticmethod
     async def register_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Register a new user."""
         normalized_data = AuthService._normalize_registration_data(user_data)
+        business_profile_data = dict(normalized_data)
         raw_password = normalized_data.pop("password")
         normalized_data["passwordHash"] = Security.get_password_hash(raw_password)
         normalized_data["isVerified"] = False
         normalized_data["isActive"] = True
+
+        if normalized_data.get("role") == "business":
+            for field in ("businessName", "businessType", "gstin", "businessAddress", "businessCity", "businessState", "businessDistrict", "contactPerson", "procurementRequirements"):
+                normalized_data.pop(field, None)
 
         # Create user using the repository helper so email normalization stays consistent.
         user_id = await user_repository.create_user(normalized_data)
@@ -51,7 +76,33 @@ class AuthService:
             role = normalized_data.get("role", "customer")
             first_name = normalized_data.get("firstName", "")
 
-            if role == "farmer":
+            if role == "business":
+                from app.repositories.base_repository import BaseRepository
+                business_profile_repo = BaseRepository("business_profiles")
+                sensitive = {
+                    "gstin": Security.encrypt_business_data(business_profile_data.get("gstin")),
+                    "businessAddress": Security.encrypt_business_data(business_profile_data.get("businessAddress")),
+                    "contactPerson": Security.encrypt_business_data(business_profile_data.get("contactPerson")),
+                    "procurementRequirements": Security.encrypt_business_data(business_profile_data.get("procurementRequirements")),
+                }
+                await business_profile_repo.create({
+                    "userId": user_id,
+                    "businessName": business_profile_data.get("businessName"),
+                    "businessType": business_profile_data.get("businessType"),
+                    "gstinEncrypted": sensitive["gstin"],
+                    "businessAddressEncrypted": sensitive["businessAddress"],
+                    "contactPersonEncrypted": sensitive["contactPerson"],
+                    "procurementRequirementsEncrypted": sensitive["procurementRequirements"],
+                    "city": business_profile_data.get("businessCity"),
+                    "state": business_profile_data.get("businessState"),
+                    "district": business_profile_data.get("businessDistrict"),
+                    "phone": normalized_data.get("phone"),
+                    "isVerified": False,
+                    "verificationStatus": "pending",
+                    "createdAt": datetime.utcnow(),
+                    "updatedAt": datetime.utcnow(),
+                })
+            elif role == "farmer":
                 from app.repositories.farmer_repository import farmer_repository
                 await farmer_repository.create({
                     "userId": user_id,

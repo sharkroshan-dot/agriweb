@@ -1,11 +1,14 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { CreditCard, Loader2, Wallet, CheckCircle2, Clock, Landmark } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
+import { Button } from "../../../components/ui/button";
+import toast from "react-hot-toast";
 
 const statusVariant: Record<string, any> = {
   paid: "success",
@@ -14,6 +17,8 @@ const statusVariant: Record<string, any> = {
 };
 
 export default function PaymentsPage() {
+  const queryClient = useQueryClient();
+  const [payingOrderId, setPayingOrderId] = useState<string | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: ["b2b", "payments"],
     queryFn: () => api.get("/b2b/payments"),
@@ -29,6 +34,68 @@ export default function PaymentsPage() {
 
   const summary = data?.data ?? {};
   const payments = summary.payments ?? [];
+
+  const payBalance = async (payment: any) => {
+    if (payingOrderId) return;
+    setPayingOrderId(payment.orderId);
+    try {
+      const intentResponse = await api.post(`/b2b/orders/${payment.orderId}/payment-intent`, {});
+      const intent = intentResponse?.data?.data ?? intentResponse?.data ?? intentResponse;
+      if (!intent?.key_id || !intent?.order_id) throw new Error("Payment gateway did not return a valid checkout order.");
+
+      if (!(window as any).Razorpay) {
+        await new Promise<void>((resolve, reject) => {
+          const existing = document.querySelector('script[data-b2b-razorpay="true"]') as HTMLScriptElement | null;
+          if (existing) {
+            existing.addEventListener("load", () => resolve(), { once: true });
+            existing.addEventListener("error", () => reject(new Error("Could not load Razorpay checkout.")), { once: true });
+            if ((window as any).Razorpay) resolve();
+            return;
+          }
+          const script = document.createElement("script");
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+          script.dataset.b2bRazorpay = "true";
+          script.onload = () => resolve();
+          script.onerror = () => reject(new Error("Could not load Razorpay checkout."));
+          document.body.appendChild(script);
+        });
+      }
+
+      const RazorpayCtor = (window as any).Razorpay;
+      if (!RazorpayCtor) throw new Error("Razorpay checkout is unavailable.");
+      const checkout = new RazorpayCtor({
+        key: intent.key_id,
+        order_id: intent.order_id,
+        amount: intent.amount,
+        currency: intent.currency || "INR",
+        name: "AgriConnect Business Procurement",
+        description: intent.description || `Balance for ${payment.orderNumber}`,
+        handler: async (response: any) => {
+          try {
+            await api.post(`/b2b/orders/${payment.orderId}/payment-confirm`, {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            toast.success("Payment verified successfully.");
+            await queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] });
+            await queryClient.invalidateQueries({ queryKey: ["b2b", "orders"] });
+            await queryClient.invalidateQueries({ queryKey: ["b2b", "invoices"] });
+          } catch (err: any) {
+            toast.error(err?.message || "Payment could not be verified. Contact support before retrying.");
+          } finally {
+            setPayingOrderId(null);
+          }
+        },
+        modal: { ondismiss: () => setPayingOrderId(null) },
+        theme: { color: "#059669" },
+      });
+      checkout.open();
+    } catch (err: any) {
+      toast.error(err?.message || "Could not start payment.");
+      setPayingOrderId(null);
+    }
+  };
 
   const statCards = [
     { label: "Spent This Month", value: formatPrice(summary.totalMonth ?? 0), icon: Wallet, color: "text-emerald-600" },
@@ -82,13 +149,22 @@ export default function PaymentsPage() {
                     <p className="text-sm text-gray-500">
                       {p.productName} · {p.quantityKg} kg · {p.farmName || "Farm"}
                     </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-emerald-600">{formatPrice(p.totalAmount)}</p>
-                    <p className="text-xs text-gray-400">
-                      {p.advanceAmount ? `advance ${formatPrice(p.advanceAmount)} · ` : ""}
-                      {p.startedAt ? new Date(p.startedAt).toLocaleDateString() : ""}
+                    <p className="mt-1 text-xs text-gray-500">
+                      Paid {formatPrice(p.paidAmount ?? 0)} · Balance due {formatPrice(p.balanceDue ?? p.totalAmount)}
+                      {p.deliveryCharge ? ` · Delivery ${formatPrice(p.deliveryCharge)}` : ""}
                     </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-emerald-600">{formatPrice(p.totalAmount)}</p>
+                      <p className="text-xs text-gray-400">{p.startedAt ? new Date(p.startedAt).toLocaleDateString() : ""}</p>
+                    </div>
+                    {(p.balanceDue ?? p.totalAmount) > 0 && (
+                      <Button size="sm" disabled={Boolean(payingOrderId)} onClick={() => payBalance(p)}>
+                        {payingOrderId === p.orderId ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CreditCard className="mr-1.5 h-4 w-4" />}
+                        Pay Balance
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

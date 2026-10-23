@@ -7,6 +7,7 @@ import string
 import hashlib
 import hmac
 import secrets
+from cryptography.fernet import Fernet, InvalidToken
 from app.core.config import settings
 
 pwd_context = CryptContext(
@@ -26,7 +27,32 @@ ALL_ROLES = frozenset({
 })
 
 class Security:
-    """Security utilities for authentication and encryption."""
+    """Security utilities for authentication and protected business data."""
+
+    @staticmethod
+    def _business_cipher() -> Fernet:
+        key = (settings.BUSINESS_DATA_ENCRYPTION_KEY or "").strip()
+        if not key:
+            raise RuntimeError("BUSINESS_DATA_ENCRYPTION_KEY is not configured")
+        try:
+            return Fernet(key.encode())
+        except Exception as exc:
+            raise RuntimeError("BUSINESS_DATA_ENCRYPTION_KEY must be a valid Fernet key") from exc
+
+    @staticmethod
+    def encrypt_business_data(value: Optional[str]) -> Optional[str]:
+        if value is None or not str(value).strip():
+            return None
+        return Security._business_cipher().encrypt(str(value).strip().encode()).decode()
+
+    @staticmethod
+    def decrypt_business_data(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            return Security._business_cipher().decrypt(str(value).encode()).decode()
+        except (InvalidToken, ValueError, TypeError):
+            return None
     
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:

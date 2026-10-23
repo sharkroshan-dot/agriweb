@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Security
     OTP_EXPIRY_MINUTES: int = 5
     PASSWORD_RESET_EXPIRY_HOURS: int = 24
+    BUSINESS_DATA_ENCRYPTION_KEY: Optional[str] = None
     
     # Email
     SMTP_HOST: str = "smtp.gmail.com"
