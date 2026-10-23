@@ -123,11 +123,13 @@ function ReceiptModal({ order, onClose }: { order: any; onClose: () => void }) {
   const [receivedQuantityKg, setReceivedQuantityKg] = useState(String(order.quantityKg ?? ""));
   const [condition, setCondition] = useState("good");
   const [notes, setNotes] = useState("");
+  const [proofUrl, setProofUrl] = useState("");
   const receipt = useMutation({
     mutationFn: () => api.post(`/b2b/orders/${order.id}/receipt`, {
       receivedQuantityKg: Number(receivedQuantityKg),
       condition,
       notes: notes.trim() || null,
+      proofUrl: proofUrl.trim() || null,
     }),
     onSuccess: (res: any) => {
       toast.success(res?.data?.message || "Receipt confirmed. Payment remains separate.");
@@ -162,6 +164,11 @@ function ReceiptModal({ order, onClose }: { order: any; onClose: () => void }) {
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Shortage / damage notes</label>
             <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe any shortage or damage" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">Receiving proof URL (optional)</label>
+            <Input type="url" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} placeholder="Paste a link to the receiving photo/document" />
+            <p className="text-xs text-gray-400">Paste a link to proof stored in your approved file storage.</p>
           </div>
           <p className="rounded-md bg-amber-50 p-3 text-xs text-amber-800">Confirming receipt completes the delivery record; it does not mark the invoice as paid. Payment is handled separately.</p>
           <div className="flex gap-2">
