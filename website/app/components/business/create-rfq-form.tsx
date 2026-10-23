@@ -201,14 +201,17 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </div>
 
         <div className="space-y-1 sm:col-span-2">
-          <div className="flex rounded-lg border p-1">
+          <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
             {[{ key: false, label: "One-off order" }, { key: true, label: "Recurring supply" }].map((o) => (
               <button
                 key={String(o.key)}
                 type="button"
+                aria-pressed={form.recurring === o.key}
                 onClick={() => set("recurring", o.key)}
-                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  form.recurring === o.key ? "bg-emerald-600 text-white" : "hover:bg-gray-100"
+                className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                  form.recurring === o.key
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
                 }`}
               >
                 {o.label}
