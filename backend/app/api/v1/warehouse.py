@@ -2519,6 +2519,91 @@ async def get_farmer_fulfillment_transfers(
             },
         })
 
+    # Last-resort visibility path: Incoming Stock may contain event receipt
+    # rows whose request document is missing, archived, or linked only by a
+    # human-readable event order number. Keep these warehouse-owned rows visible
+    # as an event card rather than silently returning an empty queue.
+    event_receipt_collection = MongoDB.get_collection("incoming_stock")
+    event_receipts_here = await event_receipt_collection.find({
+        "warehouseId": {"$in": warehouse_refs},
+        "deletedAt": {"$in": [None, False, ""]},
+        "$or": [
+            {"sourceMode": {"$regex": "^event_fulfillment_transfer$", "$options": "i"}},
+            {"collectionType": {"$regex": "^event_fulfillment_transfer$", "$options": "i"}},
+            {"eventRequestId": {"$exists": True, "$nin": [None, ""]}},
+            {"eventFulfillmentId": {"$exists": True, "$nin": [None, ""]}},
+            {"eventOrderNumber": {"$exists": True, "$nin": [None, ""]}},
+        ],
+    }).limit(2000).to_list(length=2000)
+    event_receipts_by_key: Dict[str, List[Dict[str, Any]]] = {}
+    for receipt in event_receipts_here:
+        request_key = str(receipt.get("eventRequestId") or receipt.get("requestId") or "").strip()
+        order_key = str(receipt.get("eventOrderNumber") or receipt.get("requestNumber") or receipt.get("orderNumber") or receipt.get("orderNo") or "").strip()
+        key = request_key or ("number:" + order_key if order_key else "")
+        if not key:
+            continue
+        if any(str(row.get("id") or "") == key or str(row.get("eventRequestId") or "") == key for row in result):
+            continue
+        event_receipts_by_key.setdefault(key, []).append(receipt)
+    for receipt_key, receipt_group in event_receipts_by_key.items():
+        first = receipt_group[0]
+        request_id = str(first.get("eventRequestId") or first.get("requestId") or "")
+        order_number = str(first.get("eventOrderNumber") or first.get("requestNumber") or first.get("orderNumber") or first.get("orderNo") or "")
+        receipt_lines = []
+        for receipt in receipt_group:
+            receipt_lines.append({
+                "id": str(receipt.get("eventFulfillmentId") or receipt.get("_id") or ""),
+                "eventFulfillmentId": str(receipt.get("eventFulfillmentId") or ""),
+                "eventRequestId": request_id or None,
+                "productId": str(receipt.get("productId") or ""),
+                "productName": receipt.get("eventProductName") or receipt.get("productName") or "Event product",
+                "quantity": float(receipt.get("expectedQuantity") or receipt.get("quantity") or 0),
+                "expectedQuantity": float(receipt.get("expectedQuantity") or receipt.get("quantity") or 0),
+                "quantityReceived": float(receipt.get("quantityReceived") or receipt.get("receivedQuantity") or receipt.get("actualQuantityReceived") or 0),
+                "unit": receipt.get("unit") or "kg",
+                "warehouseId": warehouse_id,
+                "sourceWarehouseId": str(receipt.get("sourceWarehouseId") or warehouse_id),
+                "destinationWarehouseId": str(receipt.get("destinationWarehouseId") or ""),
+                "warehouseName": receipt.get("farmName") or receipt.get("farmerName") or "",
+                "status": str(receipt.get("status") or "pending"),
+                "qualityCheck": str(receipt.get("qualityCheck") or "pending"),
+                "incomingStockId": str(receipt.get("_id") or ""),
+            })
+        expected_total = sum(float(line.get("expectedQuantity") or 0) for line in receipt_lines)
+        received_total = sum(float(line.get("quantityReceived") or 0) for line in receipt_lines)
+        receipt_statuses = [str(row.get("status") or "").lower() for row in receipt_lines]
+        all_received = bool(receipt_lines) and all(
+            status in ("received", "stored", "quality_check", "approved")
+            for status in receipt_statuses
+        ) and received_total + 1e-9 >= expected_total
+        display_id = request_id if ObjectId.is_valid(request_id) else "event-receipt-" + str(abs(hash(receipt_key)))
+        result.append({
+            "id": display_id,
+            "requestId": request_id or None,
+            "orderNumber": order_number or ("EVENT-" + str(display_id)[-8:]),
+            "buyerName": first.get("buyerName") or first.get("customerName") or "Bulk/Event customer",
+            "farmerName": first.get("farmName") or first.get("farmerName") or "Bulk/Event fulfillment",
+            "orderStatus": first.get("status") or "active",
+            "stage": "stored" if all_received else "awaiting_warehouse_receipt",
+            "logisticsMode": "farmer_to_warehouse_to_local_hub_to_delivery_partner",
+            "isEventOrder": True,
+            "eventRequestId": request_id or None,
+            "isUnassigned": False,
+            "physicalReceiptConfirmed": all_received,
+            "sourceWarehouseId": warehouse_id,
+            "sourceWarehouseName": warehouse.get("name") or warehouse.get("warehouseName") or "This warehouse",
+            "destinationWarehouseId": str(first.get("destinationWarehouseId") or "") or None,
+            "destinationDistrict": first.get("deliveryDistrict") or first.get("customerDistrict") or None,
+            "routeCategory": "needs_location",
+            "items": receipt_lines,
+            "incoming": receipt_lines,
+            "warehouseAllocations": [],
+            "outgoing": [],
+            "eventPortions": receipt_lines,
+            "message": "Recovered from this warehouse's event Incoming Stock receipts. Confirm the event request and route metadata before dispatch.",
+            "consolidation": {"isConsolidationWarehouse": False, "canReceive": False, "canComplete": False, "canHandoffLocalHub": False, "canConfirmHubReceipt": False, "hubTransferStatus": None, "totalLegs": len(receipt_lines), "inTransitLegs": 0, "receivedLegs": 0, "allSourcePortionsStored": all_received},
+        })
+
     return {"success": True, "data": {"transfers": result, "unlinkedPackedPackets": unlinked_packed_packets}}
 
 
