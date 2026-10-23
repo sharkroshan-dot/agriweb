@@ -338,7 +338,15 @@ async def _ensure_operational_order(b2b: Dict[str, Any]) -> Optional[Dict[str, A
 async def _sync_b2b_from_operational(b2b: Dict[str, Any], op: Optional[Dict[str, Any]]) -> None:
     if not op: return
     status = str(op.get("orderStatus") or "")
-    mapped = {"ready_for_delivery": "dispatched", "local_dispatch": "dispatched", "dispatched": "dispatched", "in_transit": "in_transit", "delivered": "delivered"}
+    mapped = {
+        "processing": ORDER_PREPARING,
+        "quality_check": ORDER_QUALITY_CHECK,
+        "ready_for_delivery": ORDER_DISPATCHED,
+        "local_dispatch": ORDER_DISPATCHED,
+        "dispatched": ORDER_DISPATCHED,
+        "in_transit": ORDER_IN_TRANSIT,
+        "delivered": ORDER_DELIVERED,
+    }
     target = mapped.get(status)
     if not target: return
     current = b2b.get("status")
@@ -948,6 +956,9 @@ async def list_b2b_deliveries(current_user: dict = Depends(get_current_user)):
     result = []
     for row in rows:
         op = await _ensure_operational_order(row)
+        await _sync_b2b_from_operational(row, op)
+        # Reload status after sync so the dashboard reflects the latest logistics state.
+        row = await order_repo.find_one({"_id": row["_id"], "deletedAt": None}) or row
         item = dict(row); await _enrich_order(item); item["logistics"] = _logistics_snapshot(op)
         if op:
             item["logistics"]["warehouseName"] = None; item["logistics"]["hubName"] = None; item["logistics"]["deliveryPartnerName"] = op.get("deliveryPartnerName")
@@ -1009,8 +1020,10 @@ async def list_b2b_orders(current_user: dict = Depends(get_current_user)):
 
     orders = await order_repo.find_many(match, sort=[("startedAt", -1)], limit=200)
     for o in orders:
-        await _enrich_order(o)
         op = await _ensure_operational_order(o)
+        await _sync_b2b_from_operational(o, op)
+        o = await order_repo.find_one({"_id": o["_id"], "deletedAt": None}) or o
+        await _enrich_order(o)
         o["operationalOrderId"] = str(op["_id"]) if op else None
         o["logistics"] = _logistics_snapshot(op)
     return {"success": True, "data": {"orders": orders, "count": len(orders)}}
