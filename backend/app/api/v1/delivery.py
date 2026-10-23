@@ -4011,8 +4011,88 @@ async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Dep
         ],
     }
     rows = await legs.find(query).sort("assignedAt", -1).to_list(length=200)
-    output = []
-    seen = set()
+
+    # Repair legacy Bulk/Event assignments saved on the parent request when the
+    # corresponding transfer leg was never persisted. Create a real leg so the
+    # existing start/arrival endpoint can operate on it.
+    bulk_requests = MongoDB.get_collection("bulk_requests")
+    event_fulfillments = MongoDB.get_collection("event_fulfillments")
+    assigned_event_or = [
+        {"assignedTransferPartnerUserId": {"$in": assigned_user_values}},
+        {"assignedTransferPartnerUserId": {"$in": assigned_profile_values}},
+        {"assignedTransferPartnerId": {"$in": assigned_profile_values}},
+        {"assignedTransferPartnerId": {"$in": assigned_user_values}},
+    ]
+    assigned_events = await bulk_requests.find({
+        "$and": [
+            {"deletedAt": {"$in": [None, False, ""]}},
+            {"$or": assigned_event_or},
+            {"$or": [
+                {"transferStatus": {"$in": ["destination_warehouse_transfer_pending", "destination_warehouse_in_transit"]}},
+                {"warehouseFulfillmentStage": {"$in": ["destination_warehouse_transfer_pending", "destination_warehouse_in_transit"]}},
+            ]},
+        ]
+    }).to_list(length=200)
+    known_event_ids = {str(row.get("orderId") or row.get("eventRequestId") or "") for row in rows if row.get("isEventOrder") or row.get("eventRequestId")}
+    for event in assigned_events:
+        event_id = str(event.get("_id") or "")
+        if not ObjectId.is_valid(event_id) or event_id in known_event_ids:
+            continue
+        source_id = str(event.get("sourceWarehouseId") or event.get("eventWarehouseId") or event.get("warehouseId") or "")
+        destination_id = str(event.get("eventDestinationWarehouseId") or event.get("destinationWarehouseId") or "")
+        if not ObjectId.is_valid(source_id) or not ObjectId.is_valid(destination_id) or source_id == destination_id:
+            continue
+        existing = await legs.find_one({
+            "orderId": ObjectId(event_id), "legType": "warehouse_to_destination_warehouse",
+            "sourceWarehouseId": ObjectId(source_id), "destinationWarehouseId": ObjectId(destination_id),
+            "deletedAt": {"$in": [None, False, ""]},
+        })
+        if existing:
+            await legs.update_one({"_id": existing["_id"]}, {"$set": {
+                "assignedPartnerUserId": user_oid,
+                "assignedDeliveryPartnerId": profile_ids[0] if profile_ids else existing.get("assignedDeliveryPartnerId"),
+                "status": "assigned" if str(existing.get("status") or "") in ("awaiting_team_assignment", "pending_assignment") else existing.get("status"),
+                "orderNumber": event.get("requestNumber") or event.get("orderNumber") or ("EVENT-" + event_id[-6:].upper()),
+                "isEventOrder": True, "eventRequestId": ObjectId(event_id), "updatedAt": datetime.utcnow(),
+            }})
+            existing = await legs.find_one({"_id": existing["_id"]})
+            if existing and str(existing.get("status") or "") in ("assigned", "in_transit", "arrived_at_destination"):
+                rows.append(existing)
+            known_event_ids.add(event_id)
+            continue
+        portions = await event_fulfillments.find({
+            "$or": [
+                {"requestId": {"$in": [ObjectId(event_id), event_id]}},
+                {"eventRequestId": {"$in": [ObjectId(event_id), event_id]}},
+                {"bulkRequestId": {"$in": [ObjectId(event_id), event_id]}},
+            ],
+            "deletedAt": {"$in": [None, False, ""]},
+        }).to_list(length=1000)
+        item_rows = event.get("items") or event.get("products") or event.get("fulfillmentItems") or []
+        quantity = sum(float(x.get("quantity") or x.get("requestedQuantity") or x.get("quantityRequested") or 0) for x in portions)
+        if quantity <= 0 and isinstance(item_rows, list):
+            quantity = sum(float(x.get("quantity") or x.get("requestedQuantity") or x.get("quantityRequested") or 0) for x in item_rows if isinstance(x, dict))
+        now = datetime.utcnow()
+        leg_doc = {
+            "orderId": ObjectId(event_id), "eventRequestId": ObjectId(event_id), "isEventOrder": True,
+            "orderNumber": event.get("requestNumber") or event.get("orderNumber") or ("EVENT-" + event_id[-6:].upper()),
+            "legType": "warehouse_to_destination_warehouse",
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": event.get("sourceWarehouseName") or event.get("warehouseName") or "Source Warehouse",
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": event.get("eventDestinationWarehouseName") or event.get("destinationWarehouseName") or "Destination Warehouse",
+            "quantity": quantity, "status": "assigned", "assignedPartnerUserId": user_oid,
+            "assignedDeliveryPartnerId": profile_ids[0] if profile_ids else event.get("assignedTransferPartnerId"),
+            "assignedAt": event.get("transferAssignedAt") or now, "assignedBy": event.get("transferAssignedBy"),
+            "dispatchedAt": event.get("transferDispatchedAt") or event.get("transferAssignedAt") or now,
+            "createdAt": now, "updatedAt": now, "deletedAt": None,
+        }
+        inserted = await legs.insert_one(leg_doc)
+        leg_doc["_id"] = inserted.inserted_id
+        rows.append(leg_doc)
+        known_event_ids.add(event_id)
+
+    output = []    seen = set()
     for row in rows:
         leg_id = str(row.get("_id") or "")
         if leg_id in seen:
