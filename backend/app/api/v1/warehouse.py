@@ -2444,7 +2444,25 @@ async def get_farmer_fulfillment_transfers(
         portions_for_card = []
         for portion in event_portions:
             fid = str(portion.get("_id") or "")
-            receipt = incoming_by_fulfillment.get(fid) or {}
+            receipt = incoming_by_fulfillment.get(fid)
+            if not receipt:
+                # Legacy event receipt rows may be linked only by request/order
+                # number and product/quantity, without eventFulfillmentId.
+                portion_product_id = str(portion.get("productId") or "")
+                portion_product_name = str(portion.get("productName") or portion.get("name") or "").strip().lower()
+                portion_qty = float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0)
+                candidates = [
+                    row for row in linked_receipts
+                    if (
+                        portion_product_id and str(row.get("productId") or "") == portion_product_id
+                        or portion_product_name and str(row.get("eventProductName") or row.get("productName") or "").strip().lower() == portion_product_name
+                    )
+                ]
+                receipt = next((
+                    row for row in candidates
+                    if abs(float(row.get("expectedQuantity") or row.get("quantity") or 0) - portion_qty) < 1e-6
+                ), candidates[0] if candidates else {})
+            receipt = receipt or {}
             source_id = str(portion.get("sourceWarehouseId") or portion.get("warehouseId") or event_request.get("eventWarehouseId") or "")
             destination_id = str(portion.get("destinationWarehouseId") or event_request.get("eventDestinationWarehouseId") or event_request.get("eventWarehouseId") or "")
             qty = float(portion.get("allocatedQuantityKg") or portion.get("quantityKg") or portion.get("quantity") or 0)
