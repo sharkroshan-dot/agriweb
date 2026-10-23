@@ -15,6 +15,7 @@ import { AcceptOfferDialog } from "../../../components/business/accept-offer-dia
 const RFQ_STATUSES = ["", "draft", "open", "awarded", "closed", "cancelled"];
 
 const statusVariant: Record<string, any> = {
+  draft: "outline",
   open: "success",
   awarded: "secondary",
   closed: "outline",
@@ -89,7 +90,7 @@ export default function BusinessRfqsPage() {
         </Button>
       </div>
 
-      {showForm && <CreateRfqForm initialData={editingRfq} onDone={() => { setShowForm(false); setEditingRfq(null); }} />}
+      {showForm && <CreateRfqForm key={editingRfq?.id || "new-rfq"} initialData={editingRfq} onDone={() => { setShowForm(false); setEditingRfq(null); }} />}
 
       {/* One-off / Recurring toggle */}
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
