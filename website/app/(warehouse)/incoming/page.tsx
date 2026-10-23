@@ -243,15 +243,17 @@ export default function WarehouseIncomingPage() {
         displayFarmName: getFarmDisplayName(item),
         displayProductName: getProductDisplayName(item),
         displayOrderNumber: humanIdFallback(
-          item.orderNumber || item.order?.orderNumber || item.eventOrderNumber ||
-          item.requestNumber || item.eventRequest?.requestNumber || item.eventRequest?.orderNumber,
-          item.eventRequestId
-            ? "EVENT-" + String(item.eventRequestId).slice(-6).toUpperCase()
-            : item.eventFulfillmentId
-              ? "EVENT-" + String(item.eventFulfillmentId).slice(-6).toUpperCase()
-              : item.orderId
-                ? "ORDER-" + String(item.orderId).slice(-6).toUpperCase()
-                : "RECEIPT-" + String(item.id || item._id || "UNKNOWN").slice(-6).toUpperCase()
+          item.orderNumber || item.order_number || item.order?.orderNumber ||
+          item.eventOrderNumber || item.event_order_number ||
+          item.requestNumber || item.request_number ||
+          item.eventRequest?.requestNumber || item.eventRequest?.orderNumber,
+          (item.eventRequestId || item.event_request_id)
+            ? "EVENT-" + String(item.eventRequestId || item.event_request_id).slice(-6).toUpperCase()
+            : (item.eventFulfillmentId || item.event_fulfillment_id)
+              ? "EVENT-" + String(item.eventFulfillmentId || item.event_fulfillment_id).slice(-6).toUpperCase()
+              : (item.orderId || item.order_id)
+                ? "ORDER-" + String(item.orderId || item.order_id).slice(-6).toUpperCase()
+                : "RECEIPT-" + String(item.incomingStockId || item.incoming_stock_id || item.id || item._id || "UNKNOWN").slice(-6).toUpperCase()
         ),
       }))
       .filter((item: any) => {
@@ -806,7 +808,7 @@ export default function WarehouseIncomingPage() {
           // Farmer Fulfillment Transfers determines the customer-district destination
           // and coordinates the source-warehouse portions into one complete order.
           const farmContinueHref = "/warehouse/farmer-fulfillment";
-          const farmContinueLabel = "Continue to Farmer Fulfillment Transfers";
+          const farmContinueLabel = "Farmer Fulfillment Transfers";
           const confirmAllPackets = async () => {
             const receiptDescription = eventFulfillmentGroup
               ? `Confirm receipt of ${eligibleToReceive.length} event product lines from ${farmItems[0].displayFarmName}? Verify each product and its received quantity against the bulk/event order. Items not physically arrived remain pending.`
@@ -827,7 +829,7 @@ export default function WarehouseIncomingPage() {
               await refetch();
             } finally { setIsSaving(false); }
           };
-          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{eventFulfillmentGroup ? "Bulk/Event Order · Product receipt" : packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : eventFulfillmentGroup ? "Confirm All Products Received" : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />Continue to {farmContinueLabel}</Button>}{canReceiveAnyFarmStock && !packedFarmerGroup && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : "Receive All Stock"}</Button>} {!packedFarmerGroup && receivedCount > 0 && <Button size="sm" variant="outline" onClick={() => printFarmPackingLabels(farmItems.filter((row: any) => {
+          return <section key={farmKey} className="overflow-hidden rounded-xl border bg-white shadow-sm"><div className="border-b bg-slate-50/80 px-4 py-4 sm:px-5"><div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h2 className="text-lg font-semibold tracking-tight">{farmItems[0].displayFarmName}</h2><Badge variant="outline">{eventFulfillmentGroup ? "Bulk/Event Order · Product receipt" : packedFarmerGroup ? "Farmer Fulfillment · Packed orders" : "Normal Warehouse Fulfillment · Bulk stock"}</Badge></div><p className="mt-1 text-sm text-muted-foreground">{farmItems[0].pickupLocation?.address || farmItems[0].farmAddress || "Farm address not available"}</p></div><div className="flex flex-wrap items-center gap-2">{canConfirmAllPackets && <Button size="sm" onClick={confirmAllPackets} disabled={isSaving}><CheckCircle className="mr-2 h-4 w-4" />{isSaving ? "Confirming..." : eventFulfillmentGroup ? "Confirm All Products Received" : "Confirm All Packets Received"}</Button>}{allPackedOrdersReceived && <Button size="sm" onClick={() => { window.location.href = farmContinueHref; }}><ArrowRight className="mr-2 h-4 w-4" />{farmContinueLabel}</Button>}{canReceiveAnyFarmStock && !packedFarmerGroup && <Button size="sm" onClick={() => openBulkReceiveDialog(eligibleToReceive)} disabled={isSaving}><Package className="mr-2 h-4 w-4" />{isSaving ? "Processing..." : "Receive All Stock"}</Button>} {!packedFarmerGroup && receivedCount > 0 && <Button size="sm" variant="outline" onClick={() => printFarmPackingLabels(farmItems.filter((row: any) => {
               const status = String(row.status || "").toLowerCase();
               const hasReceipt = Boolean(row.receiptNumber || row.receipt?.receiptNumber || row.receivedAt || row.receivedDate || row.warehouseReceivedAt || row.quantityReceived !== undefined);
               return ["received", "quality_check", "stored"].includes(status) || hasReceipt;
