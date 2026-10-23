@@ -263,7 +263,18 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
-          <Input type="number" min="0" value={form.priceCeilingPerKg} onChange={(e) => set("priceCeilingPerKg", e.target.value)} />
+          <Input
+            type="number"
+            min="0"
+            value={form.priceCeilingPerKg}
+            onChange={(e) => set("priceCeilingPerKg", e.target.value)}
+            placeholder={aiRec?.suggestedPricePerKg != null ? `AI suggestion: ₹${aiRec.suggestedPricePerKg}/kg — click Use ₹${aiRec.suggestedPricePerKg}/kg below` : "Enter maximum price or use AI price check"}
+          />
+          <p className="text-xs text-gray-500">
+            {aiRec?.suggestedPricePerKg != null
+              ? `AI suggested ₹${aiRec.suggestedPricePerKg}/kg. Review the result below and click its Use button to fill this field, or enter your own price.`
+              : "Recommended: enter the product and delivery city, then click AI price check to get a price suggestion. You can also enter a price manually."}
+          </p>
         </div>
 
         <div className="space-y-1">
