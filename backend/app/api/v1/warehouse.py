@@ -4541,8 +4541,129 @@ async def dispatch_farmer_fulfillment_to_destination(
         raise HTTPException(status_code=400, detail="Invalid order ID")
     warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user["_id"]))
     order = await order_repository.get_by_id(order_id)
-    if not warehouse or not order:
-        raise HTTPException(status_code=404, detail="Order or warehouse not found")
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Source warehouse not found")
+
+    # Bulk/Event transfer cards use bulk_requests IDs, not orders collection IDs.
+    # Create the same destination-transfer manifest against that parent request
+    # and keep the individual event fulfillment portions linked to it.
+    if not order:
+        event_request = await MongoDB.get_collection("bulk_requests").find_one({
+            "_id": ObjectId(order_id),
+            "deletedAt": {"$in": [None, False, ""]},
+        })
+        if not event_request:
+            raise HTTPException(status_code=404, detail="Customer order or Bulk/Event request not found")
+        source_id = str(event_request.get("sourceWarehouseId") or event_request.get("eventWarehouseId") or event_request.get("warehouseId") or "")
+        destination_id = str(event_request.get("eventDestinationWarehouseId") or event_request.get("destinationWarehouseId") or "")
+        warehouse_id = str(warehouse["_id"])
+        if not source_id or source_id != warehouse_id:
+            raise HTTPException(status_code=403, detail="Only the assigned source warehouse can dispatch this Bulk/Event order")
+        if not destination_id or destination_id == source_id:
+            raise HTTPException(status_code=409, detail="Assign a different destination warehouse before creating the transfer")
+        event_number = str(event_request.get("requestNumber") or event_request.get("orderNumber") or ("EVENT-" + order_id[-6:].upper()))
+        incoming_collection = MongoDB.get_collection("incoming_stock")
+        receipt_or = [
+            {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+            {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+            {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
+            {"eventOrderNumber": event_number},
+            {"orderNumber": event_number},
+            {"orderNo": event_number},
+        ]
+        receipt_rows = await incoming_collection.find({
+            "warehouseId": {"$in": [ObjectId(source_id), source_id]},
+            "deletedAt": {"$in": [None, False, ""]},
+            "$or": receipt_or,
+        }).to_list(length=1000)
+        collection_rows = await MongoDB.get_collection("warehouse_collections").find({
+            "warehouseId": {"$in": [ObjectId(source_id), source_id]},
+            "deletedAt": {"$in": [None, False, ""]},
+            "$or": receipt_or,
+        }).to_list(length=1000)
+        # If older receipts lack eventRequestId/order number, join by incomingStockId
+        # from the farm-collection rows, then validate the bulk lot's physical receipt.
+        linked_ids = {
+            str(row.get("incomingStockId") or row.get("incoming_stock_id") or "")
+            for row in collection_rows
+            if row.get("incomingStockId") or row.get("incoming_stock_id")
+        }
+        if linked_ids:
+            known = {str(row.get("_id") or "") for row in receipt_rows}
+            exact_ids = [ObjectId(value) for value in linked_ids if ObjectId.is_valid(value)]
+            exact_rows = await incoming_collection.find({
+                "_id": {"$in": exact_ids},
+                "warehouseId": {"$in": [ObjectId(source_id), source_id]},
+                "deletedAt": {"$in": [None, False, ""]},
+            }).to_list(length=1000)
+            receipt_rows.extend(row for row in exact_rows if str(row.get("_id") or "") not in known)
+        if not receipt_rows:
+            raise HTTPException(status_code=409, detail="No Incoming Stock receipt is linked to this Bulk/Event order at the source warehouse")
+        bulk_lot_rows = [row for row in receipt_rows if row.get("bulkShipmentMeasuredTotal") is not None and row.get("bulkShipmentReceivedAt")]
+        if bulk_lot_rows:
+            measured_total = max(float(row.get("bulkShipmentMeasuredTotal") or 0) for row in bulk_lot_rows)
+            expected_total = sum(float(row.get("quantity") or row.get("expectedQuantity") or 0) for row in receipt_rows)
+            qc_passed = all(str(row.get("qualityCheck") or "").strip().lower() in ("passed", "approved", "accepted", "good", "ok") for row in bulk_lot_rows)
+            if measured_total + 1e-9 < expected_total or not qc_passed:
+                raise HTTPException(status_code=409, detail="Bulk lot receipt is incomplete or quality approval has not passed")
+        else:
+            incomplete = [
+                row for row in receipt_rows
+                if str(row.get("status") or "").strip().lower() not in ("received", "stored")
+                or str(row.get("qualityCheck") or "").strip().lower() not in ("passed", "approved", "accepted", "good", "ok")
+                or float(row.get("quantityReceived") or row.get("receivedQuantity") or row.get("actualQuantityReceived") or 0) + 1e-9 < float(row.get("quantity") or row.get("expectedQuantity") or 0)
+            ]
+            if incomplete:
+                raise HTTPException(status_code=409, detail="Receive and quality-check every Bulk/Event shipment portion before dispatch")
+        legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+        existing_leg = await legs.find_one({
+            "orderId": ObjectId(order_id),
+            "legType": "warehouse_to_destination_warehouse",
+            "sourceWarehouseId": ObjectId(source_id),
+            "destinationWarehouseId": ObjectId(destination_id),
+            "deletedAt": None,
+        })
+        now = datetime.utcnow()
+        total_quantity = sum(float(row.get("quantity") or row.get("expectedQuantity") or 0) for row in receipt_rows)
+        if existing_leg and str(existing_leg.get("status") or "") in ("awaiting_team_assignment", "assigned", "in_transit", "arrived_at_destination", "received_at_destination"):
+            leg_status = str(existing_leg.get("status"))
+        elif existing_leg:
+            await legs.update_one({"_id": existing_leg["_id"]}, {"$set": {
+                "status": "awaiting_team_assignment", "quantity": total_quantity,
+                "orderNumber": event_number, "sourceWarehouseName": event_request.get("sourceWarehouseName") or warehouse.get("name"),
+                "destinationWarehouseName": event_request.get("eventDestinationWarehouseName") or event_request.get("destinationWarehouseName"),
+                "dispatchedAt": now, "dispatchedBy": ObjectId(str(current_user["_id"])), "updatedAt": now,
+            }})
+            leg_status = "awaiting_team_assignment"
+        else:
+            await legs.insert_one({
+                "orderId": ObjectId(order_id), "orderNumber": event_number,
+                "isEventOrder": True, "eventRequestId": ObjectId(order_id),
+                "legType": "warehouse_to_destination_warehouse",
+                "sourceWarehouseId": ObjectId(source_id),
+                "sourceWarehouseName": event_request.get("sourceWarehouseName") or warehouse.get("name"),
+                "destinationWarehouseId": ObjectId(destination_id),
+                "destinationWarehouseName": event_request.get("eventDestinationWarehouseName") or event_request.get("destinationWarehouseName"),
+                "quantity": total_quantity, "status": "awaiting_team_assignment",
+                "dispatchedAt": now, "dispatchedBy": ObjectId(str(current_user["_id"])),
+                "createdAt": now, "updatedAt": now, "deletedAt": None,
+            })
+            leg_status = "awaiting_team_assignment"
+        await MongoDB.get_collection("bulk_requests").update_one({"_id": ObjectId(order_id)}, {"$set": {
+            "transferStatus": "destination_warehouse_transfer_pending",
+            "warehouseFulfillmentStage": "destination_warehouse_transfer_pending",
+            "updatedAt": now,
+        }})
+        await MongoDB.get_collection("event_fulfillments").update_many({
+            "$or": [
+                {"requestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"eventRequestId": {"$in": [ObjectId(order_id), order_id]}},
+                {"bulkRequestId": {"$in": [ObjectId(order_id), order_id]}},
+            ],
+            "deletedAt": {"$in": [None, False, ""]},
+        }, {"$set": {"transferStatus": "destination_warehouse_transfer_pending", "updatedAt": now}})
+        return {"success": True, "data": {"orderId": order_id, "orderNumber": event_number, "status": leg_status, "destinationWarehouseId": destination_id, "isEventOrder": True}, "message": "Bulk/Event destination transfer manifest created. Assign an approved pickup team before dispatch."}
+
     if str(order.get("logisticsMode") or "") != "farmer_to_source_warehouse_to_destination_warehouse_to_local_hub_to_delivery_partner":
         raise HTTPException(status_code=404, detail="Inter-district farmer fulfillment order not found")
     source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
