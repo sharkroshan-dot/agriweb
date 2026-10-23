@@ -34,16 +34,29 @@ const emptyForm = {
   notes: "",
 };
 
-export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
+export function CreateRfqForm({ onDone, initialData }: { onDone?: () => void; initialData?: any }) {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState(() => ({
+    ...emptyForm,
+    ...(initialData || {}),
+    deadline: initialData?.deadline ? new Date(initialData.deadline).toISOString().slice(0, 16) : "",
+    priceCeilingPerKg: initialData?.priceCeilingPerKg != null ? String(initialData.priceCeilingPerKg) : "",
+    budgetMinPerKg: initialData?.budgetMinPerKg != null ? String(initialData.budgetMinPerKg) : "",
+    budgetMaxPerKg: initialData?.budgetMaxPerKg != null ? String(initialData.budgetMaxPerKg) : "",
+    deliveryAddress: initialData?.deliveryAddress || "",
+    notes: initialData?.notes || "",
+  }));
   const [aiRec, setAiRec] = useState<any>(null);
 
   const createMutation = useMutation({
     mutationFn: ({ payload, saveAsDraft }: { payload: any; saveAsDraft: boolean }) =>
-      api.post("/b2b/rfqs", { ...payload, saveAsDraft }),
+      initialData?.id
+        ? api.put(`/b2b/rfqs/${initialData.id}`, { ...payload, saveAsDraft })
+        : api.post("/b2b/rfqs", { ...payload, saveAsDraft }),
     onSuccess: (_res: any, variables) => {
-      toast.success(variables.saveAsDraft ? "RFQ saved as draft." : "RFQ published! Farmers near you are now notified.");
+      toast.success(initialData?.id
+        ? (variables.saveAsDraft ? "RFQ draft updated." : "RFQ updated and published.")
+        : (variables.saveAsDraft ? "RFQ saved as draft." : "RFQ published! Farmers near you are now notified."));
       if (onDone) onDone();
       queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
     },
@@ -62,7 +75,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
   return (
     <Card className="border-emerald-200">
       <CardHeader>
-        <CardTitle className="text-base">Publish a Request for Quote</CardTitle>
+        <CardTitle className="text-base">{initialData?.id ? "Edit Request for Quote" : "Publish a Request for Quote"}</CardTitle>
         <CardDescription>
           Tell farmers what your business needs and they will bid with their best price.
         </CardDescription>
@@ -301,7 +314,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
             })}
           >
             {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-            Publish RFQ
+            {initialData?.id ? "Save & Publish RFQ" : "Publish RFQ"}
           </Button>
         </div>
       </CardContent>
