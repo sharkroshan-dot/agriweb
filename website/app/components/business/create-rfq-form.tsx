@@ -223,9 +223,19 @@ export function CreateRfqForm({ onDone, initialData }: { onDone?: () => void; in
           </select>
         </div>
 
-        <div className="space-y-1 sm:col-span-2">
-          <label className="text-xs font-medium text-gray-500">Delivery address</label>
-          <Input value={form.deliveryAddress} onChange={(e) => set("deliveryAddress", e.target.value)} placeholder="Business address for pickup/delivery" />
+        <div className="space-y-2 sm:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-gray-500">Delivery address</label>
+            <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
+              {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
+              {locationLoading ? "Getting location…" : "Use my live location"}
+            </Button>
+          </div>
+          <Input value={form.deliveryAddress} onChange={(e) => set("deliveryAddress", e.target.value)} placeholder="Enter full business delivery address manually" />
+          <p className="text-xs text-gray-500">Type an address yourself, or allow browser location access to fill it automatically. Check the address before publishing.</p>
+          {form.deliveryLocation?.coordinates?.length === 2 && (
+            <p className="flex items-center gap-1 text-xs text-emerald-700"><MapPin className="h-3.5 w-3.5" /> Location coordinates saved ({form.deliveryLocation.latitude.toFixed(5)}, {form.deliveryLocation.longitude.toFixed(5)}).</p>
+          )}
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-gray-500">Additional requirements</label>
