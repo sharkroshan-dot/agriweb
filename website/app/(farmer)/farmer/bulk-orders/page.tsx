@@ -707,7 +707,7 @@ export default function FarmerBulkOrdersPage() {
                               <label className="mb-1 block text-xs font-medium text-slate-600">Packing / quality notes (optional)</label>
                               <Input value={b2bQualityNotes[o.id] || ""} onChange={(e) => setB2bQualityNotes((prev) => ({ ...prev, [o.id]: e.target.value }))} placeholder="Notes about packed produce" />
                             </div>
-                            <Button size="sm" disabled={!b2bPackedKg[o.id] || Number(b2bPackedKg[o.id]) <= 0 || updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "quality_check", packedQuantityKg: Number(b2bPackedKg[o.id]), qualityNotes: b2bQualityNotes[o.id] || undefined } })}>
+                            <Button size="sm" disabled={Number(b2bPackedKg[o.id] ?? o.quantityKg ?? 0) <= 0 || updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "quality_check", packedQuantityKg: Number(b2bPackedKg[o.id]), qualityNotes: b2bQualityNotes[o.id] || undefined } })}>
                               <CheckCircle2 className="mr-1.5 h-4 w-4" /> Record Packing & Start Quality Check
                             </Button>
                           </div>
