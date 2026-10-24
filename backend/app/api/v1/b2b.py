@@ -836,14 +836,18 @@ async def accept_offer(
 
         order["_id"] = order_oid
         order["id"] = str(order_id)
-        await NotificationService.create_in_app_notification(
-            str(offer.get("farmerId")),
-            NotificationType.ORDER,
-            "Offer accepted! 🎉",
-            f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted (order {order.get('orderNumber')}).",
-            {"rfqId": str(rfq["_id"]), "orderId": order_id, "type": "b2b"},
-            NotificationPriority.HIGH,
-        )
+        try:
+            await NotificationService.create_in_app_notification(
+                str(offer.get("farmerId")),
+                NotificationType.ORDER,
+                "Offer accepted! 🎉",
+                f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted (order {order.get('orderNumber')}).",
+                {"rfqId": str(rfq["_id"]), "orderId": order_id, "type": "b2b"},
+                NotificationPriority.HIGH,
+            )
+        except Exception:
+            # Notification delivery must not roll back an otherwise valid order.
+            logger.exception("B2B order %s created, but farmer notification failed", order.get("orderNumber"))
         remaining_after = round(max(0.0, total_qty - accepted_now), 2)
         return {
             "success": True,
