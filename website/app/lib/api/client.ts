@@ -169,7 +169,19 @@ if (!response.ok) {
 
   const contentType = response.headers.get("content-type") || "";
   if (contentType.includes("application/json")) {
-    const payload = await response.json();
+    // Some legacy endpoints incorrectly return an empty body with a JSON
+    // content-type. Read as text first so that response.json() cannot throw
+    // an opaque "Unexpected end of JSON input" runtime error.
+    const responseText = await response.text();
+    if (!responseText.trim()) {
+      return null as T;
+    }
+    let payload: any;
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Invalid JSON response from ${method} ${url}`);
+    }
 
     // The backend historically exposes both direct payloads and `{ data: ... }`
     // envelopes. Keep the envelope for pages that use `response.data`, while
