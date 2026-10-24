@@ -419,7 +419,7 @@ export default function BusinessRfqsPage() {
                                   <td className="px-3 py-2">{offer.qualityGrade || "Not specified"}{r.qualityGrade && String(offer.qualityGrade || "").toLowerCase() === String(r.qualityGrade).toLowerCase() ? " ✓" : ""}</td>
                                   <td className="px-3 py-2">{offer.expectedDeliveryDate || "Not specified"}</td>
                                   <td className="px-3 py-2">{offer.farmerInfo?.rating ? "★ " + Number(offer.farmerInfo.rating).toFixed(1) + "/5" : "No rating"} · {offer.farmerInfo?.isVerified ? "Verified" : "Unverified"}</td>
-                                  <td className="px-3 py-2">{budget <= 0 || Number(offer.pricePerKg || 0) <= budget ? "Within budget" : "Over budget"}</td>
+                                  <td className="px-3 py-2">{Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0) <= 0 || Number(offer.pricePerKg || 0) <= Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0) ? "Within budget" : "Over budget"}</td>
                                 </tr>
                               ))}
                             </tbody>
