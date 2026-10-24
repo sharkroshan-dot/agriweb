@@ -819,9 +819,17 @@ async def accept_offer(
         NotificationPriority.HIGH,
     )
 
+    # Read the persisted RFQ after updating acceptedQuantityKg. Subtracting only
+    # this order's quantity would report the wrong remaining amount after split
+    # procurement (for example, 100 kg required, 40 kg already accepted, then 30 kg).
+    updated_rfq = await rfq_repo.find_one({"_id": rfq["_id"], "deletedAt": None}) or rfq
+    remaining_after_acceptance = round(
+        max(0.0, _rfq_quantity(updated_rfq) - float(updated_rfq.get("acceptedQuantityKg") or 0)),
+        2,
+    )
     return {
         "success": True,
-        "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": round(max(0.0, _rfq_quantity(rfq) - float(order.get("quantityKg"))), 2)},
+        "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": remaining_after_acceptance},
         "message": "Quote accepted; B2B order created",
     }
 
