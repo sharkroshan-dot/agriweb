@@ -42,6 +42,9 @@ const b2bStatusVariant: Record<string, any> = {
   confirmed: "default",
   preparing: "secondary",
   quality_check: "outline",
+  ready_for_pickup: "default",
+  picked_up: "warning",
+  warehouse_received: "warning",
   dispatched: "default",
   in_transit: "warning",
   delivered: "success",
@@ -49,7 +52,7 @@ const b2bStatusVariant: Record<string, any> = {
   cancelled: "destructive",
 };
 
-const b2bFlow = ["confirmed", "preparing", "quality_check", "dispatched", "in_transit", "delivered", "completed"];
+const b2bFlow = ["confirmed", "preparing", "quality_check", "ready_for_pickup", "picked_up", "warehouse_received", "in_transit", "delivered", "completed"];
 
 function StatusFilter({
   filter,
@@ -710,14 +713,16 @@ export default function FarmerBulkOrdersPage() {
                           </div>
                         )}
                         {o.status === "quality_check" && (
-                          <>
-                            <Button size="sm" disabled={updateB2bMutation.isPending || o.qualityCheck === "passed"} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "passed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
-                              <CheckCircle2 className="mr-1.5 h-4 w-4" /> Quality Passed · Dispatch
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-xs text-slate-600">Packed: {o.packedQuantityKg ?? "Not recorded"} kg</span>
+                            <Button size="sm" disabled={updateB2bMutation.isPending || !o.packedQuantityKg || o.qualityCheck === "passed"} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "quality_check", qualityCheck: "passed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
+                              <CheckCircle2 className="mr-1.5 h-4 w-4" /> Pass Quality Check
                             </Button>
-                            <Button size="sm" variant="outline" className="text-red-600" disabled={updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "failed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
+                            <Button size="sm" variant="outline" className="text-red-600" disabled={updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "quality_check", qualityCheck: "failed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
                               Mark Quality Failed
                             </Button>
-                          </>
+                            {o.qualityCheck === "passed" && <Button size="sm" disabled={updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "ready_for_pickup" } })}>Ready for Pickup</Button>}
+                          </div>
                         )}
                         {next && o.status !== "quality_check" && o.status !== "preparing" && (
                           <Button size="sm" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: next } })}>
