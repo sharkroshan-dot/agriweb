@@ -1021,6 +1021,25 @@ async def accept_offer_batch(
         order["createdAt"] = now
         order_docs.append(order)
 
+    # MongoDB multi-document transactions require a replica set. Detect a standalone
+    # deployment early and return a precise setup message instead of the misleading
+    # generic "batch outcome could not be confirmed" error.
+    try:
+        hello = await db.command("hello")
+    except Exception as exc:
+        logger.exception("Could not inspect MongoDB transaction capability")
+        raise HTTPException(status_code=503, detail="Could not verify MongoDB transaction support. Check the MongoDB connection and logs.") from exc
+    if not hello.get("setName") and not hello.get("msg") == "isdbgrid":
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "B2B offer acceptance requires MongoDB transactions, but this MongoDB "
+                "server is running standalone. Configure MongoDB as a single-node replica "
+                "set (for local development) or connect to a replica set/sharded cluster, "
+                "then restart the backend. No batch acceptance was started."
+            ),
+        )
+
     session = await client.start_session()
     try:
         async with session:
