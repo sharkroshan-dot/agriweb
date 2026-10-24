@@ -918,8 +918,60 @@ async def accept_offer_batch(
     except HTTPException:
         raise
     except Exception as exc:
+        # A transaction can commit successfully while the HTTP response is lost,
+        # or a concurrent retry can hit the unique idempotency index. Before
+        # reporting failure, reconcile against the durable batch record. The
+        # batch record and its orders are written in the same transaction, so a
+        # visible record is proof that the whole batch committed.
+        try:
+            committed = await batches.find_one({
+                "businessUserId": ObjectId(current_user["_id"]),
+                "idempotencyKey": data.idempotencyKey,
+            })
+            if committed:
+                committed_items = sorted(
+                    (str(row.get("offerId")), round(float(row.get("quantityKg") or 0), 2))
+                    for row in committed.get("items", [])
+                )
+                requested_items = sorted(
+                    (item.offerId, round(float(item.quantityKg), 2))
+                    for item in data.items
+                )
+                if committed_items != requested_items:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This idempotency key belongs to a different batch selection.",
+                    )
+                recovered_orders = await order_repo.collection.find(
+                    {"_id": {"$in": committed.get("orderIds", [])}}
+                ).to_list(length=50)
+                for recovered_order in recovered_orders:
+                    recovered_order["id"] = str(recovered_order["_id"])
+                    recovered_order["offerId"] = str(recovered_order.get("offerId"))
+                if len(recovered_orders) == len(committed.get("orderIds", [])):
+                    logger.warning(
+                        "Recovered committed B2B acceptance batch after an ambiguous transaction response: %s",
+                        data.idempotencyKey,
+                    )
+                    return {
+                        "success": True,
+                        "data": {
+                            "orders": recovered_orders,
+                            "batchId": str(committed["_id"]),
+                            "acceptedQuantityKg": round(float(committed.get("quantityKg") or 0), 2),
+                            "replayed": True,
+                        },
+                        "message": "Recovered previously committed batch; no duplicate orders were created",
+                    }
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Could not reconcile B2B batch after transaction error")
         logger.exception("Atomic B2B offer batch failed; transaction should roll back")
-        raise HTTPException(status_code=503, detail="Batch was not committed. Ensure MongoDB runs as a replica set or sharded cluster with transaction support, then retry with the same idempotency key.") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Batch outcome could not be confirmed. Retry the exact same selection with the same idempotency key; committed batches are recovered without creating duplicate orders. MongoDB transactions require a replica set or sharded cluster.",
+        ) from exc
     finally:
         await session.end_session()
 
