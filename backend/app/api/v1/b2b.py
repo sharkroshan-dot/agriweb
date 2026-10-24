@@ -301,7 +301,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "offerId": offer["_id"],
         "productName": offer.get("productName"),
         "category": rfq.get("category"),
-        "qualityGrade": rfq.get("qualityGrade"),
+        "qualityGrade": offer.get("qualityGrade") or rfq.get("qualityGrade"),
         "quantityKg": round(float(qty), 2),
         "pricePerKg": float(offer.get("pricePerKg") or 0),
         "deliveryCharge": round(delivery_charge, 2),
