@@ -30,6 +30,7 @@ const navSections = [
       { name: "Farm Collection", href: "/collections", icon: Truck },
       { name: "Pickup Routes", href: "/pickup-routes", icon: Route },
       { name: "Incoming Stock", href: "/incoming", icon: ArrowDown },
+      { name: "B2B Pickup & Fulfillment", href: "/warehouse/b2b-fulfillment", icon: Truck },
     ],
   },
   {
