@@ -59,6 +59,7 @@ offer_repo = BaseRepository("b2b_offers")
 order_repo = BaseRepository("b2b_orders")
 rating_repo = BaseRepository("b2b_ratings")
 farmer_profile_repo = BaseRepository("farmer_profiles")
+warehouse_repo = BaseRepository("warehouses")
 
 RFQ_OPEN = "open"
 RFQ_AWARDED = "awarded"
@@ -161,6 +162,102 @@ def _distance_km(farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]) -> Optio
     if f_loc and r_loc:
         return round(haversine_km(r_loc[1], r_loc[0], f_loc[1], f_loc[0]), 1)
     return None
+
+
+def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+    """Return (longitude, latitude) from supported GeoJSON-like location fields."""
+    for key in ("location", "farmLocation", "coordinates", "geoLocation"):
+        value = doc.get(key)
+        if isinstance(value, dict):
+            coords = value.get("coordinates")
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    return float(coords[0]), float(coords[1])
+                except (TypeError, ValueError):
+                    continue
+            lat = value.get("latitude", value.get("lat"))
+            lng = value.get("longitude", value.get("lng", value.get("lon")))
+            if lat is not None and lng is not None:
+                try:
+                    return float(lng), float(lat)
+                except (TypeError, ValueError):
+                    continue
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            try:
+                return float(value[0]), float(value[1])
+            except (TypeError, ValueError):
+                continue
+    lat = doc.get("latitude", doc.get("lat"))
+    lng = doc.get("longitude", doc.get("lng", doc.get("lon")))
+    if lat is not None and lng is not None:
+        try:
+            return float(lng), float(lat)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+async def _warehouse_route_for_b2b(
+    farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Select nearest active source/destination warehouses and price each route leg."""
+    farm_coords = _location_coords_from_doc(farmer or {})
+    buyer_coords = _location_coords_from_doc({"location": rfq.get("deliveryLocation")}) or _location_coords_from_doc(rfq)
+    if not farm_coords or not buyer_coords:
+        return {"available": False, "reason": "Farm or business delivery coordinates are missing."}
+
+    warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
+    candidates = []
+    for warehouse in warehouses:
+        status = str(warehouse.get("status") or warehouse.get("operationalStatus") or "active").lower()
+        if status not in ("active", "operational", "enabled", "open"):
+            continue
+        coords = _location_coords_from_doc(warehouse)
+        if not coords:
+            continue
+        candidates.append((warehouse, coords))
+    if not candidates:
+        return {"available": False, "reason": "No active warehouse with valid coordinates is configured."}
+
+    source = min(candidates, key=lambda row: haversine_km(farm_coords[1], farm_coords[0], row[1][1], row[1][0]))
+    destination = min(candidates, key=lambda row: haversine_km(buyer_coords[1], buyer_coords[0], row[1][1], row[1][0]))
+    source_doc, source_coords = source
+    destination_doc, destination_coords = destination
+
+    farm_to_source = round(haversine_km(farm_coords[1], farm_coords[0], source_coords[1], source_coords[0]), 2)
+    source_to_destination = round(haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 2)
+    destination_to_buyer = round(haversine_km(destination_coords[1], destination_coords[0], buyer_coords[1], buyer_coords[0]), 2)
+    # Do not charge a warehouse-to-warehouse leg when both route endpoints select the same warehouse.
+    if str(source_doc.get("_id")) == str(destination_doc.get("_id")):
+        source_to_destination = 0.0
+    return {
+        "available": True,
+        "sourceWarehouseId": str(source_doc.get("_id")),
+        "sourceWarehouseName": source_doc.get("name") or source_doc.get("warehouseName") or source_doc.get("code") or "Source Warehouse",
+        "destinationWarehouseId": str(destination_doc.get("_id")),
+        "destinationWarehouseName": destination_doc.get("name") or destination_doc.get("warehouseName") or destination_doc.get("code") or "Destination Warehouse",
+        "farmToSourceKm": farm_to_source,
+        "warehouseTransferKm": source_to_destination,
+        "destinationToBuyerKm": destination_to_buyer,
+    }
+
+
+def _calculate_warehouse_delivery_fee(route: Dict[str, Any], quantity_kg: float) -> Dict[str, Any]:
+    """Price the three warehouse-based legs using configurable INR rates."""
+    pickup = round(route["farmToSourceKm"] * B2B_DELIVERY_RATE_PER_KM, 2)
+    transfer = round(route["warehouseTransferKm"] * B2B_DELIVERY_RATE_PER_KM, 2)
+    final_delivery = round(route["destinationToBuyerKm"] * B2B_DELIVERY_RATE_PER_KM, 2)
+    weight = round(max(0.0, quantity_kg) * B2B_DELIVERY_RATE_PER_KG, 2)
+    handling = B2B_DELIVERY_BASE_FEE
+    total = round(pickup + transfer + final_delivery + weight + handling, 2)
+    return {
+        "farmPickupFee": pickup,
+        "warehouseTransferFee": transfer,
+        "finalDeliveryFee": final_delivery,
+        "weightCharge": weight,
+        "handlingFee": handling,
+        "total": total,
+    }
 
 
 def _visibility_match(rfq: Dict[str, Any], farmer: Dict[str, Any], distance_km: Optional[float]) -> bool:
