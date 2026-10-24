@@ -78,7 +78,6 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   const requestedQty = Number(rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0) || 0;
   const farmerStockQty = Number(rfq.availableKg ?? 0) || 0;
   const [qty, setQty] = useState(String(requestedQty > 0 ? Math.min(requestedQty, farmerStockQty > 0 ? farmerStockQty : requestedQty) : farmerStockQty || ""));
-  const [deliveryCharge, setDeliveryCharge] = useState("");
   const [eta, setEta] = useState("");
   const [message, setMessage] = useState("");
   const [aiRec, setAiRec] = useState<any>(null);
@@ -103,8 +102,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
 
   const priceNum = Number(price) || 0;
   const qtyNum = Number(qty) || 0;
-  const deliveryNum = Number(deliveryCharge) || 0;
-  const total = priceNum * qtyNum + deliveryNum;
+  const total = priceNum * qtyNum;
 
   return (
     <Card className="border-emerald-200">
@@ -143,28 +141,6 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           ) : null}
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
-          <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
-        </div>
-        <div className="sm:col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
-          <p className="mb-2 text-sm font-semibold text-emerald-900">B2B collection and delivery workflow</p>
-          <ol className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2 lg:grid-cols-5">
-            {[
-              "Farmer marks the order ready for pickup",
-              "Warehouse assigns a pickup team",
-              "Pickup team collects and hands over the goods",
-              "Warehouse checks, packs and dispatches",
-              "Bulk transport / delivery partner delivers to the business",
-            ].map((step, index) => (
-              <li key={step} className="flex items-start gap-2 rounded-lg bg-white p-2">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-800">{index + 1}</span>
-                <span>{step}</span>
-              </li>
-            ))}
-          </ol>
-          <p className="mt-2 text-[11px] text-emerald-800">The farmer submits the price and quantity quote only. Pickup and delivery are coordinated through the B2B fulfillment workflow.</p>
-        </div>
-        <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Expected delivery</label>
           <Input type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
         </div>
@@ -173,7 +149,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Quality, packaging, farm details…" />
         </div>
         <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 sm:col-span-2">
-          Total: ₹{total.toLocaleString("en-IN")} ({qtyNum} kg × ₹{priceNum}/kg{qtyNum > 0 ? ` + ₹${deliveryNum} delivery` : ""})
+          Total: ₹{total.toLocaleString("en-IN")} ({qtyNum} kg × ₹{priceNum}/kg)
         </div>
         <div className="sm:col-span-2">
           <Button
@@ -215,7 +191,6 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
               submit.mutate({
                 pricePerKg: Number(price),
                 availableQuantityKg: Number(qty),
-                deliveryCharge: deliveryCharge ? Number(deliveryCharge) : 0,
                 deliveryMethod: "dedicated_transport",
                 expectedDeliveryDate: eta || null,
                 message,
