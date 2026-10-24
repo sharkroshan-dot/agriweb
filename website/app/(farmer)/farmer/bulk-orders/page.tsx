@@ -361,7 +361,7 @@ export default function FarmerBulkOrdersPage() {
   };
 
   const filterB2b = (list: any[]) => {
-    if (b2bFilter === "active") return list.filter((o) => ["confirmed", "preparing", "quality_check", "dispatched", "in_transit", "delivered"].includes(o.status));
+    if (b2bFilter === "active") return list.filter((o) => ["confirmed", "preparing", "quality_check", "ready_for_pickup", "picked_up", "warehouse_received", "dispatched", "in_transit", "delivered"].includes(o.status));
     if (b2bFilter === "completed") return list.filter((o) => o.status === "completed");
     if (b2bFilter === "cancelled") return list.filter((o) => o.status === "cancelled");
     return list;
@@ -649,7 +649,7 @@ export default function FarmerBulkOrdersPage() {
             setFilter={setB2bFilter}
             counts={{
               all: b2bOrders.length,
-              active: b2bOrders.filter((o: any) => ["confirmed", "preparing", "quality_check", "dispatched", "in_transit", "delivered"].includes(o.status)).length,
+              active: b2bOrders.filter((o: any) => ["confirmed", "preparing", "quality_check", "ready_for_pickup", "picked_up", "warehouse_received", "dispatched", "in_transit", "delivered"].includes(o.status)).length,
               completed: b2bOrders.filter((o: any) => o.status === "completed").length,
               cancelled: b2bOrders.filter((o: any) => o.status === "cancelled").length,
             }}
