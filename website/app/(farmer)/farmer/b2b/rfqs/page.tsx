@@ -77,9 +77,8 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   // Default to the buyer requested quantity, not the farmer stock quantity.
   const requestedQty = Number(rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0) || 0;
   const farmerStockQty = Number(rfq.availableKg ?? 0) || 0;
-  const [qty, setQty] = useState(String(farmerStockQty || requestedQty || ""));
+  const [qty, setQty] = useState(String(requestedQty > 0 ? Math.min(requestedQty, farmerStockQty > 0 ? farmerStockQty : requestedQty) : farmerStockQty || ""));
   const [deliveryCharge, setDeliveryCharge] = useState("");
-  const [deliveryMethod, setDeliveryMethod] = useState("farmer_delivery");
   const [eta, setEta] = useState("");
   const [message, setMessage] = useState("");
   const [aiRec, setAiRec] = useState<any>(null);
@@ -124,25 +123,46 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <Input type="number" min="1" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Available quantity (kg) *</label>
-          <Input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
-          {rfq.availableKg != null ? <p className="text-[11px] text-gray-400">Your stock: {rfq.availableKg} kg</p> : null}
+          <label className="text-xs font-medium text-gray-500">Quantity you can supply (kg) *</label>
+          <Input
+            type="number"
+            min="1"
+            max={farmerStockQty > 0 ? Math.min(farmerStockQty, requestedQty > 0 ? requestedQty : farmerStockQty) : requestedQty || undefined}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+          <p className="text-[11px] text-slate-500">
+            Buyer needs: <strong>{requestedQty > 0 ? `${requestedQty} kg` : "quantity not specified"}</strong>
+            {rfq.availableKg != null ? ` · Your stock: ${rfq.availableKg} kg` : ""}
+          </p>
+          {requestedQty > 0 && qtyNum > requestedQty ? (
+            <p className="text-[11px] text-amber-700">Your quote quantity cannot exceed the buyer's requested quantity.</p>
+          ) : null}
+          {farmerStockQty > 0 && qtyNum > farmerStockQty ? (
+            <p className="text-[11px] text-amber-700">Your quote quantity cannot exceed your available stock.</p>
+          ) : null}
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
           <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
         </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
-          <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery method</label>
-          <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
-            {["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"].map((m) => (
-              <option key={m} value={m}>{m.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
+        <div className="sm:col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
+          <p className="mb-2 text-sm font-semibold text-emerald-900">B2B collection and delivery workflow</p>
+          <ol className="grid gap-2 text-xs text-slate-700 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              "Farmer marks the order ready for pickup",
+              "Warehouse assigns a pickup team",
+              "Pickup team collects and hands over the goods",
+              "Warehouse checks, packs and dispatches",
+              "Bulk transport / delivery partner delivers to the business",
+            ].map((step, index) => (
+              <li key={step} className="flex items-start gap-2 rounded-lg bg-white p-2">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-800">{index + 1}</span>
+                <span>{step}</span>
+              </li>
             ))}
-          </select>
+          </ol>
+          <p className="mt-2 text-[11px] text-emerald-800">The farmer submits the price and quantity quote only. Pickup and delivery are coordinated through the B2B fulfillment workflow.</p>
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Expected delivery</label>
@@ -196,7 +216,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
                 pricePerKg: Number(price),
                 availableQuantityKg: Number(qty),
                 deliveryCharge: deliveryCharge ? Number(deliveryCharge) : 0,
-                deliveryMethod,
+                deliveryMethod: "dedicated_transport",
                 expectedDeliveryDate: eta || null,
                 message,
               })
