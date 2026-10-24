@@ -724,10 +724,20 @@ export default function FarmerBulkOrdersPage() {
                             {o.qualityCheck === "passed" && <Button size="sm" disabled={updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "ready_for_pickup" } })}>Ready for Pickup</Button>}
                           </div>
                         )}
-                        {next && o.status !== "quality_check" && o.status !== "preparing" && (
+                        {next && ["confirmed", "preparing"].includes(o.status) && (
                           <Button size="sm" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: next } })}>
                             Mark {next.replace(/_/g, " ")}
                           </Button>
+                        )}
+                        {o.status === "ready_for_pickup" && (
+                          <p className="rounded-md bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                            Ready for pickup · Waiting for warehouse pickup-team assignment. The farmer cannot mark this order picked up.
+                          </p>
+                        )}
+                        {["picked_up", "warehouse_received", "in_transit"].includes(o.status) && (
+                          <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            Logistics update pending · This stage must be updated by the assigned pickup team or warehouse.
+                          </p>
                         )}
                         {o.status === "confirmed" && (
                           <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "cancelled" } })}>
