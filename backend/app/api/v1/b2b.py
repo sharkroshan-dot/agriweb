@@ -47,6 +47,7 @@ from app.services.payment_service import PaymentService
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
+from app.database.mongodb import MongoDB
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -735,6 +736,183 @@ class OfferAccept(BaseModel):
     advanceAmount: Optional[float] = Field(None, ge=0)
     deliveryCharge: Optional[float] = Field(None, ge=0)
     notes: Optional[str] = None
+
+
+class OfferBatchItem(BaseModel):
+    offerId: str
+    quantityKg: float = Field(..., gt=0)
+
+
+class OfferBatchAccept(BaseModel):
+    items: List[OfferBatchItem] = Field(..., min_length=1, max_length=50)
+    idempotencyKey: str = Field(..., min_length=8, max_length=128)
+    deliveryMethod: Optional[str] = "dedicated_transport"
+    paymentMode: Optional[str] = "cod"
+    advanceAmount: Optional[float] = Field(0, ge=0)
+    notes: Optional[str] = None
+
+
+@router.post("/offers/accept-batch")
+async def accept_offer_batch(
+    data: OfferBatchAccept,
+    current_user: dict = Depends(get_current_user),
+):
+    """Atomically accept multiple offers for a single RFQ.
+
+    Every write (RFQ quantity reservation, offer status changes, orders and
+    idempotency record) runs in one MongoDB transaction. A retry with the same
+    key returns the committed result rather than creating duplicate orders.
+    Requires MongoDB replica set/sharded-cluster transaction support.
+    """
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business accounts can accept offers")
+    if len({item.offerId for item in data.items}) != len(data.items):
+        raise HTTPException(status_code=400, detail="Each offer can only appear once in a batch")
+    try:
+        offer_ids = [ObjectId(item.offerId) for item in data.items]
+    except Exception:
+        raise HTTPException(status_code=404, detail="One or more offer IDs are invalid")
+
+    db = MongoDB.db
+    client = MongoDB.client
+    if db is None or client is None:
+        raise HTTPException(status_code=503, detail="Database is not ready")
+    batches = db["b2b_acceptance_batches"]
+    existing_batch = await batches.find_one({
+        "businessUserId": ObjectId(current_user["_id"]),
+        "idempotencyKey": data.idempotencyKey,
+    })
+    if existing_batch:
+        stored_orders = await order_repo.collection.find({"_id": {"$in": existing_batch.get("orderIds", [])}}).to_list(length=50)
+        for order in stored_orders:
+            order["id"] = str(order["_id"])
+            order["offerId"] = str(order.get("offerId"))
+        return {"success": True, "data": {"orders": stored_orders, "batchId": str(existing_batch["_id"]), "replayed": True}, "message": "Previously committed batch returned"}
+
+    # All offers must belong to the same RFQ so the balance is reserved as one unit.
+    offers = await offer_repo.collection.find({"_id": {"$in": offer_ids}, "deletedAt": None}).to_list(length=50)
+    if len(offers) != len(offer_ids):
+        raise HTTPException(status_code=404, detail="One or more offers no longer exist")
+    rfq_ids = {str(offer.get("rfqId")) for offer in offers}
+    if len(rfq_ids) != 1:
+        raise HTTPException(status_code=400, detail="All selected offers must belong to the same RFQ")
+    rfq_id = offers[0]["rfqId"]
+    rfq = await rfq_repo.find_one({"_id": rfq_id, "deletedAt": None})
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    if str(rfq.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your RFQ")
+    await _maybe_close_rfq(rfq)
+    if rfq.get("status") not in (RFQ_OPEN, RFQ_AWARDED):
+        raise HTTPException(status_code=409, detail="RFQ is closed or cancelled")
+    offers_by_id = {str(offer["_id"]): offer for offer in offers}
+    requested_total = 0.0
+    order_specs = []
+    for item in data.items:
+        offer = offers_by_id[item.offerId]
+        if offer.get("status") != OFFER_PENDING:
+            raise HTTPException(status_code=409, detail=f"Offer {item.offerId} is no longer pending")
+        available = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or _rfq_quantity(rfq))
+        qty = round(float(item.quantityKg), 2)
+        if qty <= 0 or qty - available > 0.001:
+            raise HTTPException(status_code=400, detail=f"Requested quantity exceeds offer availability for {item.offerId} (maximum {available:g} kg)")
+        requested_total += qty
+        accept_data = OfferAccept(
+            quantityKg=qty,
+            deliveryMethod=data.deliveryMethod,
+            paymentMode=data.paymentMode,
+            advanceAmount=data.advanceAmount,
+            notes=data.notes,
+        )
+        order_specs.append((offer, qty, accept_data))
+    total_qty = _rfq_quantity(rfq)
+    if rfq.get("recurring") and len(order_specs) != 1:
+        raise HTTPException(status_code=400, detail="Recurring RFQs can only be accepted from one offer at a time")
+    if requested_total <= 0:
+        raise HTTPException(status_code=400, detail="Batch quantity must be greater than zero")
+
+    now = datetime.utcnow()
+    order_docs = []
+    for offer, qty, accept_data in order_specs:
+        order = await _build_order(rfq, offer, qty, accept_data)
+        order["batchIdempotencyKey"] = data.idempotencyKey
+        order["createdAt"] = now
+        order_docs.append(order)
+
+    session = await client.start_session()
+    try:
+        async with session:
+            async with session.start_transaction():
+                # Recheck ownership, RFQ status, and available balance inside the transaction.
+                live_rfq = await rfq_repo.collection.find_one(
+                    {"_id": rfq_id, "businessUserId": ObjectId(current_user["_id"]), "status": {"$in": [RFQ_OPEN, RFQ_AWARDED]}, "deletedAt": None},
+                    session=session,
+                )
+                if not live_rfq:
+                    raise HTTPException(status_code=409, detail="RFQ is no longer open for acceptance")
+                live_accepted = float(live_rfq.get("acceptedQuantityKg") or 0)
+                if live_accepted + requested_total > total_qty + 1e-9:
+                    raise HTTPException(status_code=409, detail=f"RFQ balance changed. Remaining quantity: {max(0, total_qty-live_accepted):g} kg")
+                reserve = await rfq_repo.collection.update_one(
+                    {"_id": rfq_id, "businessUserId": ObjectId(current_user["_id"]), "status": {"$in": [RFQ_OPEN, RFQ_AWARDED]},
+                     "$expr": {"$lte": [{"$add": [{"$ifNull": ["$acceptedQuantityKg", 0]}, requested_total]}, total_qty]}},
+                    {"$inc": {"acceptedQuantityKg": requested_total},
+                     "$push": {"awardedOfferIds": {"$each": offer_ids}},
+                     "$set": {"updatedAt": now}},
+                    session=session,
+                )
+                if reserve.modified_count != 1:
+                    raise HTTPException(status_code=409, detail="RFQ balance was claimed by another request; no orders were created")
+                for offer, qty, _ in order_specs:
+                    claim = await offer_repo.collection.update_one(
+                        {"_id": offer["_id"], "status": OFFER_PENDING, "deletedAt": None},
+                        {"$set": {"status": OFFER_ACCEPTED, "acceptedAt": now, "acceptedQuantityKg": qty, "updatedAt": now}},
+                        session=session,
+                    )
+                    if claim.modified_count != 1:
+                        raise HTTPException(status_code=409, detail="An offer was accepted concurrently; the whole batch was rolled back")
+                await order_repo.collection.insert_many(order_docs, ordered=True, session=session)
+                accepted_now = live_accepted + requested_total
+                if accepted_now >= total_qty - 1e-9 or live_rfq.get("recurring"):
+                    await rfq_repo.collection.update_one({"_id": rfq_id}, {"$set": {"status": RFQ_AWARDED, "updatedAt": now}}, session=session)
+                    await offer_repo.collection.update_many(
+                        {"rfqId": rfq_id, "_id": {"$nin": offer_ids}, "status": OFFER_PENDING},
+                        {"$set": {"status": OFFER_DECLINED, "updatedAt": now}},
+                        session=session,
+                    )
+                batch_doc = {
+                    "businessUserId": ObjectId(current_user["_id"]),
+                    "rfqId": rfq_id,
+                    "idempotencyKey": data.idempotencyKey,
+                    "orderIds": [order["_id"] for order in order_docs],
+                    "offerIds": offer_ids,
+                    "quantityKg": requested_total,
+                    "createdAt": now,
+                }
+                await batches.insert_one(batch_doc, session=session)
+        for order in order_docs:
+            order["id"] = str(order["_id"])
+            order["offerId"] = str(order.get("offerId"))
+        # Notifications are deliberately outside the transaction; notification failure
+        # must not undo a committed procurement batch.
+        for offer, qty, _ in order_specs:
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(offer.get("farmerId")), NotificationType.ORDER, "Offer accepted! 🎉",
+                    f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted.",
+                    {"rfqId": str(rfq_id), "type": "b2b", "batchKey": data.idempotencyKey},
+                    NotificationPriority.HIGH,
+                )
+            except Exception:
+                logger.exception("Batch committed but notification failed for offer %s", offer.get("_id"))
+        return {"success": True, "data": {"orders": order_docs, "batchId": str(batch_doc["_id"]), "acceptedQuantityKg": round(requested_total, 2), "remainingQuantityKg": round(max(0.0, total_qty-accepted_now), 2), "replayed": False}, "message": "All selected offers accepted atomically"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Atomic B2B offer batch failed; transaction should roll back")
+        raise HTTPException(status_code=503, detail="Batch was not committed. Ensure MongoDB runs as a replica set or sharded cluster with transaction support, then retry with the same idempotency key.") from exc
+    finally:
+        await session.end_session()
 
 
 @router.post("/offers/{offer_id}/accept")
