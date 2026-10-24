@@ -74,7 +74,9 @@ function PillTabs({
 function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   const queryClient = useQueryClient();
   const [price, setPrice] = useState(String(rfq.priceCeilingPerKg || rfq.budgetMaxPerKg || ""));
-  const [qty, setQty] = useState(String(rfq.availableKg || rfq.quantityKg || ""));
+  // Default to the buyer requested quantity, not the farmer stock quantity.
+  const requestedQty = Number(rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0) || 0;
+  const [qty, setQty] = useState(String(requestedQty || ""));
   const [deliveryCharge, setDeliveryCharge] = useState("");
   const [deliveryMethod, setDeliveryMethod] = useState("farmer_delivery");
   const [eta, setEta] = useState("");
@@ -109,7 +111,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
       <CardHeader>
         <CardTitle className="text-sm">Submit your quote for {rfq.productName}</CardTitle>
         <CardDescription>
-          {rfq.quantityKg ?? `${rfq.quantityPerWeekKg} kg/week`} kg
+          Buyer needs: {rfq.quantityKg != null ? `${rfq.quantityKg} kg` : `${rfq.quantityPerWeekKg ?? "—"} kg/week`}
           {rfq.qualityGrade ? ` · ${rfq.qualityGrade}` : ""}
           {rfq.budgetMinPerKg && rfq.budgetMaxPerKg ? ` · budget ₹${rfq.budgetMinPerKg}–₹${rfq.budgetMaxPerKg}/kg` : ""}
           {rfq.priceCeilingPerKg ? ` · ceiling ₹${rfq.priceCeilingPerKg}/kg` : ""}
@@ -121,9 +123,15 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <Input type="number" min="1" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Available quantity (kg) *</label>
-          <Input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
-          {rfq.availableKg ? <p className="text-[11px] text-gray-400">Your stock: {rfq.availableKg} kg</p> : null}
+          <label className="text-xs font-medium text-gray-500">Quantity you can supply (kg) *</label>
+          <Input type="number" min="1" max={requestedQty || undefined} value={qty} onChange={(e) => setQty(e.target.value)} />
+          <p className="text-[11px] text-gray-500">
+            Buyer requested: {requestedQty > 0 ? `${requestedQty} kg` : `${rfq.quantityPerWeekKg ?? "Not specified"} kg/week`}
+            {rfq.availableKg != null ? ` · Your stock: ${rfq.availableKg} kg` : ""}
+          </p>
+          {requestedQty > 0 && qtyNum > requestedQty && (
+            <p className="text-[11px] text-amber-700">Your quote quantity exceeds the buyer requested quantity.</p>
+          )}
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
