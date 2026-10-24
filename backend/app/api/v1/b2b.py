@@ -1401,11 +1401,22 @@ async def update_order_status(
         if data.status != nxt:
             raise HTTPException(status_code=400, detail=f"Invalid transition from {current} to {data.status}")
         if data.status == ORDER_QUALITY_CHECK:
-            if data.packedQuantityKg is None:
-                raise HTTPException(status_code=400, detail="Record the actual packed quantity before completing the quality check.")
-            if data.packedQuantityKg <= 0:
+            # Accept camelCase and snake_case payloads. Older frontend builds may
+            # send the snake_case form; when no explicit quantity arrives, use the
+            # accepted order quantity as the default packed quantity shown in UI.
+            raw_packed_quantity = (
+                data.packedQuantityKg
+                if data.packedQuantityKg is not None
+                else order.get("packedQuantityKg", order.get("quantityKg"))
+            )
+            if raw_packed_quantity is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Packed quantity is missing. Enter the actual packed quantity and try again.",
+                )
+            if float(raw_packed_quantity) <= 0:
                 raise HTTPException(status_code=400, detail="Packed quantity must be greater than zero.")
-            update["packedQuantityKg"] = round(float(data.packedQuantityKg), 2)
+            update["packedQuantityKg"] = round(float(raw_packed_quantity), 2)
             update["qualityCheck"] = "pending"
             if data.qualityNotes:
                 update["qualityNotes"] = data.qualityNotes
