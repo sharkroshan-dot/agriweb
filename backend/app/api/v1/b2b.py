@@ -1489,6 +1489,8 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     orders = await order_repo.find_many({"status": {"$in": statuses}, "deletedAt": None}, sort=[("updatedAt", -1)], limit=500)
     for order in orders:
         await _enrich_order(order)
+        # Expose a stable frontend identifier while retaining the Mongo ID as a string.
+        order["id"] = str(order.get("_id"))
         for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
             if order.get(key) is not None:
                 order[key] = str(order[key])
