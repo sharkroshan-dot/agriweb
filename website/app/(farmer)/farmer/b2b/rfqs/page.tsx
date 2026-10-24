@@ -18,6 +18,8 @@ import {
   Warehouse,
   PackageCheck,
   Route,
+  Truck,
+  AlertCircle,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
@@ -231,9 +233,15 @@ export default function FarmerB2bRfqsPage() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
 
-  const { data: rfqData, isLoading } = useQuery({
+  const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["b2b", "farmer", "rfqs"],
-    queryFn: () => api.get("/b2b/rfqs", { params: { status: "open" } }),
+    queryFn: async () => {
+      const response: any = await api.get("/b2b/rfqs", { params: { status: "open", limit: 200 } });
+      // Support both the API client's unwrapped payload and an Axios-style response.
+      const payload = response?.data?.data ?? response?.data ?? response;
+      return { ...response, data: payload };
+    },
+    retry: 2,
   });
 
   if (isLoading) {
@@ -244,7 +252,22 @@ export default function FarmerB2bRfqsPage() {
     );
   }
 
-  const allRfqs = rfqData?.data?.rfqs || [];
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="flex-1">
+            <h2 className="font-semibold">Business RFQs could not be loaded</h2>
+            <p className="mt-1 text-sm">{(error as any)?.message || "The RFQ request failed. Check that the backend is running and your farmer session is valid."}</p>
+            <Button className="mt-3" variant="outline" onClick={() => refetch()}>Retry loading RFQs</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const allRfqs = Array.isArray(rfqData?.data?.rfqs) ? rfqData.data.rfqs : [];
 
   const scopeCounts: Record<string, number> = {
     all: allRfqs.length,
