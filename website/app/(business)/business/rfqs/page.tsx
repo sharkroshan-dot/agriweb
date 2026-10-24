@@ -183,39 +183,60 @@ export default function BusinessRfqsPage() {
           {visibleRfqs.map((r: any) => (
             <div key={r.id} className="space-y-2">
               <Card>
-                <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">{r.productName}</p>
-                      {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
-                      {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
-                      <Badge variant="outline">{r.visibility}</Badge>
+                <CardContent className="space-y-4 p-4 sm:p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-semibold text-slate-900">{r.productName || "Product request"}</h3>
+                        {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
+                        <Badge variant="outline">{r.recurring ? "Recurring supply" : "One-off order"}</Badge>
+                        <Badge variant="outline">{String(r.visibility || "state").replace(/^./, (v: string) => v.toUpperCase())} reach</Badge>
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        {r.recurring
+                          ? `Regular supply: ${r.quantityPerWeekKg ?? r.quantityKg ?? "—"} kg per week`
+                          : `Requested quantity: ${r.quantityKg ?? "—"} kg`}
+                      </p>
                     </div>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {r.quantityKg ?? `${r.quantityPerWeekKg} kg/week`} kg
-                      {r.requiredDate ? ` • by ${r.requiredDate}` : ""}
-                      {r.deliveryTimeSlot ? ` • ${r.deliveryTimeSlot}` : ""}
-                      {r.deliveryCity ? ` • ${r.deliveryCity}` : ""}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-3 text-xs text-gray-400">
-                      {r.priceCeilingPerKg ? <span>ceiling ₹{r.priceCeilingPerKg}/kg</span> : null}
-                      {r.budgetMinPerKg && r.budgetMaxPerKg ? <span>budget ₹{r.budgetMinPerKg}–₹{r.budgetMaxPerKg}/kg</span> : null}
-                      <span>{r.offerCount ?? 0} quote(s)</span>
-                      {!r.recurring && r.remainingQuantityKg != null ? <span>remaining {r.remainingQuantityKg} kg</span> : null}
-                      {formatRfqDeadline(r) ? (
-                        <span className="font-medium text-slate-500">
-                          ⏰ RFQ deadline: {formatRfqDeadline(r)}
-                        </span>
-                      ) : r.closingIn ? (
-                        <span>⏰ closes in {r.closingIn}</span>
-                      ) : null}
+                    <Badge variant={statusVariant[String(r.status || "").toLowerCase()] || "secondary"}>
+                      {({ open: "Open for quotes", awarded: "Awarded", closed: "Closed", cancelled: "Cancelled" } as Record<string, string>)[String(r.status || "").toLowerCase()] || String(r.status || "Unknown")}
+                    </Badge>
+                  </div>
+
+                  <div className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex items-start gap-2">
+                      <PackageSearch className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Quantity needed</p><p className="text-sm font-semibold text-slate-800">{r.recurring ? `${r.quantityPerWeekKg ?? r.quantityKg ?? "—"} kg/week` : `${r.quantityKg ?? "—"} kg`}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Delivery location</p><p className="text-sm font-semibold text-slate-800">{[r.deliveryCity, r.deliveryDistrict, r.deliveryState].filter(Boolean).join(", ") || "Not specified"}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">{r.recurring ? "Supply schedule" : "Required by"}</p><p className="text-sm font-semibold text-slate-800">{r.recurring ? (r.deliveryDays || "Schedule to be confirmed") : (r.requiredDate || "Date not specified")}{!r.recurring && r.deliveryTimeSlot ? ` · ${r.deliveryTimeSlot}` : ""}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Buyer budget</p><p className="text-sm font-semibold text-slate-800">{r.budgetMinPerKg != null && r.budgetMaxPerKg != null ? `₹${r.budgetMinPerKg}–₹${r.budgetMaxPerKg}/kg` : r.priceCeilingPerKg != null ? `Up to ₹${r.priceCeilingPerKg}/kg` : "Not specified"}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Bot className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Farmer quotes received</p><p className="text-sm font-semibold text-slate-800">{r.offerCount ?? 0} quotes</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Quote deadline</p><p className="text-sm font-semibold text-slate-800">{formatRfqDeadline(r) || r.closingIn || "No deadline specified"}</p></div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={statusVariant[r.status] || "secondary"}>{r.status}</Badge>
-                    {(r.status === "open" || r.status === "awarded") && (
+
+                  {r.notes ? <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2"><p className="text-xs font-medium text-amber-900">Additional requirements</p><p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{r.notes}</p></div> : null}
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                    <p className="text-xs text-slate-500">{!r.recurring && r.remainingQuantityKg != null ? `${r.remainingQuantityKg} kg still to source` : r.recurring ? "Recurring procurement" : "One-time procurement"}</p>
+                    {(String(r.status || "").toLowerCase() === "open" || String(r.status || "").toLowerCase() === "awarded") && (
                       <Button variant="outline" size="sm" onClick={() => setExpandedRfq(expandedRfq === r.id ? null : r.id)}>
-                        {expandedRfq === r.id ? "Hide offers" : "View offers"}
+                        {expandedRfq === r.id ? "Hide farmer quotes" : `View farmer quotes (${r.offerCount ?? 0})`}
                       </Button>
                     )}
                   </div>
