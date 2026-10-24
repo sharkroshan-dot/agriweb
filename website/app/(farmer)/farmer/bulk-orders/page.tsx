@@ -251,6 +251,8 @@ export default function FarmerBulkOrdersPage() {
   const [cameraOpen, setCameraOpen] = useState<string | boolean>(false);
   const [invoiceFor, setInvoiceFor] = useState<any>(null);
   const [rateFor, setRateFor] = useState<any>(null);
+  const [b2bPackedKg, setB2bPackedKg] = useState<Record<string, string>>({});
+  const [b2bQualityNotes, setB2bQualityNotes] = useState<Record<string, string>>({});
 
   const { data: bulkData, isLoading: bulkLoading } = useQuery({
     queryKey: ["farmer", "bulk-orders"],
@@ -692,17 +694,32 @@ export default function FarmerBulkOrdersPage() {
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
+                        {o.status === "preparing" && (
+                          <div className="flex flex-wrap items-end gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <div className="min-w-[140px]">
+                              <label className="mb-1 block text-xs font-medium text-slate-600">Actual packed quantity (kg)</label>
+                              <Input type="number" min="0.01" step="0.01" value={b2bPackedKg[o.id] ?? String(o.quantityKg ?? "")} onChange={(e) => setB2bPackedKg((prev) => ({ ...prev, [o.id]: e.target.value }))} placeholder="Packed kg" />
+                            </div>
+                            <div className="min-w-[180px] flex-1">
+                              <label className="mb-1 block text-xs font-medium text-slate-600">Packing / quality notes (optional)</label>
+                              <Input value={b2bQualityNotes[o.id] || ""} onChange={(e) => setB2bQualityNotes((prev) => ({ ...prev, [o.id]: e.target.value }))} placeholder="Notes about packed produce" />
+                            </div>
+                            <Button size="sm" disabled={!b2bPackedKg[o.id] || Number(b2bPackedKg[o.id]) <= 0 || updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "quality_check", packedQuantityKg: Number(b2bPackedKg[o.id]), qualityNotes: b2bQualityNotes[o.id] || undefined } })}>
+                              <CheckCircle2 className="mr-1.5 h-4 w-4" /> Record Packing & Start Quality Check
+                            </Button>
+                          </div>
+                        )}
                         {o.status === "quality_check" && (
                           <>
-                            <Button size="sm" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "passed" } })}>
+                            <Button size="sm" disabled={updateB2bMutation.isPending || o.qualityCheck === "passed"} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "passed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
                               <CheckCircle2 className="mr-1.5 h-4 w-4" /> Quality Passed · Dispatch
                             </Button>
-                            <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "failed" } })}>
+                            <Button size="sm" variant="outline" className="text-red-600" disabled={updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "failed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
                               Mark Quality Failed
                             </Button>
                           </>
                         )}
-                        {next && o.status !== "quality_check" && (
+                        {next && o.status !== "quality_check" && o.status !== "preparing" && (
                           <Button size="sm" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: next } })}>
                             Mark {next.replace(/_/g, " ")}
                           </Button>
