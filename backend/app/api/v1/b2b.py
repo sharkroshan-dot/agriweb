@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
+import os
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -47,6 +48,7 @@ from app.services.payment_service import PaymentService
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
+from app.database.mongodb import MongoDB
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -57,6 +59,7 @@ offer_repo = BaseRepository("b2b_offers")
 order_repo = BaseRepository("b2b_orders")
 rating_repo = BaseRepository("b2b_ratings")
 farmer_profile_repo = BaseRepository("farmer_profiles")
+warehouse_repo = BaseRepository("warehouses")
 
 RFQ_OPEN = "open"
 RFQ_AWARDED = "awarded"
@@ -140,12 +143,121 @@ def _rfq_quantity(rfq: Dict[str, Any]) -> float:
     return float(qty)
 
 
+# Configurable B2B delivery pricing (INR). Override with backend environment variables.
+B2B_DELIVERY_BASE_FEE = max(0.0, float(os.getenv("B2B_DELIVERY_BASE_FEE", "40")))
+B2B_DELIVERY_RATE_PER_KM = max(0.0, float(os.getenv("B2B_DELIVERY_RATE_PER_KM", "8")))
+B2B_DELIVERY_RATE_PER_KG = max(0.0, float(os.getenv("B2B_DELIVERY_RATE_PER_KG", "1.5")))
+
+
+def _calculate_b2b_delivery_fee(distance_km: float, quantity_kg: float) -> float:
+    """Distance + shipment-weight pricing, in INR, rounded to paise."""
+    distance_component = max(0.0, distance_km) * B2B_DELIVERY_RATE_PER_KM
+    weight_component = max(0.0, quantity_kg) * B2B_DELIVERY_RATE_PER_KG
+    return round(B2B_DELIVERY_BASE_FEE + distance_component + weight_component, 2)
+
+
 def _distance_km(farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]) -> Optional[float]:
     f_loc = _farmer_location(farmer or {})
     r_loc = _coords(rfq.get("deliveryLocation"))
     if f_loc and r_loc:
         return round(haversine_km(r_loc[1], r_loc[0], f_loc[1], f_loc[0]), 1)
     return None
+
+
+def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, float]]:
+    """Return (longitude, latitude) from supported GeoJSON-like location fields."""
+    for key in ("location", "farmLocation", "coordinates", "geoLocation"):
+        value = doc.get(key)
+        if isinstance(value, dict):
+            coords = value.get("coordinates")
+            if isinstance(coords, (list, tuple)) and len(coords) >= 2:
+                try:
+                    return float(coords[0]), float(coords[1])
+                except (TypeError, ValueError):
+                    continue
+            lat = value.get("latitude", value.get("lat"))
+            lng = value.get("longitude", value.get("lng", value.get("lon")))
+            if lat is not None and lng is not None:
+                try:
+                    return float(lng), float(lat)
+                except (TypeError, ValueError):
+                    continue
+        if isinstance(value, (list, tuple)) and len(value) >= 2:
+            try:
+                return float(value[0]), float(value[1])
+            except (TypeError, ValueError):
+                continue
+    lat = doc.get("latitude", doc.get("lat"))
+    lng = doc.get("longitude", doc.get("lng", doc.get("lon")))
+    if lat is not None and lng is not None:
+        try:
+            return float(lng), float(lat)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+async def _warehouse_route_for_b2b(
+    farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Select nearest active source/destination warehouses and price each route leg."""
+    farm_coords = _location_coords_from_doc(farmer or {})
+    buyer_coords = _location_coords_from_doc({"location": rfq.get("deliveryLocation")}) or _location_coords_from_doc(rfq)
+    if not farm_coords or not buyer_coords:
+        return {"available": False, "reason": "Farm or business delivery coordinates are missing."}
+
+    warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
+    candidates = []
+    for warehouse in warehouses:
+        status = str(warehouse.get("status") or warehouse.get("operationalStatus") or "active").lower()
+        if status not in ("active", "operational", "enabled", "open"):
+            continue
+        coords = _location_coords_from_doc(warehouse)
+        if not coords:
+            continue
+        candidates.append((warehouse, coords))
+    if not candidates:
+        return {"available": False, "reason": "No active warehouse with valid coordinates is configured."}
+
+    source = min(candidates, key=lambda row: haversine_km(farm_coords[1], farm_coords[0], row[1][1], row[1][0]))
+    destination = min(candidates, key=lambda row: haversine_km(buyer_coords[1], buyer_coords[0], row[1][1], row[1][0]))
+    source_doc, source_coords = source
+    destination_doc, destination_coords = destination
+
+    farm_to_source = round(haversine_km(farm_coords[1], farm_coords[0], source_coords[1], source_coords[0]), 2)
+    source_to_destination = round(haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 2)
+    destination_to_buyer = round(haversine_km(destination_coords[1], destination_coords[0], buyer_coords[1], buyer_coords[0]), 2)
+    # Do not charge a warehouse-to-warehouse leg when both route endpoints select the same warehouse.
+    if str(source_doc.get("_id")) == str(destination_doc.get("_id")):
+        source_to_destination = 0.0
+    return {
+        "available": True,
+        "sourceWarehouseId": str(source_doc.get("_id")),
+        "sourceWarehouseName": source_doc.get("name") or source_doc.get("warehouseName") or source_doc.get("code") or "Source Warehouse",
+        "destinationWarehouseId": str(destination_doc.get("_id")),
+        "destinationWarehouseName": destination_doc.get("name") or destination_doc.get("warehouseName") or destination_doc.get("code") or "Destination Warehouse",
+        "farmToSourceKm": farm_to_source,
+        "warehouseTransferKm": source_to_destination,
+        "destinationToBuyerKm": destination_to_buyer,
+    }
+
+
+def _calculate_warehouse_delivery_fee(route: Dict[str, Any], quantity_kg: float) -> Dict[str, Any]:
+    """Price the three warehouse-based legs using configurable INR rates."""
+    pickup = round(route["farmToSourceKm"] * B2B_DELIVERY_RATE_PER_KM, 2)
+    transfer = round(route["warehouseTransferKm"] * B2B_DELIVERY_RATE_PER_KM, 2)
+    final_delivery = round(route["destinationToBuyerKm"] * B2B_DELIVERY_RATE_PER_KM, 2)
+    weight = round(max(0.0, quantity_kg) * B2B_DELIVERY_RATE_PER_KG, 2)
+    handling = B2B_DELIVERY_BASE_FEE
+    total = round(pickup + transfer + final_delivery + weight + handling, 2)
+    return {
+        "farmPickupFee": pickup,
+        "warehouseTransferFee": transfer,
+        "finalDeliveryFee": final_delivery,
+        "weightCharge": weight,
+        "handlingFee": handling,
+        "total": total,
+    }
 
 
 def _visibility_match(rfq: Dict[str, Any], farmer: Dict[str, Any], distance_km: Optional[float]) -> bool:
@@ -286,12 +398,32 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, accept: Optional["OfferAccept"]) -> Dict[str, Any]:
-    delivery_charge = 0.0
-    if accept and accept.deliveryCharge is not None:
-        delivery_charge = float(accept.deliveryCharge)
-    elif offer.get("deliveryCharge") is not None:
-        delivery_charge = float(offer.get("deliveryCharge") or 0)
-    total = round(float(qty) * float(offer.get("pricePerKg") or 0) + delivery_charge, 2)
+    # Calculate delivery using Farm -> Source Warehouse -> Destination Warehouse -> Business.
+    # Never silently revert to the incorrect direct farm-to-business distance.
+    farmer = await farmer_repository.find_one({"userId": offer.get("farmerId")})
+    if not farmer:
+        farmer = await farmer_repository.find_one({"userId": ObjectId(str(offer.get("farmerId")))})
+    route = await _warehouse_route_for_b2b(farmer, rfq)
+    if not route.get("available"):
+        raise HTTPException(status_code=400, detail=f"Cannot calculate warehouse-based delivery fee: {route.get('reason')}")
+    distance_km = round(
+        float(route["farmToSourceKm"]) + float(route["warehouseTransferKm"]) + float(route["destinationToBuyerKm"]), 2
+    )
+    fee_breakdown = _calculate_warehouse_delivery_fee(route, qty)
+    delivery_charge = fee_breakdown["total"]
+    product_subtotal = round(float(qty) * float(offer.get("pricePerKg") or 0), 2)
+    # Only apply tax/other charges when explicitly configured.
+    configured_tax_rate = offer.get("taxRate")
+    if configured_tax_rate is None:
+        configured_tax_rate = offer.get("taxPercent")
+    if configured_tax_rate is None:
+        configured_tax_rate = rfq.get("taxRate")
+    if configured_tax_rate is None:
+        configured_tax_rate = rfq.get("taxPercent", 0)
+    tax_rate = max(0.0, float(configured_tax_rate or 0))
+    tax_amount = round(product_subtotal * tax_rate / 100, 2)
+    other_charges = max(0.0, float(offer.get("otherCharges", rfq.get("otherCharges", 0)) or 0))
+    total = round(product_subtotal + delivery_charge + tax_amount + other_charges, 2)
     order = {
         "orderNumber": await _next_number("B2B", order_repo),
         "rfqId": rfq["_id"],
@@ -301,10 +433,28 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "offerId": offer["_id"],
         "productName": offer.get("productName"),
         "category": rfq.get("category"),
-        "qualityGrade": rfq.get("qualityGrade"),
+        "qualityGrade": offer.get("qualityGrade") or rfq.get("qualityGrade"),
         "quantityKg": round(float(qty), 2),
         "pricePerKg": float(offer.get("pricePerKg") or 0),
-        "deliveryCharge": round(delivery_charge, 2),
+        "productSubtotal": product_subtotal,
+        "deliveryCharge": delivery_charge,
+        "deliveryDistanceKm": distance_km,
+        "deliveryPricing": {
+            "baseFee": B2B_DELIVERY_BASE_FEE,
+            "ratePerKm": B2B_DELIVERY_RATE_PER_KM,
+            "ratePerKg": B2B_DELIVERY_RATE_PER_KG,
+            "distanceComponent": round(distance_km * B2B_DELIVERY_RATE_PER_KM, 2),
+            "weightComponent": round(float(qty) * B2B_DELIVERY_RATE_PER_KG, 2),
+            "route": route,
+            "breakdown": fee_breakdown,
+        },
+        "sourceWarehouseId": route["sourceWarehouseId"],
+        "sourceWarehouseName": route["sourceWarehouseName"],
+        "destinationWarehouseId": route["destinationWarehouseId"],
+        "destinationWarehouseName": route["destinationWarehouseName"],
+        "taxRate": tax_rate,
+        "taxAmount": tax_amount,
+        "otherCharges": round(other_charges, 2),
         "totalAmount": total,
         "recurring": bool(rfq.get("recurring")),
         "deliveryMethod": (accept.deliveryMethod if accept and accept.deliveryMethod else (offer.get("deliveryMethod") or DELIVERY_METHODS[0])),
@@ -326,7 +476,6 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "createdAt": datetime.utcnow(),
     }
     return order
-
 
 # ================== BUSINESS PROFILE ==================
 
@@ -510,7 +659,12 @@ async def list_rfqs(
         if status:
             match["status"] = status
     elif role == "farmer":
-        match = {"status": RFQ_OPEN, "deletedAt": None}
+        # Match open status case-insensitively in MongoDB so legacy values like
+        # "Open" / "OPEN" are included without fetching closed RFQs first.
+        match = {
+            "status": {"$regex": f"^{RFQ_OPEN}$", "$options": "i"},
+            "deletedAt": None,
+        }
     else:
         raise HTTPException(status_code=403, detail="Only business buyers and farmers can browse RFQs")
 
@@ -525,6 +679,10 @@ async def list_rfqs(
         await _maybe_close_rfq(r)
         await _stringify_rfq(r)
         if role == "farmer":
+            # Farmers should only bid on open requests, but compare normalized
+            # values so legacy records with OPEN/Open status remain visible.
+            if str(r.get("status") or "").strip().lower() != str(RFQ_OPEN).strip().lower():
+                continue
             if farmer:
                 distance = _distance_km(farmer, r)
                 if not _visibility_match(r, farmer, distance):
@@ -586,6 +744,7 @@ class OfferCreate(BaseModel):
     deliveryCharge: Optional[float] = Field(0, ge=0)
     deliveryMethod: Optional[str] = None
     expectedDeliveryDate: Optional[str] = None
+    qualityGrade: Optional[str] = None
     message: Optional[str] = None
     deliveryNote: Optional[str] = None
 
@@ -641,6 +800,7 @@ async def submit_offer(
         "supplyAllocations": supply_allocations,
         "productName": rfq.get("productName"),
         "pricePerKg": data.pricePerKg,
+        "qualityGrade": (data.qualityGrade or "").strip() or None,
         "availableQuantityKg": float(data.availableQuantityKg) if data.availableQuantityKg else float(qty),
         "minOrderKg": data.minOrderKg,
         "deliveryCharge": float(data.deliveryCharge or 0),
@@ -703,8 +863,34 @@ async def list_offers_for_rfq(
         if o.get("rfqId"):
             o["rfqId"] = str(o["rfqId"])
         farmer = await farmer_repository.find_one({"userId": o["farmerId"]})
+        if not farmer:
+            try:
+                farmer = await farmer_repository.find_one({"userId": ObjectId(o["farmerId"])})
+            except Exception:
+                farmer = None
         qty = float(o.get("availableQuantityKg") or o.get("minOrderKg") or 0)
-        o["totalPrice"] = round(float(o.get("pricePerKg") or 0) * qty + float(o.get("deliveryCharge") or 0), 2)
+        route = await _warehouse_route_for_b2b(farmer, rfq)
+        distance_km = None
+        fee_breakdown = None
+        if route.get("available"):
+            distance_km = round(
+                float(route["farmToSourceKm"]) + float(route["warehouseTransferKm"]) + float(route["destinationToBuyerKm"]), 2
+            )
+            fee_breakdown = _calculate_warehouse_delivery_fee(route, qty)
+        o["deliveryDistanceKm"] = distance_km
+        o["deliveryFeeEstimate"] = fee_breakdown["total"] if fee_breakdown else None
+        o["deliveryPricing"] = {
+            "baseFee": B2B_DELIVERY_BASE_FEE,
+            "ratePerKm": B2B_DELIVERY_RATE_PER_KM,
+            "ratePerKg": B2B_DELIVERY_RATE_PER_KG,
+            "route": route if route.get("available") else None,
+            "breakdown": fee_breakdown,
+        }
+        o["deliveryFeeRequiresLocation"] = not route.get("available")
+        o["deliveryFeeUnavailableReason"] = route.get("reason") if not route.get("available") else None
+        o["totalPrice"] = round(
+            float(o.get("pricePerKg") or 0) * qty + float(o["deliveryFeeEstimate"] or 0), 2
+        ) if fee_breakdown else None
         o["farmerInfo"] = {
             "farmName": (farmer or {}).get("farmName"),
             "rating": (farmer or {}).get("rating"),
@@ -726,98 +912,316 @@ class OfferAccept(BaseModel):
     notes: Optional[str] = None
 
 
-@router.post("/offers/{offer_id}/accept")
-async def accept_offer(
-    offer_id: str,
-    data: OfferAccept = Body(default=None),
+class OfferBatchItem(BaseModel):
+    offerId: str
+    quantityKg: float = Field(..., gt=0)
+
+
+class OfferBatchAccept(BaseModel):
+    items: List[OfferBatchItem] = Field(..., min_length=1, max_length=50)
+    idempotencyKey: str = Field(..., min_length=8, max_length=128)
+    deliveryMethod: Optional[str] = "dedicated_transport"
+    paymentMode: Optional[str] = "cod"
+    advanceAmount: Optional[float] = Field(0, ge=0)
+    deliveryCharge: Optional[float] = Field(None, ge=0)
+    notes: Optional[str] = None
+
+
+@router.post("/offers/accept-batch")
+async def accept_offer_batch(
+    data: OfferBatchAccept,
     current_user: dict = Depends(get_current_user),
 ):
-    """Accept a farmer quote -> B2B order. Split procurement supported:
-    several farmers can each cover part of the RFQ quantity."""
+    """Atomically accept multiple offers for a single RFQ.
+
+    Every write (RFQ quantity reservation, offer status changes, orders and
+    idempotency record) runs in one MongoDB transaction. A retry with the same
+    key returns the committed result rather than creating duplicate orders.
+    Requires MongoDB replica set/sharded-cluster transaction support.
+    """
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business accounts can accept offers")
+    if len({item.offerId for item in data.items}) != len(data.items):
+        raise HTTPException(status_code=400, detail="Each offer can only appear once in a batch")
+    try:
+        offer_ids = [ObjectId(item.offerId) for item in data.items]
+    except Exception:
+        raise HTTPException(status_code=404, detail="One or more offer IDs are invalid")
 
-    offer = await offer_repo.find_one({"_id": ObjectId(offer_id), "deletedAt": None})
-    if not offer:
-        raise HTTPException(status_code=404, detail="Offer not found")
+    db = MongoDB.db
+    client = MongoDB.client
+    if db is None or client is None:
+        raise HTTPException(status_code=503, detail="Database is not ready")
+    batches = db["b2b_acceptance_batches"]
+    existing_batch = await batches.find_one({
+        "businessUserId": ObjectId(current_user["_id"]),
+        "idempotencyKey": data.idempotencyKey,
+    })
+    if existing_batch:
+        prior_items = sorted(
+            [(str(row.get("offerId")), round(float(row.get("quantityKg") or 0), 2)) for row in existing_batch.get("items", [])]
+        )
+        incoming_items = sorted([(item.offerId, round(float(item.quantityKg), 2)) for item in data.items])
+        if prior_items != incoming_items:
+            raise HTTPException(status_code=409, detail="This idempotency key was already used for a different selection. Keep the original selection to retry, or change the selection and submit again.")
+        stored_orders = await order_repo.collection.find({"_id": {"$in": existing_batch.get("orderIds", [])}}).to_list(length=50)
+        for order in stored_orders:
+            order["id"] = str(order["_id"])
+            order["offerId"] = str(order.get("offerId"))
+        return {"success": True, "data": {"orders": stored_orders, "batchId": str(existing_batch["_id"]), "replayed": True}, "message": "Previously committed batch returned"}
 
-    rfq = await rfq_repo.find_one({"_id": offer.get("rfqId"), "deletedAt": None})
+    # All offers must belong to the same RFQ so the balance is reserved as one unit.
+    offers = await offer_repo.collection.find({"_id": {"$in": offer_ids}, "deletedAt": None}).to_list(length=50)
+    if len(offers) != len(offer_ids):
+        raise HTTPException(status_code=404, detail="One or more offers no longer exist")
+    rfq_ids = {str(offer.get("rfqId")) for offer in offers}
+    if len(rfq_ids) != 1:
+        raise HTTPException(status_code=400, detail="All selected offers must belong to the same RFQ")
+    rfq_id = offers[0]["rfqId"]
+    rfq = await rfq_repo.find_one({"_id": rfq_id, "deletedAt": None})
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
     if str(rfq.get("businessUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your RFQ")
     await _maybe_close_rfq(rfq)
     if rfq.get("status") not in (RFQ_OPEN, RFQ_AWARDED):
-        raise HTTPException(status_code=400, detail="RFQ is closed or cancelled")
-    if offer.get("status") != OFFER_PENDING:
-        raise HTTPException(status_code=400, detail="This offer is no longer pending")
-
-    if rfq.get("recurring"):
-        # Recurring supply: award in full, decline the rest, close the RFQ.
-        qty = _rfq_quantity(rfq)
-        await offer_repo.update({"_id": offer["_id"]}, {
-            "status": OFFER_ACCEPTED,
-            "acceptedAt": datetime.utcnow(),
-            "acceptedQuantityKg": qty,
-        })
-        await offer_repo.collection.update_many(
-            {"rfqId": rfq["_id"], "_id": {"$ne": offer["_id"]}, "status": OFFER_PENDING},
-            {"$set": {"status": OFFER_DECLINED, "updatedAt": datetime.utcnow()}},
+        raise HTTPException(status_code=409, detail="RFQ is closed or cancelled")
+    offers_by_id = {str(offer["_id"]): offer for offer in offers}
+    requested_total = 0.0
+    order_specs = []
+    for item in data.items:
+        offer = offers_by_id[item.offerId]
+        if offer.get("status") != OFFER_PENDING:
+            raise HTTPException(status_code=409, detail=f"Offer {item.offerId} is no longer pending")
+        available = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or _rfq_quantity(rfq))
+        qty = round(float(item.quantityKg), 2)
+        if qty <= 0 or qty - available > 0.001:
+            raise HTTPException(status_code=400, detail=f"Requested quantity exceeds offer availability for {item.offerId} (maximum {available:g} kg)")
+        requested_total += qty
+        accept_data = OfferAccept(
+            quantityKg=qty,
+            deliveryMethod=data.deliveryMethod,
+            paymentMode=data.paymentMode,
+            advanceAmount=data.advanceAmount,
+            deliveryCharge=data.deliveryCharge,
+            notes=data.notes,
         )
-        await rfq_repo.update({"_id": rfq["_id"]}, {
-            "status": RFQ_AWARDED,
-            "awardedOfferIds": [offer["_id"]],
-            "acceptedQuantityKg": qty,
-        })
-    else:
-        total_qty = _rfq_quantity(rfq)
-        remaining = total_qty - float(rfq.get("acceptedQuantityKg") or 0)
-        offer_qty = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or total_qty)
-        requested = float(data.quantityKg) if data and data.quantityKg else offer_qty
-        qty = min(requested, offer_qty, remaining)
-        if qty <= 0:
-            raise HTTPException(status_code=400, detail="RFQ quantity is already fully covered by other farmers")
+        order_specs.append((offer, qty, accept_data))
+    total_qty = _rfq_quantity(rfq)
+    if rfq.get("recurring") and len(order_specs) != 1:
+        raise HTTPException(status_code=400, detail="Recurring RFQs can only be accepted from one offer at a time")
+    if requested_total <= 0:
+        raise HTTPException(status_code=400, detail="Batch quantity must be greater than zero")
 
-        await offer_repo.update({"_id": offer["_id"]}, {
-            "status": OFFER_ACCEPTED,
-            "acceptedAt": datetime.utcnow(),
-            "acceptedQuantityKg": round(qty, 2),
-        })
-        accepted_now = float(rfq.get("acceptedQuantityKg") or 0) + qty
-        update: Dict[str, Any] = {
-            "acceptedQuantityKg": round(accepted_now, 2),
-            "awardedOfferIds": (rfq.get("awardedOfferIds") or []) + [offer["_id"]],
-        }
-        if accepted_now >= total_qty - 1e-9:
-            update["status"] = RFQ_AWARDED
-            await offer_repo.collection.update_many(
-                {"rfqId": rfq["_id"], "_id": {"$ne": offer["_id"]}, "status": OFFER_PENDING},
-                {"$set": {"status": OFFER_DECLINED, "updatedAt": datetime.utcnow()}},
-            )
-        await rfq_repo.update({"_id": rfq["_id"]}, update)
+    now = datetime.utcnow()
+    order_docs = []
+    for offer, qty, accept_data in order_specs:
+        order = await _build_order(rfq, offer, qty, accept_data)
+        order["batchIdempotencyKey"] = data.idempotencyKey
+        order["createdAt"] = now
+        order_docs.append(order)
 
-    order = await _build_order(rfq, offer, qty, data)
-    order_id = await order_repo.create(order)
-    order["_id"] = ObjectId(order_id)
-    order["id"] = str(order_id)
+    # MongoDB multi-document transactions require a replica set. Detect a standalone
+    # deployment early and return a precise setup message instead of the misleading
+    # generic "batch outcome could not be confirmed" error.
+    try:
+        hello = await db.command("hello")
+    except Exception as exc:
+        logger.exception("Could not inspect MongoDB transaction capability")
+        raise HTTPException(status_code=503, detail="Could not verify MongoDB transaction support. Check the MongoDB connection and logs.") from exc
+    if not hello.get("setName") and not hello.get("msg") == "isdbgrid":
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "B2B offer acceptance requires MongoDB transactions, but this MongoDB "
+                "server is running standalone. Configure MongoDB as a single-node replica "
+                "set (for local development) or connect to a replica set/sharded cluster, "
+                "then restart the backend. No batch acceptance was started."
+            ),
+        )
 
-    await NotificationService.create_in_app_notification(
-        str(offer.get("farmerId")),
-        NotificationType.ORDER,
-        "Offer accepted! 🎉",
-        f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted (order {order.get('orderNumber')}).",
-        {"rfqId": str(rfq["_id"]), "orderId": order_id, "type": "b2b"},
-        NotificationPriority.HIGH,
+    session = await client.start_session()
+    try:
+        async with session:
+            async with session.start_transaction():
+                # Recheck ownership, RFQ status, and available balance inside the transaction.
+                live_rfq = await rfq_repo.collection.find_one(
+                    {"_id": rfq_id, "businessUserId": ObjectId(current_user["_id"]), "status": {"$in": [RFQ_OPEN, RFQ_AWARDED]}, "deletedAt": None},
+                    session=session,
+                )
+                if not live_rfq:
+                    raise HTTPException(status_code=409, detail="RFQ is no longer open for acceptance")
+                live_accepted = float(live_rfq.get("acceptedQuantityKg") or 0)
+                if live_accepted + requested_total > total_qty + 1e-9:
+                    raise HTTPException(status_code=409, detail=f"RFQ balance changed. Remaining quantity: {max(0, total_qty-live_accepted):g} kg")
+                reserve = await rfq_repo.collection.update_one(
+                    {"_id": rfq_id, "businessUserId": ObjectId(current_user["_id"]), "status": {"$in": [RFQ_OPEN, RFQ_AWARDED]},
+                     "$expr": {"$lte": [{"$add": [{"$ifNull": ["$acceptedQuantityKg", 0]}, requested_total]}, total_qty]}},
+                    {"$inc": {"acceptedQuantityKg": requested_total},
+                     "$push": {"awardedOfferIds": {"$each": offer_ids}},
+                     "$set": {"updatedAt": now}},
+                    session=session,
+                )
+                if reserve.modified_count != 1:
+                    raise HTTPException(status_code=409, detail="RFQ balance was claimed by another request; no orders were created")
+                for offer, qty, _ in order_specs:
+                    claim = await offer_repo.collection.update_one(
+                        {"_id": offer["_id"], "status": OFFER_PENDING, "deletedAt": None},
+                        {"$set": {"status": OFFER_ACCEPTED, "acceptedAt": now, "acceptedQuantityKg": qty, "updatedAt": now}},
+                        session=session,
+                    )
+                    if claim.modified_count != 1:
+                        raise HTTPException(status_code=409, detail="An offer was accepted concurrently; the whole batch was rolled back")
+                await order_repo.collection.insert_many(order_docs, ordered=True, session=session)
+                accepted_now = live_accepted + requested_total
+                if accepted_now >= total_qty - 1e-9 or live_rfq.get("recurring"):
+                    await rfq_repo.collection.update_one({"_id": rfq_id}, {"$set": {"status": RFQ_AWARDED, "updatedAt": now}}, session=session)
+                    await offer_repo.collection.update_many(
+                        {"rfqId": rfq_id, "_id": {"$nin": offer_ids}, "status": OFFER_PENDING},
+                        {"$set": {"status": OFFER_DECLINED, "updatedAt": now}},
+                        session=session,
+                    )
+                batch_doc = {
+                    "businessUserId": ObjectId(current_user["_id"]),
+                    "rfqId": rfq_id,
+                    "idempotencyKey": data.idempotencyKey,
+                    "orderIds": [order["_id"] for order in order_docs],
+                    "offerIds": offer_ids,
+                    "items": [{"offerId": offer["_id"], "quantityKg": qty} for offer, qty, _ in order_specs],
+                    "quantityKg": requested_total,
+                    "createdAt": now,
+                }
+                await batches.insert_one(batch_doc, session=session)
+        for order in order_docs:
+            order["id"] = str(order["_id"])
+            order["offerId"] = str(order.get("offerId"))
+        # Notifications are deliberately outside the transaction; notification failure
+        # must not undo a committed procurement batch.
+        for offer, qty, _ in order_specs:
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(offer.get("farmerId")), NotificationType.ORDER, "Offer accepted! 🎉",
+                    f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted.",
+                    {"rfqId": str(rfq_id), "type": "b2b", "batchKey": data.idempotencyKey},
+                    NotificationPriority.HIGH,
+                )
+            except Exception:
+                logger.exception("Batch committed but notification failed for offer %s", offer.get("_id"))
+        return {"success": True, "data": {"orders": order_docs, "batchId": str(batch_doc["_id"]), "acceptedQuantityKg": round(requested_total, 2), "remainingQuantityKg": round(max(0.0, total_qty-accepted_now), 2), "replayed": False}, "message": "All selected offers accepted atomically"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # A transaction can commit successfully while the HTTP response is lost,
+        # or a concurrent retry can hit the unique idempotency index. Before
+        # reporting failure, reconcile against the durable batch record. The
+        # batch record and its orders are written in the same transaction, so a
+        # visible record is proof that the whole batch committed.
+        try:
+            committed = await batches.find_one({
+                "businessUserId": ObjectId(current_user["_id"]),
+                "idempotencyKey": data.idempotencyKey,
+            })
+            if committed:
+                committed_items = sorted(
+                    (str(row.get("offerId")), round(float(row.get("quantityKg") or 0), 2))
+                    for row in committed.get("items", [])
+                )
+                requested_items = sorted(
+                    (item.offerId, round(float(item.quantityKg), 2))
+                    for item in data.items
+                )
+                if committed_items != requested_items:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This idempotency key belongs to a different batch selection.",
+                    )
+                recovered_orders = await order_repo.collection.find(
+                    {"_id": {"$in": committed.get("orderIds", [])}}
+                ).to_list(length=50)
+                for recovered_order in recovered_orders:
+                    recovered_order["id"] = str(recovered_order["_id"])
+                    recovered_order["offerId"] = str(recovered_order.get("offerId"))
+                if len(recovered_orders) == len(committed.get("orderIds", [])):
+                    logger.warning(
+                        "Recovered committed B2B acceptance batch after an ambiguous transaction response: %s",
+                        data.idempotencyKey,
+                    )
+                    return {
+                        "success": True,
+                        "data": {
+                            "orders": recovered_orders,
+                            "batchId": str(committed["_id"]),
+                            "acceptedQuantityKg": round(float(committed.get("quantityKg") or 0), 2),
+                            "replayed": True,
+                        },
+                        "message": "Recovered previously committed batch; no duplicate orders were created",
+                    }
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Could not reconcile B2B batch after transaction error")
+        logger.exception("Atomic B2B offer batch failed; transaction should roll back")
+        raise HTTPException(
+            status_code=503,
+            detail="Batch outcome could not be confirmed. Retry the exact same selection with the same idempotency key; committed batches are recovered without creating duplicate orders. MongoDB transactions require a replica set or sharded cluster.",
+        ) from exc
+    finally:
+        await session.end_session()
+
+
+@router.post("/offers/{offer_id}/accept")
+async def accept_offer(
+    offer_id: str,
+    data: OfferAccept = Body(default=None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Compatibility endpoint routed through the atomic transaction path."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business accounts can accept offers")
+    try:
+        offer_oid = ObjectId(offer_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    offer = await offer_repo.find_one({"_id": offer_oid, "deletedAt": None})
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found")
+    rfq = await rfq_repo.find_one({"_id": offer.get("rfqId"), "deletedAt": None})
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    if str(rfq.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=403, detail="Not your RFQ")
+    default_quantity = _rfq_quantity(rfq) if rfq.get("recurring") else float(
+        offer.get("availableQuantityKg") or offer.get("minOrderKg") or _rfq_quantity(rfq)
     )
+    quantity = float(data.quantityKg) if data and data.quantityKg is not None else default_quantity
+    stable_key = f"single-{offer_id}-{quantity:.2f}"
+    batch_request = OfferBatchAccept(
+        items=[OfferBatchItem(offerId=offer_id, quantityKg=quantity)],
+        idempotencyKey=stable_key,
+        deliveryMethod=(data.deliveryMethod if data and data.deliveryMethod else "dedicated_transport"),
+        paymentMode=(data.paymentMode if data and data.paymentMode else "cod"),
+        advanceAmount=(data.advanceAmount if data and data.advanceAmount is not None else 0),
+        deliveryCharge=(data.deliveryCharge if data else None),
+        notes=(data.notes if data else None),
+    )
+    result = await accept_offer_batch(batch_request, current_user)
+    orders = result.get("data", {}).get("orders") or []
+    order = orders[0] if orders else None
+    if order:
+        return {
+            "success": True,
+            "data": {
+                "order": order,
+                "offerId": offer_id,
+                "remainingQuantityKg": result["data"].get("remainingQuantityKg"),
+                "acceptedQuantityKg": result["data"].get("acceptedQuantityKg"),
+                "replayed": result["data"].get("replayed", False),
+            },
+            "message": result.get("message", "Quote accepted; B2B order created"),
+        }
+    # Idempotent replay of older batches still returns their persisted order IDs.
+    return result
 
-    return {
-        "success": True,
-        "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": round(max(0.0, _rfq_quantity(rfq) - float(order.get("quantityKg"))), 2)},
-        "message": "Quote accepted; B2B order created",
-    }
-
-
-# ================== B2B PAYMENT ==================
 
 @router.post("/orders/{order_id}/payment-intent")
 async def create_b2b_payment_intent(
@@ -927,6 +1331,8 @@ class OrderStatusUpdate(BaseModel):
     status: str
     qualityCheck: Optional[str] = None
     paymentStatus: Optional[str] = None
+    packedQuantityKg: Optional[float] = Field(None, ge=0)
+    qualityNotes: Optional[str] = None
 
 
 @router.put("/orders/{order_id}/status")
@@ -976,8 +1382,21 @@ async def update_order_status(
         nxt = ORDER_FLOW[ORDER_FLOW.index(current) + 1] if current in ORDER_FLOW else None
         if data.status != nxt:
             raise HTTPException(status_code=400, detail=f"Invalid transition from {current} to {data.status}")
-        if data.status == ORDER_QUALITY_CHECK and data.qualityCheck in ("passed", "failed"):
-            update["qualityCheck"] = data.qualityCheck
+        if data.status == ORDER_QUALITY_CHECK:
+            if data.packedQuantityKg is None:
+                raise HTTPException(status_code=400, detail="Record the actual packed quantity before completing the quality check.")
+            if data.packedQuantityKg <= 0:
+                raise HTTPException(status_code=400, detail="Packed quantity must be greater than zero.")
+            update["packedQuantityKg"] = round(float(data.packedQuantityKg), 2)
+            update["qualityCheck"] = "pending"
+            if data.qualityNotes:
+                update["qualityNotes"] = data.qualityNotes
+        if data.status == ORDER_DISPATCHED:
+            if data.qualityCheck != "passed":
+                raise HTTPException(status_code=400, detail="Pass the quality check before dispatching this B2B order.")
+            update["qualityCheck"] = "passed"
+            if data.qualityNotes:
+                update["qualityNotes"] = data.qualityNotes
         if data.status == ORDER_DELIVERED:
             update["deliveredAt"] = datetime.utcnow()
         await order_repo.update({"_id": order["_id"]}, update)

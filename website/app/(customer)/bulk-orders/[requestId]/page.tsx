@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sparkles,
@@ -12,6 +13,7 @@ import {
   CheckCircle,
   Bot,
   Truck,
+  Eye,
   Store,
   User,
   Package,
@@ -99,6 +101,11 @@ export default function BulkRequestDetailPage() {
           <h1 className="text-2xl font-bold">{request.requestNumber}</h1>
         </div>
         <Badge variant={statusVariant[request.status] || "secondary"}>{request.status.replace(/_/g, " ")}</Badge>
+        <Button asChild variant="outline">
+          <Link href={"/bulk-orders/" + requestId + "/tracking"}>
+            <Eye className="mr-2 h-4 w-4" /> View Tracking
+          </Link>
+        </Button>
       </div>
 
       {/* Request summary */}
@@ -106,8 +113,8 @@ export default function BulkRequestDetailPage() {
         <CardContent className="space-y-3 p-5">
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-emerald-600" />
-            <p className="font-medium capitalize">{request.purpose}</p>
-            {request.requestType === "b2b" ? <Badge variant="outline">Business RFQ</Badge> : <Badge variant="outline">🎉 Event</Badge>}
+            <p className="font-medium capitalize">{request.organizationName ? request.organizationName + " · " : ""}{request.purpose}</p>
+            {request.buyerCategory === "institution" ? <Badge variant="outline">Institutional Bulk</Badge> : request.buyerCategory === "business" || request.requestType === "b2b" ? <Badge variant="outline">Business / B2B RFQ</Badge> : request.buyerCategory === "individual" ? <Badge variant="outline">Individual Bulk</Badge> : <Badge variant="outline">🎉 Event</Badge>}
           </div>
           <div className="flex flex-wrap gap-4 text-sm text-gray-600">
             {request.eventDate ? (

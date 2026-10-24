@@ -251,10 +251,43 @@ export default function FarmerBulkOrdersPage() {
   const [cameraOpen, setCameraOpen] = useState<string | boolean>(false);
   const [invoiceFor, setInvoiceFor] = useState<any>(null);
   const [rateFor, setRateFor] = useState<any>(null);
+  const [b2bPackedKg, setB2bPackedKg] = useState<Record<string, string>>({});
+  const [b2bQualityNotes, setB2bQualityNotes] = useState<Record<string, string>>({});
 
   const { data: bulkData, isLoading: bulkLoading } = useQuery({
     queryKey: ["farmer", "bulk-orders"],
     queryFn: () => api.get("/bulk-orders/orders"),
+  });
+
+  const { data: eventFulfillmentData, isLoading: eventFulfillmentLoading } = useQuery({
+    queryKey: ["farmer", "event-fulfillments"],
+    queryFn: () => api.get("/bulk-orders/event-orders/fulfillments"),
+    refetchInterval: 15000,
+  });
+  const eventFulfillments = eventFulfillmentData?.data?.fulfillments || eventFulfillmentData?.fulfillments || eventFulfillmentData?.data?.data?.fulfillments || [];
+  const eventOrders = Object.values((Array.isArray(eventFulfillments) ? eventFulfillments : []).reduce((groups: Record<string, any>, portion: any) => {
+    const key = String(portion.requestId || portion.requestNumber || portion.eventOrderId || portion.id);
+    if (!groups[key]) groups[key] = { id: `event-${key}`, key, number: portion.requestNumber || portion.requestId || "Event order", portions: [], status: "active", kind: "event" };
+    groups[key].portions.push(portion);
+    return groups;
+  }, {})).map((order: any) => {
+    const statuses = order.portions.map((p: any) => String(p.status || "pending_farmer_confirmation"));
+    const allCancelled = statuses.every((s: string) => s === "cancelled");
+    const completed = statuses.every((s: string) => ["collected", "warehouse_received", "stored"].includes(s));
+    return { ...order, status: allCancelled ? "cancelled" : completed ? "delivered" : "active", title: "Customer event order", subtitle: order.portions.map((p: any) => `${p.productName || "Product"} ${p.allocatedQuantityKg} kg`).join(" • ") };
+  });
+  const updateEventFulfillment = useMutation({
+    mutationFn: async (payload: { id?: string; ids?: string[]; status: string }) => {
+      const ids = payload.ids || (payload.id ? [payload.id] : []);
+      if (!ids.length) throw new Error("No eligible product portions to update");
+      return Promise.all(ids.map((id) => api.put("/bulk-orders/event-orders/fulfillments/" + id + "/status", { status: payload.status })));
+    },
+    onSuccess: () => {
+      toast.success("Event portion status updated");
+      queryClient.invalidateQueries({ queryKey: ["farmer", "event-fulfillments"] });
+      queryClient.invalidateQueries({ queryKey: ["bulk", "request"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not update event portion"),
   });
 
   const { data: b2bData, isLoading: b2bLoading } = useQuery({
@@ -292,7 +325,7 @@ export default function FarmerBulkOrdersPage() {
     onError: (err: any) => toast.error(err?.message || "Failed to update order"),
   });
 
-  if (bulkLoading || b2bLoading) {
+  if (bulkLoading || b2bLoading || eventFulfillmentLoading) {
     return (
       <div className="flex h-40 items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
@@ -313,12 +346,13 @@ export default function FarmerBulkOrdersPage() {
     evidence: o.evidence || [],
     meta: `${o.purpose ? `${o.purpose} • ` : ""}${o.requestedDeliveryDate || ""}${o.deliveryMethod ? ` • ${o.deliveryMethod.replace(/_/g, " ")}` : ""}`,
   }));
+  const allBulkOrders = [...orders, ...eventOrders];
 
   const b2bOrders = b2bData?.data?.orders || [];
 
   const filterBulk = (list: any[]) => {
-    if (bulkFilter === "active") return list.filter((o) => !["delivered", "cancelled"].includes(o.status));
-    if (bulkFilter === "completed") return list.filter((o) => o.status === "delivered");
+    if (bulkFilter === "active") return list.filter((o) => !["delivered", "completed", "cancelled"].includes(o.status));
+    if (bulkFilter === "completed") return list.filter((o) => ["delivered", "completed"].includes(o.status));
     if (bulkFilter === "cancelled") return list.filter((o) => o.status === "cancelled");
     return list;
   };
@@ -330,7 +364,7 @@ export default function FarmerBulkOrdersPage() {
     return list;
   };
 
-  const visibleOrders = filterBulk(orders);
+  const visibleOrders = filterBulk(allBulkOrders);
   const visibleB2bOrders = filterB2b(b2bOrders);
 
   const nextOfB2b = (status: string) => {
@@ -360,8 +394,8 @@ export default function FarmerBulkOrdersPage() {
         >
           <Truck className="h-4 w-4" />
           Bulk Orders
-          {orders.length > 0 && (
-            <span className="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">{orders.length}</span>
+          {allBulkOrders.length > 0 && (
+            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${tab === "bulk" ? "bg-white/20 text-white" : "bg-purple-100 text-purple-700"}`}>{allBulkOrders.length}</span>
           )}
         </button>
         <button
@@ -381,24 +415,27 @@ export default function FarmerBulkOrdersPage() {
       {/* Bulk Orders section */}
       {tab === "bulk" && (
         <section className={sectionClass}>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className={headingClass}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100">
                 <Truck className="h-5 w-5 text-purple-600" />
               </span>
-              Bulk Orders
-            </h2>
-            <p className={countClass}>Confirmed event orders from your accepted offers</p>
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Bulk Orders</h2>
+                <p className="text-xs text-slate-500">Customer event orders and accepted bulk offers</p>
+              </div>
+            </div>
+            <Badge variant="outline">{allBulkOrders.length} total order(s)</Badge>
           </div>
 
           <StatusFilter
             filter={bulkFilter}
             setFilter={setBulkFilter}
             counts={{
-              all: orders.length,
-              active: orders.filter((o: any) => !["delivered", "cancelled"].includes(o.status)).length,
-              completed: orders.filter((o: any) => o.status === "delivered").length,
-              cancelled: orders.filter((o: any) => o.status === "cancelled").length,
+              all: orders.length + eventOrders.length,
+              active: orders.filter((o: any) => !["delivered", "completed", "cancelled"].includes(String(o.status || "").toLowerCase())).length + eventOrders.filter((o: any) => !["delivered", "completed", "cancelled"].includes(String(o.status || "").toLowerCase())).length,
+              completed: orders.filter((o: any) => ["delivered", "completed"].includes(String(o.status || "").toLowerCase())).length + eventOrders.filter((o: any) => ["delivered", "completed"].includes(String(o.status || "").toLowerCase())).length,
+              cancelled: orders.filter((o: any) => String(o.status || "").toLowerCase() === "cancelled").length + eventOrders.filter((o: any) => String(o.status || "").toLowerCase() === "cancelled").length,
             }}
           />
 
@@ -410,7 +447,49 @@ export default function FarmerBulkOrdersPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {visibleOrders.map((o: any) => {
+              {visibleOrders.filter((o: any) => o.kind === "event").map((order: any) => (
+                <Card key={order.id} className="border-amber-200">
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">Customer event order</Badge><p className="font-semibold">{order.number}</p></div>
+                        <p className="mt-1 text-sm text-muted-foreground">{order.portions.length} product portion(s) · {order.portions.map((p: any) => `${p.productName || "Product"} ${p.allocatedQuantityKg} kg`).join(" • ")}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Badge variant={order.status === "cancelled" ? "destructive" : order.status === "delivered" ? "success" : "secondary"}>{order.status === "delivered" ? "completed" : order.status}</Badge>
+                        {(() => {
+                          const pending = order.portions.filter((p: any) => String(p.status || "pending_farmer_confirmation") === "pending_farmer_confirmation");
+                          const accepted = order.portions.filter((p: any) => String(p.status) === "accepted");
+                          const ids = pending.length ? pending.map((p: any) => p.id) : accepted.map((p: any) => p.id);
+                          const status = pending.length ? "accepted" : accepted.length ? "ready_for_collection" : null;
+                          const label = pending.length
+                            ? (pending.length === order.portions.length ? "Confirm Order" : "Confirm Remaining Products")
+                            : accepted.length ? "Ready for Pickup" : null;
+                          return status ? (
+                            <Button size="sm" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ ids, status })}>{label}</Button>
+                          ) : null;
+                        })()}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {order.portions.map((portion: any) => {
+                        const status = String(portion.status || "pending_farmer_confirmation");
+                        const next = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "ready_for_collection" : null;
+                        return <div key={portion.id} className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div><div className="flex flex-wrap items-center gap-2"><span className="font-medium">{portion.productName || "Product"}</span><span className="text-sm text-slate-600">{portion.allocatedQuantityKg} kg</span><Badge variant={status === "cancelled" || status === "warehouse_rejected" ? "destructive" : ["collected", "warehouse_received", "stored"].includes(status) ? "success" : "secondary"}>{status.replace(/_/g, " ")}</Badge></div><p className="mt-1 text-xs text-muted-foreground">{portion.farmName || "Your farm"}</p></div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {next && <Button size="sm" disabled={updateEventFulfillment.isPending} onClick={() => updateEventFulfillment.mutate({ id: portion.id, status: next })}>{next === "accepted" ? "Confirm Order" : "Ready for Pickup"}</Button>}
+                            {status === "ready_for_collection" && <Badge variant="success">Awaiting pickup team</Badge>}
+                            {status === "collected" && <Badge variant="secondary">Collected by pickup team</Badge>}
+                          </div>
+                        </div>;
+                      })}
+                    </div>
+
+                  </CardContent>
+                </Card>
+              ))}
+              {visibleOrders.filter((o: any) => o.kind !== "event").map((o: any) => {
                 const hasWeighed = o.preparedKg != null;
                 const canWeigh = ["confirmed", "preparing", "quality_check"].includes(o.status);
                 return (
@@ -549,14 +628,17 @@ export default function FarmerBulkOrdersPage() {
       {/* B2B Orders section */}
       {tab === "b2b" && (
         <section className={sectionClass}>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className={headingClass}>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100">
                 <ShoppingCart className="h-5 w-5 text-emerald-600" />
               </span>
-              B2B Orders
-            </h2>
-            <p className={countClass}>Confirmed orders from businesses that selected you</p>
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">B2B Orders</h2>
+                <p className="text-xs text-slate-500">Confirmed orders from business buyers</p>
+              </div>
+            </div>
+            <Badge variant="outline">{b2bOrders.length} total order(s)</Badge>
           </div>
 
           <StatusFilter
@@ -612,17 +694,32 @@ export default function FarmerBulkOrdersPage() {
                       </div>
 
                       <div className="flex flex-wrap items-center gap-2">
+                        {o.status === "preparing" && (
+                          <div className="flex flex-wrap items-end gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <div className="min-w-[140px]">
+                              <label className="mb-1 block text-xs font-medium text-slate-600">Actual packed quantity (kg)</label>
+                              <Input type="number" min="0.01" step="0.01" value={b2bPackedKg[o.id] ?? String(o.quantityKg ?? "")} onChange={(e) => setB2bPackedKg((prev) => ({ ...prev, [o.id]: e.target.value }))} placeholder="Packed kg" />
+                            </div>
+                            <div className="min-w-[180px] flex-1">
+                              <label className="mb-1 block text-xs font-medium text-slate-600">Packing / quality notes (optional)</label>
+                              <Input value={b2bQualityNotes[o.id] || ""} onChange={(e) => setB2bQualityNotes((prev) => ({ ...prev, [o.id]: e.target.value }))} placeholder="Notes about packed produce" />
+                            </div>
+                            <Button size="sm" disabled={!b2bPackedKg[o.id] || Number(b2bPackedKg[o.id]) <= 0 || updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "quality_check", packedQuantityKg: Number(b2bPackedKg[o.id]), qualityNotes: b2bQualityNotes[o.id] || undefined } })}>
+                              <CheckCircle2 className="mr-1.5 h-4 w-4" /> Record Packing & Start Quality Check
+                            </Button>
+                          </div>
+                        )}
                         {o.status === "quality_check" && (
                           <>
-                            <Button size="sm" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "passed" } })}>
+                            <Button size="sm" disabled={updateB2bMutation.isPending || o.qualityCheck === "passed"} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "passed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
                               <CheckCircle2 className="mr-1.5 h-4 w-4" /> Quality Passed · Dispatch
                             </Button>
-                            <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "failed" } })}>
+                            <Button size="sm" variant="outline" className="text-red-600" disabled={updateB2bMutation.isPending} onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: "dispatched", qualityCheck: "failed", qualityNotes: b2bQualityNotes[o.id] || o.qualityNotes } })}>
                               Mark Quality Failed
                             </Button>
                           </>
                         )}
-                        {next && o.status !== "quality_check" && (
+                        {next && o.status !== "quality_check" && o.status !== "preparing" && (
                           <Button size="sm" onClick={() => updateB2bMutation.mutate({ id: o.id, payload: { status: next } })}>
                             Mark {next.replace(/_/g, " ")}
                           </Button>

@@ -25,6 +25,9 @@ const emptyForm = {
   longitude: "",
   totalCapacity: "",
   coldStorageCapacity: "",
+  serviceAreas: "",
+  farmCollectionDistricts: "",
+  supportedStorageTypes: "",
 };
 
 const emptyPrefs = {
@@ -79,6 +82,9 @@ export default function WarehouseSettingsPage() {
       longitude: warehouse.location?.coordinates?.[0] ? String(warehouse.location.coordinates[0]) : warehouse.location?.longitude ? String(warehouse.location.longitude) : "",
       totalCapacity: String(warehouse.totalCapacity ?? ""),
       coldStorageCapacity: String(warehouse.coldStorageCapacity ?? ""),
+      serviceAreas: (warehouse.serviceAreas || []).join(", "),
+      farmCollectionDistricts: (warehouse.farmCollectionDistricts || []).join(", "),
+      supportedStorageTypes: (warehouse.supportedStorageTypes || []).join(", "),
     });
   }, [warehouse]);
 
@@ -154,6 +160,9 @@ export default function WarehouseSettingsPage() {
         },
         totalCapacity: Number(form.totalCapacity || 0),
         coldStorageCapacity: Number(form.coldStorageCapacity || 0),
+        serviceAreas: form.serviceAreas.split(",").map((v) => v.trim()).filter(Boolean),
+        farmCollectionDistricts: form.farmCollectionDistricts.split(",").map((v) => v.trim()).filter(Boolean),
+        supportedStorageTypes: form.supportedStorageTypes.split(",").map((v) => v.trim().toLowerCase()).filter(Boolean),
       });
 
       await api.put("/settings/mine", {
@@ -235,9 +244,39 @@ export default function WarehouseSettingsPage() {
                   <p className="mt-1 text-xs text-muted-foreground">Used quantity is calculated automatically from cold-storage records.</p>
                 </div>
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="text-sm font-medium">Service Areas</label>
+                  <Input value={form.serviceAreas} onChange={(event) => updateForm("serviceAreas", event.target.value)} className="mt-1" placeholder="Coimbatore, Tiruppur, Erode" />
+                  <p className="mt-1 text-xs text-muted-foreground">Comma-separated districts/areas this warehouse can serve. This is not a fixed one-district assignment.</p>
+                </div>
+                <div>
+                  <label className="text-sm font-medium">Supported Storage Types</label>
+                  <Input value={form.supportedStorageTypes} onChange={(event) => updateForm("supportedStorageTypes", event.target.value)} className="mt-1" placeholder="ambient, chilled, frozen" />
+                  <p className="mt-1 text-xs text-muted-foreground">Leave empty to accept all storage types.</p>
+                </div>
+              </div>
               <div className="rounded-lg border bg-muted/30 p-3 text-sm">
                 <p className="font-medium">Warehouse status</p>
                 <p className="mt-1 text-xs text-muted-foreground">Activation and verification are controlled by the warehouse workflow and cannot be changed here.</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5" />Farm Collection Districts</CardTitle>
+              <CardDescription>Choose the districts this warehouse is responsible for collecting farm orders from. The Farm Collection queue will show pickups from these districts only.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <label className="text-sm font-medium">Districts to collect from</label>
+                <Input value={form.farmCollectionDistricts} onChange={(event) => updateForm("farmCollectionDistricts", event.target.value)} className="mt-1" placeholder="Tiruchirappalli, Perambalur" aria-label="Farm collection districts" />
+                <p className="mt-1 text-xs text-muted-foreground">Enter official district names separated by commas. Example: Tiruchirappalli. Use this setting for farm pickup coverage; Service Areas are separate and do not control the farm collection queue.</p>
+              </div>
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <p className="font-medium">How this affects Farm Collection</p>
+                <p className="mt-1 text-xs text-muted-foreground">Only jobs whose farmer district matches a selected district are listed for route planning and pickup-team assignment. Orders without a verifiable district are not silently routed into another district.</p>
               </div>
             </CardContent>
           </Card>

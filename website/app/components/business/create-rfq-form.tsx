@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Loader2, Plus } from "lucide-react";
+import { Bot, Loader2, Plus, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -27,6 +27,7 @@ const emptyForm = {
   deliveryState: "",
   deliveryDistrict: "",
   deliveryAddress: "",
+  deliveryLocation: null as { type: string; coordinates: [number, number]; latitude: number; longitude: number } | null,
   priceCeilingPerKg: "",
   budgetMinPerKg: "",
   budgetMaxPerKg: "",
@@ -57,7 +58,120 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
     onError: (err: any) => toast.error(err?.message || "AI price check failed"),
   });
 
+  const [locationLoading, setLocationLoading] = useState(false);
+
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  const geocodeManualAddress = async () => {
+    const query = form.deliveryAddress.trim();
+    if (!query) {
+      toast.error("Enter a delivery address first.");
+      return;
+    }
+
+    setLocationLoading(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error("Address lookup failed");
+      const results = await response.json();
+      const match = results?.[0];
+      if (!match) {
+        toast.error("Could not find that address on the map. Check the address or use live location.");
+        return;
+      }
+
+      const latitude = Number(match.lat);
+      const longitude = Number(match.lon);
+      const address = match.address || {};
+      setForm((current) => ({
+        ...current,
+        deliveryAddress: current.deliveryAddress.trim() || match.display_name || query,
+        deliveryCity: current.deliveryCity || address.city || address.town || address.village || address.municipality || address.county || "",
+        deliveryState: current.deliveryState || address.state || address.region || "",
+        deliveryDistrict: current.deliveryDistrict || address.state_district || address.county || address.city_district || "",
+        deliveryLocation: {
+          type: "Point",
+          coordinates: [longitude, latitude],
+          latitude,
+          longitude,
+        },
+      }));
+      toast.success("Address location found and saved for delivery routing.");
+    } catch {
+      toast.error("Could not look up the address. You can still enter it manually or use live location.");
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const useLiveLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Live location is not supported by this browser. Enter the address manually.");
+      return;
+    }
+
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        const latitude = coords.latitude;
+        const longitude = coords.longitude;
+        const location = {
+          type: "Point",
+          coordinates: [longitude, latitude] as [number, number],
+          latitude,
+          longitude,
+        };
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            { headers: { Accept: "application/json" } },
+          );
+          if (!response.ok) throw new Error("Address lookup failed");
+
+          const result = await response.json();
+          const address = result.address || {};
+          const city = address.city || address.town || address.village || address.municipality || address.county || "";
+          const state = address.state || address.region || "";
+          const district = address.state_district || address.county || address.city_district || "";
+          const formattedAddress = result.display_name || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+
+          setForm((current) => ({
+            ...current,
+            deliveryAddress: formattedAddress,
+            deliveryCity: current.deliveryCity || city,
+            deliveryState: current.deliveryState || state,
+            deliveryDistrict: current.deliveryDistrict || district,
+            deliveryLocation: location,
+          }));
+          toast.success("Live location added. Please verify the address before publishing.");
+        } catch {
+          setForm((current) => ({
+            ...current,
+            deliveryAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            deliveryLocation: location,
+          }));
+          toast.error("Coordinates saved, but the street address could not be found. Enter the address manually.");
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+        toast.error(
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission denied. Allow location access or enter the address manually."
+            : error.code === error.TIMEOUT
+              ? "Getting your location timed out. Please try again."
+              : "Could not get your live location. Enter the address manually.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
 
   return (
     <Card className="border-emerald-200">
@@ -87,14 +201,17 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </div>
 
         <div className="space-y-1 sm:col-span-2">
-          <div className="flex rounded-lg border p-1">
+          <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
             {[{ key: false, label: "One-off order" }, { key: true, label: "Recurring supply" }].map((o) => (
               <button
                 key={String(o.key)}
                 type="button"
+                aria-pressed={form.recurring === o.key}
                 onClick={() => set("recurring", o.key)}
-                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  form.recurring === o.key ? "bg-emerald-600 text-white" : "hover:bg-gray-100"
+                className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                  form.recurring === o.key
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
                 }`}
               >
                 {o.label}
@@ -138,22 +255,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </>
         )}
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery city *</label>
-          <Input value={form.deliveryCity} onChange={(e) => set("deliveryCity", e.target.value)} placeholder="e.g. Coimbatore" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">State</label>
-          <Input value={form.deliveryState} onChange={(e) => set("deliveryState", e.target.value)} placeholder="e.g. Tamil Nadu" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">District</label>
-          <Input value={form.deliveryDistrict} onChange={(e) => set("deliveryDistrict", e.target.value)} placeholder="e.g. Coimbatore" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
-          <Input type="number" min="0" value={form.priceCeilingPerKg} onChange={(e) => set("priceCeilingPerKg", e.target.value)} />
-        </div>
+        {/* City, state and district are derived from the delivery address lookup or live location. */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Budget min (₹/kg)</label>
           <Input type="number" min="0" value={form.budgetMinPerKg} onChange={(e) => set("budgetMinPerKg", e.target.value)} />
@@ -161,6 +263,21 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Budget max (₹/kg)</label>
           <Input type="number" min="0" value={form.budgetMaxPerKg} onChange={(e) => set("budgetMaxPerKg", e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
+          <Input
+            type="number"
+            min="0"
+            value={form.priceCeilingPerKg}
+            onChange={(e) => set("priceCeilingPerKg", e.target.value)}
+            placeholder={aiRec?.suggestedPricePerKg != null ? `AI suggestion: ₹${aiRec.suggestedPricePerKg}/kg — click Use ₹${aiRec.suggestedPricePerKg}/kg below` : "Enter maximum price or use AI price check"}
+          />
+          <p className="text-xs text-gray-500">
+            {aiRec?.suggestedPricePerKg != null
+              ? `AI suggested ₹${aiRec.suggestedPricePerKg}/kg. Review the result below and click its Use button to fill this field, or enter your own price.`
+              : "Recommended: enter the product and delivery city, then click AI price check to get a price suggestion. You can also enter a price manually."}
+          </p>
         </div>
 
         <div className="space-y-1">
@@ -178,9 +295,34 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </select>
         </div>
 
-        <div className="space-y-1 sm:col-span-2">
-          <label className="text-xs font-medium text-gray-500">Delivery address</label>
-          <Input value={form.deliveryAddress} onChange={(e) => set("deliveryAddress", e.target.value)} placeholder="Business address for pickup/delivery" />
+        <div className="space-y-2 sm:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-gray-500">Delivery address *</label>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={geocodeManualAddress}>
+                <MapPin className="mr-1.5 h-4 w-4" />
+                Find address on map
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
+                {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
+                {locationLoading ? "Getting location…" : "Use my live location"}
+              </Button>
+            </div>
+          </div>
+          <Input
+            value={form.deliveryAddress}
+            onChange={(e) => setForm((current) => ({ ...current, deliveryAddress: e.target.value, deliveryLocation: null }))}
+            placeholder="Enter full business delivery address manually"
+          />
+          <p className="text-xs text-gray-500">
+            Enter the complete address manually, choose Find address on map to save coordinates for distance routing, or use live location. Verify the address before publishing.
+          </p>
+          {form.deliveryLocation?.coordinates?.length === 2 && (
+            <p className="flex items-center gap-1 text-xs text-emerald-700">
+              <MapPin className="h-3.5 w-3.5" />
+              GPS coordinates saved ({form.deliveryLocation.latitude.toFixed(5)}, {form.deliveryLocation.longitude.toFixed(5)}).
+            </p>
+          )}
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-gray-500">Additional requirements</label>
@@ -276,7 +418,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
+            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
             onClick={() =>
               createMutation.mutate({
                 ...form,

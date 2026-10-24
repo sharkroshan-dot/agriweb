@@ -64,7 +64,20 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 
 def job_weight_kg(order: dict) -> float:
-    return round(sum(int(i.get("quantity", 0) or 0) for i in (order.get("items") or [])), 2)
+    """Return the shipment weight used for capacity checks without truncating fractions.
+
+    Farmer produce quantities can be fractional (for example 0.5 kg). Preserve
+    decimal quantities so vehicle eligibility does not incorrectly treat them
+    as zero or undercount a shipment.
+    """
+    total = 0.0
+    for item in order.get("items") or []:
+        raw = item.get("weightKg", item.get("weight_kg", item.get("quantity", 0))) or 0
+        try:
+            total += float(raw)
+        except (TypeError, ValueError):
+            continue
+    return round(total, 2)
 
 
 def job_earnings(order: dict, distance_km: Optional[float]) -> float:
@@ -131,7 +144,8 @@ async def available_partners_near(
             "userId": str(p.get("userId") or ""),
             "name": await _partner_display_name(p),
             "rating": round(float(p.get("rating", 0) or 0), 1),
-            "capacity": float(p["capacity"]) if p.get("capacity") is not None else None,
+            "capacity": float(p.get("capacity") or p.get("vehicleCapacity")) if (p.get("capacity") is not None or p.get("vehicleCapacity") is not None) else None,
+            "vehicleType": p.get("vehicleType") or ((p.get("vehicle") or {}).get("type") if isinstance(p.get("vehicle"), dict) else None),
             "distanceKm": dist,
             "isAvailable": bool(p.get("isAvailable")),
             "status": p.get("status", "offline"),
@@ -148,11 +162,32 @@ async def partner_commitment(partner_id: str) -> Tuple[int, float]:
     return count, weight
 
 
+# Hard physical limits used for warehouse-pickup eligibility.
+VEHICLE_TYPE_CAPACITY_KG = {
+    "bike": 25.0, "scooter": 25.0,
+    "auto": 150.0, "three_wheeler": 150.0, "e_rickshaw": 150.0,
+    "tata_ace": 750.0, "ace": 750.0, "tempo": 750.0,
+    "mini_truck": 1000.0, "mini-truck": 1000.0,
+    "van": 500.0, "car": 100.0, "truck": 2000.0,
+}
+
+def vehicle_type_capacity_kg(vehicle_type: Optional[str]) -> Optional[float]:
+    key = str(vehicle_type or "").strip().lower().replace(" ", "_")
+    return VEHICLE_TYPE_CAPACITY_KG.get(key)
+
+def passes_vehicle_type(partner: dict, job_weight: float) -> bool:
+    limit = vehicle_type_capacity_kg(partner.get("vehicleType"))
+    return limit is not None and float(job_weight or 0) <= limit + 1e-9
+
 def passes_capacity(partner: dict, committed_weight: float, job_weight: float) -> bool:
-    cap = partner.get("capacity")
+    cap = partner.get("capacity", partner.get("vehicleCapacity"))
     if cap is None:
-        return True
-    return float(cap) - committed_weight >= job_weight - 1e-9
+        return False
+    try:
+        return float(cap) - committed_weight >= job_weight - 1e-9
+    except (TypeError, ValueError):
+        return False
+
 
 
 async def eligible_partners_for_job(
@@ -160,6 +195,7 @@ async def eligible_partners_for_job(
     pickup_lng: float,
     job_weight: float,
     partners: Optional[List[dict]] = None,
+    job_type: str = "customer_delivery",
 ) -> List[dict]:
     """Filter partners to those eligible for a job and rank them.
 
@@ -177,6 +213,11 @@ async def eligible_partners_for_job(
             continue
         count, committed = await partner_commitment(p["id"])
         if count >= PARTNER_MAX_ACTIVE_JOBS:
+            continue
+        # Every assigned delivery job must fit both the vehicle's physical
+        # type limit and the partner's remaining declared capacity. Unknown
+        # vehicle types are not eligible because capacity cannot be verified.
+        if not passes_vehicle_type(p, job_weight):
             continue
         if not passes_capacity(p, committed, job_weight):
             continue
@@ -254,6 +295,13 @@ def build_job_document(
         "deliveryDay": order.get("deliveryDay") or "Today",
         "deliveryType": order.get("deliveryType", "delivery"),
         "orderStatus": order.get("orderStatus", "pending"),
+        "priority": int(order.get("priority", 1) or 1),
+        "priorityLabel": order.get("priorityLabel") or ("Urgent" if int(order.get("priority", 1) or 1) >= 3 else "High" if int(order.get("priority", 1) or 1) == 2 else "Normal"),
+        "priorityReason": order.get("priorityReason"),
+        "deliveryDeadline": order.get("deliveryDeadline"),
+        "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
+        "freshnessDeadline": order.get("freshnessDeadline"),
+        "deadlinePassed": bool(order.get("deadlinePassed", False)),
         "selfDelivery": bool(order.get("selfDelivery")),
         "productSummary": product or "Farm produce",
         "items": [
@@ -265,6 +313,62 @@ def build_job_document(
         "version": 1,
     }
 
+def build_warehouse_pickup_job(
+    route: dict,
+    warehouse: dict,
+    eligible_partner_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Build one delivery-marketplace job for an entire multi-farm route."""
+    stops = route.get("stops") or []
+    total_weight = float(route.get("totalQuantity") or sum(float(s.get("quantity") or 0) for s in stops))
+    warehouse_loc = warehouse.get("location") or {}
+    warehouse_coords = warehouse_loc.get("coordinates") or [0, 0]
+    first_coords = ((stops[0].get("pickupLocation") or {}).get("coordinates") or warehouse_coords) if stops else warehouse_coords
+
+    route_distance = 0.0
+    previous = first_coords
+    for stop in stops[1:]:
+        coords = (stop.get("pickupLocation") or {}).get("coordinates")
+        if coords and len(coords) >= 2:
+            route_distance += _haversine_km(float(previous[1]), float(previous[0]), float(coords[1]), float(coords[0]))
+            previous = coords
+    if stops and previous != warehouse_coords:
+        route_distance += _haversine_km(float(previous[1]), float(previous[0]), float(warehouse_coords[1]), float(warehouse_coords[0]))
+
+    return {
+        "jobType": "warehouse_pickup",
+        "routeId": route["_id"],
+        "orderId": ObjectId(str(stops[0]["orderId"])) if stops and stops[0].get("orderId") else None,
+        "farmerId": ObjectId(str(stops[0]["farmerId"])) if stops and stops[0].get("farmerId") else None,
+        "orderNumber": route.get("routeNumber", ""),
+        "pickupLocation": {"type": "Point", "coordinates": [float(first_coords[0]), float(first_coords[1])]},
+        "pickupName": stops[0].get("farmerName") if stops else "Farm pickup route",
+        "pickupAddress": "",
+        "deliveryLocation": {"type": "Point", "coordinates": [float(warehouse_coords[0]), float(warehouse_coords[1])]},
+        "deliveryArea": (warehouse.get("address") or {}).get("city") or "",
+        "deliveryCity": (warehouse.get("address") or {}).get("city") or "",
+        "deliveryAddress": (warehouse.get("address") or {}).get("addressLine1") or (warehouse.get("address") or {}).get("address") or "",
+        "customerName": warehouse.get("name") or "Warehouse",
+        "customerPhone": "",
+        "distanceKm": round(route_distance, 2),
+        "weightKg": total_weight,
+        "earnings": round(max(30, total_weight * 2 + route_distance), 2),
+        "productSummary": f"{len(stops)} farm stops",
+        "items": [
+            {"name": s.get("productName") or "Farm Product", "quantity": s.get("quantity", 0), "farmName": s.get("farmerName") or "Farm"}
+            for s in stops
+        ],
+        "farmStops": stops,
+        "warehouseId": route.get("warehouseId"),
+        "warehouseName": warehouse.get("name") or "Warehouse",
+        "routeNumber": route.get("routeNumber"),
+        "totalStops": len(stops),
+        "totalOrders": sum(len(stop.get("orders") or [stop]) for stop in stops),
+        "totalQuantity": total_weight,
+        "eligiblePartnerIds": eligible_partner_ids or [],
+        "notificationSent": False,
+        "version": 1,
+    }
 
 def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] = None, reveal: bool = False) -> dict:
     """Privacy-safe job payload for the partner dashboard.
@@ -276,10 +380,22 @@ def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] 
     """
     return {
         "id": str(job["_id"]),
-        "orderId": str(job["orderId"]),
+        "jobType": job.get("jobType", "customer_delivery"),
+        "eventProgressStatus": job.get("eventProgressStatus") if reveal else None,
+        "proofOfDelivery": job.get("proofOfDelivery") if reveal else None,
+        "completedAt": job.get("completedAt").isoformat() if reveal and hasattr(job.get("completedAt"), "isoformat") else None,
+        "routeId": str(job["routeId"]) if job.get("routeId") else None,
+        "orderId": str(job["orderId"]) if job.get("orderId") else None,
         "orderNumber": job.get("orderNumber", ""),
         "status": job.get("status"),
         "orderStatus": job.get("orderStatus", "pending"),
+        "priority": int(job.get("priority", 1) or 1),
+        "priorityLabel": job.get("priorityLabel") or ("Urgent" if int(job.get("priority", 1) or 1) >= 3 else "High" if int(job.get("priority", 1) or 1) == 2 else "Normal"),
+        "priorityReason": job.get("priorityReason"),
+        "deliveryDeadline": job.get("deliveryDeadline"),
+        "deliveryHoursRemaining": job.get("deliveryHoursRemaining"),
+        "freshnessDeadline": job.get("freshnessDeadline"),
+        "deadlinePassed": bool(job.get("deadlinePassed", False)),
         "selfDelivery": bool(job.get("selfDelivery")),
         "pickupName": job.get("pickupName", "Farm"),
         "pickupAddress": job.get("pickupAddress") if reveal else None,
@@ -297,6 +413,13 @@ def serialize_job_for_partner(job: dict, distance_from_partner: Optional[float] 
         "deliveryDay": job.get("deliveryDay"),
         "productSummary": job.get("productSummary", "Farm produce"),
         "items": job.get("items", []),
+        "farmStops": job.get("farmStops", []),
+        "warehouseId": str(job["warehouseId"]) if job.get("warehouseId") else None,
+        "warehouseName": job.get("warehouseName"),
+        "routeNumber": job.get("routeNumber"),
+        "totalStops": job.get("totalStops"),
+        "totalOrders": job.get("totalOrders"),
+        "totalQuantity": job.get("totalQuantity"),
         "expiresAt": job.get("expiresAt"),
         "accepted": job.get("status") == JOB_ACCEPTED,
     }

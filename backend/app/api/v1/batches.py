@@ -44,6 +44,8 @@ BATCH_CANCELLED = "cancelled"
 
 class BatchCreate(BaseModel):
     cropName: str
+    masterCropId: Optional[str] = None
+    farmerCropId: Optional[str] = None
     quantityKg: float = Field(gt=0)
     harvestDate: Optional[datetime] = None
     qualityGrade: Optional[str] = None
@@ -200,6 +202,14 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
             detail=f"This harvest already has batch {existing_batch.get('lotNumber')}. One harvest event can create only one batch.",
         )
 
+    master_crop = None
+    if harvest_plan.get("masterCropId"):
+        master_crop = await BaseRepository("master_crops").find_one({"_id": harvest_plan["masterCropId"], "deletedAt": None})
+    if not master_crop and data.masterCropId:
+        try: master_crop = await BaseRepository("master_crops").find_one({"_id": ObjectId(data.masterCropId), "deletedAt": None})
+        except Exception: master_crop = None
+    if not master_crop:
+        raise HTTPException(status_code=400, detail="A harvest batch requires a valid master crop")
     actual_qty = float(harvest_plan.get("actualQuantityKg") or 0)
     if actual_qty <= 0:
         raise HTTPException(status_code=400, detail="Actual harvested quantity is missing from the harvest record")
@@ -207,7 +217,7 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=400, detail=f"Batch quantity must match the actual harvested quantity ({actual_qty:g} kg)")
 
     storage = data.storageType if data.storageType in STORAGE_TYPES else "normal"
-    shelf = data.shelfLifeDays or DEFAULT_SHELF_LIFE_DAYS.get(storage, 3)
+    shelf = effective_shelf_life_days(master_crop, storage, data.shelfLifeDays)
     harvest = _to_naive_utc(harvest_plan.get("harvestedAt")) or datetime.utcnow()
     lot_number = await _next_lot_number()
 
@@ -215,13 +225,25 @@ async def create_batch(data: BatchCreate, current_user: dict = Depends(get_curre
         "farmerId": ObjectId(current_user["_id"]),
         "lotNumber": lot_number,
         "cropName": harvest_plan.get("cropName"),
+        "masterCropId": harvest_plan.get("masterCropId") or (master_crop or {}).get("_id"),
+        "masterCropName": harvest_plan.get("masterCropName") or (master_crop or {}).get("name"),
         "quantityKg": actual_qty,
         "remainingKg": actual_qty,
         "harvestDate": harvest,
         "qualityGrade": data.qualityGrade,
         "storageType": storage,
-        "shelfLifeDays": shelf,
-        "expiresAt": harvest + timedelta(days=shelf),
+        "defaultShelfLifeDays": int((master_crop or {}).get("defaultShelfLifeDays") or shelf),
+        "actualShelfLifeDays": int(shelf),
+        "shelfLifeDays": int(shelf),
+        "defaultStorageType": (master_crop or {}).get("defaultStorageType", "normal"),
+        "defaultStorageTemperature": (master_crop or {}).get("defaultStorageTemperature"),
+        "handlingInstructions": (master_crop or {}).get("handlingInstructions"),
+        "expiresAt": expiry_date(harvest, shelf),
+        "safeDeliveryBufferHours": int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24),
+        "plannedRatePerKg": harvest_plan.get("preOrderPricePerKg"),
+        "finalRatePerKg": harvest_plan.get("finalRatePerKg") or harvest_plan.get("finalSellingRatePerKg"),
+        "finalSellingRatePerKg": harvest_plan.get("finalRatePerKg") or harvest_plan.get("finalSellingRatePerKg"),
+        "safeDeliveryDate": safe_delivery_date(harvest, shelf, int(harvest_plan.get("safeDeliveryBufferHours") or (master_crop or {}).get("safeDeliveryBufferHours") or 24)),
         "productId": product_id,
         "sourceHarvestPlanId": harvest_plan_id,
         "qualityStatus": "pending_inspection",
@@ -418,6 +440,8 @@ async def trace_batch(lot_number: str):
         "storageType": batch.get("storageType"),
         "shelfLifeDays": batch.get("shelfLifeDays"),
         "expiresAt": batch.get("expiresAt"),
+        "safeDeliveryDate": batch.get("safeDeliveryDate"),
+        "masterCropId": str(batch.get("masterCropId")) if batch.get("masterCropId") else None,
         "listed": batch.get("status") == BATCH_LISTED,
         "freshness": _freshness(batch),
         "traceUrl": f"/trace/{batch.get('lotNumber', '')}",

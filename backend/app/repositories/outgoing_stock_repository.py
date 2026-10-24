@@ -44,7 +44,13 @@ class OutgoingStockRepository(BaseRepository):
             sort=[("createdAt", -1)]
         )
 
-    async def get_by_order_id(self, order_id: str, product_id: str, variant_id: str = "") -> Optional[Dict[str, Any]]:
+    async def get_by_order_id(
+        self,
+        order_id: str,
+        product_id: str,
+        variant_id: str = "",
+        warehouse_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         try:
             query = {
                 "orderId": ObjectId(order_id),
@@ -52,6 +58,10 @@ class OutgoingStockRepository(BaseRepository):
                 "deletedAt": None,
             }
             query["variantId"] = ObjectId(variant_id) if variant_id else None
+            # Outgoing records are warehouse-scoped. A matching record created
+            # for another warehouse must not suppress this warehouse's record.
+            if warehouse_id and ObjectId.is_valid(warehouse_id):
+                query["warehouseId"] = ObjectId(warehouse_id)
             return await self.find_one(query)
         except Exception as e:
             logger.error(f"Error getting outgoing stock by order: {str(e)}")

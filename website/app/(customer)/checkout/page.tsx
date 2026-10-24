@@ -27,6 +27,23 @@ type DeliveryQuote = {
   freeDelivery?: boolean;
   subsidy?: number;
   distanceAvailable?: boolean;
+  serviceAvailable?: boolean;
+  partnerAvailable?: boolean;
+  availablePartnerCount?: number;
+  fastestEligible?: boolean;
+  estimatedDeliveryMinutes?: number | null;
+  availabilityStatus?: string;
+  availabilityMessage?: string;
+  nextDeliveryServiceAt?: string | null;
+};
+
+type DeliveryAvailability = {
+  serviceAvailable: boolean;
+  partnerAvailable: boolean;
+  availablePartnerCount: number;
+  status: string;
+  message: string;
+  nextServiceAt?: string | null;
 };
 
 
@@ -85,14 +102,17 @@ export default function CheckoutPage() {
   const [razorpayReady, setRazorpayReady] = useState(false);
   const [savingAddr, setSavingAddr] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const [deliveryAvailability, setDeliveryAvailability] = useState<DeliveryAvailability | null>(null);
   const [isEstimatingFee, setIsEstimatingFee] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [deliveryTimeSlot, setDeliveryTimeSlot] = useState("morning");
+  const [selectedDeliverySpeed, setSelectedDeliverySpeed] = useState<"fastest_30m" | "standard">("standard");
   const [couponCode, setCouponCode] = useState("");
   const [couponDiscount, setCouponDiscount] = useState(0);
   const [couponAppliedCode, setCouponAppliedCode] = useState("");
   const [couponError, setCouponError] = useState("");
   const [applyingCoupon, setApplyingCoupon] = useState(false);
+  const [stockAdjustment, setStockAdjustment] = useState<{ productId: string; requested: number; available: number } | null>(null);
   const [completedOrderId, setCompletedOrderId] = useState("");
   const [completedTransactionId, setCompletedTransactionId] = useState("");
   const [paymentStage, setPaymentStage] = useState("idle");
@@ -161,6 +181,60 @@ export default function CheckoutPage() {
       cancelled = true;
     };
   }, [estimatedDeliveryAddressId, items]);
+
+  useEffect(() => {
+    if (!estimatedDeliveryAddressId || items.length === 0) {
+      setDeliveryAvailability(null);
+      return;
+    }
+    let cancelled = false;
+    api.post("/delivery/availability", {
+      items: items.map((item) => ({ productId: item.id, quantity: item.quantity })),
+      deliveryAddressId: estimatedDeliveryAddressId,
+    }).then((res) => {
+      if (cancelled) return;
+      const body = res?.data || res;
+      setDeliveryAvailability(body?.data || body || null);
+    }).catch(() => {
+      if (!cancelled) setDeliveryAvailability(null);
+    });
+    return () => { cancelled = true; };
+  }, [estimatedDeliveryAddressId, items]);
+
+  useEffect(() => {
+    const fastestAvailable =
+      deliveryQuote?.fastestEligible === true &&
+      deliveryAvailability?.serviceAvailable === true &&
+      deliveryAvailability?.partnerAvailable === true;
+
+    if (fastestAvailable) {
+      setSelectedDeliverySpeed((current) => current);
+    } else {
+      setSelectedDeliverySpeed("standard");
+    }
+  }, [
+    deliveryQuote?.fastestEligible,
+    deliveryAvailability?.serviceAvailable,
+    deliveryAvailability?.partnerAvailable,
+  ]);
+
+  useEffect(() => {
+    const nextServiceAt = deliveryAvailability?.nextServiceAt;
+    if (!nextServiceAt) return;
+
+    // The backend is authoritative for the next delivery handoff. This is
+    // either the next available partner retry during 06:00–21:30 or the next
+    // 06:00 service start during 21:30–06:00.
+    const next = new Date(nextServiceAt);
+    if (Number.isNaN(next.getTime())) return;
+
+    setDeliveryDate(next.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
+    setDeliveryTimeSlot(
+      deliveryAvailability?.status === "scheduled_for_next_service"
+        ? "morning"
+        : "next_available"
+    );
+  }, [deliveryAvailability?.nextServiceAt, deliveryAvailability?.status]);
 
   const handleAddrChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setAddrForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -319,7 +393,7 @@ export default function CheckoutPage() {
   const platformFeeValue = Math.max(0, (displayTotal - couponDiscount) * 0.05);
   const estimatedTotal = Math.max(0, displayTotal - couponDiscount + deliveryFeeValue + platformFeeValue);
 
-  const handlePlaceOrder = async () => {
+  const handlePlaceOrder = async (quantityOverrides?: Record<string, number>) => {
     const addressId = selectedAddressId || defaultAddress?.id;
 
     if (!addressId) {
@@ -366,7 +440,7 @@ export default function CheckoutPage() {
         items: items.map((item) => ({
           productId: item.id,
           variantId: item.variantId || undefined,
-          quantity: item.quantity,
+          quantity: quantityOverrides?.[item.id] ?? item.quantity,
           unitPrice: item.price,
         })),
         deliveryAddressId: addressId,
@@ -376,6 +450,7 @@ export default function CheckoutPage() {
         requestedDeliveryDate: new Date(`${deliveryDate}T00:00:00`).toISOString(),
         idempotencyKey: idempotencyKeyRef.current,
         deliveryTimeSlot,
+        deliverySpeed: selectedDeliverySpeed,
       };
 
       if (couponAppliedCode) {
@@ -428,7 +503,25 @@ export default function CheckoutPage() {
       setPaymentStage("failed");
       setPaymentMessage("Payment could not be completed. Your order can be retried safely.");
       const msg = err?.message || "";
-      if (msg.includes("Product not found")) {
+      const shortageMatch = msg.match(/STOCK_SHORTAGE\|([a-f0-9]{24})\|([0-9.]+)\|([0-9.]+)/i);
+      let detail = err?.response?.data?.detail ?? err?.detail;
+      if (!detail && typeof msg === "string" && msg.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(msg);
+          detail = parsed?.detail ?? parsed;
+        } catch {
+          detail = null;
+        }
+      }
+      const shortage = detail?.code === "STOCK_SHORTAGE"
+        ? { productId: String(detail.productId), available: Number(detail.availableQuantity), requested: Number(detail.requestedQuantity) }
+        : shortageMatch
+          ? { productId: shortageMatch[1], available: Number(shortageMatch[2]), requested: Number(shortageMatch[3]) }
+          : null;
+      if (shortage && shortage.available > 0 && shortage.available < shortage.requested) {
+        setStockAdjustment(shortage);
+        toast("Stock changed while you were checking out. Please confirm the available quantity.");
+      } else if (msg.includes("Product not found")) {
         const productId = msg.match(/[a-f0-9]{24}/)?.[0];
         if (productId) {
           removeItem(productId);
@@ -509,6 +602,28 @@ export default function CheckoutPage() {
 
   return (
     <div className="space-y-6 p-6">
+      {stockAdjustment && (
+        <div role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+            <h2 id="stock-adjustment-title" className="text-xl font-bold text-slate-900">Update your order quantity?</h2>
+            <p className="text-sm text-slate-600">Sorry, the requested quantity is no longer available. Another customer purchased or reserved some of this stock moments ago.</p>
+            <div className="rounded-xl bg-emerald-50 p-4">
+              <p className="text-sm text-slate-600">Requested quantity: <strong>{stockAdjustment.requested} kg</strong></p>
+              <p className="mt-1 text-2xl font-bold text-emerald-800">{stockAdjustment.available} kg available</p>
+              <p className="text-sm text-slate-600">Would you like to continue with {stockAdjustment.available} kg?</p>
+            </div>
+            <div className="flex gap-3">
+              <Button className="flex-1" disabled={isPlacing} onClick={() => {
+                const adjustment = stockAdjustment;
+                setStockAdjustment(null);
+                void handlePlaceOrder({ [adjustment.productId]: adjustment.available });
+              }}>Yes, continue with {stockAdjustment.available} kg</Button>
+              <Button className="flex-1" variant="outline" onClick={() => setStockAdjustment(null)}>No, cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" asChild>
           <Link href="/cart"><ArrowLeft className="h-4 w-4" /></Link>
@@ -576,6 +691,133 @@ export default function CheckoutPage() {
                   <p className="text-sm text-slate-500">Select a delivery address to calculate delivery fee</p>
                 </div>
               )}
+              {deliveryAvailability && (
+                <div className={`mt-3 rounded-lg border p-4 ${deliveryAvailability.status === "available" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                  <div className="flex items-start gap-3">
+                    <Truck className="mt-0.5 h-5 w-5 text-emerald-600" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900">
+                        {deliveryAvailability.status === "available"
+                          ? "🟢 Delivery service active"
+                          : deliveryAvailability.status === "scheduled_for_next_service"
+                            ? "🔴 Delivery service closed · 21:30–06:00"
+                            : "🟡 No suitable delivery partner right now"}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-700">{deliveryAvailability.message}</p>
+                      {!deliveryAvailability.serviceAvailable && deliveryAvailability.nextServiceAt && (
+                        <p className="mt-2 text-sm font-semibold text-amber-900">
+                          Next available delivery: {new Date(deliveryAvailability.nextServiceAt).toLocaleString("en-IN", {
+                            timeZone: "Asia/Kolkata",
+                            dateStyle: "medium",
+                            timeStyle: "short",
+                          })}
+                        </p>
+                      )}
+                      {!deliveryAvailability.serviceAvailable && (
+                        <p className="mt-1 text-xs text-amber-800">
+                          Your order can still be placed. Product stock is not blocked by delivery-partner availability.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {deliveryQuote?.fastestEligible &&
+                deliveryAvailability?.serviceAvailable &&
+                deliveryAvailability?.partnerAvailable && (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">Choose your delivery speed</p>
+                        <p className="text-xs text-slate-500">Fastest is available only when the backend confirms the full journey can be completed within 30 minutes.</p>
+                      </div>
+                      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                        Partner available
+                      </span>
+                    </div>
+
+                    <label
+                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
+                        selectedDeliverySpeed === "fastest_30m"
+                          ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-emerald-300"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliverySpeed"
+                          value="fastest_30m"
+                          checked={selectedDeliverySpeed === "fastest_30m"}
+                          onChange={() => setSelectedDeliverySpeed("fastest_30m")}
+                          className="mt-1 h-4 w-4 accent-emerald-600"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-bold text-emerald-900">⚡ Fastest Delivery</p>
+                              <p className="mt-0.5 text-sm font-semibold text-slate-900">
+                                Arrives in about {deliveryQuote.estimatedDeliveryMinutes || 30} minutes
+                              </p>
+                            </div>
+                            <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                              ≤ 30 MIN
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-emerald-800">
+                            Stock available · Delivery partner available · Estimated end-to-end time is within 30 minutes.
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium text-slate-600">
+                            <span className="rounded-full bg-white px-2.5 py-1">✓ Farmer packing</span>
+                            <span className="rounded-full bg-white px-2.5 py-1">✓ Partner pickup</span>
+                            <span className="rounded-full bg-white px-2.5 py-1">✓ Customer delivery</span>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+
+                    <label
+                      className={`block cursor-pointer rounded-xl border-2 p-4 transition ${
+                        selectedDeliverySpeed === "standard"
+                          ? "border-blue-500 bg-blue-50 shadow-sm"
+                          : "border-slate-200 bg-white hover:border-blue-300"
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="deliverySpeed"
+                          value="standard"
+                          checked={selectedDeliverySpeed === "standard"}
+                          onChange={() => setSelectedDeliverySpeed("standard")}
+                          className="mt-1 h-4 w-4 accent-blue-600"
+                        />
+                        <div>
+                          <p className="font-bold text-blue-900">🚚 Standard Delivery</p>
+                          <p className="mt-0.5 text-sm font-medium text-slate-800">Choose your normal delivery schedule</p>
+                          <p className="mt-1 text-xs text-blue-800">The order follows the normal farmer → delivery partner workflow.</p>
+                        </div>
+                      </div>
+                    </label>
+
+                    <p className="flex items-center gap-2 text-[11px] text-slate-500">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+                      AgriConnect re-checks stock, delivery partner availability and ETA when you place the order.
+                    </p>
+                  </div>
+                )}
+
+              {deliveryQuote &&
+                !deliveryQuote.fastestEligible &&
+                deliveryAvailability?.serviceAvailable &&
+                deliveryAvailability?.partnerAvailable && (
+                  <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                    <p className="font-semibold text-blue-900">🚚 Standard Delivery</p>
+                    <p className="mt-1 text-sm text-blue-800">
+                      Fastest 30-minute delivery is not feasible for this address right now. Standard delivery is available.
+                    </p>
+                  </div>
+                )}
             </CardContent>
           </Card>
 

@@ -45,6 +45,14 @@ async function authenticateWithBackend(identifier: string, password: string, isD
 
   const payload = await response.json();
   const user = payload.user || {};
+  let facilityType = user.facilityType || null;
+  try {
+    const meResponse = await fetch(`${apiBaseUrl}/users/me`, { headers: { Authorization: `Bearer ${payload.access_token}` } });
+    if (meResponse.ok) {
+      const mePayload = await meResponse.json();
+      facilityType = mePayload.facilityType || mePayload.facility_type || mePayload.user?.facilityType || facilityType;
+    }
+  } catch { /* keep the login payload fallback */ }
 
   return {
     id: user.id || user.userId || identifier,
@@ -52,6 +60,7 @@ async function authenticateWithBackend(identifier: string, password: string, isD
     name: [user.firstName, user.lastName].filter(Boolean).join(" ") || identifier,
     image: user.avatar_url || user.avatarUrl,
     role: normalizeRole(user.role),
+    facilityType,
     accessToken: payload.access_token,
     refreshToken: payload.refresh_token,
     expiresIn: payload.expires_in,
@@ -169,6 +178,7 @@ async authorize(credentials) {
             name: [backendUser?.first_name || backendUser?.firstName, backendUser?.last_name || backendUser?.lastName].filter(Boolean).join(" ") || "",
             image: backendUser?.avatar_url || backendUser?.avatarUrl || null,
             role: normalizeRole(backendUser?.role),
+            facilityType: backendUser?.facilityType || backendUser?.facility_type || backendUser?.user?.facilityType || null,
             accessToken,
             refreshToken: credentials?.refreshToken?.toString() || "",
             expiresIn: 3600,
@@ -184,6 +194,7 @@ async authorize(credentials) {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+        (token as any).facilityType = (user as any).facilityType || null;
         token.picture = user.image;
         token.accessToken = (user as any).accessToken;
         token.refreshToken = (user as any).refreshToken;
@@ -207,6 +218,7 @@ async authorize(credentials) {
       if (session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as AppRole;
+        (session.user as any).facilityType = (token as any).facilityType as string | null;
         session.user.image = token.picture as string;
       }
       (session as any).accessToken = token.accessToken;

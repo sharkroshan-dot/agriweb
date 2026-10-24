@@ -628,13 +628,18 @@ class NotificationService:
             recipients[str(farmer_id)] = "farmer"
 
         try:
-            if order.get("warehouseId"):
+            if order.get("warehouseId") or order.get("warehouseIds"):
                 from app.repositories.warehouse_repository import warehouse_repository
-                warehouse = await warehouse_repository.get_by_id(str(order["warehouseId"]))
-                if warehouse and warehouse.get("managerId"):
-                    recipients[str(warehouse["managerId"])] = "warehouse"
+                warehouse_ids = []
+                if order.get("warehouseId"):
+                    warehouse_ids.append(str(order["warehouseId"]))
+                warehouse_ids.extend(str(x) for x in (order.get("warehouseIds") or []))
+                for warehouse_id in dict.fromkeys(warehouse_ids):
+                    warehouse = await warehouse_repository.get_by_id(warehouse_id)
+                    if warehouse and warehouse.get("managerId"):
+                        recipients[str(warehouse["managerId"])] = "warehouse"
         except Exception:
-            logger.exception("Failed to resolve warehouse manager for workflow notification")
+            logger.exception("Failed to resolve warehouse managers for workflow notification")
 
         try:
             if order.get("deliveryPartnerId"):
@@ -647,8 +652,10 @@ class NotificationService:
 
         sent = False
         for recipient_id, recipient_role in recipients.items():
-            if recipient_role == actor_role:
-                continue
+            # actor_role describes the role that performed the event, not the
+            # identity of the actor. Do not suppress every recipient in the
+            # same role: multiple warehouses may need the same cross-role
+            # update.
             notification_type = {
                 "customer": NotificationType.ORDER,
                 "farmer": NotificationType.FARMER,
@@ -666,7 +673,11 @@ class NotificationService:
                 "url": {
                     "customer": f"/orders/{order_id}",
                     "farmer": f"/farmer/orders/{order_id}",
-                    "warehouse": f"/warehouse/packing?orderId={order_id}",
+                    "warehouse": (
+                        f"/warehouse/farmer-fulfillment?orderId={order_id}"
+                        if str(order.get("fulfillmentMethod") or "") == "farmer"
+                        else f"/warehouse/packing?orderId={order_id}"
+                    ),
                     "delivery": f"/delivery/deliveries?orderId={order_id}",
                 }.get(recipient_role, "/notifications"),
             }

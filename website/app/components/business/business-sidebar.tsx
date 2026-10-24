@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import Link from "next/link";
+import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -41,6 +41,7 @@ const navGroups = [
     label: "Orders",
     items: [
       { name: "B2B Orders", href: "/business/orders", icon: ShoppingCart },
+      { name: "Bulk Fulfillment", href: "/business/bulk-orders", icon: Truck },
       { name: "Deliveries", href: "/business/deliveries", icon: Truck },
     ],
   },
@@ -77,7 +78,7 @@ export function BusinessSidebar() {
   const displayName = profileData?.data?.businessName || businessName;
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white/80 md:block">
+    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
@@ -97,14 +98,18 @@ export function BusinessSidebar() {
               <p className="mb-1 px-3 text-[11px] font-semibold uppercase tracking-wider text-gray-400">{group.label}</p>
               <div className="space-y-1">
                 {group.items.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
+                  const isCreateRfqRoute = pathname === "/business/rfqs/new" || pathname?.startsWith("/business/rfqs/new/");
+                  const isActive =
+                    pathname === item.href ||
+                    (pathname?.startsWith(item.href + "/") &&
+                      !(item.href === "/business/rfqs" && isCreateRfqRoute));
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
                       className={cn(
-                        "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                        isActive ? "bg-emerald-600 text-white shadow-sm" : "text-gray-600 hover:bg-slate-100"
+                        "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
+                        isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                       )}
                     >
                       <div className="flex items-center gap-3">

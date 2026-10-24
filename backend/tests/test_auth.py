@@ -36,6 +36,41 @@ async def test_authenticate_user_accepts_phone_variants(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_authenticate_user_accepts_username_for_local_hub_manager(monkeypatch):
+    stored_user = {
+        "_id": "64d1d6a7d9cea7f7d43d4f9a",
+        "email": "hub.manager@example.com",
+        "username": "coimbatore_hub_manager",
+        "phone": None,
+        "passwordHash": "hashed-temporary-password",
+        "isVerified": True,
+        "isActive": True,
+        "role": "warehouse",
+        "facilityType": "local_hub",
+    }
+
+    async def fake_find_one(query):
+        return stored_user if query.get("username") == "coimbatore_hub_manager" else None
+
+    async def fake_get_by_email(email):
+        return None
+
+    async def fake_get_by_phone(phone):
+        return None
+
+    monkeypatch.setattr(auth_module.user_repository, "find_one", fake_find_one)
+    monkeypatch.setattr(auth_module.user_repository, "get_by_email", fake_get_by_email)
+    monkeypatch.setattr(auth_module.user_repository, "get_by_phone", fake_get_by_phone)
+    monkeypatch.setattr(auth_module.Security, "verify_password", lambda plain, hashed: plain == "TemporaryPass123!")
+
+    user = await auth_module.AuthService.authenticate_user("coimbatore_hub_manager", "TemporaryPass123!")
+
+    assert user is not None
+    assert user["email"] == "hub.manager@example.com"
+    assert user["facilityType"] == "local_hub"
+
+
+@pytest.mark.asyncio
 async def test_login_uses_user_id_for_device_tracking(monkeypatch):
     user = {
         "_id": "64d1d6a7d9cea7f7d43d4f9a",

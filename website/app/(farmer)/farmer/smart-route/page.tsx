@@ -116,7 +116,7 @@ export default function SmartRoutePage() {
   const searchParams = useSearchParams();
   const workflowOrderIds = searchParams.get("orderIds") || "";
   const { data: routeData, isLoading, refetch } = useQuery({
-    queryKey: ["smartRoute"],
+    queryKey: ["smartRoute", workflowOrderIds],
     queryFn: () => api.get(`/farmers/me/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
   });
 
@@ -244,7 +244,7 @@ export default function SmartRoutePage() {
             Optimize Route
           </Button>
           <Button asChild>
-            <Link href="/farmer/route">
+            <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
               <Play className="mr-2 h-4 w-4" />
               Launch Route
             </Link>
@@ -569,7 +569,7 @@ export default function SmartRoutePage() {
 
           <div className="mt-6 flex justify-end">
             <Button asChild>
-              <Link href="/farmer/route">
+              <Link href={`/farmer/route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
                 <Play className="mr-2 h-4 w-4" />
                 Go to Route Planning to start delivery
               </Link>

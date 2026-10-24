@@ -73,6 +73,8 @@ interface CropPlan {
   preOrderEnabled?: boolean;
   productCreated?: boolean;
   productId?: string;
+  masterCropId?: string;
+  farmerCropId?: string;
   harvestedAt?: string;
   actualQuantityKg?: number;
   finalRatePerKg?: number;
@@ -125,6 +127,7 @@ export default function FarmerHarvestPlannerPage() {
   const [batchShelfLifeDays, setBatchShelfLifeDays] = useState("");
   const [batchNotes, setBatchNotes] = useState("");
   const [routes, setRoutes] = useState<Record<string, any>>({});
+
   const [form, setForm] = useState({
     cropName: "",
     fieldName: "",
@@ -224,6 +227,8 @@ export default function FarmerHarvestPlannerPage() {
     }
     batchCreateMutation.mutate({
       cropName: batchConfirm.cropName,
+      masterCropId: batchConfirm.masterCropId || undefined,
+      farmerCropId: batchConfirm.farmerCropId || undefined,
       quantityKg: quantity,
       harvestDate: batchConfirm.harvestedAt || batchConfirm.expectedHarvestDate,
       qualityGrade: batchQualityGrade,
@@ -723,6 +728,7 @@ export default function FarmerHarvestPlannerPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
+
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Crop name *</label>
                 <Input

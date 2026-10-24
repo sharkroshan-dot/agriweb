@@ -36,6 +36,19 @@ class MongoDB:
             cls.db = cls.client[settings.MONGODB_DATABASE]
 
             await cls.client.admin.command('ping')
+            # B2B offer acceptance uses multi-document transactions. Detect an
+            # unsupported standalone MongoDB deployment early with a clear log.
+            try:
+                hello = await cls.client.admin.command("hello")
+                if not hello.get("setName") and not hello.get("msg") == "isdbgrid":
+                    logger.error(
+                        "MongoDB is connected as a standalone server. "
+                        "B2B batch acceptance requires a replica set or sharded cluster. "
+                        "Configure replication.replSetName (for example rs0), run rs.initiate(), "
+                        "and add ?replicaSet=rs0 to MONGODB_URI."
+                    )
+            except Exception:
+                logger.warning("Could not inspect MongoDB topology; transaction support will be checked when needed.")
             logger.info(f"✅ Connected to MongoDB: {settings.MONGODB_DATABASE}")
 
             await cls.create_indexes()
@@ -137,12 +150,13 @@ class MongoDB:
         await cls.db.ledger_entries.create_index([("orderId", 1), ("type", 1)])
         # Stable gateway/webhook references must be unique for the same
         # financial event so concurrent retries cannot create duplicate ledger
-        # entries. Existing legacy duplicates are tolerated at startup.
+        # entries. Only real references participate in the unique index;
+        # legacy refund rows may legitimately have reference=None.
         try:
             await cls.db.ledger_entries.create_index(
                 [("reference", 1), ("type", 1), ("direction", 1), ("amount", 1)],
                 unique=True,
-                sparse=True,
+                partialFilterExpression={"reference": {"$type": "string"}},
                 name="ledger_reference_idempotency",
             )
         except Exception as exc:
@@ -155,6 +169,14 @@ class MongoDB:
         await cls.db.incoming_stock.create_index([("warehouseId", 1), ("status", 1), ("expectedDate", 1)])
         await cls.db.warehouse_transfers.create_index([("fromWarehouseId", 1), ("status", 1)])
         await cls.db.warehouse_transfers.create_index([("toWarehouseId", 1), ("status", 1)])
+
+        # B2B multi-offer acceptance idempotency: one committed batch per buyer key.
+        await cls.db.b2b_acceptance_batches.create_index(
+            [("businessUserId", 1), ("idempotencyKey", 1)],
+            unique=True,
+            name="b2b_acceptance_batch_idempotency",
+        )
+        await cls.db.b2b_acceptance_batches.create_index([("rfqId", 1), ("createdAt", -1)])
 
         # AI training jobs
         await cls.db.ai_training_jobs.create_index([("status", 1), ("createdAt", -1)])

@@ -6,8 +6,8 @@ pydantic==2.13.5
 pydantic-settings==2.15.0
 
 # Database
-motor==3.3.2
-pymongo==4.8.0
+motor==3.7.1
+pymongo==4.18.2
 redis==5.0.1
 
 # Authentication
@@ -21,7 +21,7 @@ python-dotenv==1.2.2
 
 # HTTP Client
 httpx==0.25.2
-aiohttp==3.14.3
+aiohttp==3.14.4
 
 # Payment Gateways
 razorpay==1.4.2

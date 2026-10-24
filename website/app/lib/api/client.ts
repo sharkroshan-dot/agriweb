@@ -3,21 +3,40 @@ import { getSession } from "next-auth/react";
 type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 let sessionPromise: Promise<any> | null = null;
+let sessionCache: { value: any; expiresAt: number } | null = null;
+
+// A short-lived session cache prevents every page query from independently
+// calling /api/auth/session during navigation. Keep the window small so role
+// and token changes are picked up promptly.
+const SESSION_CACHE_TTL_MS = 5000;
 
 async function getCachedSession() {
+  if (sessionCache && Date.now() < sessionCache.expiresAt) {
+    return sessionCache.value;
+  }
   if (sessionPromise) return sessionPromise;
+
   sessionPromise = (async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const session = await getSession();
-        if (session) return session;
+        if (session) {
+          sessionCache = {
+            value: session,
+            expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
+          };
+          return session;
+        }
       } catch {
         // transient fetch failure; retry below
       }
-      await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
     }
     return null;
   })();
+
   try {
     return await sessionPromise;
   } finally {
@@ -82,12 +101,13 @@ function buildUrl(path: string, params?: Record<string, string | number | boolea
 async function request<T = any>(method: HttpMethod, path: string, options: ApiRequestOptions = {}) {
   const headers = new Headers(options.headers || {});
   const accessToken = await getCachedSession();
+  const bodyIsFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
 
   if (accessToken?.accessToken && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${accessToken.accessToken}`);
   }
 
-  if (options.body !== undefined && !headers.has("Content-Type")) {
+  if (options.body !== undefined && !bodyIsFormData && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -103,7 +123,7 @@ async function request<T = any>(method: HttpMethod, path: string, options: ApiRe
         headers,
         credentials: "include",
         signal: controller.signal,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body: options.body === undefined ? undefined : bodyIsFormData ? options.body as FormData : JSON.stringify(options.body),
       });
     } catch (firstError: any) {
       if (firstError?.name === "AbortError") {
@@ -113,7 +133,11 @@ async function request<T = any>(method: HttpMethod, path: string, options: ApiRe
         response = await fetch(url, {
           method,
           headers,
-          body: options.body === undefined ? undefined : JSON.stringify(options.body),
+          credentials: "include",
+          // Keep the fallback attempt under the same deadline as the first
+          // request; otherwise a network failure can leave a page waiting.
+          signal: controller.signal,
+          body: options.body === undefined ? undefined : bodyIsFormData ? options.body as FormData : JSON.stringify(options.body),
         });
       } catch {
         throw new Error(`Network error: ${method} ${url} (${firstError?.message || firstError})`);

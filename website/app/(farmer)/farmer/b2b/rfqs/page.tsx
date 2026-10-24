@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
@@ -15,6 +15,7 @@ import {
   ShoppingBag,
   RefreshCw,
   Bot,
+  AlertCircle,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
@@ -23,7 +24,6 @@ import { Input } from "../../../../components/ui/input";
 import { Badge } from "../../../../components/ui/badge";
 import toast from "react-hot-toast";
 
-const DELIVERY_METHODS = ["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"];
 const SCOPES = ["all", "nearby", "district", "state", "national"];
 
 function scopeOf(rfq: any): string {
@@ -74,10 +74,12 @@ function PillTabs({
 function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   const queryClient = useQueryClient();
   const [price, setPrice] = useState(String(rfq.priceCeilingPerKg || rfq.budgetMaxPerKg || ""));
-  const [qty, setQty] = useState(String(rfq.availableKg || rfq.quantityKg || ""));
-  const [deliveryCharge, setDeliveryCharge] = useState("");
-  const [deliveryMethod, setDeliveryMethod] = useState("farmer_delivery");
+  // Default to the buyer requested quantity, not the farmer stock quantity.
+  const requestedQty = Number(rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0) || 0;
+  const farmerStockQty = Number(rfq.availableKg ?? 0) || 0;
+  const [qty, setQty] = useState(String(requestedQty > 0 ? Math.min(requestedQty, farmerStockQty > 0 ? farmerStockQty : requestedQty) : farmerStockQty || ""));
   const [eta, setEta] = useState("");
+  const [qualityGrade, setQualityGrade] = useState(String(rfq.qualityGrade || "Standard"));
   const [message, setMessage] = useState("");
   const [aiRec, setAiRec] = useState<any>(null);
 
@@ -101,15 +103,14 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
 
   const priceNum = Number(price) || 0;
   const qtyNum = Number(qty) || 0;
-  const deliveryNum = Number(deliveryCharge) || 0;
-  const total = priceNum * qtyNum + deliveryNum;
+  const total = priceNum * qtyNum;
 
   return (
     <Card className="border-emerald-200">
       <CardHeader>
         <CardTitle className="text-sm">Submit your quote for {rfq.productName}</CardTitle>
         <CardDescription>
-          {rfq.quantityKg ?? `${rfq.quantityPerWeekKg} kg/week`} kg
+          {rfq.quantityKg != null ? `${rfq.quantityKg} kg` : `${rfq.quantityPerWeekKg ?? "—"} kg/week`}
           {rfq.qualityGrade ? ` · ${rfq.qualityGrade}` : ""}
           {rfq.budgetMinPerKg && rfq.budgetMaxPerKg ? ` · budget ₹${rfq.budgetMinPerKg}–₹${rfq.budgetMaxPerKg}/kg` : ""}
           {rfq.priceCeilingPerKg ? ` · ceiling ₹${rfq.priceCeilingPerKg}/kg` : ""}
@@ -121,21 +122,31 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <Input type="number" min="1" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Available quantity (kg) *</label>
-          <Input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
-          {rfq.availableKg ? <p className="text-[11px] text-gray-400">Your stock: {rfq.availableKg} kg</p> : null}
+          <label className="text-xs font-medium text-gray-500">Quantity you can supply (kg) *</label>
+          <Input
+            type="number"
+            min="1"
+            max={farmerStockQty > 0 ? Math.min(farmerStockQty, requestedQty > 0 ? requestedQty : farmerStockQty) : requestedQty || undefined}
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+          />
+          <p className="text-[11px] text-slate-500">
+            Buyer needs: <strong>{requestedQty > 0 ? `${requestedQty} kg` : "quantity not specified"}</strong>
+            {rfq.availableKg != null ? ` · Your stock: ${rfq.availableKg} kg` : ""}
+          </p>
+          {requestedQty > 0 && qtyNum > requestedQty ? (
+            <p className="text-[11px] text-amber-700">Your quote quantity cannot exceed the buyer's requested quantity.</p>
+          ) : null}
+          {farmerStockQty > 0 && qtyNum > farmerStockQty ? (
+            <p className="text-[11px] text-amber-700">Your quote quantity cannot exceed your available stock.</p>
+          ) : null}
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
-          <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery method</label>
-          <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
-            {DELIVERY_METHODS.map((m) => (
-              <option key={m} value={m}>{m.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
-            ))}
+          <label className="text-xs font-medium text-gray-500">Quality grade you can supply *</label>
+          <select value={qualityGrade} onChange={(e) => setQualityGrade(e.target.value)} className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm">
+            <option value="Premium">Premium</option><option value="Organic">Organic</option><option value="Grade A">Grade A</option><option value="Grade B">Grade B</option><option value="Grade C">Grade C</option><option value="Standard">Standard</option>
           </select>
+          {rfq.qualityGrade ? <p className="text-[11px] text-slate-500">Buyer requested: {rfq.qualityGrade}</p> : null}
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Expected delivery</label>
@@ -146,7 +157,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <Input value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Quality, packaging, farm details…" />
         </div>
         <div className="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800 sm:col-span-2">
-          Total: ₹{total.toLocaleString("en-IN")} ({qtyNum} kg × ₹{priceNum}/kg{qtyNum > 0 ? ` + ₹${deliveryNum} delivery` : ""})
+          Total: ₹{total.toLocaleString("en-IN")} ({qtyNum} kg × ₹{priceNum}/kg)
         </div>
         <div className="sm:col-span-2">
           <Button
@@ -188,9 +199,9 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
               submit.mutate({
                 pricePerKg: Number(price),
                 availableQuantityKg: Number(qty),
-                deliveryCharge: deliveryCharge ? Number(deliveryCharge) : 0,
-                deliveryMethod,
+                deliveryMethod: "dedicated_transport",
                 expectedDeliveryDate: eta || null,
+                qualityGrade,
                 message,
               })
             }
@@ -209,21 +220,45 @@ export default function FarmerB2bRfqsPage() {
   const [scope, setScope] = useState("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
+  const hasAutoSelectedView = useRef(false);
 
-  const { data: rfqData, isLoading } = useQuery({
+  const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["b2b", "farmer", "rfqs"],
-    queryFn: () => api.get("/b2b/rfqs", { params: { status: "open" } }),
+    queryFn: async () => {
+      const response: any = await api.get("/b2b/rfqs", { params: { status: "open", limit: 200 } });
+
+      // The shared API client may return either the raw API envelope
+      // ({ success, data: { rfqs } }) or its flattened form
+      // ({ success, rfqs, data: { rfqs } }). Normalize both without
+      // accidentally turning a valid response into an empty list.
+      const candidates = [
+        response?.rfqs,
+        response?.data?.rfqs,
+        response?.data?.data?.rfqs,
+        response?.data?.data?.data?.rfqs,
+        response?.data?.items,
+        response?.data?.data?.items,
+        response?.items,
+      ];
+      const rfqs = candidates.find((value) => Array.isArray(value));
+      if (Array.isArray(rfqs)) return { rfqs };
+
+      // An empty list is valid only when the API explicitly returned a
+      // recognizable list/count payload; unexpected response shapes should
+      // be surfaced as an error instead of misleading farmers with "0 RFQs".
+      const knownEmpty = [
+        response?.count,
+        response?.data?.count,
+        response?.data?.data?.count,
+      ].some((count) => count === 0);
+      if (knownEmpty) return { rfqs: [] };
+
+      throw new Error("The RFQ API returned an unexpected response. Please retry or check the backend response.");
+    },
+    retry: 2,
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-      </div>
-    );
-  }
-
-  const allRfqs = rfqData?.data?.rfqs || [];
+  const allRfqs = Array.isArray(rfqData?.rfqs) ? rfqData.rfqs : [];
 
   const scopeCounts: Record<string, number> = {
     all: allRfqs.length,
@@ -239,6 +274,38 @@ export default function FarmerB2bRfqsPage() {
 
   const oneOff = rfqs.filter((r: any) => !r.recurring);
   const recurring = rfqs.filter((r: any) => r.recurring);
+
+  // On the first successful load, select the tab that actually has RFQs.
+  // This prevents existing recurring RFQs from appearing to have vanished
+  // simply because the empty One-off tab is selected by default.
+  useEffect(() => {
+    if (hasAutoSelectedView.current || isLoading || isError) return;
+    if (oneOff.length === 0 && recurring.length > 0) setView("recurring");
+    hasAutoSelectedView.current = true;
+  }, [isLoading, isError, oneOff.length, recurring.length]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-40 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="flex-1">
+            <h2 className="font-semibold">Business RFQs could not be loaded</h2>
+            <p className="mt-1 text-sm">{(error as any)?.message || "The RFQ request failed. Check that the backend is running and your farmer session is valid."}</p>
+            <Button className="mt-3" variant="outline" onClick={() => refetch()}>Retry loading RFQs</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const renderRfq = (r: any) => (
     <div key={r.id} className="space-y-2">
@@ -376,14 +443,7 @@ export default function FarmerB2bRfqsPage() {
         ]}
       />
 
-      {rfqs.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-10 text-center text-sm text-gray-400">
-            <PackageSearch className="mb-2 h-10 w-10 text-gray-300" />
-            No open RFQs in this view right now. Check back soon.
-          </CardContent>
-        </Card>
-      ) : view === "one-off" ? (
+      {view === "one-off" ? (
         section("One-off Orders", "Single delivery requests. Bid once and fulfill a one-time order.", <ShoppingBag className="h-5 w-5" />, oneOff)
       ) : (
         section("Recurring Supply", "Ongoing weekly supply contracts with a regular delivery schedule.", <RefreshCw className="h-5 w-5" />, recurring)

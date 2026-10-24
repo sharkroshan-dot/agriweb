@@ -154,7 +154,7 @@ export default function DeliveryCalendarPage() {
   const dates = weekDates(weekOffset);
 
   const { data: calendarData, isLoading } = useQuery({
-    queryKey: ["deliveryCalendar", viewMode],
+    queryKey: ["deliveryCalendar", viewMode, workflowOrderIds],
     queryFn: () => api.get(`/farmers/me/delivery-calendar${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`),
   });
 
@@ -575,9 +575,9 @@ export default function DeliveryCalendarPage() {
                   </Card>
                 );
               })}
-              <Button size="sm" onClick={() => router.push("/farmer/route")}>
+              <Button size="sm" onClick={() => router.push(`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`)}>
                 <Truck className="mr-2 h-4 w-4" />
-                View Route
+                Smart Route
               </Button>
             </div>
           )}
@@ -662,7 +662,7 @@ export default function DeliveryCalendarPage() {
           </div>
 
           <Button asChild className="w-full">
-            <Link href="/farmer/smart-route">
+            <Link href={`/farmer/smart-route${workflowOrderIds ? `?orderIds=${encodeURIComponent(workflowOrderIds)}` : ""}`}>
               <Truck className="mr-2 h-4 w-4" />
               View Optimized Route
             </Link>

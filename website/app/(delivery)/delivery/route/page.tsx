@@ -15,6 +15,12 @@ import { api } from "../../../lib/api/client";
 import { formatTime } from "../../../lib/utils";
 import toast from "react-hot-toast";
 
+function DeliveryPriorityBadge({ delivery, compact = false }: { delivery?: any; compact?: boolean }) {
+  const priority = String(delivery?.priority || delivery?.deliveryPriority || delivery?.order?.priority || "normal").toLowerCase();
+  const label = priority === "urgent" || priority === "high" ? "High Priority" : priority === "medium" ? "Medium Priority" : "Normal Priority";
+  return <Badge variant={priority === "urgent" || priority === "high" ? "destructive" : priority === "medium" ? "warning" : "secondary"} className={compact ? "text-[10px]" : undefined}>{label}</Badge>;
+}
+
 const ACTIVE_STATUSES = ["in_transit", "ready_for_delivery", "picked_up", "accepted", "assigned", "dispatched"];
 
 const getDeliveryId = (delivery: any) => String(
@@ -242,6 +248,11 @@ export default function DeliveryRoutePage() {
           orderId: getDeliveryId({ ...stop, order }),
           assignmentId: getDeliveryAssignmentId({ ...stop, order }),
           customerName: order?.customerName || stop.customerName || `Stop ${index + 1}`,
+          priority: order?.priority ?? stop.priority,
+          priorityLabel: order?.priorityLabel ?? stop.priorityLabel,
+          deliveryDeadline: order?.deliveryDeadline ?? stop.deliveryDeadline,
+          deliveryHoursRemaining: order?.deliveryHoursRemaining ?? stop.deliveryHoursRemaining,
+          priorityReason: order?.priorityReason ?? stop.priorityReason,
           address: formatAddress(deliveryAddress || order?.address),
           phone: getCustomerPhone({ ...stop, order }),
           eta: stop.eta,
@@ -563,6 +574,7 @@ export default function DeliveryRoutePage() {
                         {index < currentStop ? <Badge variant="success">Done</Badge> : index === currentStop && isNavigating ? <Badge variant="warning">Current</Badge> : <Badge variant="outline">Pending</Badge>}
                       </div>
                       <p className="text-sm text-muted-foreground">{stop.address || "Delivery address"}</p>
+                      <div className="mt-2"><DeliveryPriorityBadge delivery={stop} compact /></div>
                       <div className="mt-1 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1"><Clock className="h-3 w-3" />ETA: {stop.eta || "Pending"}</span>
                         {stop.distanceFromStartKm != null && (

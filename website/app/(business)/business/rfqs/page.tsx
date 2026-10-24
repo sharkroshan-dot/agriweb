@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -11,8 +11,25 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import { CreateRfqForm } from "../../../components/business/create-rfq-form";
 import { AcceptOfferDialog } from "../../../components/business/accept-offer-dialog";
+import toast from "react-hot-toast";
 
 const RFQ_STATUSES = ["", "open", "awarded", "closed", "cancelled"];
+
+function formatRfqDeadline(rfq: any): string | null {
+  const raw = rfq.deadline ?? rfq.closesAt ?? rfq.closingAt ?? rfq.closingDate ?? null;
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(date) + " IST";
+}
 
 const statusVariant: Record<string, any> = {
   open: "success",
@@ -26,16 +43,23 @@ function AcceptDialog({ offer, rfq, onClose }: { offer: any; rfq: any; onClose: 
 }
 
 export default function BusinessRfqsPage() {
+  const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [expandedRfq, setExpandedRfq] = useState<string | null>(null);
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
+  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
+  const [acceptingSelected, setAcceptingSelected] = useState(false);
+  const [batchIdempotencyKey, setBatchIdempotencyKey] = useState("");
+  const [offerFilter, setOfferFilter] = useState<"all" | "budget" | "quantity" | "delivery" | "quality">("all");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
 
-  const { data: rfqData, isLoading } = useQuery({
+  const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
+    // Load the complete RFQ list once; status tabs filter it locally so each
+    // tab reliably shows only matching orders regardless of backend query behavior.
     queryKey: ["b2b", "rfqs"],
-    queryFn: () => api.get("/b2b/rfqs", { params: { status: statusFilter || "" } }),
+    queryFn: () => api.get("/b2b/rfqs", { params: { status: "" } }),
   });
 
   const { data: offersData, isFetching: offersLoading } = useQuery({
@@ -52,24 +76,65 @@ export default function BusinessRfqsPage() {
     );
   }
 
-  const rfqs = (rfqData?.data?.rfqs || []).filter((r: any) =>
-    !search.trim() || (r.productName || "").toLowerCase().includes(search.trim().toLowerCase())
-  );
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <AlertTriangle className="h-8 w-8 text-amber-600" />
+          <h2 className="font-semibold text-slate-900">Could not load your RFQs</h2>
+          <p className="max-w-md text-sm text-slate-500">
+            Your RFQ data has not been changed. Check your connection and try again.
+            {error instanceof Error && error.message ? ` Details: ${error.message}` : ""}
+          </p>
+          <Button onClick={() => refetch()}>Try again</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const rawRfqs = rfqData?.data?.rfqs ?? rfqData?.rfqs ?? rfqData?.data?.data?.rfqs ?? [];
+  const allRfqs = Array.isArray(rawRfqs) ? rawRfqs : [];
+  const rfqs = allRfqs.filter((r: any) => {
+    const matchesStatus =
+      !statusFilter || String(r.status || "").toLowerCase() === statusFilter.toLowerCase();
+    const matchesSearch =
+      !search.trim() || String(r.productName || "").toLowerCase().includes(search.trim().toLowerCase());
+    return matchesStatus && matchesSearch;
+  });
 
   const oneOffRfqs = rfqs.filter((r: any) => !r.recurring);
   const recurringRfqs = rfqs.filter((r: any) => r.recurring);
   const visibleRfqs = view === "one-off" ? oneOffRfqs : recurringRfqs;
 
-  const bestOffer = (offers: any[]) => {
-    const pending = offers.filter((o: any) => o.status === "pending");
-    if (pending.length === 0) return null;
-    const scored = pending.map((o) => {
-      const priceScore = Math.max(0, 100 - (o.pricePerKg || 0));
-      const ratingScore = (o.farmerInfo?.rating || 0) * 10;
-      const verifiedScore = o.farmerInfo?.isVerified ? 8 : 0;
-      return { o, score: priceScore * 0.6 + ratingScore + verifiedScore };
+  const rankOffers = (rfq: any, offers: any[]) => {
+    const requested = Number(rfq.remainingQuantityKg ?? rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0);
+    const budget = Number(rfq.budgetMaxPerKg ?? rfq.priceCeilingPerKg ?? 0);
+    return offers.map((o: any) => {
+      const price = Number(o.pricePerKg ?? 0);
+      const quantity = Number(o.availableQuantityKg ?? o.minOrderKg ?? 0);
+      const rating = Number(o.farmerInfo?.rating ?? 0);
+      const withinBudget = budget <= 0 || price <= budget;
+      const canCoverRemaining = requested > 0 && quantity >= requested;
+      const priceScore = budget > 0 ? Math.max(0, 100 - (price / budget) * 100) : Math.max(0, 100 - price);
+      const ratingScore = Math.min(5, Math.max(0, rating)) * 12;
+      const verificationScore = o.farmerInfo?.isVerified ? 10 : 0;
+      const requestedGrade = String(rfq.qualityGrade || "").trim().toLowerCase();
+      const offeredGrade = String(o.qualityGrade || "").trim().toLowerCase();
+      const qualityMatches = !requestedGrade || !offeredGrade || requestedGrade === offeredGrade;
+      const qualityScore = !requestedGrade ? 5 : (offeredGrade === requestedGrade ? 15 : (offeredGrade ? -15 : 0));
+      const quantityScore = requested > 0 ? Math.min(100, (quantity / requested) * 100) * 0.2 : 10;
+      const budgetScore = withinBudget ? 15 : -35;
+      const score = priceScore * 0.45 + ratingScore + verificationScore + quantityScore + budgetScore + qualityScore;
+      return { ...o, _rankScore: score, _withinBudget: withinBudget, _canCoverRemaining: canCoverRemaining, _qualityMatches: qualityMatches };
+    }).sort((a: any, b: any) => {
+      if (a.status === "pending" && b.status !== "pending") return -1;
+      if (b.status === "pending" && a.status !== "pending") return 1;
+      return b._rankScore - a._rankScore;
     });
-    return scored.sort((a, b) => b.score - a.score)[0].o;
+  };
+  const bestOffer = (rfq: any, offers: any[]) => {
+    const pending = rankOffers(rfq, offers).filter((o: any) => String(o.status).toLowerCase() === "pending");
+    return pending[0] ?? null;
   };
 
   return (
@@ -91,44 +156,49 @@ export default function BusinessRfqsPage() {
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
         <button
           onClick={() => setView("one-off")}
+          aria-pressed={view === "one-off"}
           className={cn(
             "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
             view === "one-off"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700",
           )}
         >
           <ShoppingBag className="h-4 w-4" />
           One-off Order
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "one-off" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "one-off" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"}`}>
             {oneOffRfqs.length}
           </span>
         </button>
         <button
           onClick={() => setView("recurring")}
+          aria-pressed={view === "recurring"}
           className={cn(
             "flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition",
             view === "recurring"
-              ? "bg-white text-emerald-700 shadow-sm"
-              : "text-slate-500 hover:text-slate-700",
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700",
           )}
         >
           <RefreshCw className="h-4 w-4" />
           Recurring Order
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "recurring" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-500"}`}>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${view === "recurring" ? "bg-white/20 text-white" : "bg-slate-200 text-slate-600"}`}>
             {recurringRfqs.length}
           </span>
         </button>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-2">
+        <div className="flex min-w-0 flex-1 flex-wrap gap-1 rounded-xl bg-slate-100 p-1 sm:flex-nowrap">
           {RFQ_STATUSES.map((s) => (
             <button
-              key={s}
+              key={s || "all"}
               onClick={() => setStatusFilter(s)}
-              className={`rounded-full px-4 py-2 text-sm font-medium capitalize transition-colors ${
-                statusFilter === s ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              aria-pressed={statusFilter === s}
+              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2.5 text-sm font-medium capitalize transition-colors ${
+                statusFilter === s
+                  ? "bg-emerald-600 text-white shadow-sm"
+                  : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
               }`}
             >
               {s === "" ? "All" : s}
@@ -155,33 +225,60 @@ export default function BusinessRfqsPage() {
           {visibleRfqs.map((r: any) => (
             <div key={r.id} className="space-y-2">
               <Card>
-                <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium">{r.productName}</p>
-                      {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
-                      {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
-                      <Badge variant="outline">{r.visibility}</Badge>
+                <CardContent className="space-y-4 p-4 sm:p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-semibold text-slate-900">{r.productName || "Product request"}</h3>
+                        {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
+                        <Badge variant="outline">{r.recurring ? "Recurring supply" : "One-off order"}</Badge>
+                        <Badge variant="outline">{String(r.visibility || "state").replace(/^./, (v: string) => v.toUpperCase())} reach</Badge>
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        {r.recurring
+                          ? `Regular supply: ${r.quantityPerWeekKg ?? r.quantityKg ?? "—"} kg per week`
+                          : `Requested quantity: ${r.quantityKg ?? "—"} kg`}
+                      </p>
                     </div>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {r.quantityKg ?? `${r.quantityPerWeekKg} kg/week`} kg
-                      {r.requiredDate ? ` • by ${r.requiredDate}` : ""}
-                      {r.deliveryTimeSlot ? ` • ${r.deliveryTimeSlot}` : ""}
-                      {r.deliveryCity ? ` • ${r.deliveryCity}` : ""}
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-3 text-xs text-gray-400">
-                      {r.priceCeilingPerKg ? <span>ceiling ₹{r.priceCeilingPerKg}/kg</span> : null}
-                      {r.budgetMinPerKg && r.budgetMaxPerKg ? <span>budget ₹{r.budgetMinPerKg}–₹{r.budgetMaxPerKg}/kg</span> : null}
-                      <span>{r.offerCount ?? 0} quote(s)</span>
-                      {!r.recurring && r.remainingQuantityKg != null ? <span>remaining {r.remainingQuantityKg} kg</span> : null}
-                      {r.closingIn ? <span>⏰ closes in {r.closingIn}</span> : null}
+                    <Badge variant={statusVariant[String(r.status || "").toLowerCase()] || "secondary"}>
+                      {({ open: "Open for quotes", awarded: "Awarded", closed: "Closed", cancelled: "Cancelled" } as Record<string, string>)[String(r.status || "").toLowerCase()] || String(r.status || "Unknown")}
+                    </Badge>
+                  </div>
+
+                  <div className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex items-start gap-2">
+                      <PackageSearch className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Quantity needed</p><p className="text-sm font-semibold text-slate-800">{r.recurring ? `${r.quantityPerWeekKg ?? r.quantityKg ?? "—"} kg/week` : `${r.quantityKg ?? "—"} kg`}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Delivery location</p><p className="text-sm font-semibold text-slate-800">{[r.deliveryCity, r.deliveryDistrict, r.deliveryState].filter(Boolean).join(", ") || "Not specified"}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">{r.recurring ? "Supply schedule" : "Required by"}</p><p className="text-sm font-semibold text-slate-800">{r.recurring ? (r.deliveryDays || "Schedule to be confirmed") : (r.requiredDate || "Date not specified")}{!r.recurring && r.deliveryTimeSlot ? ` · ${r.deliveryTimeSlot}` : ""}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Buyer budget</p><p className="text-sm font-semibold text-slate-800">{r.budgetMinPerKg != null && r.budgetMaxPerKg != null ? `₹${r.budgetMinPerKg}–₹${r.budgetMaxPerKg}/kg` : r.priceCeilingPerKg != null ? `Up to ₹${r.priceCeilingPerKg}/kg` : "Not specified"}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Bot className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Farmer quotes received</p><p className="text-sm font-semibold text-slate-800">{r.offerCount ?? 0} quotes</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Quote deadline</p><p className="text-sm font-semibold text-slate-800">{formatRfqDeadline(r) || r.closingIn || "No deadline specified"}</p></div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant={statusVariant[r.status] || "secondary"}>{r.status}</Badge>
-                    {(r.status === "open" || r.status === "awarded") && (
+
+                  {r.notes ? <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2"><p className="text-xs font-medium text-amber-900">Additional requirements</p><p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{r.notes}</p></div> : null}
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
+                    <p className="text-xs text-slate-500">{!r.recurring && r.remainingQuantityKg != null ? `${r.remainingQuantityKg} kg still to source` : r.recurring ? "Recurring procurement" : "One-time procurement"}</p>
+                    {(String(r.status || "").toLowerCase() === "open" || String(r.status || "").toLowerCase() === "awarded") && (
                       <Button variant="outline" size="sm" onClick={() => setExpandedRfq(expandedRfq === r.id ? null : r.id)}>
-                        {expandedRfq === r.id ? "Hide offers" : "View offers"}
+                        {expandedRfq === r.id ? "Hide farmer quotes" : `View farmer quotes (${r.offerCount ?? 0})`}
                       </Button>
                     )}
                   </div>
@@ -198,7 +295,20 @@ export default function BusinessRfqsPage() {
                         : `Split procurement enabled — accept multiple farmers until ${r.quantityKg} kg is covered (${r.remainingQuantityKg ?? r.quantityKg} kg remaining).`}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Compare and filter quotes</p>
+                        <p className="text-xs text-slate-500">Filter offers before selecting quantities. Missing delivery dates are flagged as unverified.</p>
+                      </div>
+                      <select aria-label="Filter farmer quotes" value={offerFilter} onChange={(event) => setOfferFilter(event.target.value as "all" | "budget" | "quantity" | "delivery" | "quality")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
+                        <option value="all">All quotes</option>
+                        <option value="budget">Within budget</option>
+                        <option value="quantity">Can cover remaining quantity</option>
+                        <option value="delivery">Expected by required date</option>
+                        {r.qualityGrade ? <option value="quality">Meets requested quality ({r.qualityGrade})</option> : null}
+                      </select>
+                    </div>
                     {offersLoading ? (
                       <div className="flex justify-center py-4">
                         <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
@@ -208,7 +318,73 @@ export default function BusinessRfqsPage() {
                     ) : (
                       <>
                         {(() => {
-                          const best = bestOffer(offersData?.data?.offers || []);
+                          const pendingOffers = rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => String(offer.status).toLowerCase() === "pending");
+                          const selected = pendingOffers.filter((offer: any) => Number(selectedQuantities[offer.id] || 0) > 0);
+                          const required = Number(r.quantityKg ?? r.quantityPerWeekKg ?? 0);
+                          const alreadyAccepted = Math.max(0, required - Number(r.remainingQuantityKg ?? required));
+                          const remainingBeforeSelection = Math.max(0, Number(r.remainingQuantityKg ?? required));
+                          const selectedKg = selected.reduce((sum: number, offer: any) => sum + Number(selectedQuantities[offer.id] || 0), 0);
+                          const selectedAmount = selected.reduce((sum: number, offer: any) => sum + Number(selectedQuantities[offer.id] || 0) * Number(offer.pricePerKg || 0), 0);
+                          return (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <h3 className="font-semibold text-emerald-950">Selected orders · procurement summary</h3>
+                                  <p className="text-xs text-emerald-800">Select one or more quotes and choose full or partial quantities before confirming.</p>
+                                </div>
+                                <Badge variant="outline">{selected.length} farmer{selected.length === 1 ? "" : "s"} selected</Badge>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Total required</p><p className="text-lg font-semibold">{required.toLocaleString("en-IN")} kg</p></div>
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Already accepted</p><p className="text-lg font-semibold">{alreadyAccepted.toLocaleString("en-IN")} kg</p></div>
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Selected quantity</p><p className="text-lg font-semibold">{selectedKg.toLocaleString("en-IN")} kg</p></div>
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Remaining after selection</p><p className="text-lg font-semibold">{Math.max(0, remainingBeforeSelection - selectedKg).toLocaleString("en-IN")} kg</p></div>
+                              </div>
+                              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-emerald-200 pt-3">
+                                <div><p className="text-xs text-slate-600">Estimated selected amount</p><p className="text-xl font-bold text-emerald-800">₹{selectedAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
+                                <div className="flex gap-2">
+                                  <Button variant="outline" size="sm" disabled={selected.length === 0 || acceptingSelected} onClick={() => setSelectedQuantities({})}>Clear selection</Button>
+                                  <Button size="sm" disabled={selected.length === 0 || selectedKg <= 0 || selectedKg > remainingBeforeSelection || acceptingSelected} onClick={async () => {
+                                    const allocationLines = selected.map((offer: any) => `${offer.farmerInfo?.farmName || "Farmer"}: ${selectedQuantities[offer.id]} kg × ₹${offer.pricePerKg}/kg = ₹${(Number(selectedQuantities[offer.id]) * Number(offer.pricePerKg || 0)).toLocaleString("en-IN")}`).join("\\n");
+                                    const remainingAfter = Math.max(0, remainingBeforeSelection - selectedKg);
+                                    const confirmed = window.confirm(`Review procurement before creating orders\\n\\n${allocationLines}\\n\\nTotal selected: ${selectedKg} kg\\nEstimated subtotal: ₹${selectedAmount.toLocaleString("en-IN")}\\nRemaining after selection: ${remainingAfter} kg\\n\\nCreate one B2B order per selected farmer?`);
+                                    if (!confirmed) return;
+                                    setAcceptingSelected(true);
+                                    let completed = 0;
+                                    try {
+                                      const idempotencyKey = batchIdempotencyKey || (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `b2b-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+                                      setBatchIdempotencyKey(idempotencyKey);
+                                      const batchResponse = await api.post("/b2b/offers/accept-batch", {
+                                        items: selected.map((offer: any) => ({ offerId: offer.id, quantityKg: Number(selectedQuantities[offer.id] || 0) })),
+                                        idempotencyKey,
+                                        deliveryMethod: "dedicated_transport",
+                                        paymentMode: "cod",
+                                        advanceAmount: 0,
+                                        notes: "",
+                                      });
+                                      const createdOrders = batchResponse?.data?.orders ?? batchResponse?.data?.data?.orders ?? [];
+                                      completed = Array.isArray(createdOrders) && createdOrders.length ? createdOrders.length : selected.length;
+                                      toast.success(`Atomically created ${completed} B2B order${completed === 1 ? "" : "s"}.`);
+                                      setSelectedQuantities({});
+                                      setBatchIdempotencyKey("");
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfq", "offers", r.id] });
+                                    } catch (err: any) {
+                                      toast.error(err?.message || "The batch was not confirmed. Retry with the same selection; the same idempotency key will be reused.");
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfq", "offers", r.id] });
+                                    } finally {
+                                      setAcceptingSelected(false);
+                                    }
+                                  }}>{acceptingSelected ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}Accept selected ({selectedKg} kg)</Button>
+                                </div>
+                              </div>
+                              {selected.length > 0 ? <div className="space-y-1">{selected.map((offer: any) => <div key={offer.id} className="flex flex-wrap justify-between gap-2 text-sm text-slate-700"><span>{offer.farmerInfo?.farmName || "Farmer"} · {selectedQuantities[offer.id]} kg × ₹{offer.pricePerKg}/kg</span><strong>₹{(Number(selectedQuantities[offer.id]) * Number(offer.pricePerKg || 0)).toLocaleString("en-IN")}</strong></div>)}</div> : <p className="text-sm text-slate-500">No quotes selected yet. Use the Select checkbox on a farmer quote below.</p>}
+                            </div>
+                          );
+                        })()}
+                        {(() => {
+                          const best = bestOffer(r, offersData?.data?.offers || []);
                           return best ? (
                             <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-800">
                               <Bot className="h-4 w-4 shrink-0" />
@@ -220,8 +396,64 @@ export default function BusinessRfqsPage() {
                             </div>
                           ) : null;
                         })()}
-                        {offersData?.data?.offers?.map((o: any) => {
-                          const isBest = bestOffer(offersData?.data?.offers || [])?.id === o.id;
+                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                          <div className="border-b bg-slate-50 px-3 py-2">
+                            <p className="text-sm font-semibold text-slate-800">Side-by-side quote comparison</p>
+                            <p className="text-xs text-slate-500">Compare price, supply, grade, delivery timing and farmer trust before selecting an offer.</p>
+                          </div>
+                          <table className="min-w-[760px] w-full text-left text-sm">
+                            <thead className="bg-white text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Farmer</th><th className="px-3 py-2">Price/kg</th><th className="px-3 py-2">Available</th><th className="px-3 py-2">Quality</th><th className="px-3 py-2">Delivery</th><th className="px-3 py-2">Reliability</th><th className="px-3 py-2">Budget</th></tr></thead>
+                            <tbody>
+                              {rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => {
+                                if (String(offer.status).toLowerCase() !== "pending") return false;
+                                const price = Number(offer.pricePerKg || 0);
+                                const qty = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
+                                const budget = Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0);
+                                if (offerFilter === "budget") return budget <= 0 || price <= budget;
+                                if (offerFilter === "quantity") return qty >= Number(r.remainingQuantityKg ?? r.quantityKg ?? 0);
+                                if (offerFilter === "delivery") {
+                                  if (!offer.expectedDeliveryDate || !r.requiredDate) return false;
+                                  const d = new Date(offer.expectedDeliveryDate).getTime();
+                                  const due = new Date(r.requiredDate).getTime();
+                                  return Number.isFinite(d) && Number.isFinite(due) && d <= due;
+                                }
+                                if (offerFilter === "quality") return Boolean(r.qualityGrade) && String(offer.qualityGrade || "").trim().toLowerCase() === String(r.qualityGrade).trim().toLowerCase();
+                                return true;
+                              }).map((offer: any) => (
+                                <tr key={"compare-" + offer.id} className="border-t">
+                                  <td className="px-3 py-2 font-medium">{offer.farmerInfo?.farmName || "Farmer"}{offer.farmerInfo?.isVerified ? " ✓" : ""}</td>
+                                  <td className="px-3 py-2">₹{Number(offer.pricePerKg || 0).toLocaleString("en-IN")}</td>
+                                  <td className="px-3 py-2">{Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0).toLocaleString("en-IN")} kg</td>
+                                  <td className="px-3 py-2">{offer.qualityGrade || "Not specified"}{r.qualityGrade && String(offer.qualityGrade || "").toLowerCase() === String(r.qualityGrade).toLowerCase() ? " ✓" : ""}</td>
+                                  <td className="px-3 py-2">{offer.expectedDeliveryDate || "Not specified"}</td>
+                                  <td className="px-3 py-2">{offer.farmerInfo?.rating ? "★ " + Number(offer.farmerInfo.rating).toFixed(1) + "/5" : "No rating"} · {offer.farmerInfo?.isVerified ? "Verified" : "Unverified"}</td>
+                                  <td className="px-3 py-2">{Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0) <= 0 || Number(offer.pricePerKg || 0) <= Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0) ? "Within budget" : "Over budget"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => {
+                          const price = Number(offer.pricePerKg || 0);
+                          const qty = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
+                          const budget = Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0);
+                          if (offerFilter === "budget") return budget <= 0 || price <= budget;
+                          if (offerFilter === "quantity") return qty >= Number(r.remainingQuantityKg ?? r.quantityKg ?? 0);
+                          if (offerFilter === "delivery") {
+                            if (!offer.expectedDeliveryDate || !r.requiredDate) return false;
+                            const delivery = new Date(offer.expectedDeliveryDate).getTime();
+                            const deadline = new Date(r.requiredDate).getTime();
+                            return Number.isFinite(delivery) && Number.isFinite(deadline) && delivery <= deadline;
+                          }
+                          if (offerFilter === "quality") return Boolean(r.qualityGrade) && String(offer.qualityGrade || "").trim().toLowerCase() === String(r.qualityGrade).trim().toLowerCase();
+                          return true;
+                        }).map((o: any) => {
+                          const isBest = bestOffer(r, offersData?.data?.offers || [])?.id === o.id;
+                          const offerQty = Math.max(0, Number(o.availableQuantityKg ?? o.minOrderKg ?? 0));
+                          const rfqRemaining = Math.max(0, Number(r.remainingQuantityKg ?? r.quantityKg ?? 0));
+                          const selectedQty = Number(selectedQuantities[o.id] || 0);
+                          const otherSelectedQty = Object.entries(selectedQuantities).reduce((sum, [id, qty]) => sum + (id === o.id ? 0 : Math.max(0, Number(qty) || 0)), 0);
+                          const maxForThisOffer = Math.max(0, Math.min(offerQty, rfqRemaining - otherSelectedQty));
                           return (
                             <div key={o.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 ${isBest && o.status === "pending" ? "border-violet-300 bg-violet-50/40" : ""}`}>
                               <div className="min-w-0">
@@ -230,10 +462,18 @@ export default function BusinessRfqsPage() {
                                   {o.farmerInfo?.isVerified ? <ShieldCheck className="h-4 w-4 text-emerald-600" /> : null}
                                   {isBest && o.status === "pending" ? <Badge variant="outline" className="text-violet-700">🤖 Best</Badge> : null}
                                 </div>
-                                <p className="text-sm text-gray-500">
-                                  ₹{o.pricePerKg}/kg · {o.availableQuantityKg || o.minOrderKg || 0} kg
-                                  {o.deliveryCharge ? ` · delivery ₹${o.deliveryCharge}` : ""} · total ₹{o.totalPrice ?? 0}
-                                </p>
+                                <div className="mt-1 grid gap-2 text-sm sm:grid-cols-3">
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Price</span><br /><strong>₹{o.pricePerKg}/kg</strong></p>
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Can supply</span><br /><strong>{o.availableQuantityKg || o.minOrderKg || 0} kg</strong></p>
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Quality grade</span><br /><strong>{o.qualityGrade || "Not specified"}</strong></p>
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Est. value of available quantity</span><br /><strong>₹{(Number(o.pricePerKg || 0) * Number(o.availableQuantityKg || o.minOrderKg || 0)).toLocaleString("en-IN")}</strong></p>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  <Badge variant={o._withinBudget ? "success" : "destructive"}>{o._withinBudget ? "Within budget" : "Above budget"}</Badge>
+                                  <Badge variant={o._canCoverRemaining ? "success" : "outline"}>{o._canCoverRemaining ? "Covers remaining quantity" : "Partial supply"}</Badge>
+                                  {r.qualityGrade ? <Badge variant={o._qualityMatches && o.qualityGrade ? "success" : "outline"}>{o.qualityGrade ? `Grade ${o.qualityGrade}${o._qualityMatches ? " · matches" : " · differs"}` : "Quality grade not supplied"}</Badge> : (o.qualityGrade ? <Badge variant="outline">Grade {o.qualityGrade}</Badge> : null)}
+                                  {o.farmerInfo?.isVerified ? <Badge variant="outline">Verified farmer</Badge> : <Badge variant="outline">Verification unavailable</Badge>}
+                                </div>
                                 <p className="flex flex-wrap gap-3 text-xs text-gray-400">
                                   {o.farmerInfo?.rating ? (
                                     <span className="flex items-center gap-1 text-yellow-600"><Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" /> {Number(o.farmerInfo.rating).toFixed(1)}</span>
@@ -242,17 +482,51 @@ export default function BusinessRfqsPage() {
                                   {o.expectedDeliveryDate ? <span className="flex items-center gap-1"><CalendarDays className="h-3 w-3" /> {o.expectedDeliveryDate}</span> : null}
                                   <span className="flex items-center gap-1"><Truck className="h-3 w-3" /> {(o.deliveryMethod || "farmer_delivery").replace(/_/g, " ")}</span>
                                 </p>
-                                {o.aboveBudget ? (
-                                  <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> Above your budget ceiling</p>
+                                {!o._withinBudget ? (
+                                  <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> This quote exceeds the RFQ budget. Review before accepting.</p>
                                 ) : null}
                                 {o.message ? <p className="mt-1 text-xs text-gray-500">{o.message}</p> : null}
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-col items-end gap-2">
                                 <Badge variant={o.status === "accepted" ? "success" : "secondary"}>{o.status}</Badge>
                                 {o.status === "pending" && (
-                                  <Button size="sm" onClick={() => setAcceptingOffer(o)}>
-                                    <CheckCircle className="mr-1.5 h-4 w-4" /> Accept
-                                  </Button>
+                                  <div className="flex flex-wrap items-center justify-end gap-2">
+                                    <label className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-emerald-800">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedQty > 0}
+                                        disabled={maxForThisOffer <= 0 && selectedQty <= 0}
+                                        onChange={(event) => setSelectedQuantities((current) => {
+                                          if (!event.target.checked) {
+                                            const next = { ...current };
+                                            delete next[o.id];
+                                            return next;
+                                          }
+                                          const nextQty = Math.min(offerQty, Math.max(0, rfqRemaining - otherSelectedQty));
+                                          return nextQty > 0 ? { ...current, [o.id]: nextQty } : current;
+                                        })}
+                                      />
+                                      Select
+                                    </label>
+                                    {selectedQty > 0 ? (
+                                      <div className="flex items-center gap-2">
+                                        <label className="text-xs text-slate-500" htmlFor={`qty-${o.id}`}>Accept kg</label>
+                                        <Input id={`qty-${o.id}`} className="w-24" type="number" min="0.01" step="0.01" max={maxForThisOffer} value={selectedQty} onChange={(event) => {
+                                          const value = Number(event.target.value);
+                                          setSelectedQuantities((current) => {
+                                            const other = Object.entries(current).reduce((sum, [id, qty]) => sum + (id === o.id ? 0 : Math.max(0, Number(qty) || 0)), 0);
+                                            const allowed = Math.max(0, Math.min(offerQty, rfqRemaining - other));
+                                            if (!event.target.value || value <= 0) return { ...current, [o.id]: 0 };
+                                            return { ...current, [o.id]: Math.min(value, allowed) };
+                                          });
+                                        }} />
+                                        <span className="text-xs text-slate-500">max {maxForThisOffer} kg</span>
+                                      </div>
+                                    ) : null}
+                                    <Button size="sm" variant="outline" onClick={() => setAcceptingOffer(o)}>
+                                      <CheckCircle className="mr-1.5 h-4 w-4" /> Accept individually
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                             </div>
