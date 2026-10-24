@@ -49,7 +49,7 @@ export default function BusinessRfqsPage() {
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
   const [acceptingSelected, setAcceptingSelected] = useState(false);
-  const [offerFilter, setOfferFilter] = useState<"all" | "budget" | "quantity" | "delivery">("all");
+  const [offerFilter, setOfferFilter] = useState<"all" | "budget" | "quantity" | "delivery" | "quality">("all");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
@@ -117,10 +117,14 @@ export default function BusinessRfqsPage() {
       const priceScore = budget > 0 ? Math.max(0, 100 - (price / budget) * 100) : Math.max(0, 100 - price);
       const ratingScore = Math.min(5, Math.max(0, rating)) * 12;
       const verificationScore = o.farmerInfo?.isVerified ? 10 : 0;
+      const requestedGrade = String(rfq.qualityGrade || "").trim().toLowerCase();
+      const offeredGrade = String(o.qualityGrade || "").trim().toLowerCase();
+      const qualityMatches = !requestedGrade || !offeredGrade || requestedGrade === offeredGrade;
+      const qualityScore = !requestedGrade ? 5 : (offeredGrade === requestedGrade ? 15 : (offeredGrade ? -15 : 0));
       const quantityScore = requested > 0 ? Math.min(100, (quantity / requested) * 100) * 0.2 : 10;
       const budgetScore = withinBudget ? 15 : -35;
-      const score = priceScore * 0.45 + ratingScore + verificationScore + quantityScore + budgetScore;
-      return { ...o, _rankScore: score, _withinBudget: withinBudget, _canCoverRemaining: canCoverRemaining };
+      const score = priceScore * 0.45 + ratingScore + verificationScore + quantityScore + budgetScore + qualityScore;
+      return { ...o, _rankScore: score, _withinBudget: withinBudget, _canCoverRemaining: canCoverRemaining, _qualityMatches: qualityMatches };
     }).sort((a: any, b: any) => {
       if (a.status === "pending" && b.status !== "pending") return -1;
       if (b.status === "pending" && a.status !== "pending") return 1;
@@ -296,11 +300,12 @@ export default function BusinessRfqsPage() {
                         <p className="text-sm font-semibold text-slate-800">Compare and filter quotes</p>
                         <p className="text-xs text-slate-500">Filter offers before selecting quantities. Missing delivery dates are flagged as unverified.</p>
                       </div>
-                      <select aria-label="Filter farmer quotes" value={offerFilter} onChange={(event) => setOfferFilter(event.target.value as "all" | "budget" | "quantity" | "delivery")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
+                      <select aria-label="Filter farmer quotes" value={offerFilter} onChange={(event) => setOfferFilter(event.target.value as "all" | "budget" | "quantity" | "delivery" | "quality")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
                         <option value="all">All quotes</option>
                         <option value="budget">Within budget</option>
                         <option value="quantity">Can cover remaining quantity</option>
                         <option value="delivery">Expected by required date</option>
+                        {r.qualityGrade ? <option value="quality">Meets requested quality ({r.qualityGrade})</option> : null}
                       </select>
                     </div>
                     {offersLoading ? (
@@ -395,6 +400,7 @@ export default function BusinessRfqsPage() {
                             const deadline = new Date(r.requiredDate).getTime();
                             return Number.isFinite(delivery) && Number.isFinite(deadline) && delivery <= deadline;
                           }
+                          if (offerFilter === "quality") return Boolean(r.qualityGrade) && String(offer.qualityGrade || "").trim().toLowerCase() === String(r.qualityGrade).trim().toLowerCase();
                           return true;
                         }).map((o: any) => {
                           const isBest = bestOffer(r, offersData?.data?.offers || [])?.id === o.id;
@@ -414,11 +420,13 @@ export default function BusinessRfqsPage() {
                                 <div className="mt-1 grid gap-2 text-sm sm:grid-cols-3">
                                   <p className="text-slate-700"><span className="text-xs text-slate-500">Price</span><br /><strong>₹{o.pricePerKg}/kg</strong></p>
                                   <p className="text-slate-700"><span className="text-xs text-slate-500">Can supply</span><br /><strong>{o.availableQuantityKg || o.minOrderKg || 0} kg</strong></p>
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Quality grade</span><br /><strong>{o.qualityGrade || "Not specified"}</strong></p>
                                   <p className="text-slate-700"><span className="text-xs text-slate-500">Est. value of available quantity</span><br /><strong>₹{(Number(o.pricePerKg || 0) * Number(o.availableQuantityKg || o.minOrderKg || 0)).toLocaleString("en-IN")}</strong></p>
                                 </div>
                                 <div className="mt-2 flex flex-wrap gap-1.5">
                                   <Badge variant={o._withinBudget ? "success" : "destructive"}>{o._withinBudget ? "Within budget" : "Above budget"}</Badge>
                                   <Badge variant={o._canCoverRemaining ? "success" : "outline"}>{o._canCoverRemaining ? "Covers remaining quantity" : "Partial supply"}</Badge>
+                                  {r.qualityGrade ? <Badge variant={o._qualityMatches && o.qualityGrade ? "success" : "outline"}>{o.qualityGrade ? `Grade ${o.qualityGrade}${o._qualityMatches ? " · matches" : " · differs"}` : "Quality grade not supplied"}</Badge> : (o.qualityGrade ? <Badge variant="outline">Grade {o.qualityGrade}</Badge> : null)}
                                   {o.farmerInfo?.isVerified ? <Badge variant="outline">Verified farmer</Badge> : <Badge variant="outline">Verification unavailable</Badge>}
                                 </div>
                                 <p className="flex flex-wrap gap-3 text-xs text-gray-400">
