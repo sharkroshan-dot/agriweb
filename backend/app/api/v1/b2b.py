@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
+import os
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -139,6 +140,19 @@ def _rfq_quantity(rfq: Dict[str, Any]) -> float:
     if qty is None:
         qty = rfq.get("quantityPerWeekKg") or 0
     return float(qty)
+
+
+# Configurable B2B delivery pricing (INR). Override with backend environment variables.
+B2B_DELIVERY_BASE_FEE = max(0.0, float(os.getenv("B2B_DELIVERY_BASE_FEE", "40")))
+B2B_DELIVERY_RATE_PER_KM = max(0.0, float(os.getenv("B2B_DELIVERY_RATE_PER_KM", "8")))
+B2B_DELIVERY_RATE_PER_KG = max(0.0, float(os.getenv("B2B_DELIVERY_RATE_PER_KG", "1.5")))
+
+
+def _calculate_b2b_delivery_fee(distance_km: float, quantity_kg: float) -> float:
+    """Distance + shipment-weight pricing, in INR, rounded to paise."""
+    distance_component = max(0.0, distance_km) * B2B_DELIVERY_RATE_PER_KM
+    weight_component = max(0.0, quantity_kg) * B2B_DELIVERY_RATE_PER_KG
+    return round(B2B_DELIVERY_BASE_FEE + distance_component + weight_component, 2)
 
 
 def _distance_km(farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]) -> Optional[float]:
@@ -287,14 +301,20 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, accept: Optional["OfferAccept"]) -> Dict[str, Any]:
-    delivery_charge = 0.0
-    if accept and accept.deliveryCharge is not None:
-        delivery_charge = float(accept.deliveryCharge)
-    elif offer.get("deliveryCharge") is not None:
-        delivery_charge = float(offer.get("deliveryCharge") or 0)
+    # Always compute the delivery fee server-side from the farm and RFQ destination.
+    # Do not trust a client-supplied fee or silently fall back to the farmer's flat fee.
+    farmer = await farmer_repository.find_one({"userId": offer.get("farmerId")})
+    if not farmer:
+        farmer = await farmer_repository.find_one({"userId": ObjectId(str(offer.get("farmerId")))})
+    distance_km = _distance_km(farmer, rfq)
+    if distance_km is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot calculate delivery fee: add valid farm and RFQ delivery coordinates before accepting this quote.",
+        )
+    delivery_charge = _calculate_b2b_delivery_fee(distance_km, qty)
     product_subtotal = round(float(qty) * float(offer.get("pricePerKg") or 0), 2)
-    # Only apply tax/other charges when configured in persisted RFQ/offer data.
-    # Never invent a tax rate or trust a frontend-supplied total.
+    # Only apply tax/other charges when explicitly configured.
     configured_tax_rate = offer.get("taxRate")
     if configured_tax_rate is None:
         configured_tax_rate = offer.get("taxPercent")
@@ -319,7 +339,15 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "quantityKg": round(float(qty), 2),
         "pricePerKg": float(offer.get("pricePerKg") or 0),
         "productSubtotal": product_subtotal,
-        "deliveryCharge": round(delivery_charge, 2),
+        "deliveryCharge": delivery_charge,
+        "deliveryDistanceKm": round(distance_km, 2),
+        "deliveryPricing": {
+            "baseFee": B2B_DELIVERY_BASE_FEE,
+            "ratePerKm": B2B_DELIVERY_RATE_PER_KM,
+            "ratePerKg": B2B_DELIVERY_RATE_PER_KG,
+            "distanceComponent": round(distance_km * B2B_DELIVERY_RATE_PER_KM, 2),
+            "weightComponent": round(float(qty) * B2B_DELIVERY_RATE_PER_KG, 2),
+        },
         "taxRate": tax_rate,
         "taxAmount": tax_amount,
         "otherCharges": round(other_charges, 2),
@@ -344,7 +372,6 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "createdAt": datetime.utcnow(),
     }
     return order
-
 
 # ================== BUSINESS PROFILE ==================
 
@@ -733,7 +760,15 @@ async def list_offers_for_rfq(
             o["rfqId"] = str(o["rfqId"])
         farmer = await farmer_repository.find_one({"userId": o["farmerId"]})
         qty = float(o.get("availableQuantityKg") or o.get("minOrderKg") or 0)
-        o["totalPrice"] = round(float(o.get("pricePerKg") or 0) * qty + float(o.get("deliveryCharge") or 0), 2)
+        distance_km = _distance_km(farmer, rfq)
+        o["deliveryDistanceKm"] = distance_km
+        o["deliveryFeeEstimate"] = (
+            _calculate_b2b_delivery_fee(distance_km, qty) if distance_km is not None else None
+        )
+        o["deliveryFeeRequiresLocation"] = distance_km is None
+        o["totalPrice"] = round(
+            float(o.get("pricePerKg") or 0) * qty + float(o["deliveryFeeEstimate"] or 0), 2
+        ) if distance_km is not None else None
         o["farmerInfo"] = {
             "farmName": (farmer or {}).get("farmName"),
             "rating": (farmer or {}).get("rating"),
