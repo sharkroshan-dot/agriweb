@@ -510,7 +510,10 @@ async def list_rfqs(
         if status:
             match["status"] = status
     elif role == "farmer":
-        match = {"status": RFQ_OPEN, "deletedAt": None}
+        # Fetch non-deleted RFQs first, then normalize status in Python below.
+        # Older records may use a different status casing or omit deletedAt;
+        # strict status matching here can make valid published RFQs disappear.
+        match = {"deletedAt": None}
     else:
         raise HTTPException(status_code=403, detail="Only business buyers and farmers can browse RFQs")
 
@@ -525,6 +528,10 @@ async def list_rfqs(
         await _maybe_close_rfq(r)
         await _stringify_rfq(r)
         if role == "farmer":
+            # Farmers should only bid on open requests, but compare normalized
+            # values so legacy records with OPEN/Open status remain visible.
+            if str(r.get("status") or "").strip().lower() != str(RFQ_OPEN).strip().lower():
+                continue
             if farmer:
                 distance = _distance_km(farmer, r)
                 if not _visibility_match(r, farmer, distance):
