@@ -24,7 +24,14 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
   const unitPrice = Math.max(0, Number(offer.pricePerKg) || 0);
   const productSubtotal = Math.round(quantity * unitPrice * 100) / 100;
   const deliveryDistanceKm = offer.deliveryDistanceKm == null ? null : Number(offer.deliveryDistanceKm);
-  const deliveryFee = Math.max(0, Number(offer.deliveryFeeEstimate ?? offer.deliveryCharge) || 0);
+  const deliveryPricing = offer.deliveryPricing || {};
+  const deliveryFee = deliveryDistanceKm === null
+    ? 0
+    : Math.round((
+        Math.max(0, Number(deliveryPricing.baseFee) || 0)
+        + deliveryDistanceKm * Math.max(0, Number(deliveryPricing.ratePerKm) || 0)
+        + quantity * Math.max(0, Number(deliveryPricing.ratePerKg) || 0)
+      ) * 100) / 100;
   const deliveryLocationMissing = offer.deliveryFeeRequiresLocation === true || deliveryDistanceKm === null;
   const configuredTaxRate = Math.max(0, Number(offer.taxRate ?? offer.taxPercent ?? rfq.taxRate ?? rfq.taxPercent) || 0);
   const taxAmount = Math.round(productSubtotal * configuredTaxRate / 100 * 100) / 100;
@@ -64,7 +71,7 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
             <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
               <p className="text-sm font-semibold text-slate-900">Order cost breakdown</p>
               <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Product subtotal ({quantity} kg × ₹{money(unitPrice)}/kg)</span><span className="font-medium">₹{money(productSubtotal)}</span></div>
-              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Delivery fee{deliveryDistanceKm !== null ? ` (${deliveryDistanceKm.toFixed(1)} km × distance + weight pricing)` : " (distance unavailable)"}</span><span className="font-medium">{deliveryLocationMissing ? "Needs location" : `₹${money(deliveryFee)}`}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Delivery fee{deliveryDistanceKm !== null ? ` (${deliveryDistanceKm.toFixed(1)} km; ₹${money(Number(deliveryPricing.ratePerKm) || 0)}/km + weight)` : " (distance unavailable)"}</span><span className="font-medium">{deliveryLocationMissing ? "Needs location" : `₹${money(deliveryFee)}`}</span></div>
               <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Tax{configuredTaxRate ? ` (${configuredTaxRate}% configured)` : " (no tax rate configured)"}</span><span className="font-medium">₹{money(taxAmount)}</span></div>
               <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Other applicable charges</span><span className="font-medium">₹{money(otherCharges)}</span></div>
               <div className="flex justify-between gap-3 border-t border-emerald-200 pt-2 text-base font-bold"><span>Total payable</span><span>₹{money(totalPayable)}</span></div>
