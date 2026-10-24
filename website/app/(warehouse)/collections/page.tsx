@@ -101,27 +101,8 @@ export default function WarehouseCollectionsPage() {
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [farmTeamSelections, setFarmTeamSelections] = useState<Record<string, string>>({});
   const [planning, setPlanning] = useState(false);
-  const [b2bPickupForms, setB2bPickupForms] = useState<Record<string, { team: string; vehicle: string }>>({});
   const queryClient = useQueryClient();
-  const b2bPickupQuery = useQuery({
-    queryKey: ["warehouseCollectionsB2BReady"],
-    queryFn: () => api.get("/b2b/warehouse/fulfillment"),
-    refetchInterval: 10000,
-    retry: 1,
-  });
-  const b2bPickupOrders = (b2bPickupQuery.data?.data?.orders || b2bPickupQuery.data?.orders || [])
-    .filter((order: any) => order.status === "ready_for_pickup");
-  const b2bPickupMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/warehouse/fulfillment/${id}`, payload),
-    onSuccess: async () => {
-      toast.success("B2B pickup assignment updated");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["warehouseCollectionsB2BReady"] }),
-        queryClient.invalidateQueries({ queryKey: ["b2b", "warehouse-fulfillment"] }),
-      ]);
-    },
-    onError: (error: any) => toast.error(error?.message || "Could not update B2B pickup assignment"),
-  });
+
 
   useEffect(() => {
     // Reset the date filter whenever the Farm Collection page is opened.
@@ -418,82 +399,6 @@ export default function WarehouseCollectionsPage() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Truck className="h-5 w-5 text-emerald-600" /> B2B Orders Ready for Farm Pickup</CardTitle>
-          <p className="text-sm text-slate-500">Business orders marked Ready for Pickup appear here for warehouse pickup-team and vehicle assignment.</p>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {b2bPickupQuery.isLoading ? <p className="text-sm text-slate-500">Loading B2B pickup orders…</p>
-            : b2bPickupQuery.isError ? <p className="text-sm text-red-600">Could not load B2B pickup orders. Check warehouse access to the B2B fulfillment API.</p>
-            : b2bPickupOrders.length === 0 ? <p className="rounded-lg border border-dashed p-5 text-center text-sm text-slate-500">No B2B orders are currently ready for pickup.</p>
-            : b2bPickupOrders.map((order: any) => {
-              const savedTeam = eligibleTeams.find((team: any) =>
-                team.id === order.pickupTeam ||
-                team.name === order.pickupTeam ||
-                team.fullName === order.pickupTeam ||
-                team.deliveryPartnerId === order.pickupTeam
-              );
-              const savedVehicle = order.pickupVehicle || [
-                savedTeam?.vehicleNumber,
-                savedTeam?.vehicleRegistrationNumber,
-                savedTeam?.registrationNumber,
-                savedTeam?.vehicleType,
-              ].find(Boolean) || "";
-              const form = b2bPickupForms[order.id] || { team: savedTeam?.id || "", vehicle: savedVehicle };
-              return <div key={order.id} className="rounded-xl border p-4 space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{order.orderNumber || order.id}</p>
-                    <p className="text-sm text-slate-600">{order.productName || "Produce"} · {order.packedQuantityKg ?? order.quantityKg} kg · {order.businessInfo?.businessName || "Business buyer"}</p>
-                    <p className="text-xs text-slate-500">{order.farmerInfo?.farmName || order.farmerName || "Farm"} · {order.deliveryCity || order.deliveryAddress || "Buyer address pending"}</p>
-                  </div>
-                  <Badge>Ready for pickup</Badge>
-                </div>
-                {eligibleTeams.length > 0 ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-600">Approved pickup team</label>
-                      <Select value={form.team} onValueChange={(teamId) => {
-                        const member = eligibleTeams.find((team: any) => team.id === teamId);
-                        const vehicle = [member?.vehicleNumber, member?.vehicleRegistrationNumber, member?.registrationNumber, member?.vehicleType].filter(Boolean).join(" · ");
-                        setB2bPickupForms((prev) => ({ ...prev, [order.id]: { team: teamId, vehicle } }));
-                      }}>
-                        <SelectTrigger><SelectValue placeholder="Choose an approved pickup team" /></SelectTrigger>
-                        <SelectContent>
-                          {eligibleTeams.map((team: any) => <SelectItem key={team.id} value={team.id}>{team.name || team.fullName || "Pickup partner"}{team.vehicleType ? ` · ${team.vehicleType}` : ""}{team.vehicleNumber ? ` · ${team.vehicleNumber}` : ""}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-slate-600">Registered vehicle</label>
-                      <div className="flex min-h-10 items-center rounded-md border bg-slate-50 px-3 text-sm text-slate-700">
-                        {form.vehicle || "Select a team with a registered vehicle"}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    No approved pickup team with available capacity is configured for this warehouse. Open <strong>Pickup Partners</strong> to approve a team and register its vehicle/capacity, then return here.
-                  </div>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <Button disabled={b2bPickupMutation.isPending || !form.team || !form.vehicle} onClick={() => {
-                    const member = eligibleTeams.find((team: any) => team.id === form.team);
-                    const vehicle = form.vehicle || [member?.vehicleNumber, member?.vehicleRegistrationNumber, member?.registrationNumber, member?.vehicleType].filter(Boolean).join(" · ");
-                    if (!member || !vehicle) {
-                      toast.error("Select an approved pickup team with a registered vehicle first");
-                      return;
-                    }
-                    b2bPickupMutation.mutate({ id: order.id, payload: { action: "assign_pickup", vehicle, pickupTeam: member.id, pickupTeamName: member.name || member.fullName || "Pickup partner" } });
-                  }}>Confirm Pickup Assignment</Button>
-                  {order.pickupTeam && <Button variant="outline" disabled={b2bPickupMutation.isPending} onClick={() => b2bPickupMutation.mutate({ id: order.id, payload: { action: "confirm_pickup" } })}>Confirm Farm Collection</Button>}
-                </div>
-                {order.pickupTeam && <p className="text-xs text-emerald-700">Assigned to {order.pickupTeam} · {order.pickupVehicle || "Vehicle assigned"}</p>}
-              </div>;
-            })}
-        </CardContent>
-      </Card>
       <div className="rounded-2xl bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 p-6 text-white shadow-sm sm:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
