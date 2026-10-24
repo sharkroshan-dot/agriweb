@@ -388,6 +388,43 @@ export default function BusinessRfqsPage() {
                             </div>
                           ) : null;
                         })()}
+                        <div className="overflow-x-auto rounded-xl border border-slate-200">
+                          <div className="border-b bg-slate-50 px-3 py-2">
+                            <p className="text-sm font-semibold text-slate-800">Side-by-side quote comparison</p>
+                            <p className="text-xs text-slate-500">Compare price, supply, grade, delivery timing and farmer trust before selecting an offer.</p>
+                          </div>
+                          <table className="min-w-[760px] w-full text-left text-sm">
+                            <thead className="bg-white text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Farmer</th><th className="px-3 py-2">Price/kg</th><th className="px-3 py-2">Available</th><th className="px-3 py-2">Quality</th><th className="px-3 py-2">Delivery</th><th className="px-3 py-2">Reliability</th><th className="px-3 py-2">Budget</th></tr></thead>
+                            <tbody>
+                              {rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => {
+                                if (String(offer.status).toLowerCase() !== "pending") return false;
+                                const price = Number(offer.pricePerKg || 0);
+                                const qty = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
+                                const budget = Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0);
+                                if (offerFilter === "budget") return budget <= 0 || price <= budget;
+                                if (offerFilter === "quantity") return qty >= Number(r.remainingQuantityKg ?? r.quantityKg ?? 0);
+                                if (offerFilter === "delivery") {
+                                  if (!offer.expectedDeliveryDate || !r.requiredDate) return false;
+                                  const d = new Date(offer.expectedDeliveryDate).getTime();
+                                  const due = new Date(r.requiredDate).getTime();
+                                  return Number.isFinite(d) && Number.isFinite(due) && d <= due;
+                                }
+                                if (offerFilter === "quality") return Boolean(r.qualityGrade) && String(offer.qualityGrade || "").trim().toLowerCase() === String(r.qualityGrade).trim().toLowerCase();
+                                return true;
+                              }).map((offer: any) => (
+                                <tr key={"compare-" + offer.id} className="border-t">
+                                  <td className="px-3 py-2 font-medium">{offer.farmerInfo?.farmName || "Farmer"}{offer.farmerInfo?.isVerified ? " ✓" : ""}</td>
+                                  <td className="px-3 py-2">₹{Number(offer.pricePerKg || 0).toLocaleString("en-IN")}</td>
+                                  <td className="px-3 py-2">{Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0).toLocaleString("en-IN")} kg</td>
+                                  <td className="px-3 py-2">{offer.qualityGrade || "Not specified"}{r.qualityGrade && String(offer.qualityGrade || "").toLowerCase() === String(r.qualityGrade).toLowerCase() ? " ✓" : ""}</td>
+                                  <td className="px-3 py-2">{offer.expectedDeliveryDate || "Not specified"}</td>
+                                  <td className="px-3 py-2">{offer.farmerInfo?.rating ? "★ " + Number(offer.farmerInfo.rating).toFixed(1) + "/5" : "No rating"} · {offer.farmerInfo?.isVerified ? "Verified" : "Unverified"}</td>
+                                  <td className="px-3 py-2">{budget <= 0 || Number(offer.pricePerKg || 0) <= budget ? "Within budget" : "Over budget"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                         {rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => {
                           const price = Number(offer.pricePerKg || 0);
                           const qty = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
