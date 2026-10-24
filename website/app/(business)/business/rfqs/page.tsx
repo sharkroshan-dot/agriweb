@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock, CheckSquare, Square } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
@@ -43,6 +43,7 @@ function AcceptDialog({ offer, rfq, onClose }: { offer: any; rfq: any; onClose: 
 }
 
 export default function BusinessRfqsPage() {
+  const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [expandedRfq, setExpandedRfq] = useState<string | null>(null);
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
