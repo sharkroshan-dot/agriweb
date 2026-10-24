@@ -428,7 +428,19 @@ export default function WarehouseCollectionsPage() {
             : b2bPickupQuery.isError ? <p className="text-sm text-red-600">Could not load B2B pickup orders. Check warehouse access to the B2B fulfillment API.</p>
             : b2bPickupOrders.length === 0 ? <p className="rounded-lg border border-dashed p-5 text-center text-sm text-slate-500">No B2B orders are currently ready for pickup.</p>
             : b2bPickupOrders.map((order: any) => {
-              const form = b2bPickupForms[order.id] || { team: order.pickupTeam || "", vehicle: order.pickupVehicle || "" };
+              const savedTeam = eligibleTeams.find((team: any) =>
+                team.id === order.pickupTeam ||
+                team.name === order.pickupTeam ||
+                team.fullName === order.pickupTeam ||
+                team.deliveryPartnerId === order.pickupTeam
+              );
+              const savedVehicle = order.pickupVehicle || [
+                savedTeam?.vehicleNumber,
+                savedTeam?.vehicleRegistrationNumber,
+                savedTeam?.registrationNumber,
+                savedTeam?.vehicleType,
+              ].find(Boolean) || "";
+              const form = b2bPickupForms[order.id] || { team: savedTeam?.id || "", vehicle: savedVehicle };
               return <div key={order.id} className="rounded-xl border p-4 space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -444,7 +456,7 @@ export default function WarehouseCollectionsPage() {
                       <label className="text-xs font-medium text-slate-600">Approved pickup team</label>
                       <Select value={form.team} onValueChange={(teamId) => {
                         const member = eligibleTeams.find((team: any) => team.id === teamId);
-                        const vehicle = [member?.vehicleNumber, member?.vehicleType].filter(Boolean).join(" · ");
+                        const vehicle = [member?.vehicleNumber, member?.vehicleRegistrationNumber, member?.registrationNumber, member?.vehicleType].filter(Boolean).join(" · ");
                         setB2bPickupForms((prev) => ({ ...prev, [order.id]: { team: teamId, vehicle } }));
                       }}>
                         <SelectTrigger><SelectValue placeholder="Choose an approved pickup team" /></SelectTrigger>
@@ -468,11 +480,12 @@ export default function WarehouseCollectionsPage() {
                 <div className="flex flex-wrap gap-2">
                   <Button disabled={b2bPickupMutation.isPending || !form.team || !form.vehicle} onClick={() => {
                     const member = eligibleTeams.find((team: any) => team.id === form.team);
-                    if (!member || !form.vehicle) {
+                    const vehicle = form.vehicle || [member?.vehicleNumber, member?.vehicleRegistrationNumber, member?.registrationNumber, member?.vehicleType].filter(Boolean).join(" · ");
+                    if (!member || !vehicle) {
                       toast.error("Select an approved pickup team with a registered vehicle first");
                       return;
                     }
-                    b2bPickupMutation.mutate({ id: order.id, payload: { action: "assign_pickup", pickupTeam: member.name || member.fullName || member.id, vehicle: form.vehicle } });
+                    b2bPickupMutation.mutate({ id: order.id, payload: { action: "assign_pickup", vehicle, pickupTeam: member.id, pickupTeamName: member.name || member.fullName || "Pickup partner" } });
                   }}>Confirm Pickup Assignment</Button>
                   {order.pickupTeam && <Button variant="outline" disabled={b2bPickupMutation.isPending} onClick={() => b2bPickupMutation.mutate({ id: order.id, payload: { action: "confirm_pickup" } })}>Confirm Farm Collection</Button>}
                 </div>
