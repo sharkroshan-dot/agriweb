@@ -49,6 +49,7 @@ export default function BusinessRfqsPage() {
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
   const [acceptingSelected, setAcceptingSelected] = useState(false);
+  const [batchIdempotencyKey, setBatchIdempotencyKey] = useState("");
   const [offerFilter, setOfferFilter] = useState<"all" | "budget" | "quantity" | "delivery" | "quality">("all");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
@@ -351,18 +352,25 @@ export default function BusinessRfqsPage() {
                                     setAcceptingSelected(true);
                                     let completed = 0;
                                     try {
-                                      for (const offer of selected) {
-                                        const quantityKg = Number(selectedQuantities[offer.id] || 0);
-                                        if (quantityKg <= 0) continue;
-                                        await api.post(`/b2b/offers/${offer.id}/accept`, { quantityKg, deliveryMethod: "dedicated_transport", paymentMode: "cod", advanceAmount: 0, notes: "" });
-                                        completed += 1;
-                                      }
-                                      toast.success(`Created ${completed} B2B order${completed === 1 ? "" : "s"}.`);
+                                      const idempotencyKey = batchIdempotencyKey || (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `b2b-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+                                      setBatchIdempotencyKey(idempotencyKey);
+                                      const batchResponse = await api.post("/b2b/offers/accept-batch", {
+                                        items: selected.map((offer: any) => ({ offerId: offer.id, quantityKg: Number(selectedQuantities[offer.id] || 0) })),
+                                        idempotencyKey,
+                                        deliveryMethod: "dedicated_transport",
+                                        paymentMode: "cod",
+                                        advanceAmount: 0,
+                                        notes: "",
+                                      });
+                                      const createdOrders = batchResponse?.data?.orders ?? batchResponse?.data?.data?.orders ?? [];
+                                      completed = Array.isArray(createdOrders) && createdOrders.length ? createdOrders.length : selected.length;
+                                      toast.success(`Atomically created ${completed} B2B order${completed === 1 ? "" : "s"}.`);
                                       setSelectedQuantities({});
+                                      setBatchIdempotencyKey("");
                                       await queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
                                       await queryClient.invalidateQueries({ queryKey: ["b2b", "rfq", "offers", r.id] });
                                     } catch (err: any) {
-                                      toast.error(completed > 0 ? `${completed} order(s) created; remaining selections were not processed. Refresh and review the remaining quantity.` : (err?.message || "Could not accept selected quotes."));
+                                      toast.error(err?.message || "The batch was not confirmed. Retry with the same selection; the same idempotency key will be reused.");
                                       await queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
                                       await queryClient.invalidateQueries({ queryKey: ["b2b", "rfq", "offers", r.id] });
                                     } finally {
