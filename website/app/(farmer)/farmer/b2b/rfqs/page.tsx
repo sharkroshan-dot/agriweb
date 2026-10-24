@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
@@ -232,6 +232,7 @@ export default function FarmerB2bRfqsPage() {
   const [scope, setScope] = useState("all");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
+  const hasAutoSelectedView = useRef(false);
 
   const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["b2b", "farmer", "rfqs"],
@@ -308,6 +309,15 @@ export default function FarmerB2bRfqsPage() {
 
   const oneOff = rfqs.filter((r: any) => !r.recurring);
   const recurring = rfqs.filter((r: any) => r.recurring);
+
+  // On the first successful load, select the tab that actually has RFQs.
+  // This prevents existing recurring RFQs from appearing to have vanished
+  // simply because the empty One-off tab is selected by default.
+  useEffect(() => {
+    if (hasAutoSelectedView.current || isLoading || isError) return;
+    if (oneOff.length === 0 && recurring.length > 0) setView("recurring");
+    hasAutoSelectedView.current = true;
+  }, [isLoading, isError, oneOff.length, recurring.length]);
 
   const renderRfq = (r: any) => (
     <div key={r.id} className="space-y-2">
@@ -445,14 +455,7 @@ export default function FarmerB2bRfqsPage() {
         ]}
       />
 
-      {rfqs.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center py-10 text-center text-sm text-gray-400">
-            <PackageSearch className="mb-2 h-10 w-10 text-gray-300" />
-            No open RFQs in this view right now. Check back soon.
-          </CardContent>
-        </Card>
-      ) : view === "one-off" ? (
+      {view === "one-off" ? (
         section("One-off Orders", "Single delivery requests. Bid once and fulfill a one-time order.", <ShoppingBag className="h-5 w-5" />, oneOff)
       ) : (
         section("Recurring Supply", "Ongoing weekly supply contracts with a regular delivery schedule.", <RefreshCw className="h-5 w-5" />, recurring)
