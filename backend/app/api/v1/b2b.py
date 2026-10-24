@@ -398,18 +398,19 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, accept: Optional["OfferAccept"]) -> Dict[str, Any]:
-    # Always compute the delivery fee server-side from the farm and RFQ destination.
-    # Do not trust a client-supplied fee or silently fall back to the farmer's flat fee.
+    # Calculate delivery using Farm -> Source Warehouse -> Destination Warehouse -> Business.
+    # Never silently revert to the incorrect direct farm-to-business distance.
     farmer = await farmer_repository.find_one({"userId": offer.get("farmerId")})
     if not farmer:
         farmer = await farmer_repository.find_one({"userId": ObjectId(str(offer.get("farmerId")))})
-    distance_km = _distance_km(farmer, rfq)
-    if distance_km is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot calculate delivery fee: add valid farm and RFQ delivery coordinates before accepting this quote.",
-        )
-    delivery_charge = _calculate_b2b_delivery_fee(distance_km, qty)
+    route = await _warehouse_route_for_b2b(farmer, rfq)
+    if not route.get("available"):
+        raise HTTPException(status_code=400, detail=f"Cannot calculate warehouse-based delivery fee: {route.get('reason')}")
+    distance_km = round(
+        float(route["farmToSourceKm"]) + float(route["warehouseTransferKm"]) + float(route["destinationToBuyerKm"]), 2
+    )
+    fee_breakdown = _calculate_warehouse_delivery_fee(route, qty)
+    delivery_charge = fee_breakdown["total"]
     product_subtotal = round(float(qty) * float(offer.get("pricePerKg") or 0), 2)
     # Only apply tax/other charges when explicitly configured.
     configured_tax_rate = offer.get("taxRate")
@@ -437,14 +438,20 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "pricePerKg": float(offer.get("pricePerKg") or 0),
         "productSubtotal": product_subtotal,
         "deliveryCharge": delivery_charge,
-        "deliveryDistanceKm": round(distance_km, 2),
+        "deliveryDistanceKm": distance_km,
         "deliveryPricing": {
             "baseFee": B2B_DELIVERY_BASE_FEE,
             "ratePerKm": B2B_DELIVERY_RATE_PER_KM,
             "ratePerKg": B2B_DELIVERY_RATE_PER_KG,
             "distanceComponent": round(distance_km * B2B_DELIVERY_RATE_PER_KM, 2),
             "weightComponent": round(float(qty) * B2B_DELIVERY_RATE_PER_KG, 2),
+            "route": route,
+            "breakdown": fee_breakdown,
         },
+        "sourceWarehouseId": route["sourceWarehouseId"],
+        "sourceWarehouseName": route["sourceWarehouseName"],
+        "destinationWarehouseId": route["destinationWarehouseId"],
+        "destinationWarehouseName": route["destinationWarehouseName"],
         "taxRate": tax_rate,
         "taxAmount": tax_amount,
         "otherCharges": round(other_charges, 2),
@@ -862,20 +869,28 @@ async def list_offers_for_rfq(
             except Exception:
                 farmer = None
         qty = float(o.get("availableQuantityKg") or o.get("minOrderKg") or 0)
-        distance_km = _distance_km(farmer, rfq)
+        route = await _warehouse_route_for_b2b(farmer, rfq)
+        distance_km = None
+        fee_breakdown = None
+        if route.get("available"):
+            distance_km = round(
+                float(route["farmToSourceKm"]) + float(route["warehouseTransferKm"]) + float(route["destinationToBuyerKm"]), 2
+            )
+            fee_breakdown = _calculate_warehouse_delivery_fee(route, qty)
         o["deliveryDistanceKm"] = distance_km
-        o["deliveryFeeEstimate"] = (
-            _calculate_b2b_delivery_fee(distance_km, qty) if distance_km is not None else None
-        )
+        o["deliveryFeeEstimate"] = fee_breakdown["total"] if fee_breakdown else None
         o["deliveryPricing"] = {
             "baseFee": B2B_DELIVERY_BASE_FEE,
             "ratePerKm": B2B_DELIVERY_RATE_PER_KM,
             "ratePerKg": B2B_DELIVERY_RATE_PER_KG,
+            "route": route if route.get("available") else None,
+            "breakdown": fee_breakdown,
         }
-        o["deliveryFeeRequiresLocation"] = distance_km is None
+        o["deliveryFeeRequiresLocation"] = not route.get("available")
+        o["deliveryFeeUnavailableReason"] = route.get("reason") if not route.get("available") else None
         o["totalPrice"] = round(
             float(o.get("pricePerKg") or 0) * qty + float(o["deliveryFeeEstimate"] or 0), 2
-        ) if distance_km is not None else None
+        ) if fee_breakdown else None
         o["farmerInfo"] = {
             "farmName": (farmer or {}).get("farmName"),
             "rating": (farmer or {}).get("rating"),
