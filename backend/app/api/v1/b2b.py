@@ -741,15 +741,22 @@ async def accept_offer(
     data: OfferAccept = Body(default=None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Accept a farmer quote -> B2B order. Split procurement supported:
-    several farmers can each cover part of the RFQ quantity."""
+    """Accept a quote with guarded quantity reservation and compensating rollback.
+
+    Split procurement is supported. The RFQ quantity is reserved atomically so
+    concurrent acceptances cannot over-allocate. If any later write fails, the
+    newly-created order and reservations are rolled back where possible.
+    """
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business accounts can accept offers")
-
-    offer = await offer_repo.find_one({"_id": ObjectId(offer_id), "deletedAt": None})
-    if not offer:
+    try:
+        offer_oid = ObjectId(offer_id)
+    except Exception:
         raise HTTPException(status_code=404, detail="Offer not found")
 
+    offer = await offer_repo.find_one({"_id": offer_oid, "deletedAt": None})
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offer not found")
     rfq = await rfq_repo.find_one({"_id": offer.get("rfqId"), "deletedAt": None})
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
@@ -759,79 +766,105 @@ async def accept_offer(
     if rfq.get("status") not in (RFQ_OPEN, RFQ_AWARDED):
         raise HTTPException(status_code=400, detail="RFQ is closed or cancelled")
     if offer.get("status") != OFFER_PENDING:
-        raise HTTPException(status_code=400, detail="This offer is no longer pending")
+        raise HTTPException(status_code=409, detail="This offer is no longer pending; refresh the quotes")
 
+    total_qty = _rfq_quantity(rfq)
+    current_accepted = float(rfq.get("acceptedQuantityKg") or 0)
+    remaining = max(0.0, total_qty - current_accepted)
+    offer_qty = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or total_qty)
     if rfq.get("recurring"):
-        # Recurring supply: award in full, decline the rest, close the RFQ.
-        qty = _rfq_quantity(rfq)
-        await offer_repo.update({"_id": offer["_id"]}, {
-            "status": OFFER_ACCEPTED,
-            "acceptedAt": datetime.utcnow(),
-            "acceptedQuantityKg": qty,
-        })
-        await offer_repo.collection.update_many(
-            {"rfqId": rfq["_id"], "_id": {"$ne": offer["_id"]}, "status": OFFER_PENDING},
-            {"$set": {"status": OFFER_DECLINED, "updatedAt": datetime.utcnow()}},
-        )
-        await rfq_repo.update({"_id": rfq["_id"]}, {
-            "status": RFQ_AWARDED,
-            "awardedOfferIds": [offer["_id"]],
-            "acceptedQuantityKg": qty,
-        })
+        requested = total_qty
     else:
-        total_qty = _rfq_quantity(rfq)
-        remaining = total_qty - float(rfq.get("acceptedQuantityKg") or 0)
-        offer_qty = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or total_qty)
-        requested = float(data.quantityKg) if data and data.quantityKg else offer_qty
-        qty = min(requested, offer_qty, remaining)
-        if qty <= 0:
-            raise HTTPException(status_code=400, detail="RFQ quantity is already fully covered by other farmers")
+        requested = float(data.quantityKg) if data and data.quantityKg is not None else offer_qty
+    qty = round(min(requested, offer_qty, remaining), 2)
+    if requested <= 0 or qty <= 0:
+        raise HTTPException(status_code=400, detail="RFQ has no remaining quantity or the requested quantity is invalid")
+    if requested - qty > 0.001:
+        raise HTTPException(status_code=409, detail=f"Requested quantity exceeds available offer or RFQ balance. Maximum accepted now: {qty:g} kg")
 
-        await offer_repo.update({"_id": offer["_id"]}, {
-            "status": OFFER_ACCEPTED,
-            "acceptedAt": datetime.utcnow(),
-            "acceptedQuantityKg": round(qty, 2),
-        })
-        accepted_now = float(rfq.get("acceptedQuantityKg") or 0) + qty
-        update: Dict[str, Any] = {
-            "acceptedQuantityKg": round(accepted_now, 2),
-            "awardedOfferIds": (rfq.get("awardedOfferIds") or []) + [offer["_id"]],
-        }
+    # Create the order first, then reserve the RFQ amount with a conditional
+    # atomic update. If the reservation or offer claim fails, remove the order.
+    order = await _build_order(rfq, offer, qty, data)
+    order_id = await order_repo.create(order)
+    if not order_id:
+        raise HTTPException(status_code=500, detail="Could not create the B2B order; no RFQ quantity was reserved")
+    order_oid = ObjectId(order_id)
+
+    reserved = False
+    claimed_offer = False
+    try:
+        reserve_result = await rfq_repo.collection.update_one(
+            {
+                "_id": rfq["_id"],
+                "businessUserId": rfq.get("businessUserId"),
+                "status": {"$in": [RFQ_OPEN, RFQ_AWARDED]},
+                "$expr": {
+                    "$lte": [
+                        {"$add": [{"$ifNull": ["$acceptedQuantityKg", 0]}, qty]},
+                        total_qty,
+                    ]
+                },
+            },
+            {"$inc": {"acceptedQuantityKg": qty}, "$push": {"awardedOfferIds": offer["_id"]}, "$set": {"updatedAt": datetime.utcnow()}},
+        )
+        if reserve_result.modified_count != 1:
+            raise HTTPException(status_code=409, detail="Another acceptance changed the RFQ balance. Refresh quotes and try again.")
+        reserved = True
+
+        offer_result = await offer_repo.collection.update_one(
+            {"_id": offer["_id"], "status": OFFER_PENDING, "deletedAt": None},
+            {"$set": {"status": OFFER_ACCEPTED, "acceptedAt": datetime.utcnow(), "acceptedQuantityKg": qty, "updatedAt": datetime.utcnow()}},
+        )
+        if offer_result.modified_count != 1:
+            raise HTTPException(status_code=409, detail="This quote was accepted by another request. Refresh quotes.")
+        claimed_offer = True
+
+        updated_rfq = await rfq_repo.find_one({"_id": rfq["_id"], "deletedAt": None}) or rfq
+        accepted_now = float(updated_rfq.get("acceptedQuantityKg") or 0)
         if accepted_now >= total_qty - 1e-9:
-            update["status"] = RFQ_AWARDED
+            await rfq_repo.update({"_id": rfq["_id"]}, {"status": RFQ_AWARDED})
             await offer_repo.collection.update_many(
                 {"rfqId": rfq["_id"], "_id": {"$ne": offer["_id"]}, "status": OFFER_PENDING},
                 {"$set": {"status": OFFER_DECLINED, "updatedAt": datetime.utcnow()}},
             )
-        await rfq_repo.update({"_id": rfq["_id"]}, update)
+        if rfq.get("recurring"):
+            await rfq_repo.update({"_id": rfq["_id"]}, {"status": RFQ_AWARDED})
+            await offer_repo.collection.update_many(
+                {"rfqId": rfq["_id"], "_id": {"$ne": offer["_id"]}, "status": OFFER_PENDING},
+                {"$set": {"status": OFFER_DECLINED, "updatedAt": datetime.utcnow()}},
+            )
 
-    order = await _build_order(rfq, offer, qty, data)
-    order_id = await order_repo.create(order)
-    order["_id"] = ObjectId(order_id)
-    order["id"] = str(order_id)
-
-    await NotificationService.create_in_app_notification(
-        str(offer.get("farmerId")),
-        NotificationType.ORDER,
-        "Offer accepted! 🎉",
-        f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted (order {order.get('orderNumber')}).",
-        {"rfqId": str(rfq["_id"]), "orderId": order_id, "type": "b2b"},
-        NotificationPriority.HIGH,
-    )
-
-    # Read the persisted RFQ after updating acceptedQuantityKg. Subtracting only
-    # this order's quantity would report the wrong remaining amount after split
-    # procurement (for example, 100 kg required, 40 kg already accepted, then 30 kg).
-    updated_rfq = await rfq_repo.find_one({"_id": rfq["_id"], "deletedAt": None}) or rfq
-    remaining_after_acceptance = round(
-        max(0.0, _rfq_quantity(updated_rfq) - float(updated_rfq.get("acceptedQuantityKg") or 0)),
-        2,
-    )
-    return {
-        "success": True,
-        "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": remaining_after_acceptance},
-        "message": "Quote accepted; B2B order created",
-    }
+        order["_id"] = order_oid
+        order["id"] = str(order_id)
+        await NotificationService.create_in_app_notification(
+            str(offer.get("farmerId")),
+            NotificationType.ORDER,
+            "Offer accepted! 🎉",
+            f"Your quote for {offer.get('productName')} @ ₹{offer.get('pricePerKg')}/kg was accepted (order {order.get('orderNumber')}).",
+            {"rfqId": str(rfq["_id"]), "orderId": order_id, "type": "b2b"},
+            NotificationPriority.HIGH,
+        )
+        remaining_after = round(max(0.0, total_qty - accepted_now), 2)
+        return {
+            "success": True,
+            "data": {"order": order, "offerId": offer_id, "remainingQuantityKg": remaining_after, "acceptedQuantityKg": round(accepted_now, 2)},
+            "message": "Quote accepted; B2B order created",
+        }
+    except Exception:
+        # Best-effort compensation: don't leave an orphan order or an accepted
+        # quantity if a later step fails. Mongo transactions are not assumed.
+        if claimed_offer:
+            await offer_repo.collection.update_one(
+                {"_id": offer["_id"], "status": OFFER_ACCEPTED},
+                {"$set": {"status": OFFER_PENDING}, "$unset": {"acceptedAt": "", "acceptedQuantityKg": ""}},
+            )
+        if reserved:
+            await rfq_repo.collection.update_one(
+                {"_id": rfq["_id"]},
+                {"$inc": {"acceptedQuantityKg": -qty}, "$pull": {"awardedOfferIds": offer["_id"]}, "$set": {"updatedAt": datetime.utcnow()}},
+            )
+        await order_repo.hard_delete({"_id": order_oid})
+        raise
 
 
 # ================== B2B PAYMENT ==================
