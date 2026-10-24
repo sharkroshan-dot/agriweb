@@ -510,10 +510,12 @@ async def list_rfqs(
         if status:
             match["status"] = status
     elif role == "farmer":
-        # Fetch non-deleted RFQs first, then normalize status in Python below.
-        # Older records may use a different status casing or omit deletedAt;
-        # strict status matching here can make valid published RFQs disappear.
-        match = {"deletedAt": None}
+        # Match open status case-insensitively in MongoDB so legacy values like
+        # "Open" / "OPEN" are included without fetching closed RFQs first.
+        match = {
+            "status": {"$regex": f"^{RFQ_OPEN}$", "$options": "i"},
+            "deletedAt": None,
+        }
     else:
         raise HTTPException(status_code=403, detail="Only business buyers and farmers can browse RFQs")
 
