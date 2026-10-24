@@ -1464,6 +1464,95 @@ async def update_order_status(
     raise HTTPException(status_code=400, detail="Business buyers can only complete or cancel orders")
 
 
+
+
+class B2BLogisticsAction(BaseModel):
+    action: str
+    pickupTeam: Optional[str] = None
+    vehicle: Optional[str] = None
+    receivedQuantityKg: Optional[float] = Field(None, ge=0)
+    qualityCheck: Optional[str] = None
+    destinationWarehouseId: Optional[str] = None
+    deliveryPartner: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.get("/warehouse/fulfillment")
+async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
+    """Warehouse-facing queue for B2B orders ready for pickup through final delivery."""
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
+        raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
+    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
+    orders = await order_repo.find_many({"status": {"$in": statuses}, "deletedAt": None}, sort=[("updatedAt", -1)], limit=500)
+    for order in orders:
+        await _enrich_order(order)
+        for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId"):
+            if order.get(key) is not None:
+                order[key] = str(order[key])
+    return {"success": True, "data": {"orders": orders, "count": len(orders)}}
+
+
+@router.put("/warehouse/fulfillment/{order_id}")
+async def update_b2b_warehouse_fulfillment(
+    order_id: str,
+    data: B2BLogisticsAction,
+    current_user: dict = Depends(get_current_user),
+):
+    """Role-checked pickup, warehouse receiving, transfer, and final-delivery actions."""
+    role = str(current_user.get("role") or "").lower()
+    allowed_warehouse = ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin")
+    allowed_delivery = ("delivery", "delivery_partner", "delivery_manager", "admin", "super_admin")
+    order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    current = order.get("status")
+    update: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
+    action = data.action
+
+    if action == "assign_pickup":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only warehouse staff can assign farm pickup")
+        if current != ORDER_READY_FOR_PICKUP:
+            raise HTTPException(status_code=400, detail="Only orders marked Ready for Pickup can be assigned")
+        if not data.pickupTeam or not data.vehicle:
+            raise HTTPException(status_code=400, detail="Pickup team and vehicle are required")
+        update.update({"pickupTeam": data.pickupTeam.strip(), "pickupVehicle": data.vehicle.strip(), "pickupAssignedAt": datetime.utcnow(), "pickupAssignedBy": str(current_user.get("_id"))})
+    elif action == "confirm_pickup":
+        if role not in ("pickup_team", "pickup", "warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only the assigned pickup team or warehouse can confirm collection")
+        if current != ORDER_READY_FOR_PICKUP or not order.get("pickupTeam") or not order.get("pickupVehicle"):
+            raise HTTPException(status_code=400, detail="Assign a pickup team and vehicle before confirming collection")
+        update.update({"status": ORDER_PICKED_UP, "pickedUpAt": datetime.utcnow(), "pickupNotes": data.notes})
+    elif action == "receive_stock":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only warehouse staff can receive B2B stock")
+        if current != ORDER_PICKED_UP:
+            raise HTTPException(status_code=400, detail="Stock can be received only after pickup is confirmed")
+        if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
+            raise HTTPException(status_code=400, detail="Enter the received quantity in kg")
+        if data.qualityCheck not in ("passed", "failed"):
+            raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
+        update.update({"status": ORDER_WAREHOUSE_RECEIVED, "receivedQuantityKg": round(data.receivedQuantityKg, 2), "warehouseQualityCheck": data.qualityCheck, "warehouseReceivedAt": datetime.utcnow(), "warehouseReceivedBy": str(current_user.get("_id")), "warehouseNotes": data.notes})
+    elif action == "dispatch_to_buyer":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch B2B orders")
+        if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed":
+            raise HTTPException(status_code=400, detail="Warehouse must receive and pass quality inspection before dispatch")
+        update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
+    elif action == "confirm_delivery":
+        if role not in allowed_delivery:
+            raise HTTPException(status_code=403, detail="Only delivery staff can confirm business delivery")
+        if current != ORDER_IN_TRANSIT:
+            raise HTTPException(status_code=400, detail="Order must be in transit before delivery confirmation")
+        update.update({"status": ORDER_DELIVERED, "deliveredAt": datetime.utcnow(), "deliveredBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
+    else:
+        raise HTTPException(status_code=400, detail="Unknown B2B logistics action")
+
+    await order_repo.update({"_id": order["_id"]}, update)
+    return {"success": True, "message": "B2B fulfillment updated", "status": update.get("status", current), "orderId": str(order["_id"])}
+
+
 @router.get("/orders/{order_id}/invoice")
 async def get_order_invoice(
     order_id: str,
