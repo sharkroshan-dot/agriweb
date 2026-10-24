@@ -15,10 +15,6 @@ import {
   ShoppingBag,
   RefreshCw,
   Bot,
-  Warehouse,
-  PackageCheck,
-  Route,
-  Truck,
   AlertCircle,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
@@ -80,8 +76,10 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   const [price, setPrice] = useState(String(rfq.priceCeilingPerKg || rfq.budgetMaxPerKg || ""));
   // Default to the buyer requested quantity, not the farmer stock quantity.
   const requestedQty = Number(rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0) || 0;
-  const [qty, setQty] = useState(String(requestedQty || ""));
+  const farmerStockQty = Number(rfq.availableKg ?? 0) || 0;
+  const [qty, setQty] = useState(String(farmerStockQty || requestedQty || ""));
   const [deliveryCharge, setDeliveryCharge] = useState("");
+  const [deliveryMethod, setDeliveryMethod] = useState("farmer_delivery");
   const [eta, setEta] = useState("");
   const [message, setMessage] = useState("");
   const [aiRec, setAiRec] = useState<any>(null);
@@ -114,7 +112,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
       <CardHeader>
         <CardTitle className="text-sm">Submit your quote for {rfq.productName}</CardTitle>
         <CardDescription>
-          Buyer needs: {rfq.quantityKg != null ? `${rfq.quantityKg} kg` : `${rfq.quantityPerWeekKg ?? "—"} kg/week`}
+          {rfq.quantityKg != null ? `${rfq.quantityKg} kg` : `${rfq.quantityPerWeekKg ?? "—"} kg/week`}
           {rfq.qualityGrade ? ` · ${rfq.qualityGrade}` : ""}
           {rfq.budgetMinPerKg && rfq.budgetMaxPerKg ? ` · budget ₹${rfq.budgetMinPerKg}–₹${rfq.budgetMaxPerKg}/kg` : ""}
           {rfq.priceCeilingPerKg ? ` · ceiling ₹${rfq.priceCeilingPerKg}/kg` : ""}
@@ -126,39 +124,25 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <Input type="number" min="1" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Quantity you can supply (kg) *</label>
-          <Input type="number" min="1" max={requestedQty || undefined} value={qty} onChange={(e) => setQty(e.target.value)} />
-          <p className="text-[11px] text-gray-500">
-            Buyer requested: {requestedQty > 0 ? `${requestedQty} kg` : `${rfq.quantityPerWeekKg ?? "Not specified"} kg/week`}
-            {rfq.availableKg != null ? ` · Your stock: ${rfq.availableKg} kg` : ""}
-          </p>
-          {requestedQty > 0 && qtyNum > requestedQty && (
-            <p className="text-[11px] text-amber-700">Your quote quantity exceeds the buyer requested quantity.</p>
-          )}
+          <label className="text-xs font-medium text-gray-500">Available quantity (kg) *</label>
+          <Input type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
+          {rfq.availableKg != null ? <p className="text-[11px] text-gray-400">Your stock: {rfq.availableKg} kg</p> : null}
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
           <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
         </div>
-        <div className="space-y-2 sm:col-span-2">
-          <label className="text-xs font-medium text-gray-500">B2B pickup and delivery workflow</label>
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
-            <div className="grid gap-3 sm:grid-cols-5">
-              {[
-                { title: "Farmer ready for pickup", icon: <PackageCheck className="h-4 w-4" /> },
-                { title: "Warehouse assigns pickup team", icon: <Warehouse className="h-4 w-4" /> },
-                { title: "Pickup team collects goods", icon: <PackageCheck className="h-4 w-4" /> },
-                { title: "Warehouse dispatches to bulk transport", icon: <Route className="h-4 w-4" /> },
-                { title: "Bulk transport / delivery partner → Business", icon: <Truck className="h-4 w-4" /> },
-              ].map((step, index) => (
-                <div key={step.title} className="flex items-start gap-2 rounded-lg bg-white p-2.5 text-xs text-slate-700">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">{step.icon}</span>
-                  <span><span className="mr-1 font-semibold text-emerald-700">{index + 1}.</span>{step.title}</span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[11px] text-emerald-800">B2B orders follow this shared pickup, warehouse dispatch and business delivery process. The farmer does not choose a separate delivery method.</p>
-          </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
+          <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Delivery method</label>
+          <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
+            {["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"].map((m) => (
+              <option key={m} value={m}>{m.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
+            ))}
+          </select>
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Expected delivery</label>
@@ -212,7 +196,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
                 pricePerKg: Number(price),
                 availableQuantityKg: Number(qty),
                 deliveryCharge: deliveryCharge ? Number(deliveryCharge) : 0,
-                deliveryMethod: "dedicated_transport",
+                deliveryMethod,
                 expectedDeliveryDate: eta || null,
                 message,
               })
