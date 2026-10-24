@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock } from "lucide-react";
+import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock, CheckSquare, Square } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -11,6 +11,7 @@ import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import { CreateRfqForm } from "../../../components/business/create-rfq-form";
 import { AcceptOfferDialog } from "../../../components/business/accept-offer-dialog";
+import toast from "react-hot-toast";
 
 const RFQ_STATUSES = ["", "open", "awarded", "closed", "cancelled"];
 
@@ -45,6 +46,8 @@ export default function BusinessRfqsPage() {
   const [showForm, setShowForm] = useState(false);
   const [expandedRfq, setExpandedRfq] = useState<string | null>(null);
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
+  const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
+  const [acceptingSelected, setAcceptingSelected] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
@@ -285,7 +288,7 @@ export default function BusinessRfqsPage() {
                         : `Split procurement enabled — accept multiple farmers until ${r.quantityKg} kg is covered (${r.remainingQuantityKg ?? r.quantityKg} kg remaining).`}
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="space-y-3">
                     {offersLoading ? (
                       <div className="flex justify-center py-4">
                         <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
@@ -294,6 +297,61 @@ export default function BusinessRfqsPage() {
                       <p className="py-4 text-center text-sm text-gray-400">No quotes yet — share the RFQ with your farmers.</p>
                     ) : (
                       <>
+                        {(() => {
+                          const pendingOffers = rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => String(offer.status).toLowerCase() === "pending");
+                          const selected = pendingOffers.filter((offer: any) => Number(selectedQuantities[offer.id] || 0) > 0);
+                          const required = Number(r.quantityKg ?? r.quantityPerWeekKg ?? 0);
+                          const alreadyAccepted = Math.max(0, required - Number(r.remainingQuantityKg ?? required));
+                          const remainingBeforeSelection = Math.max(0, Number(r.remainingQuantityKg ?? required));
+                          const selectedKg = selected.reduce((sum: number, offer: any) => sum + Number(selectedQuantities[offer.id] || 0), 0);
+                          const selectedAmount = selected.reduce((sum: number, offer: any) => sum + Number(selectedQuantities[offer.id] || 0) * Number(offer.pricePerKg || 0), 0);
+                          return (
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <h3 className="font-semibold text-emerald-950">Selected orders · procurement summary</h3>
+                                  <p className="text-xs text-emerald-800">Select one or more quotes and choose full or partial quantities before confirming.</p>
+                                </div>
+                                <Badge variant="outline">{selected.length} farmer{selected.length === 1 ? "" : "s"} selected</Badge>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Total required</p><p className="text-lg font-semibold">{required.toLocaleString("en-IN")} kg</p></div>
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Already accepted</p><p className="text-lg font-semibold">{alreadyAccepted.toLocaleString("en-IN")} kg</p></div>
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Selected quantity</p><p className="text-lg font-semibold">{selectedKg.toLocaleString("en-IN")} kg</p></div>
+                                <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Remaining after selection</p><p className="text-lg font-semibold">{Math.max(0, remainingBeforeSelection - selectedKg).toLocaleString("en-IN")} kg</p></div>
+                              </div>
+                              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-emerald-200 pt-3">
+                                <div><p className="text-xs text-slate-600">Estimated selected amount</p><p className="text-xl font-bold text-emerald-800">₹{selectedAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
+                                <div className="flex gap-2">
+                                  <Button variant="outline" size="sm" disabled={selected.length === 0 || acceptingSelected} onClick={() => setSelectedQuantities({})}>Clear selection</Button>
+                                  <Button size="sm" disabled={selected.length === 0 || selectedKg <= 0 || selectedKg > remainingBeforeSelection || acceptingSelected} onClick={async () => {
+                                    setAcceptingSelected(true);
+                                    let completed = 0;
+                                    try {
+                                      for (const offer of selected) {
+                                        const quantityKg = Number(selectedQuantities[offer.id] || 0);
+                                        if (quantityKg <= 0) continue;
+                                        await api.post(`/b2b/offers/${offer.id}/accept`, { quantityKg, deliveryMethod: "dedicated_transport", paymentMode: "cod", advanceAmount: 0, notes: "" });
+                                        completed += 1;
+                                      }
+                                      toast.success(`Created ${completed} B2B order${completed === 1 ? "" : "s"}.`);
+                                      setSelectedQuantities({});
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfq", "offers", r.id] });
+                                    } catch (err: any) {
+                                      toast.error(completed > 0 ? `${completed} order(s) created; remaining selections were not processed. Refresh and review the remaining quantity.` : (err?.message || "Could not accept selected quotes."));
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfqs"] });
+                                      await queryClient.invalidateQueries({ queryKey: ["b2b", "rfq", "offers", r.id] });
+                                    } finally {
+                                      setAcceptingSelected(false);
+                                    }
+                                  }}>{acceptingSelected ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle className="mr-2 h-4 w-4" />}Accept selected ({selectedKg} kg)</Button>
+                                </div>
+                              </div>
+                              {selected.length > 0 ? <div className="space-y-1">{selected.map((offer: any) => <div key={offer.id} className="flex flex-wrap justify-between gap-2 text-sm text-slate-700"><span>{offer.farmerInfo?.farmName || "Farmer"} · {selectedQuantities[offer.id]} kg × ₹{offer.pricePerKg}/kg</span><strong>₹{(Number(selectedQuantities[offer.id]) * Number(offer.pricePerKg || 0)).toLocaleString("en-IN")}</strong></div>)}</div> : <p className="text-sm text-slate-500">No quotes selected yet. Use the Select checkbox on a farmer quote below.</p>}
+                            </div>
+                          );
+                        })()}
                         {(() => {
                           const best = bestOffer(r, offersData?.data?.offers || []);
                           return best ? (
@@ -307,9 +365,13 @@ export default function BusinessRfqsPage() {
                             </div>
                           ) : null;
                         })()}
-                        {rankedOffers.map((o: any) => {
-                          const rankedOffers = rankOffers(r, offersData?.data?.offers || []);
+                        {rankOffers(r, offersData?.data?.offers || []).map((o: any) => {
                           const isBest = bestOffer(r, offersData?.data?.offers || [])?.id === o.id;
+                          const offerQty = Math.max(0, Number(o.availableQuantityKg ?? o.minOrderKg ?? 0));
+                          const rfqRemaining = Math.max(0, Number(r.remainingQuantityKg ?? r.quantityKg ?? 0));
+                          const selectedQty = Number(selectedQuantities[o.id] || 0);
+                          const otherSelectedQty = Object.entries(selectedQuantities).reduce((sum, [id, qty]) => sum + (id === o.id ? 0 : Math.max(0, Number(qty) || 0)), 0);
+                          const maxForThisOffer = Math.max(0, Math.min(offerQty, rfqRemaining - otherSelectedQty));
                           return (
                             <div key={o.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 ${isBest && o.status === "pending" ? "border-violet-300 bg-violet-50/40" : ""}`}>
                               <div className="min-w-0">
@@ -341,12 +403,46 @@ export default function BusinessRfqsPage() {
                                 ) : null}
                                 {o.message ? <p className="mt-1 text-xs text-gray-500">{o.message}</p> : null}
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-col items-end gap-2">
                                 <Badge variant={o.status === "accepted" ? "success" : "secondary"}>{o.status}</Badge>
                                 {o.status === "pending" && (
-                                  <Button size="sm" onClick={() => setAcceptingOffer(o)}>
-                                    <CheckCircle className="mr-1.5 h-4 w-4" /> Accept
-                                  </Button>
+                                  <div className="flex flex-wrap items-center justify-end gap-2">
+                                    <label className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-emerald-800">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedQty > 0}
+                                        disabled={maxForThisOffer <= 0 && selectedQty <= 0}
+                                        onChange={(event) => setSelectedQuantities((current) => {
+                                          if (!event.target.checked) {
+                                            const next = { ...current };
+                                            delete next[o.id];
+                                            return next;
+                                          }
+                                          const nextQty = Math.min(offerQty, Math.max(0, rfqRemaining - otherSelectedQty));
+                                          return nextQty > 0 ? { ...current, [o.id]: nextQty } : current;
+                                        })}
+                                      />
+                                      Select
+                                    </label>
+                                    {selectedQty > 0 ? (
+                                      <div className="flex items-center gap-2">
+                                        <label className="text-xs text-slate-500" htmlFor={`qty-${o.id}`}>Accept kg</label>
+                                        <Input id={`qty-${o.id}`} className="w-24" type="number" min="0.01" step="0.01" max={maxForThisOffer} value={selectedQty} onChange={(event) => {
+                                          const value = Number(event.target.value);
+                                          setSelectedQuantities((current) => {
+                                            const other = Object.entries(current).reduce((sum, [id, qty]) => sum + (id === o.id ? 0 : Math.max(0, Number(qty) || 0)), 0);
+                                            const allowed = Math.max(0, Math.min(offerQty, rfqRemaining - other));
+                                            if (!event.target.value || value <= 0) return { ...current, [o.id]: 0 };
+                                            return { ...current, [o.id]: Math.min(value, allowed) };
+                                          });
+                                        }} />
+                                        <span className="text-xs text-slate-500">max {maxForThisOffer} kg</span>
+                                      </div>
+                                    ) : null}
+                                    <Button size="sm" variant="outline" onClick={() => setAcceptingOffer(o)}>
+                                      <CheckCircle className="mr-1.5 h-4 w-4" /> Accept individually
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                             </div>
