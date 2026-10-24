@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag } from "lucide-react";
+import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -49,7 +49,7 @@ export default function BusinessRfqsPage() {
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
 
-  const { data: rfqData, isLoading } = useQuery({
+  const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
     // Load the complete RFQ list once; status tabs filter it locally so each
     // tab reliably shows only matching orders regardless of backend query behavior.
     queryKey: ["b2b", "rfqs"],
@@ -70,7 +70,24 @@ export default function BusinessRfqsPage() {
     );
   }
 
-  const allRfqs = rfqData?.data?.rfqs || [];
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <AlertTriangle className="h-8 w-8 text-amber-600" />
+          <h2 className="font-semibold text-slate-900">Could not load your RFQs</h2>
+          <p className="max-w-md text-sm text-slate-500">
+            Your RFQ data has not been changed. Check your connection and try again.
+            {error instanceof Error && error.message ? ` Details: ${error.message}` : ""}
+          </p>
+          <Button onClick={() => refetch()}>Try again</Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const rawRfqs = rfqData?.data?.rfqs ?? rfqData?.rfqs ?? rfqData?.data?.data?.rfqs ?? [];
+  const allRfqs = Array.isArray(rawRfqs) ? rawRfqs : [];
   const rfqs = allRfqs.filter((r: any) => {
     const matchesStatus =
       !statusFilter || String(r.status || "").toLowerCase() === statusFilter.toLowerCase();
