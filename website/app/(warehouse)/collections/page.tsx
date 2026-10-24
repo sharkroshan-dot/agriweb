@@ -438,12 +438,42 @@ export default function WarehouseCollectionsPage() {
                   </div>
                   <Badge>Ready for pickup</Badge>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input value={form.team} onChange={(e) => setB2bPickupForms((prev) => ({ ...prev, [order.id]: { ...form, team: e.target.value } }))} placeholder="Pickup team / team ID" />
-                  <Input value={form.vehicle} onChange={(e) => setB2bPickupForms((prev) => ({ ...prev, [order.id]: { ...form, vehicle: e.target.value } }))} placeholder="Vehicle number / type" />
-                </div>
+                {eligibleTeams.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-600">Approved pickup team</label>
+                      <Select value={form.team} onValueChange={(teamId) => {
+                        const member = eligibleTeams.find((team: any) => team.id === teamId);
+                        const vehicle = [member?.vehicleNumber, member?.vehicleType].filter(Boolean).join(" · ");
+                        setB2bPickupForms((prev) => ({ ...prev, [order.id]: { team: teamId, vehicle } }));
+                      }}>
+                        <SelectTrigger><SelectValue placeholder="Choose an approved pickup team" /></SelectTrigger>
+                        <SelectContent>
+                          {eligibleTeams.map((team: any) => <SelectItem key={team.id} value={team.id}>{team.name || team.fullName || "Pickup partner"}{team.vehicleType ? ` · ${team.vehicleType}` : ""}{team.vehicleNumber ? ` · ${team.vehicleNumber}` : ""}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-slate-600">Registered vehicle</label>
+                      <div className="flex min-h-10 items-center rounded-md border bg-slate-50 px-3 text-sm text-slate-700">
+                        {form.vehicle || "Select a team with a registered vehicle"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    No approved pickup team with available capacity is configured for this warehouse. Open <strong>Pickup Partners</strong> to approve a team and register its vehicle/capacity, then return here.
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
-                  <Button disabled={b2bPickupMutation.isPending || !form.team.trim() || !form.vehicle.trim()} onClick={() => b2bPickupMutation.mutate({ id: order.id, payload: { action: "assign_pickup", pickupTeam: form.team, vehicle: form.vehicle } })}>Confirm Pickup Assignment</Button>
+                  <Button disabled={b2bPickupMutation.isPending || !form.team || !form.vehicle} onClick={() => {
+                    const member = eligibleTeams.find((team: any) => team.id === form.team);
+                    if (!member || !form.vehicle) {
+                      toast.error("Select an approved pickup team with a registered vehicle first");
+                      return;
+                    }
+                    b2bPickupMutation.mutate({ id: order.id, payload: { action: "assign_pickup", pickupTeam: member.name || member.fullName || member.id, vehicle: form.vehicle } });
+                  }}>Confirm Pickup Assignment</Button>
                   {order.pickupTeam && <Button variant="outline" disabled={b2bPickupMutation.isPending} onClick={() => b2bPickupMutation.mutate({ id: order.id, payload: { action: "confirm_pickup" } })}>Confirm Farm Collection</Button>}
                 </div>
                 {order.pickupTeam && <p className="text-xs text-emerald-700">Assigned to {order.pickupTeam} · {order.pickupVehicle || "Vehicle assigned"}</p>}
