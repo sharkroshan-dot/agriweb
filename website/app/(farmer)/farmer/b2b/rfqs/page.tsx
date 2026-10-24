@@ -237,9 +237,34 @@ export default function FarmerB2bRfqsPage() {
     queryKey: ["b2b", "farmer", "rfqs"],
     queryFn: async () => {
       const response: any = await api.get("/b2b/rfqs", { params: { status: "open", limit: 200 } });
-      // Support both the API client's unwrapped payload and an Axios-style response.
-      const payload = response?.data?.data ?? response?.data ?? response;
-      return { ...response, data: payload };
+
+      // The shared API client may return either the raw API envelope
+      // ({ success, data: { rfqs } }) or its flattened form
+      // ({ success, rfqs, data: { rfqs } }). Normalize both without
+      // accidentally turning a valid response into an empty list.
+      const candidates = [
+        response?.rfqs,
+        response?.data?.rfqs,
+        response?.data?.data?.rfqs,
+        response?.data?.data?.data?.rfqs,
+        response?.data?.items,
+        response?.data?.data?.items,
+        response?.items,
+      ];
+      const rfqs = candidates.find((value) => Array.isArray(value));
+      if (Array.isArray(rfqs)) return { rfqs };
+
+      // An empty list is valid only when the API explicitly returned a
+      // recognizable list/count payload; unexpected response shapes should
+      // be surfaced as an error instead of misleading farmers with "0 RFQs".
+      const knownEmpty = [
+        response?.count,
+        response?.data?.count,
+        response?.data?.data?.count,
+      ].some((count) => count === 0);
+      if (knownEmpty) return { rfqs: [] };
+
+      throw new Error("The RFQ API returned an unexpected response. Please retry or check the backend response.");
     },
     retry: 2,
   });
@@ -267,7 +292,7 @@ export default function FarmerB2bRfqsPage() {
     );
   }
 
-  const allRfqs = Array.isArray(rfqData?.data?.rfqs) ? rfqData.data.rfqs : [];
+  const allRfqs = Array.isArray(rfqData?.rfqs) ? rfqData.rfqs : [];
 
   const scopeCounts: Record<string, number> = {
     all: allRfqs.length,
