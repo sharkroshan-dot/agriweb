@@ -595,6 +595,7 @@ class OfferCreate(BaseModel):
     deliveryCharge: Optional[float] = Field(0, ge=0)
     deliveryMethod: Optional[str] = None
     expectedDeliveryDate: Optional[str] = None
+    qualityGrade: Optional[str] = None
     message: Optional[str] = None
     deliveryNote: Optional[str] = None
 
@@ -650,6 +651,7 @@ async def submit_offer(
         "supplyAllocations": supply_allocations,
         "productName": rfq.get("productName"),
         "pricePerKg": data.pricePerKg,
+        "qualityGrade": (data.qualityGrade or "").strip() or None,
         "availableQuantityKg": float(data.availableQuantityKg) if data.availableQuantityKg else float(qty),
         "minOrderKg": data.minOrderKg,
         "deliveryCharge": float(data.deliveryCharge or 0),
