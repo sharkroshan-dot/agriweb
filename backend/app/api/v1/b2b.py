@@ -759,6 +759,11 @@ async def list_offers_for_rfq(
         if o.get("rfqId"):
             o["rfqId"] = str(o["rfqId"])
         farmer = await farmer_repository.find_one({"userId": o["farmerId"]})
+        if not farmer:
+            try:
+                farmer = await farmer_repository.find_one({"userId": ObjectId(o["farmerId"])})
+            except Exception:
+                farmer = None
         qty = float(o.get("availableQuantityKg") or o.get("minOrderKg") or 0)
         distance_km = _distance_km(farmer, rfq)
         o["deliveryDistanceKm"] = distance_km
