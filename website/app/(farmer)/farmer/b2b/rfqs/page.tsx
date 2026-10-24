@@ -79,6 +79,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   const farmerStockQty = Number(rfq.availableKg ?? 0) || 0;
   const [qty, setQty] = useState(String(requestedQty > 0 ? Math.min(requestedQty, farmerStockQty > 0 ? farmerStockQty : requestedQty) : farmerStockQty || ""));
   const [eta, setEta] = useState("");
+  const [qualityGrade, setQualityGrade] = useState(String(rfq.qualityGrade || "Standard"));
   const [message, setMessage] = useState("");
   const [aiRec, setAiRec] = useState<any>(null);
 
@@ -141,6 +142,13 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           ) : null}
         </div>
         <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Quality grade you can supply *</label>
+          <select value={qualityGrade} onChange={(e) => setQualityGrade(e.target.value)} className="h-10 w-full rounded-md border border-gray-200 bg-white px-3 text-sm">
+            <option value="Premium">Premium</option><option value="Organic">Organic</option><option value="Grade A">Grade A</option><option value="Grade B">Grade B</option><option value="Grade C">Grade C</option><option value="Standard">Standard</option>
+          </select>
+          {rfq.qualityGrade ? <p className="text-[11px] text-slate-500">Buyer requested: {rfq.qualityGrade}</p> : null}
+        </div>
+        <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Expected delivery</label>
           <Input type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
         </div>
@@ -193,6 +201,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
                 availableQuantityKg: Number(qty),
                 deliveryMethod: "dedicated_transport",
                 expectedDeliveryDate: eta || null,
+                qualityGrade,
                 message,
               })
             }
