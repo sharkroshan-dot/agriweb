@@ -765,6 +765,11 @@ async def list_offers_for_rfq(
         o["deliveryFeeEstimate"] = (
             _calculate_b2b_delivery_fee(distance_km, qty) if distance_km is not None else None
         )
+        o["deliveryPricing"] = {
+            "baseFee": B2B_DELIVERY_BASE_FEE,
+            "ratePerKm": B2B_DELIVERY_RATE_PER_KM,
+            "ratePerKg": B2B_DELIVERY_RATE_PER_KG,
+        }
         o["deliveryFeeRequiresLocation"] = distance_km is None
         o["totalPrice"] = round(
             float(o.get("pricePerKg") or 0) * qty + float(o["deliveryFeeEstimate"] or 0), 2
