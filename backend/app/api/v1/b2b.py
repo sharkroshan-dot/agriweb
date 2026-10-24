@@ -77,11 +77,16 @@ ORDER_IN_TRANSIT = "in_transit"
 ORDER_DELIVERED = "delivered"
 ORDER_COMPLETED = "completed"
 ORDER_CANCELLED = "cancelled"
+ORDER_READY_FOR_PICKUP = "ready_for_pickup"
+ORDER_PICKED_UP = "picked_up"
+ORDER_WAREHOUSE_RECEIVED = "warehouse_received"
 ORDER_FLOW = [
     ORDER_CONFIRMED,
     ORDER_PREPARING,
     ORDER_QUALITY_CHECK,
-    ORDER_DISPATCHED,
+    ORDER_READY_FOR_PICKUP,
+    ORDER_PICKED_UP,
+    ORDER_WAREHOUSE_RECEIVED,
     ORDER_IN_TRANSIT,
     ORDER_DELIVERED,
     ORDER_COMPLETED,
@@ -1379,7 +1384,20 @@ async def update_order_status(
     if role == "farmer":
         if current not in ORDER_FLOW or data.status not in ORDER_FLOW:
             raise HTTPException(status_code=400, detail="Invalid status")
-        nxt = ORDER_FLOW[ORDER_FLOW.index(current) + 1] if current in ORDER_FLOW else None
+
+        # Quality approval is a decision within the quality_check stage, not a
+        # status transition. Keep the order there until the farmer explicitly
+        # marks it ready_for_pickup.
+        if current == ORDER_QUALITY_CHECK and data.status == ORDER_QUALITY_CHECK:
+            if data.qualityCheck not in ("passed", "failed"):
+                raise HTTPException(status_code=400, detail="Choose passed or failed for the quality check.")
+            update["qualityCheck"] = data.qualityCheck
+            if data.qualityNotes:
+                update["qualityNotes"] = data.qualityNotes
+            await order_repo.update({"_id": order["_id"]}, update)
+            return {"success": True, "message": f"Quality check marked {data.qualityCheck}"}
+
+        nxt = ORDER_FLOW[ORDER_FLOW.index(current) + 1] if current in ORDER_FLOW and ORDER_FLOW.index(current) < len(ORDER_FLOW) - 1 else None
         if data.status != nxt:
             raise HTTPException(status_code=400, detail=f"Invalid transition from {current} to {data.status}")
         if data.status == ORDER_QUALITY_CHECK:
@@ -1391,6 +1409,12 @@ async def update_order_status(
             update["qualityCheck"] = "pending"
             if data.qualityNotes:
                 update["qualityNotes"] = data.qualityNotes
+        if data.status == ORDER_READY_FOR_PICKUP and order.get("qualityCheck") != "passed":
+            raise HTTPException(status_code=400, detail="Pass the quality check before marking this order ready for pickup.")
+        if data.status == ORDER_PICKED_UP:
+            update["pickedUpAt"] = datetime.utcnow()
+        if data.status == ORDER_WAREHOUSE_RECEIVED:
+            update["warehouseReceivedAt"] = datetime.utcnow()
         if data.status == ORDER_DISPATCHED:
             if data.qualityCheck != "passed":
                 raise HTTPException(status_code=400, detail="Pass the quality check before dispatching this B2B order.")
