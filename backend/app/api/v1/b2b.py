@@ -295,7 +295,14 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
     product_subtotal = round(float(qty) * float(offer.get("pricePerKg") or 0), 2)
     # Only apply tax/other charges when configured in persisted RFQ/offer data.
     # Never invent a tax rate or trust a frontend-supplied total.
-    tax_rate = max(0.0, float(offer.get("taxRate", offer.get("taxPercent", rfq.get("taxRate", rfq.get("taxPercent", 0)))) or 0)
+    configured_tax_rate = offer.get("taxRate")
+    if configured_tax_rate is None:
+        configured_tax_rate = offer.get("taxPercent")
+    if configured_tax_rate is None:
+        configured_tax_rate = rfq.get("taxRate")
+    if configured_tax_rate is None:
+        configured_tax_rate = rfq.get("taxPercent", 0)
+    tax_rate = max(0.0, float(configured_tax_rate or 0))
     tax_amount = round(product_subtotal * tax_rate / 100, 2)
     other_charges = max(0.0, float(offer.get("otherCharges", rfq.get("otherCharges", 0)) or 0))
     total = round(product_subtotal + delivery_charge + tax_amount + other_charges, 2)
