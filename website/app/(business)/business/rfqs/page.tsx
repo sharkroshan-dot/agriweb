@@ -49,6 +49,7 @@ export default function BusinessRfqsPage() {
   const [acceptingOffer, setAcceptingOffer] = useState<any>(null);
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
   const [acceptingSelected, setAcceptingSelected] = useState(false);
+  const [offerFilter, setOfferFilter] = useState<"all" | "budget" | "quantity" | "delivery">("all");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
@@ -290,6 +291,18 @@ export default function BusinessRfqsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 p-3">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">Compare and filter quotes</p>
+                        <p className="text-xs text-slate-500">Filter offers before selecting quantities. Missing delivery dates are flagged as unverified.</p>
+                      </div>
+                      <select aria-label="Filter farmer quotes" value={offerFilter} onChange={(event) => setOfferFilter(event.target.value as "all" | "budget" | "quantity" | "delivery")} className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm">
+                        <option value="all">All quotes</option>
+                        <option value="budget">Within budget</option>
+                        <option value="quantity">Can cover remaining quantity</option>
+                        <option value="delivery">Expected by required date</option>
+                      </select>
+                    </div>
                     {offersLoading ? (
                       <div className="flex justify-center py-4">
                         <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
@@ -326,6 +339,10 @@ export default function BusinessRfqsPage() {
                                 <div className="flex gap-2">
                                   <Button variant="outline" size="sm" disabled={selected.length === 0 || acceptingSelected} onClick={() => setSelectedQuantities({})}>Clear selection</Button>
                                   <Button size="sm" disabled={selected.length === 0 || selectedKg <= 0 || selectedKg > remainingBeforeSelection || acceptingSelected} onClick={async () => {
+                                    const allocationLines = selected.map((offer: any) => `${offer.farmerInfo?.farmName || "Farmer"}: ${selectedQuantities[offer.id]} kg × ₹${offer.pricePerKg}/kg = ₹${(Number(selectedQuantities[offer.id]) * Number(offer.pricePerKg || 0)).toLocaleString("en-IN")}`).join("\\n");
+                                    const remainingAfter = Math.max(0, remainingBeforeSelection - selectedKg);
+                                    const confirmed = window.confirm(`Review procurement before creating orders\\n\\n${allocationLines}\\n\\nTotal selected: ${selectedKg} kg\\nEstimated subtotal: ₹${selectedAmount.toLocaleString("en-IN")}\\nRemaining after selection: ${remainingAfter} kg\\n\\nCreate one B2B order per selected farmer?`);
+                                    if (!confirmed) return;
                                     setAcceptingSelected(true);
                                     let completed = 0;
                                     try {
@@ -366,7 +383,20 @@ export default function BusinessRfqsPage() {
                             </div>
                           ) : null;
                         })()}
-                        {rankOffers(r, offersData?.data?.offers || []).map((o: any) => {
+                        {rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => {
+                          const price = Number(offer.pricePerKg || 0);
+                          const qty = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
+                          const budget = Number(r.budgetMaxPerKg ?? r.priceCeilingPerKg ?? 0);
+                          if (offerFilter === "budget") return budget <= 0 || price <= budget;
+                          if (offerFilter === "quantity") return qty >= Number(r.remainingQuantityKg ?? r.quantityKg ?? 0);
+                          if (offerFilter === "delivery") {
+                            if (!offer.expectedDeliveryDate || !r.requiredDate) return false;
+                            const delivery = new Date(offer.expectedDeliveryDate).getTime();
+                            const deadline = new Date(r.requiredDate).getTime();
+                            return Number.isFinite(delivery) && Number.isFinite(deadline) && delivery <= deadline;
+                          }
+                          return true;
+                        }).map((o: any) => {
                           const isBest = bestOffer(r, offersData?.data?.offers || [])?.id === o.id;
                           const offerQty = Math.max(0, Number(o.availableQuantityKg ?? o.minOrderKg ?? 0));
                           const rfqRemaining = Math.max(0, Number(r.remainingQuantityKg ?? r.quantityKg ?? 0));
