@@ -15,6 +15,9 @@ import {
   ShoppingBag,
   RefreshCw,
   Bot,
+  Warehouse,
+  PackageCheck,
+  Route,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
@@ -23,7 +26,6 @@ import { Input } from "../../../../components/ui/input";
 import { Badge } from "../../../../components/ui/badge";
 import toast from "react-hot-toast";
 
-const DELIVERY_METHODS = ["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"];
 const SCOPES = ["all", "nearby", "district", "state", "national"];
 
 function scopeOf(rfq: any): string {
@@ -78,7 +80,6 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
   const requestedQty = Number(rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0) || 0;
   const [qty, setQty] = useState(String(requestedQty || ""));
   const [deliveryCharge, setDeliveryCharge] = useState("");
-  const [deliveryMethod, setDeliveryMethod] = useState("farmer_delivery");
   const [eta, setEta] = useState("");
   const [message, setMessage] = useState("");
   const [aiRec, setAiRec] = useState<any>(null);
@@ -137,13 +138,25 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
           <label className="text-xs font-medium text-gray-500">Delivery charge (₹)</label>
           <Input type="number" min="0" value={deliveryCharge} onChange={(e) => setDeliveryCharge(e.target.value)} />
         </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery method</label>
-          <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
-            {DELIVERY_METHODS.map((m) => (
-              <option key={m} value={m}>{m.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
-            ))}
-          </select>
+        <div className="space-y-2 sm:col-span-2">
+          <label className="text-xs font-medium text-gray-500">B2B pickup and delivery workflow</label>
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3">
+            <div className="grid gap-3 sm:grid-cols-5">
+              {[
+                { title: "Farmer ready for pickup", icon: <PackageCheck className="h-4 w-4" /> },
+                { title: "Warehouse assigns pickup team", icon: <Warehouse className="h-4 w-4" /> },
+                { title: "Pickup team collects goods", icon: <PackageCheck className="h-4 w-4" /> },
+                { title: "Warehouse dispatches to bulk transport", icon: <Route className="h-4 w-4" /> },
+                { title: "Bulk transport / delivery partner → Business", icon: <Truck className="h-4 w-4" /> },
+              ].map((step, index) => (
+                <div key={step.title} className="flex items-start gap-2 rounded-lg bg-white p-2.5 text-xs text-slate-700">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">{step.icon}</span>
+                  <span><span className="mr-1 font-semibold text-emerald-700">{index + 1}.</span>{step.title}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[11px] text-emerald-800">B2B orders follow this shared pickup, warehouse dispatch and business delivery process. The farmer does not choose a separate delivery method.</p>
+          </div>
         </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Expected delivery</label>
@@ -197,7 +210,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
                 pricePerKg: Number(price),
                 availableQuantityKg: Number(qty),
                 deliveryCharge: deliveryCharge ? Number(deliveryCharge) : 0,
-                deliveryMethod,
+                deliveryMethod: "dedicated_transport",
                 expectedDeliveryDate: eta || null,
                 message,
               })
