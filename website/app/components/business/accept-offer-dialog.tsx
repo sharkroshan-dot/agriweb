@@ -19,6 +19,17 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
   const [advance, setAdvance] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Preview quote charges; the backend recalculates and persists the authoritative total.
+  const quantity = Math.max(0, Number(qty) || 0);
+  const unitPrice = Math.max(0, Number(offer.pricePerKg) || 0);
+  const productSubtotal = Math.round(quantity * unitPrice * 100) / 100;
+  const deliveryFee = Math.max(0, Number(offer.deliveryCharge) || 0);
+  const configuredTaxRate = Math.max(0, Number(offer.taxRate ?? offer.taxPercent ?? rfq.taxRate ?? rfq.taxPercent) || 0);
+  const taxAmount = Math.round(productSubtotal * configuredTaxRate / 100 * 100) / 100;
+  const otherCharges = Math.max(0, Number(offer.otherCharges ?? rfq.otherCharges) || 0);
+  const totalPayable = Math.round((productSubtotal + deliveryFee + taxAmount + otherCharges) * 100) / 100;
+  const money = (amount: number) => amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const accept = useMutation({
     mutationFn: (payload: any) => api.post(`/b2b/offers/${offer.id}/accept`, payload),
     onSuccess: (res: any) => {
@@ -46,8 +57,16 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
               <label className="text-xs font-medium text-gray-500">Quantity to accept (kg) *</label>
               <Input type="number" min="1" max={maxAcceptable} value={qty} onChange={(e) => setQty(e.target.value)} />
               <p className="text-xs text-slate-500">You can accept up to {maxAcceptable} kg from this farmer and up to the RFQ's remaining quantity.</p>
-              <p className="text-sm font-semibold text-slate-800">Order subtotal: ₹{(Math.max(0, Number(qty) || 0) * Number(offer.pricePerKg || 0)).toLocaleString("en-IN")}</p>
               {Number(qty) > maxAcceptable ? <p className="text-xs text-red-600">Quantity cannot exceed this farmer's offer or the remaining RFQ quantity.</p> : null}
+            </div>
+            <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+              <p className="text-sm font-semibold text-slate-900">Order cost breakdown</p>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Product subtotal ({quantity} kg × ₹{money(unitPrice)}/kg)</span><span className="font-medium">₹{money(productSubtotal)}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Delivery fee (from farmer quote)</span><span className="font-medium">₹{money(deliveryFee)}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Tax{configuredTaxRate ? ` (${configuredTaxRate}% configured)` : " (no tax rate configured)"}</span><span className="font-medium">₹{money(taxAmount)}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Other applicable charges</span><span className="font-medium">₹{money(otherCharges)}</span></div>
+              <div className="flex justify-between gap-3 border-t border-emerald-200 pt-2 text-base font-bold"><span>Total payable</span><span>₹{money(totalPayable)}</span></div>
+              <p className="text-xs text-slate-500">The server recalculates and stores the final amount when the order is created. Tax and other charges are only included when configured.</p>
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Payment mode</label>
