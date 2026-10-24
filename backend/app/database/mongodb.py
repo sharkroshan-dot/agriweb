@@ -157,6 +157,14 @@ class MongoDB:
         await cls.db.warehouse_transfers.create_index([("fromWarehouseId", 1), ("status", 1)])
         await cls.db.warehouse_transfers.create_index([("toWarehouseId", 1), ("status", 1)])
 
+        # B2B multi-offer acceptance idempotency: one committed batch per buyer key.
+        await cls.db.b2b_acceptance_batches.create_index(
+            [("businessUserId", 1), ("idempotencyKey", 1)],
+            unique=True,
+            name="b2b_acceptance_batch_idempotency",
+        )
+        await cls.db.b2b_acceptance_batches.create_index([("rfqId", 1), ("createdAt", -1)])
+
         # AI training jobs
         await cls.db.ai_training_jobs.create_index([("status", 1), ("createdAt", -1)])
         await cls.db.ai_training_jobs.create_index([("modelType", 1), ("createdAt", -1)])
