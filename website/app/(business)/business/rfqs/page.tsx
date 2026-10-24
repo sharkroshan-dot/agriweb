@@ -100,16 +100,31 @@ export default function BusinessRfqsPage() {
   const recurringRfqs = rfqs.filter((r: any) => r.recurring);
   const visibleRfqs = view === "one-off" ? oneOffRfqs : recurringRfqs;
 
-  const bestOffer = (offers: any[]) => {
-    const pending = offers.filter((o: any) => o.status === "pending");
-    if (pending.length === 0) return null;
-    const scored = pending.map((o) => {
-      const priceScore = Math.max(0, 100 - (o.pricePerKg || 0));
-      const ratingScore = (o.farmerInfo?.rating || 0) * 10;
-      const verifiedScore = o.farmerInfo?.isVerified ? 8 : 0;
-      return { o, score: priceScore * 0.6 + ratingScore + verifiedScore };
+  const rankOffers = (rfq: any, offers: any[]) => {
+    const requested = Number(rfq.remainingQuantityKg ?? rfq.quantityKg ?? rfq.quantityPerWeekKg ?? 0);
+    const budget = Number(rfq.budgetMaxPerKg ?? rfq.priceCeilingPerKg ?? 0);
+    return offers.map((o: any) => {
+      const price = Number(o.pricePerKg ?? 0);
+      const quantity = Number(o.availableQuantityKg ?? o.minOrderKg ?? 0);
+      const rating = Number(o.farmerInfo?.rating ?? 0);
+      const withinBudget = budget <= 0 || price <= budget;
+      const canCoverRemaining = requested > 0 && quantity >= requested;
+      const priceScore = budget > 0 ? Math.max(0, 100 - (price / budget) * 100) : Math.max(0, 100 - price);
+      const ratingScore = Math.min(5, Math.max(0, rating)) * 12;
+      const verificationScore = o.farmerInfo?.isVerified ? 10 : 0;
+      const quantityScore = requested > 0 ? Math.min(100, (quantity / requested) * 100) * 0.2 : 10;
+      const budgetScore = withinBudget ? 15 : -35;
+      const score = priceScore * 0.45 + ratingScore + verificationScore + quantityScore + budgetScore;
+      return { ...o, _rankScore: score, _withinBudget: withinBudget, _canCoverRemaining: canCoverRemaining };
+    }).sort((a: any, b: any) => {
+      if (a.status === "pending" && b.status !== "pending") return -1;
+      if (b.status === "pending" && a.status !== "pending") return 1;
+      return b._rankScore - a._rankScore;
     });
-    return scored.sort((a, b) => b.score - a.score)[0].o;
+  };
+  const bestOffer = (rfq: any, offers: any[]) => {
+    const pending = rankOffers(rfq, offers).filter((o: any) => String(o.status).toLowerCase() === "pending");
+    return pending[0] ?? null;
   };
 
   return (
@@ -280,7 +295,7 @@ export default function BusinessRfqsPage() {
                     ) : (
                       <>
                         {(() => {
-                          const best = bestOffer(offersData?.data?.offers || []);
+                          const best = bestOffer(r, offersData?.data?.offers || []);
                           return best ? (
                             <div className="flex items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm text-violet-800">
                               <Bot className="h-4 w-4 shrink-0" />
@@ -292,8 +307,9 @@ export default function BusinessRfqsPage() {
                             </div>
                           ) : null;
                         })()}
-                        {offersData?.data?.offers?.map((o: any) => {
-                          const isBest = bestOffer(offersData?.data?.offers || [])?.id === o.id;
+                        {rankedOffers.map((o: any) => {
+                          const rankedOffers = rankOffers(r, offersData?.data?.offers || []);
+                          const isBest = bestOffer(r, offersData?.data?.offers || [])?.id === o.id;
                           return (
                             <div key={o.id} className={`flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 ${isBest && o.status === "pending" ? "border-violet-300 bg-violet-50/40" : ""}`}>
                               <div className="min-w-0">
@@ -302,10 +318,16 @@ export default function BusinessRfqsPage() {
                                   {o.farmerInfo?.isVerified ? <ShieldCheck className="h-4 w-4 text-emerald-600" /> : null}
                                   {isBest && o.status === "pending" ? <Badge variant="outline" className="text-violet-700">🤖 Best</Badge> : null}
                                 </div>
-                                <p className="text-sm text-gray-500">
-                                  ₹{o.pricePerKg}/kg · {o.availableQuantityKg || o.minOrderKg || 0} kg
-                                  {o.deliveryCharge ? ` · delivery ₹${o.deliveryCharge}` : ""} · total ₹{o.totalPrice ?? 0}
-                                </p>
+                                <div className="mt-1 grid gap-2 text-sm sm:grid-cols-3">
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Price</span><br /><strong>₹{o.pricePerKg}/kg</strong></p>
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Can supply</span><br /><strong>{o.availableQuantityKg || o.minOrderKg || 0} kg</strong></p>
+                                  <p className="text-slate-700"><span className="text-xs text-slate-500">Est. value of available quantity</span><br /><strong>₹{(Number(o.pricePerKg || 0) * Number(o.availableQuantityKg || o.minOrderKg || 0)).toLocaleString("en-IN")}</strong></p>
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  <Badge variant={o._withinBudget ? "success" : "destructive"}>{o._withinBudget ? "Within budget" : "Above budget"}</Badge>
+                                  <Badge variant={o._canCoverRemaining ? "success" : "outline"}>{o._canCoverRemaining ? "Covers remaining quantity" : "Partial supply"}</Badge>
+                                  {o.farmerInfo?.isVerified ? <Badge variant="outline">Verified farmer</Badge> : <Badge variant="outline">Verification unavailable</Badge>}
+                                </div>
                                 <p className="flex flex-wrap gap-3 text-xs text-gray-400">
                                   {o.farmerInfo?.rating ? (
                                     <span className="flex items-center gap-1 text-yellow-600"><Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" /> {Number(o.farmerInfo.rating).toFixed(1)}</span>
@@ -314,8 +336,8 @@ export default function BusinessRfqsPage() {
                                   {o.expectedDeliveryDate ? <span className="flex items-center gap-1"><CalendarDays className="h-3 w-3" /> {o.expectedDeliveryDate}</span> : null}
                                   <span className="flex items-center gap-1"><Truck className="h-3 w-3" /> {(o.deliveryMethod || "farmer_delivery").replace(/_/g, " ")}</span>
                                 </p>
-                                {o.aboveBudget ? (
-                                  <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> Above your budget ceiling</p>
+                                {!o._withinBudget ? (
+                                  <p className="mt-1 flex items-center gap-1 text-xs text-amber-700"><AlertTriangle className="h-3 w-3" /> This quote exceeds the RFQ budget. Review before accepting.</p>
                                 ) : null}
                                 {o.message ? <p className="mt-1 text-xs text-gray-500">{o.message}</p> : null}
                               </div>
