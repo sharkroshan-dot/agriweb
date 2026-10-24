@@ -292,7 +292,13 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         delivery_charge = float(accept.deliveryCharge)
     elif offer.get("deliveryCharge") is not None:
         delivery_charge = float(offer.get("deliveryCharge") or 0)
-    total = round(float(qty) * float(offer.get("pricePerKg") or 0) + delivery_charge, 2)
+    product_subtotal = round(float(qty) * float(offer.get("pricePerKg") or 0), 2)
+    # Only apply tax/other charges when configured in persisted RFQ/offer data.
+    # Never invent a tax rate or trust a frontend-supplied total.
+    tax_rate = max(0.0, float(offer.get("taxRate", offer.get("taxPercent", rfq.get("taxRate", rfq.get("taxPercent", 0)))) or 0)
+    tax_amount = round(product_subtotal * tax_rate / 100, 2)
+    other_charges = max(0.0, float(offer.get("otherCharges", rfq.get("otherCharges", 0)) or 0))
+    total = round(product_subtotal + delivery_charge + tax_amount + other_charges, 2)
     order = {
         "orderNumber": await _next_number("B2B", order_repo),
         "rfqId": rfq["_id"],
@@ -305,7 +311,11 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "qualityGrade": offer.get("qualityGrade") or rfq.get("qualityGrade"),
         "quantityKg": round(float(qty), 2),
         "pricePerKg": float(offer.get("pricePerKg") or 0),
+        "productSubtotal": product_subtotal,
         "deliveryCharge": round(delivery_charge, 2),
+        "taxRate": tax_rate,
+        "taxAmount": tax_amount,
+        "otherCharges": round(other_charges, 2),
         "totalAmount": total,
         "recurring": bool(rfq.get("recurring")),
         "deliveryMethod": (accept.deliveryMethod if accept and accept.deliveryMethod else (offer.get("deliveryMethod") or DELIVERY_METHODS[0])),
