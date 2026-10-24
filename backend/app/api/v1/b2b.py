@@ -783,6 +783,12 @@ async def accept_offer_batch(
         "idempotencyKey": data.idempotencyKey,
     })
     if existing_batch:
+        prior_items = sorted(
+            [(str(row.get("offerId")), round(float(row.get("quantityKg") or 0), 2)) for row in existing_batch.get("items", [])]
+        )
+        incoming_items = sorted([(item.offerId, round(float(item.quantityKg), 2)) for item in data.items])
+        if prior_items != incoming_items:
+            raise HTTPException(status_code=409, detail="This idempotency key was already used for a different selection. Keep the original selection to retry, or change the selection and submit again.")
         stored_orders = await order_repo.collection.find({"_id": {"$in": existing_batch.get("orderIds", [])}}).to_list(length=50)
         for order in stored_orders:
             order["id"] = str(order["_id"])
@@ -886,6 +892,7 @@ async def accept_offer_batch(
                     "idempotencyKey": data.idempotencyKey,
                     "orderIds": [order["_id"] for order in order_docs],
                     "offerIds": offer_ids,
+                    "items": [{"offerId": offer["_id"], "quantityKg": qty} for offer, qty, _ in order_specs],
                     "quantityKg": requested_total,
                     "createdAt": now,
                 }
