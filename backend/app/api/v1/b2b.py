@@ -1331,6 +1331,8 @@ class OrderStatusUpdate(BaseModel):
     status: str
     qualityCheck: Optional[str] = None
     paymentStatus: Optional[str] = None
+    packedQuantityKg: Optional[float] = Field(None, ge=0)
+    qualityNotes: Optional[str] = None
 
 
 @router.put("/orders/{order_id}/status")
@@ -1380,8 +1382,21 @@ async def update_order_status(
         nxt = ORDER_FLOW[ORDER_FLOW.index(current) + 1] if current in ORDER_FLOW else None
         if data.status != nxt:
             raise HTTPException(status_code=400, detail=f"Invalid transition from {current} to {data.status}")
-        if data.status == ORDER_QUALITY_CHECK and data.qualityCheck in ("passed", "failed"):
-            update["qualityCheck"] = data.qualityCheck
+        if data.status == ORDER_QUALITY_CHECK:
+            if data.packedQuantityKg is None:
+                raise HTTPException(status_code=400, detail="Record the actual packed quantity before completing the quality check.")
+            if data.packedQuantityKg <= 0:
+                raise HTTPException(status_code=400, detail="Packed quantity must be greater than zero.")
+            update["packedQuantityKg"] = round(float(data.packedQuantityKg), 2)
+            update["qualityCheck"] = "pending"
+            if data.qualityNotes:
+                update["qualityNotes"] = data.qualityNotes
+        if data.status == ORDER_DISPATCHED:
+            if data.qualityCheck != "passed":
+                raise HTTPException(status_code=400, detail="Pass the quality check before dispatching this B2B order.")
+            update["qualityCheck"] = "passed"
+            if data.qualityNotes:
+                update["qualityNotes"] = data.qualityNotes
         if data.status == ORDER_DELIVERED:
             update["deliveredAt"] = datetime.utcnow()
         await order_repo.update({"_id": order["_id"]}, update)
