@@ -14,6 +14,22 @@ import { AcceptOfferDialog } from "../../../components/business/accept-offer-dia
 
 const RFQ_STATUSES = ["", "open", "awarded", "closed", "cancelled"];
 
+function formatRfqDeadline(rfq: any): string | null {
+  const raw = rfq.deadline ?? rfq.closesAt ?? rfq.closingAt ?? rfq.closingDate ?? null;
+  if (!raw) return null;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Kolkata",
+  }).format(date) + " IST";
+}
+
 const statusVariant: Record<string, any> = {
   open: "success",
   awarded: "secondary",
@@ -186,7 +202,13 @@ export default function BusinessRfqsPage() {
                       {r.budgetMinPerKg && r.budgetMaxPerKg ? <span>budget ₹{r.budgetMinPerKg}–₹{r.budgetMaxPerKg}/kg</span> : null}
                       <span>{r.offerCount ?? 0} quote(s)</span>
                       {!r.recurring && r.remainingQuantityKg != null ? <span>remaining {r.remainingQuantityKg} kg</span> : null}
-                      {r.closingIn ? <span>⏰ closes in {r.closingIn}</span> : null}
+                      {formatRfqDeadline(r) ? (
+                        <span className="font-medium text-slate-500">
+                          ⏰ RFQ deadline: {formatRfqDeadline(r)}
+                        </span>
+                      ) : r.closingIn ? (
+                        <span>⏰ closes in {r.closingIn}</span>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
