@@ -80,6 +80,8 @@ ORDER_CANCELLED = "cancelled"
 ORDER_READY_FOR_PICKUP = "ready_for_pickup"
 ORDER_PICKED_UP = "picked_up"
 ORDER_WAREHOUSE_RECEIVED = "warehouse_received"
+ORDER_TRANSFER_IN_TRANSIT = "transfer_in_transit"
+ORDER_DESTINATION_RECEIVED = "destination_warehouse_received"
 ORDER_FLOW = [
     ORDER_CONFIRMED,
     ORDER_PREPARING,
@@ -1483,7 +1485,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     role = str(current_user.get("role") or "").lower()
     if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
         raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
-    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
+    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
     orders = await order_repo.find_many({"status": {"$in": statuses}, "deletedAt": None}, sort=[("updatedAt", -1)], limit=500)
     for order in orders:
         await _enrich_order(order)
@@ -1534,11 +1536,29 @@ async def update_b2b_warehouse_fulfillment(
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
         update.update({"status": ORDER_WAREHOUSE_RECEIVED, "receivedQuantityKg": round(data.receivedQuantityKg, 2), "warehouseQualityCheck": data.qualityCheck, "warehouseReceivedAt": datetime.utcnow(), "warehouseReceivedBy": str(current_user.get("_id")), "warehouseNotes": data.notes})
+    elif action == "dispatch_to_destination":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch a warehouse transfer")
+        if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed":
+            raise HTTPException(status_code=400, detail="Source warehouse must receive and pass quality inspection before transfer")
+        if not order.get("destinationWarehouseId") or str(order.get("destinationWarehouseId")) == str(order.get("sourceWarehouseId")):
+            raise HTTPException(status_code=400, detail="A different destination warehouse must be configured for this transfer")
+        update.update({"status": ORDER_TRANSFER_IN_TRANSIT, "transferDispatchedAt": datetime.utcnow(), "transferDispatchedBy": str(current_user.get("_id")), "destinationWarehouseId": str(order.get("destinationWarehouseId")), "transferNotes": data.notes})
+    elif action == "receive_at_destination":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only destination warehouse staff can receive a transfer")
+        if current != ORDER_TRANSFER_IN_TRANSIT:
+            raise HTTPException(status_code=400, detail="No warehouse transfer is in transit")
+        if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
+            raise HTTPException(status_code=400, detail="Enter destination received quantity")
+        update.update({"status": ORDER_DESTINATION_RECEIVED, "destinationReceivedQuantityKg": round(data.receivedQuantityKg, 2), "destinationReceivedAt": datetime.utcnow(), "destinationReceivedBy": str(current_user.get("_id")), "destinationQualityCheck": data.qualityCheck or "pending", "destinationWarehouseNotes": data.notes})
     elif action == "dispatch_to_buyer":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch B2B orders")
-        if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed":
-            raise HTTPException(status_code=400, detail="Warehouse must receive and pass quality inspection before dispatch")
+        valid_current = current == ORDER_WAREHOUSE_RECEIVED and str(order.get("sourceWarehouseId") or "") == str(order.get("destinationWarehouseId") or "") or current == ORDER_DESTINATION_RECEIVED
+        quality = order.get("destinationQualityCheck") if current == ORDER_DESTINATION_RECEIVED else order.get("warehouseQualityCheck")
+        if not valid_current or quality != "passed":
+            raise HTTPException(status_code=400, detail="The correct warehouse must receive and pass quality inspection before final delivery")
         update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
     elif action == "confirm_delivery":
         if role not in allowed_delivery:
