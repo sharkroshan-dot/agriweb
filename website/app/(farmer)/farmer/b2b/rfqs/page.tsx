@@ -270,29 +270,6 @@ export default function FarmerB2bRfqsPage() {
     retry: 2,
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="mx-auto max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
-        <div className="flex items-start gap-3">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-          <div className="flex-1">
-            <h2 className="font-semibold">Business RFQs could not be loaded</h2>
-            <p className="mt-1 text-sm">{(error as any)?.message || "The RFQ request failed. Check that the backend is running and your farmer session is valid."}</p>
-            <Button className="mt-3" variant="outline" onClick={() => refetch()}>Retry loading RFQs</Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const allRfqs = Array.isArray(rfqData?.rfqs) ? rfqData.rfqs : [];
 
   const scopeCounts: Record<string, number> = {
@@ -318,6 +295,29 @@ export default function FarmerB2bRfqsPage() {
     if (oneOff.length === 0 && recurring.length > 0) setView("recurring");
     hasAutoSelectedView.current = true;
   }, [isLoading, isError, oneOff.length, recurring.length]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-40 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-900">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div className="flex-1">
+            <h2 className="font-semibold">Business RFQs could not be loaded</h2>
+            <p className="mt-1 text-sm">{(error as any)?.message || "The RFQ request failed. Check that the backend is running and your farmer session is valid."}</p>
+            <Button className="mt-3" variant="outline" onClick={() => refetch()}>Retry loading RFQs</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const renderRfq = (r: any) => (
     <div key={r.id} className="space-y-2">
