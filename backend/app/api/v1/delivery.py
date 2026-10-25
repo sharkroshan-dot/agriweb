@@ -2646,15 +2646,32 @@ async def get_my_pickup_routes(
     # page needs completed routes to calculate Today/Yesterday pending/completed
     # summaries accurately. Keep unfinished older routes visible as carryovers.
     partner_id = str(profile["_id"])
-    routes = await warehouse_pickup_route_repository.get_by_partner(partner_id)
+    user_id = str(current_user["_id"])
+    # Some older assignments stored the delivery profile ID, while newer UI
+    # selections can carry the authenticated user ID. Read routes by both IDs
+    # and de-duplicate them; this is a compatibility bridge, not a permission bypass.
+    routes_by_id = {}
+    for candidate_id in {partner_id, user_id}:
+        if ObjectId.is_valid(candidate_id):
+            for route in await warehouse_pickup_route_repository.get_by_partner(candidate_id):
+                routes_by_id[str(route.get("_id"))] = route
+    routes = list(routes_by_id.values())
 
-    # Repair legacy B2B assignments where the warehouse order was marked assigned
-    # but the corresponding partner-visible route was never persisted.
-    assigned_orders = await order_repository.find_many({
-        "pickupTeam": partner_id,
-        "status": "ready_for_pickup",
-        "deletedAt": None,
-    }, skip=0, limit=100, sort=[("pickupAssignedAt", -1)])
+    # B2B orders live in b2b_orders, not the retail orders collection. Repair
+    # legacy assignments from the correct collection so existing assignments
+    # become visible without asking warehouse staff to reassign them.
+    assigned_orders = []
+    partner_object_ids = [ObjectId(x) for x in {partner_id, user_id} if ObjectId.is_valid(x)]
+    partner_strings = list({partner_id, user_id})
+    if MongoDB.db is not None:
+        assigned_orders = await MongoDB.db.b2b_orders.find({
+            "status": "ready_for_pickup",
+            "deletedAt": None,
+            "$or": [
+                {"pickupTeam": {"$in": partner_object_ids}},
+                {"pickupTeam": {"$in": partner_strings}},
+            ],
+        }).sort("pickupAssignedAt", -1).to_list(length=100)
     existing_b2b_ids = {
         str(route.get("b2bOrderId") or "")
         for route in routes
@@ -2666,9 +2683,14 @@ async def get_my_pickup_routes(
             continue
         warehouse_id = str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or order.get("sourceWarehouseId") or order.get("warehouseId") or "")
         if not ObjectId.is_valid(warehouse_id):
+            logger.warning("Skipping B2B pickup route repair for order %s: missing valid pickup warehouse", order_id)
             continue
         membership = await warehouse_pickup_team_repository.get_membership(warehouse_id, partner_id)
         if not membership:
+            membership = await warehouse_pickup_team_repository.get_membership(warehouse_id, user_id)
+        # The persisted assignment itself is authoritative for legacy rows; still
+        # require a valid registered warehouse before creating the route.
+        if not membership and not (str(order.get("pickupTeam") or "") in {partner_id, user_id}):
             continue
         farmer_id = str(order.get("farmerId") or "")
         farmer_doc = await FarmerService.get_farmer_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
