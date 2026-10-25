@@ -318,6 +318,10 @@ async def _available_delivery_balance(partner_id: str, user_id: str) -> float:
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# B2B fulfillment orders live in their own collection; do not update them through
+# order_repository (the customer marketplace orders collection).
+b2b_order_repository = BaseRepository("b2b_orders")
+
 
 @router.post("/availability", response_model=dict)
 async def delivery_availability(
@@ -3036,16 +3040,15 @@ async def update_my_pickup_route_status(
     stops = route.get("stops") or []
 
     async def sync_order_status(job: dict, collection_status: str, collected_quantity: Optional[float] = None):
-        # B2B collection records can carry both the business-order document ID
-        # and the linked/original order ID. The warehouse fulfillment page reads
-        # the B2B document, so update that record explicitly rather than relying
-        # on orderId always pointing to the same document.
-        # B2B collection records have used several collectionType labels over
-        # time (for example "bulk_harvest_pickup"). If b2bOrderId is present,
-        # always prefer it over the linked commerce order ID.
-        primary_order_id = str(job.get("b2bOrderId") or job.get("orderId") or "")
+        # B2B orders live in b2b_orders, not the customer orders collection.
+        # Resolve the B2B ID separately so pickup progress updates the exact
+        # document displayed by /b2b/warehouse/fulfillment.
+        b2b_order_id = str(job.get("b2bOrderId") or "")
+        linked_order_id = str(job.get("orderId") or "")
+        is_b2b_collection = bool(b2b_order_id) or str(job.get("collectionType") or "").strip().lower() == "b2b"
+        primary_order_id = b2b_order_id or linked_order_id
         order_ids = list(dict.fromkeys(
-            str(value) for value in (primary_order_id, job.get("orderId"), job.get("b2bOrderId"))
+            str(value) for value in (primary_order_id, linked_order_id, b2b_order_id)
             if value and ObjectId.is_valid(str(value))
         ))
         if not order_ids:
@@ -3064,10 +3067,6 @@ async def update_my_pickup_route_status(
             "updatedAt": datetime.utcnow(),
         }
         # Keep the B2B fulfillment queue in sync with the pickup team's route.
-        # Without this, the farm collection job can be collected/departed while
-        # the original B2B order remains "ready_for_pickup" and the warehouse UI
-        # incorrectly continues to show the pickup-assignment controls.
-        is_b2b_collection = bool(job.get("b2bOrderId")) or str(job.get("collectionType") or "").strip().lower() == "b2b"
         if is_b2b_collection and collection_status in ("collected", "departed_farm", "arrived_warehouse"):
             order_update["status"] = "picked_up"
             order_update.setdefault("pickedUpAt", datetime.utcnow())
@@ -3077,8 +3076,15 @@ async def update_my_pickup_route_status(
                 "deliveryDispatchStatus": "in_transit_to_warehouse",
                 "deliveryDispatchAt": datetime.utcnow(),
             })
-        for candidate_order_id in order_ids:
-            await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
+        if is_b2b_collection and ObjectId.is_valid(b2b_order_id):
+            # Critical fix: this is the collection the B2B warehouse page reads.
+            await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
+            # If a separate customer-order document is linked, update it too.
+            if ObjectId.is_valid(linked_order_id) and linked_order_id != b2b_order_id:
+                await order_repository.update({"_id": ObjectId(linked_order_id)}, order_update)
+        else:
+            for candidate_order_id in order_ids:
+                await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
         titles = {
             "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
             "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
@@ -3087,7 +3093,8 @@ async def update_my_pickup_route_status(
             "arrived_warehouse": ("Shipment arrived at warehouse", "The pickup route returned to the warehouse. Receiving and quality inspection are now required."),
         }
         title, message = titles[collection_status]
-        await order_repository.append_tracking_event(
+        tracking_repository = b2b_order_repository if is_b2b_collection else order_repository
+        await tracking_repository.append_tracking_event(
             order_id,
             f"collection_{collection_status}",
             title,
@@ -3096,7 +3103,7 @@ async def update_my_pickup_route_status(
             actor_role="delivery",
             metadata={"routeId": route_id, "collectionId": str(job.get("_id"))},
         )
-        refreshed = await order_repository.get_by_id(order_id)
+        refreshed = await tracking_repository.get_by_id(order_id)
         if refreshed:
             try:
                 await NotificationService.send_order_workflow_update(
