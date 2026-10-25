@@ -4533,7 +4533,20 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
             {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]},
         ]
     }
-    candidates = await MongoDB.get_collection("orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=500)
+    # B2B logistics orders are stored in b2b_orders by the B2B API; legacy
+    # business/RFQ orders may exist in orders. Query both collections.
+    candidates = []
+    for collection_name in ("b2b_orders", "orders"):
+        collection = MongoDB.get_collection(collection_name)
+        candidates.extend(await collection.find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=500))
+    # The B2B collection is authoritative even when a record's older schema
+    # lacks explicit business marker fields, so include assigned B2B records
+    # by status and assignment regardless of marker presence.
+    b2b_query = {
+        "status": {"$in": ["in_transit", "delivered"]},
+        "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+    }
+    candidates.extend(await MongoDB.get_collection("b2b_orders").find(b2b_query).sort("finalDeliveryAssignedAt", -1).to_list(length=500))
     assigned_id_strings = {str(value) for value in assigned_values if value is not None}
     orders = []
     for candidate in candidates:
@@ -4547,8 +4560,12 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
         ]
         if any(str(value) in assigned_id_strings for value in assignment_values if value not in (None, "")):
             orders.append(candidate)
-    items = []
+    # De-duplicate records because B2B records can be present in both queries.
+    unique_orders = {}
     for order in orders:
+        unique_orders[str(order.get("_id") or "")] = order
+    items = []
+    for order in unique_orders.values():
         oid = str(order.get("_id") or "")
         items.append({
             "id": oid,
@@ -4581,7 +4598,7 @@ async def update_my_b2b_delivery_order_status(
         raise HTTPException(status_code=403, detail="Only delivery partners can update B2B delivery")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid B2B order ID")
-    orders = MongoDB.get_collection("orders")
+    orders = MongoDB.get_collection("b2b_orders")
     order = await orders.find_one({"_id": ObjectId(order_id), "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]})
     if not order:
         raise HTTPException(status_code=404, detail="B2B order not found")
