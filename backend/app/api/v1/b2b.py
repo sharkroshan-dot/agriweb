@@ -1521,6 +1521,20 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     return {"success": True, "data": {"orders": orders, "count": len(orders), "summary": summary}}
 
 
+@router.post("/warehouse/fulfillment/{order_id}/route-recommendation")
+async def recommend_b2b_fulfillment_route_post(
+    order_id: str,
+    body: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """POST-compatible route recommendation for clients using body-validating API middleware."""
+    # The order ID is taken from the path; require an explicit JSON object to avoid
+    # the middleware's "body field required" validation error on this action.
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="A JSON object body is required")
+    return await recommend_b2b_fulfillment_route(order_id=order_id, current_user=current_user)
+
+
 @router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
 async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optional[Tuple[float, float]], Optional[Dict[str, Any]]]:
     """Resolve legacy B2B delivery addresses to coordinates and persist the result."""
