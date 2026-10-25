@@ -1560,6 +1560,7 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
         logger.exception("Failed to geocode B2B delivery address for order %s", order.get("_id"))
     return None, None
 
+@router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
 async def recommend_b2b_fulfillment_route(
     order_id: str,
     current_user: dict = Depends(get_current_user),
