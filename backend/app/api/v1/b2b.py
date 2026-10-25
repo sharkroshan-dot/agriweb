@@ -1660,6 +1660,36 @@ async def update_b2b_warehouse_fulfillment(
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Destination quality inspection must be explicitly marked passed or failed")
         update.update({"status": ORDER_DESTINATION_RECEIVED, "destinationReceivedQuantityKg": round(data.receivedQuantityKg, 2), "destinationReceivedAt": datetime.utcnow(), "destinationReceivedBy": str(current_user.get("_id")), "destinationQualityCheck": data.qualityCheck, "destinationWarehouseNotes": data.notes})
+    elif action == "complete_consolidation":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only warehouse staff can complete B2B consolidation")
+        if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed" or order.get("fulfillmentRoute") != "nearby_multi_farmer":
+            raise HTTPException(status_code=400, detail="This portion must be received, quality-passed, and routed to Nearby — Multiple Farmers")
+        rfq_id = order.get("rfqId")
+        business_id = order.get("businessUserId")
+        if not rfq_id or not business_id:
+            raise HTTPException(status_code=400, detail="The original RFQ and business buyer are required to identify all portions")
+        portions = await order_repo.find_many({"rfqId": rfq_id, "businessUserId": business_id, "deletedAt": None}, limit=500)
+        if len(portions) < 2:
+            raise HTTPException(status_code=400, detail="This RFQ has fewer than two farmer portions; use Nearby — Single Farmer")
+        outstanding = [
+            p for p in portions
+            if p.get("status") != ORDER_WAREHOUSE_RECEIVED
+            or p.get("warehouseQualityCheck") != "passed"
+            or p.get("fulfillmentRoute") != "nearby_multi_farmer"
+        ]
+        if outstanding:
+            raise HTTPException(status_code=409, detail=f"Consolidation blocked: {len(outstanding)} farmer portion(s) are not yet received, quality-passed, and routed for consolidation")
+        now = datetime.utcnow()
+        for portion in portions:
+            await order_repo.update({"_id": portion["_id"]}, {
+                "fulfillmentRoute": "nearby_multi_farmer",
+                "consolidationCompletedAt": now,
+                "consolidationCompletedBy": str(current_user.get("_id")),
+                "consolidationStatus": "completed",
+                "updatedAt": now,
+            })
+        return {"success": True, "message": "All required B2B farmer portions are received and quality-passed; consolidation completed", "orderId": str(order["_id"]), "portionCount": len(portions)}
     elif action == "dispatch_to_buyer":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch B2B orders")
