@@ -4505,15 +4505,27 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
     assigned_values: List[Any] = [user_id]
     if ObjectId.is_valid(user_id):
         assigned_values.append(ObjectId(user_id))
-    profile = await MongoDB.get_collection("delivery_partners").find_one({
-        "$or": [
-            {"userId": {"$in": assigned_values}},
-            {"user_id": {"$in": assigned_values}},
-        ],
-        "deletedAt": {"$in": [None, False, ""]},
-    })
-    if profile and profile.get("_id") is not None:
-        assigned_values.extend([profile["_id"], str(profile["_id"])])
+    # Use the same profile resolver as the rest of the delivery-partner API.
+    # Legacy profiles may store userId as a string/ObjectId or use a service-
+    # specific lookup that a raw collection query can miss.
+    try:
+        profile = await DeliveryService.get_delivery_partner(user_id)
+    except Exception:
+        profile = None
+    if not profile:
+        profile = await MongoDB.get_collection("delivery_partners").find_one({
+            "$or": [
+                {"userId": {"$in": assigned_values}},
+                {"user_id": {"$in": assigned_values}},
+                {"user": {"$in": assigned_values}},
+            ],
+            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+        })
+    if profile:
+        for key in ("_id", "id", "userId", "user_id"):
+            value = profile.get(key)
+            if value is not None and not isinstance(value, dict):
+                assigned_values.extend([value, str(value)])
     # B2B orders may have been assigned using either the user ID or the
     # registered delivery-partner profile ID, and older dispatch records use
     # different assignment field names. Fetch only active B2B deliveries, then
@@ -4553,12 +4565,20 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
         assignment_values = [
             candidate.get("finalDeliveryPartner"),
             candidate.get("finalDeliveryPartnerId"),
+            candidate.get("finalDeliveryPartnerUserId"),
             candidate.get("deliveryPartner"),
             candidate.get("deliveryPartnerId"),
+            candidate.get("deliveryPartnerUserId"),
             candidate.get("assignedDeliveryPartnerId"),
             candidate.get("assignedDeliveryPartner"),
         ]
-        if any(str(value) in assigned_id_strings for value in assignment_values if value not in (None, "")):
+        normalized_assignments = []
+        for value in assignment_values:
+            if isinstance(value, dict):
+                normalized_assignments.extend(value.get(key) for key in ("_id", "id", "userId", "user_id", "deliveryPartnerId"))
+            else:
+                normalized_assignments.append(value)
+        if any(str(value) in assigned_id_strings for value in normalized_assignments if value not in (None, "")):
             orders.append(candidate)
     # De-duplicate records because B2B records can be present in both queries.
     unique_orders = {}
