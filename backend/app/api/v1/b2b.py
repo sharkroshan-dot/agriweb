@@ -2139,6 +2139,10 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only destination warehouse staff can receive a transfer")
         if current != ORDER_TRANSFER_IN_TRANSIT:
             raise HTTPException(status_code=400, detail="No warehouse transfer is in transit")
+        transfer_source_id = str(order.get("sourceWarehouseId") or order.get("receivedAtWarehouseId") or order.get("warehouseId") or "")
+        transfer_destination_id = str(order.get("destinationWarehouseId") or "")
+        if not transfer_source_id or not transfer_destination_id or transfer_source_id == transfer_destination_id:
+            raise HTTPException(status_code=409, detail="Invalid transfer record: source and destination must be different registered warehouses. Correct the destination warehouse assignment before receiving this transfer.")
         if str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "") and str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "") != str(order.get("destinationWarehouseId") or "") and role not in ("admin", "super_admin"):
             raise HTTPException(status_code=403, detail="Only the destination warehouse can receive this transfer")
         if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
