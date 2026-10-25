@@ -84,7 +84,182 @@ export default function B2BFulfillmentPage() {
 
         {o.status === "picked_up" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><PackageCheck className="mr-2 inline h-4 w-4"/>Warehouse receipt</h3><p className="text-sm text-slate-600">Record the physical quantity and quality result. Failed quality must block dispatch.</p><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Actual received quantity (kg)</label><Input type="number" min="0.01" step="0.01" value={f.receivedQuantityKg ?? String(o.packedQuantityKg || o.quantityKg || "")} onChange={e => setForm(o.id, { receivedQuantityKg: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">Quality inspection</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.qualityCheck || "passed"} onChange={e => setForm(o.id, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div></div><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Receipt and inspection notes (optional)"/><Button disabled={mutation.isPending || !(Number(f.receivedQuantityKg ?? o.packedQuantityKg ?? o.quantityKg) > 0)} onClick={() => act(o.id, { action: "receive_stock", receivedQuantityKg: Number(f.receivedQuantityKg ?? o.packedQuantityKg ?? o.quantityKg), qualityCheck: f.qualityCheck || "passed", notes: f.notes })}><ClipboardCheck className="mr-2 h-4 w-4"/>Confirm Warehouse Receipt</Button></section>}
 
-        {o.status === "warehouse_received" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><Warehouse className="mr-2 inline h-4 w-4"/>Fulfillment routing — required before dispatch</h3>{o.warehouseQualityCheck !== "passed" ? <p className="text-sm text-red-700">Routing and dispatch are blocked until source warehouse quality is passed.</p> : <><p className="text-sm text-slate-600">Choose the route first. The system must not send the order to final delivery until the selected route's required handoffs are complete.</p><div><label className="mb-1 block text-sm font-medium">Fulfillment route</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.fulfillmentRoute || o.fulfillmentRoute || "")} onChange={e => setForm(o.id, { fulfillmentRoute: e.target.value })}><option value="">Select fulfillment route</option><option value="nearby_single_farmer">Nearby — single farmer</option><option value="nearby_multi_farmer">Nearby — multiple farmers (consolidation required)</option><option value="long_distance">Long distance — destination warehouse transfer</option></select></div>{f.fulfillmentRoute === "nearby_single_farmer" && <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">This route can proceed to delivery assignment after the route is saved.</p>}{f.fulfillmentRoute === "nearby_multi_farmer" && <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><p>Every portion linked to this RFQ must be received, quality-passed, and routed to Nearby — Multiple Farmers. The backend checks all sibling portions before marking consolidation complete.</p>{o.fulfillmentRoute === "nearby_multi_farmer" && <Button variant="outline" disabled={mutation.isPending} onClick={() => act(o.id, { action: "complete_consolidation", notes: f.notes })}>Verify Portions &amp; Complete Consolidation</Button>}</div>}{f.fulfillmentRoute === "long_distance" && <><p className="text-sm text-slate-600">Choose an eligible destination warehouse before transfer. The warehouse ID must refer to an active warehouse with sufficient capacity.</p><Button variant="outline" disabled={mutation.isPending} onClick={() => setDestinationOrderId(o.id)}>Load Eligible Destination Warehouses</Button>{destinationOrderId === o.id && <div className="space-y-2"><label className="block text-sm font-medium">Eligible destination warehouse</label>{destinationQuery.isLoading ? <p className="text-sm text-slate-500">Checking warehouse status, route and available capacity…</p> : destinationQuery.isError ? <p className="text-sm text-red-700">Could not verify destination warehouses. Check warehouse location and capacity data.</p> : <select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.destinationWarehouseId || o.destinationWarehouseId || "")} onChange={e => setForm(o.id, { destinationWarehouseId: e.target.value })}><option value="">Select eligible destination warehouse</option>{destinationWarehouses.map((w: any) => <option key={w.id} value={w.id}>{w.name} · {w.city || w.district || "Location"} · {w.availableCapacityKg} kg free · {w.distanceToBusinessKm} km to business</option>)}</select>}{!destinationQuery.isLoading && !destinationQuery.isError && !destinationWarehouses.length && <p className="text-sm text-amber-800">No eligible warehouse found. Verify active status, available capacity, and coordinates for the business delivery route.</p>}</div></> }<Button disabled={mutation.isPending || !f.fulfillmentRoute || (f.fulfillmentRoute === "long_distance" && (!String(f.destinationWarehouseId || "").trim() || !destinationWarehouses.some((w: any) => String(w.id) === String(f.destinationWarehouseId))))} onClick={() => act(o.id, { action: "set_fulfillment_route", fulfillmentRoute: f.fulfillmentRoute, destinationWarehouseId: f.fulfillmentRoute === "long_distance" ? f.destinationWarehouseId : undefined, notes: f.notes })}>Save Fulfillment Route</Button>{(f.fulfillmentRoute || o.fulfillmentRoute) === "long_distance" && o.fulfillmentRoute === "long_distance" && <Button disabled={mutation.isPending || !o.destinationWarehouseId || String(o.destinationWarehouseId) === String(o.sourceWarehouseId)} onClick={() => act(o.id, { action: "dispatch_to_destination", notes: f.notes })}>Dispatch to Destination Warehouse</Button>}{((f.fulfillmentRoute || o.fulfillmentRoute) === "nearby_single_farmer" || ((f.fulfillmentRoute || o.fulfillmentRoute) === "nearby_multi_farmer" && Boolean(o.consolidationCompletedAt))) && <><div><label className="mb-1 block text-sm font-medium">Assign delivery team</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={String(f.deliveryPartner || o.finalDeliveryPartner || "")} onChange={e => setForm(o.id, { deliveryPartner: e.target.value })}><option value="">Select a registered team</option>{teams.map((t: any) => <option key={String(t.deliveryPartnerId || t.id || t._id)} value={String(t.deliveryPartnerId || t.id || t._id)}>{t.name || t.fullName || "Delivery team"}{t.vehicleType ? ` · ${t.vehicleType}` : ""}{t.vehicleNumber ? ` · ${t.vehicleNumber}` : ""}</option>)}</select></div><Button disabled={mutation.isPending || !f.deliveryPartner || !teams.some((t: any) => String(t.deliveryPartnerId || t.id || t._id) === String(f.deliveryPartner))} onClick={() => act(o.id, { action: "dispatch_to_buyer", deliveryPartner: f.deliveryPartner, notes: f.notes })}>{(f.fulfillmentRoute || o.fulfillmentRoute) === "nearby_multi_farmer" ? "Assign Delivery Team & Dispatch Consolidated Order" : "Assign Delivery Team & Dispatch"}</Button></>}</>}</section>}
+        {o.status === "warehouse_received" && (
+          <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
+            <h3 className="font-medium">
+              <Warehouse className="mr-2 inline h-4 w-4" />
+              Fulfillment routing — required before dispatch
+            </h3>
+            {o.warehouseQualityCheck !== "passed" ? (
+              <p className="text-sm text-red-700">
+                Routing and dispatch are blocked until source warehouse quality is passed.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                  Choose the route first. The system must not send the order to final delivery until the selected route's required handoffs are complete.
+                </p>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">Fulfillment route</label>
+                  <select
+                    className="h-10 w-full rounded-md border bg-white px-3 text-sm"
+                    value={String(f.fulfillmentRoute || o.fulfillmentRoute || "")}
+                    onChange={(e) => setForm(o.id, { fulfillmentRoute: e.target.value })}
+                  >
+                    <option value="">Select fulfillment route</option>
+                    <option value="nearby_single_farmer">Nearby — single farmer</option>
+                    <option value="nearby_multi_farmer">Nearby — multiple farmers (consolidation required)</option>
+                    <option value="long_distance">Long distance — destination warehouse transfer</option>
+                  </select>
+                </div>
+
+                {f.fulfillmentRoute === "nearby_single_farmer" && (
+                  <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                    This route can proceed to delivery assignment after the route is saved.
+                  </p>
+                )}
+
+                {f.fulfillmentRoute === "nearby_multi_farmer" && (
+                  <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    <p>
+                      Every portion linked to this RFQ must be received, quality-passed, and routed to Nearby — Multiple Farmers. The backend checks all sibling portions before marking consolidation complete.
+                    </p>
+                    {o.fulfillmentRoute === "nearby_multi_farmer" && (
+                      <Button
+                        variant="outline"
+                        disabled={mutation.isPending}
+                        onClick={() => act(o.id, { action: "complete_consolidation", notes: f.notes })}
+                      >
+                        Verify Portions &amp; Complete Consolidation
+                      </Button>
+                    )}
+                  </div>
+                )}
+
+                {f.fulfillmentRoute === "long_distance" && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-slate-600">
+                      Choose an eligible destination warehouse before transfer. The backend validates active status, route coordinates and available capacity.
+                    </p>
+                    <Button
+                      variant="outline"
+                      disabled={mutation.isPending}
+                      onClick={() => setDestinationOrderId(o.id)}
+                    >
+                      Load Eligible Destination Warehouses
+                    </Button>
+                    {destinationOrderId === o.id && (
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium">Eligible destination warehouse</label>
+                        {destinationQuery.isLoading ? (
+                          <p className="text-sm text-slate-500">Checking warehouse status, route and available capacity…</p>
+                        ) : destinationQuery.isError ? (
+                          <p className="text-sm text-red-700">
+                            Could not verify destination warehouses. Check warehouse location and capacity data.
+                          </p>
+                        ) : (
+                          <select
+                            className="h-10 w-full rounded-md border bg-white px-3 text-sm"
+                            value={String(f.destinationWarehouseId || o.destinationWarehouseId || "")}
+                            onChange={(e) => setForm(o.id, { destinationWarehouseId: e.target.value })}
+                          >
+                            <option value="">Select eligible destination warehouse</option>
+                            {destinationWarehouses.map((w: any) => (
+                              <option key={String(w.id)} value={String(w.id)}>
+                                {w.name} · {w.city || w.district || "Location"} · {w.availableCapacityKg} kg free · {w.distanceToBusinessKm} km to business
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        {!destinationQuery.isLoading && !destinationQuery.isError && !destinationWarehouses.length && (
+                          <p className="text-sm text-amber-800">
+                            No eligible warehouse found. Verify active status, available capacity, and coordinates for the business delivery route.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  disabled={
+                    mutation.isPending ||
+                    !f.fulfillmentRoute ||
+                    (f.fulfillmentRoute === "long_distance" &&
+                      (!String(f.destinationWarehouseId || "").trim() ||
+                        !destinationWarehouses.some((w: any) => String(w.id) === String(f.destinationWarehouseId))))
+                  }
+                  onClick={() =>
+                    act(o.id, {
+                      action: "set_fulfillment_route",
+                      fulfillmentRoute: f.fulfillmentRoute,
+                      destinationWarehouseId:
+                        f.fulfillmentRoute === "long_distance" ? f.destinationWarehouseId : undefined,
+                      notes: f.notes,
+                    })
+                  }
+                >
+                  Save Fulfillment Route
+                </Button>
+
+                {(f.fulfillmentRoute || o.fulfillmentRoute) === "long_distance" &&
+                  o.fulfillmentRoute === "long_distance" && (
+                    <Button
+                      disabled={mutation.isPending || !o.destinationWarehouseId || String(o.destinationWarehouseId) === String(o.sourceWarehouseId)}
+                      onClick={() => act(o.id, { action: "dispatch_to_destination", notes: f.notes })}
+                    >
+                      Dispatch to Destination Warehouse
+                    </Button>
+                  )}
+
+                {((f.fulfillmentRoute || o.fulfillmentRoute) === "nearby_single_farmer" ||
+                  ((f.fulfillmentRoute || o.fulfillmentRoute) === "nearby_multi_farmer" &&
+                    Boolean(o.consolidationCompletedAt))) && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1 block text-sm font-medium">Assign delivery team</label>
+                      <select
+                        className="h-10 w-full rounded-md border bg-white px-3 text-sm"
+                        value={String(f.deliveryPartner || o.finalDeliveryPartner || "")}
+                        onChange={(e) => setForm(o.id, { deliveryPartner: e.target.value })}
+                      >
+                        <option value="">Select a registered team</option>
+                        {teams.map((t: any) => (
+                          <option
+                            key={String(t.deliveryPartnerId || t.id || t._id)}
+                            value={String(t.deliveryPartnerId || t.id || t._id)}
+                          >
+                            {t.name || t.fullName || "Delivery team"}
+                            {t.vehicleType ? ` · ${t.vehicleType}` : ""}
+                            {t.vehicleNumber ? ` · ${t.vehicleNumber}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button
+                      disabled={
+                        mutation.isPending ||
+                        !f.deliveryPartner ||
+                        !teams.some((t: any) => String(t.deliveryPartnerId || t.id || t._id) === String(f.deliveryPartner))
+                      }
+                      onClick={() =>
+                        act(o.id, {
+                          action: "dispatch_to_buyer",
+                          deliveryPartner: f.deliveryPartner,
+                          notes: f.notes,
+                        })
+                      }
+                    >
+                      {(f.fulfillmentRoute || o.fulfillmentRoute) === "nearby_multi_farmer"
+                        ? "Assign Delivery Team & Dispatch Consolidated Order"
+                        : "Assign Delivery Team & Dispatch"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {o.status === "transfer_in_transit" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4"><h3 className="font-medium"><Warehouse className="mr-2 inline h-4 w-4"/>Destination warehouse receipt</h3><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">Actual received quantity (kg)</label><Input type="number" min="0.01" step="0.01" value={f.receivedQuantityKg ?? String(o.receivedQuantityKg || o.quantityKg || "")} onChange={e => setForm(o.id, { receivedQuantityKg: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">Quality inspection</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.qualityCheck || "passed"} onChange={e => setForm(o.id, { qualityCheck: e.target.value })}><option value="passed">Passed</option><option value="failed">Failed</option></select></div></div><Input value={f.notes || ""} onChange={e => setForm(o.id, { notes: e.target.value })} placeholder="Destination receipt notes (optional)"/><Button disabled={mutation.isPending || !(Number(f.receivedQuantityKg ?? o.receivedQuantityKg ?? o.quantityKg) > 0)} onClick={() => act(o.id, { action: "receive_at_destination", receivedQuantityKg: Number(f.receivedQuantityKg ?? o.receivedQuantityKg ?? o.quantityKg), qualityCheck: f.qualityCheck || "passed", notes: f.notes })}>Confirm Destination Receipt</Button></section>}
 
