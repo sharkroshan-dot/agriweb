@@ -45,6 +45,7 @@ from app.repositories.farmer_repository import farmer_repository
 from app.repositories.product_repository import product_repository
 from app.services.inventory_service import InventoryService
 from app.services.payment_service import PaymentService
+from app.services.order_service import geocode_address
 from app.services.notification_service import NotificationService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
@@ -1521,6 +1522,37 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
 
 
 @router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
+async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optional[Tuple[float, float]], Optional[Dict[str, Any]]]:
+    """Resolve legacy B2B delivery addresses to coordinates and persist the result."""
+    candidates: List[Dict[str, Any]] = []
+    for key in ("deliveryLocation", "deliveryAddress", "businessAddress", "shippingAddress", "address"):
+        value = order.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+        elif isinstance(value, str) and value.strip():
+            candidates.append({"address_line1": value.strip()})
+    for key, target in (("deliveryCity", "city"), ("deliveryDistrict", "district"), ("deliveryState", "state"), ("deliveryPostalCode", "zip_code"), ("deliveryPincode", "zip_code"), ("deliveryCountry", "country")):
+        if order.get(key):
+            if not candidates:
+                candidates.append({})
+            candidates[0][target] = str(order[key])
+    for address in candidates:
+        coords = _location_coords_from_doc({"location": address}) or _location_coords_from_doc(address)
+        if coords:
+            return coords, {"type": "Point", "coordinates": [coords[0], coords[1]]}
+    raw_address = next((order.get(k) for k in ("deliveryAddress", "businessAddress", "shippingAddress", "address") if isinstance(order.get(k), str) and order.get(k).strip()), "")
+    city = order.get("deliveryCity") or order.get("city") or order.get("deliveryDistrict") or order.get("district") or ""
+    state = order.get("deliveryState") or order.get("state") or "Tamil Nadu"
+    country = order.get("deliveryCountry") or order.get("country") or "India"
+    try:
+        geocoded = await geocode_address({"address_line1": str(raw_address or ""), "address_line2": str(order.get("deliveryAddressLine2") or ""), "city": str(city), "state": str(state), "zip_code": str(order.get("deliveryPostalCode") or order.get("deliveryPincode") or order.get("pincode") or ""), "country": str(country)})
+        coords = _location_coords_from_doc({"location": geocoded or {}})
+        if coords:
+            return coords, geocoded
+    except Exception:
+        logger.exception("Failed to geocode B2B delivery address for order %s", order.get("_id"))
+    return None, None
+
 async def recommend_b2b_fulfillment_route(
     order_id: str,
     current_user: dict = Depends(get_current_user),
@@ -1538,9 +1570,12 @@ async def recommend_b2b_fulfillment_route(
         raise HTTPException(status_code=400, detail="Automatic routing is available after warehouse receipt")
     if order.get("warehouseQualityCheck") != "passed":
         raise HTTPException(status_code=400, detail="Quality must pass before route recommendation")
-    buyer_coords = _location_coords_from_doc({"location": order.get("deliveryLocation")}) or _location_coords_from_doc(order)
+    buyer_coords, geocoded_location = await _resolve_b2b_delivery_location(order)
     if not buyer_coords:
-        return {"success": True, "data": {"available": False, "reason": "Business delivery address needs valid coordinates before automatic routing."}}
+        return {"success": True, "data": {"available": False, "reason": "The business delivery address could not be geocoded. Add a complete address with city, district and PIN code, then refresh automatic routing."}}
+    if geocoded_location and not _location_coords_from_doc({"location": order.get("deliveryLocation")}) and not _location_coords_from_doc(order):
+        await order_repo.update({"_id": order["_id"]}, {"deliveryLocation": geocoded_location, "deliveryCoordinatesResolvedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
+        order["deliveryLocation"] = geocoded_location
     source_id = str(order.get("sourceWarehouseId") or "")
     source = await warehouse_repo.find_one({"_id": ObjectId(source_id), "deletedAt": None}) if ObjectId.is_valid(source_id) else None
     if not source:
