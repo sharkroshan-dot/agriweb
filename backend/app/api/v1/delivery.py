@@ -2680,12 +2680,25 @@ async def get_my_pickup_routes(
             "status": {"$in": ["ready_for_pickup", "picked_up"]},
             "deletedAt": None,
             "$or": [
-                {"pickupTeam": {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}},
-                {"pickupTeam": {"$in": assignment_strings}},
-                {"pickupPartnerId": {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}},
-                {"pickupPartnerId": {"$in": assignment_strings}},
-                {"assignedPickupPartnerId": {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}},
-                {"assignedPickupPartnerId": {"$in": assignment_strings}},
+                # Legacy and current B2B assignment field names. A route should
+                # be recoverable regardless of which supported field persisted
+                # the delivery partner or approved pickup membership.
+                *[
+                    {field: {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}}
+                    for field in (
+                        "pickupTeam", "pickupPartnerId", "assignedPickupPartnerId",
+                        "pickupAssignedPartnerId", "pickupDeliveryPartnerId",
+                        "assignedDeliveryPartnerId", "deliveryPartnerId",
+                    )
+                ],
+                *[
+                    {field: {"$in": assignment_strings}}
+                    for field in (
+                        "pickupTeam", "pickupPartnerId", "assignedPickupPartnerId",
+                        "pickupAssignedPartnerId", "pickupDeliveryPartnerId",
+                        "assignedDeliveryPartnerId", "deliveryPartnerId",
+                    )
+                ],
             ],
         }).sort("pickupAssignedAt", -1).to_list(length=100)
     existing_b2b_ids = {
@@ -2697,7 +2710,20 @@ async def get_my_pickup_routes(
         order_id = str(order.get("_id") or "")
         if not order_id or order_id in existing_b2b_ids:
             continue
-        warehouse_id = str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+        warehouse_id = str(
+            order.get("pickupWarehouseId")
+            or order.get("assignedWarehouseId")
+            or order.get("sourceWarehouseId")
+            or order.get("sourceWarehouse")
+            or order.get("warehouseId")
+            or order.get("fulfillmentWarehouseId")
+            or ""
+        )
+        # Some legacy documents persist the warehouse as a nested reference.
+        if not ObjectId.is_valid(warehouse_id):
+            warehouse_ref = order.get("pickupWarehouse") or order.get("assignedWarehouse") or order.get("sourceWarehouse")
+            if isinstance(warehouse_ref, dict):
+                warehouse_id = str(warehouse_ref.get("_id") or warehouse_ref.get("id") or warehouse_ref.get("warehouseId") or "")
         if not ObjectId.is_valid(warehouse_id):
             logger.warning("Skipping B2B pickup route repair for order %s: missing valid pickup warehouse", order_id)
             continue
