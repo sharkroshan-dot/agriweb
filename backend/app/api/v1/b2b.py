@@ -1472,6 +1472,9 @@ async def update_order_status(
 class B2BLogisticsAction(BaseModel):
     action: str
     pickupTeam: Optional[str] = None
+    transferTeam: Optional[str] = None
+    transferTeamName: Optional[str] = None
+    transferVehicle: Optional[str] = None
     vehicle: Optional[str] = None
     receivedQuantityKg: Optional[float] = Field(None, ge=0)
     qualityCheck: Optional[str] = None
@@ -2080,7 +2083,25 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Save the Long Distance route before dispatching a warehouse transfer")
         if not order.get("destinationWarehouseId") or str(order.get("destinationWarehouseId")) == str(order.get("sourceWarehouseId")):
             raise HTTPException(status_code=400, detail="A different destination warehouse must be configured for this transfer")
-        update.update({"status": ORDER_TRANSFER_IN_TRANSIT, "transferDispatchedAt": datetime.utcnow(), "transferDispatchedBy": str(current_user.get("_id")), "destinationWarehouseId": str(order.get("destinationWarehouseId")), "transferNotes": data.notes})
+        if not data.transferTeam or not ObjectId.is_valid(str(data.transferTeam)):
+            raise HTTPException(status_code=400, detail="Select a registered transfer team before dispatch")
+        if not data.transferVehicle or not str(data.transferVehicle).strip():
+            raise HTTPException(status_code=400, detail="The selected transfer team's registered vehicle is required before dispatch")
+        # Ensure the selected team maps to an existing user; the UI only offers
+        # approved roster members and the API rejects arbitrary text identifiers.
+        team_user = await user_repository.get_by_id(str(data.transferTeam))
+        if not team_user:
+            raise HTTPException(status_code=400, detail="The selected transfer team no longer exists. Refresh the registered team list.")
+        update.update({
+            "status": ORDER_TRANSFER_IN_TRANSIT,
+            "transferTeam": str(data.transferTeam),
+            "transferTeamName": str(data.transferTeamName or team_user.get("name") or team_user.get("fullName") or team_user.get("email") or "Registered transfer team"),
+            "transferVehicle": str(data.transferVehicle).strip(),
+            "transferDispatchedAt": datetime.utcnow(),
+            "transferDispatchedBy": str(current_user.get("_id")),
+            "destinationWarehouseId": str(order.get("destinationWarehouseId")),
+            "transferNotes": data.notes,
+        })
     elif action == "receive_at_destination":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only destination warehouse staff can receive a transfer")
