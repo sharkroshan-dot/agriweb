@@ -48,6 +48,7 @@ from app.services.payment_service import PaymentService
 from app.services.order_service import geocode_address
 from app.services.notification_service import NotificationService
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
+from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.services.warehouse_service import WarehouseService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
@@ -1440,6 +1441,108 @@ async def update_order_status(
         if data.status == ORDER_DELIVERED:
             update["deliveredAt"] = datetime.utcnow()
         await order_repo.update({"_id": order["_id"]}, update)
+
+        # Publish a farmer-marked B2B order to the existing delivery-partner
+        # pickup-route queue. That queue reads warehouse_pickup_routes, so merely
+        # changing b2b_orders.status leaves the order invisible to pickup partners.
+        if data.status == ORDER_READY_FOR_PICKUP:
+            pickup_warehouse_id = str(
+                order.get("assignedWarehouseId")
+                or order.get("sourceWarehouseId")
+                or order.get("warehouseId")
+                or order.get("receivingWarehouseId")
+                or ""
+            )
+            if pickup_warehouse_id and ObjectId.is_valid(pickup_warehouse_id):
+                pickup_warehouse = await warehouse_repo.find_one({
+                    "_id": ObjectId(pickup_warehouse_id), "deletedAt": None
+                })
+                if pickup_warehouse:
+                    existing_route = await warehouse_pickup_route_repository.find_one({
+                        "b2bOrderId": str(order["_id"]), "deletedAt": None,
+                        "status": {"$nin": ["cancelled", "closed", "archived"]},
+                    })
+                    if not existing_route:
+                        now = datetime.utcnow()
+                        farmer_doc = None
+                        farmer_id = str(order.get("farmerId") or "")
+                        if ObjectId.is_valid(farmer_id):
+                            farmer_doc = await farmer_repository.find_one({"_id": ObjectId(farmer_id), "deletedAt": None})
+                        farmer_location = (
+                            (farmer_doc or {}).get("location")
+                            or (farmer_doc or {}).get("farmLocation")
+                            or (farmer_doc or {}).get("address")
+                            or {}
+                        )
+                        if isinstance(farmer_location, str):
+                            farmer_location = {"formattedAddress": farmer_location}
+                        farmer_name = (
+                            (farmer_doc or {}).get("farmName")
+                            or (farmer_doc or {}).get("ownerName")
+                            or (farmer_doc or {}).get("name")
+                            or order.get("farmerName")
+                            or "Farmer"
+                        )
+                        quantity = float(order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
+                        order_number = str(order.get("orderNumber") or order.get("orderNo") or f"B2B-{str(order['_id'])[-6:]}")
+                        await warehouse_pickup_route_repository.create_route({
+                            "routeNumber": order_number + "-PICKUP",
+                            "routeDate": now.strftime("%Y-%m-%d"),
+                            "warehouseId": ObjectId(pickup_warehouse_id),
+                            "status": "offered",
+                            "routeType": "b2b_farm_pickup",
+                            "isB2BPickup": True,
+                            "b2bOrderId": str(order["_id"]),
+                            "orderIds": [str(order["_id"])],
+                            "totalStops": 1,
+                            "totalOrders": 1,
+                            "totalQuantity": quantity,
+                            "stops": [{
+                                "sequence": 1,
+                                "farmKey": f"b2b:{str(order['_id'])}",
+                                "b2bOrderId": str(order["_id"]),
+                                "orderId": str(order["_id"]),
+                                "orderNumber": order_number,
+                                "farmerId": farmer_id or None,
+                                "farmerName": farmer_name,
+                                "productName": order.get("productName") or "B2B produce",
+                                "quantity": quantity,
+                                "status": "ready_for_pickup",
+                                "pickupAddress": (
+                                    (farmer_doc or {}).get("farmAddress")
+                                    or (farmer_doc or {}).get("address")
+                                    or order.get("farmAddress")
+                                    or "Farm address not provided"
+                                ),
+                                "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                                "orders": [{
+                                    "b2bOrderId": str(order["_id"]),
+                                    "orderId": str(order["_id"]),
+                                    "orderNumber": order_number,
+                                    "farmerId": farmer_id or None,
+                                    "farmerName": farmer_name,
+                                    "productName": order.get("productName") or "B2B produce",
+                                    "quantity": quantity,
+                                    "status": "ready_for_pickup",
+                                    "pickupAddress": (
+                                        (farmer_doc or {}).get("farmAddress")
+                                        or (farmer_doc or {}).get("address")
+                                        or order.get("farmAddress")
+                                        or "Farm address not provided"
+                                    ),
+                                    "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                                }],
+                            }],
+                            "createdBy": ObjectId(str(current_user["_id"])) if ObjectId.is_valid(str(current_user.get("_id") or "")) else None,
+                            "createdAt": now,
+                        })
+            else:
+                logger.warning(
+                    "B2B order %s is ready for pickup but has no valid assigned/source warehouse; "
+                    "it cannot be offered on the warehouse pickup routes page until a warehouse is assigned.",
+                    str(order.get("_id")),
+                )
+
         if data.status in (ORDER_DISPATCHED, ORDER_DELIVERED):
             await NotificationService.create_in_app_notification(
                 str(order.get("businessUserId")), NotificationType.ORDER,
