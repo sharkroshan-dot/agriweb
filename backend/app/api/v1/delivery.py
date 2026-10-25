@@ -3138,12 +3138,15 @@ async def update_my_pickup_route_status(
             farm_jobs = []
             for farm_collection_id in farm_collection_ids:
                 farm_job = await warehouse_collection_repository.get_by_id(farm_collection_id)
-                if (
-                    not farm_job
-                    or str(farm_job.get("pickupRouteId") or "") != route_id
-                    or str(farm_job.get("collectionTeamId") or "") != partner_id
-                ):
-                    raise HTTPException(status_code=404, detail="One or more farm orders are no longer assigned to you")
+                # The route itself was loaded above and ownership-checked against
+                # the authenticated delivery-partner profile. Legacy collection jobs
+                # may store collectionTeamId as a membership ID, login-user ID, or
+                # stale team reference rather than the partner profile ID. The route
+                # link plus route ownership is the authoritative assignment check;
+                # requiring collectionTeamId == partner_id incorrectly blocks valid
+                # assigned routes when the IDs use different representations.
+                if not farm_job or str(farm_job.get("pickupRouteId") or "") != route_id:
+                    raise HTTPException(status_code=404, detail="One or more farm orders are no longer linked to your assigned pickup route")
                 farm_jobs.append(farm_job)
             return farm_jobs
 
