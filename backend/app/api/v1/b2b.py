@@ -1590,26 +1590,51 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
     return None, None
 
 def _normalized_district(doc: Optional[Dict[str, Any]]) -> str:
-    """Normalize explicit district fields and legacy comma-separated addresses."""
+    """Return a verified district/locality token from common warehouse/address schemas.
+
+    Explicit administrative district fields win. City/town is a fallback for older
+    records that only store the destination as 'locality, district'; state/country
+    are deliberately never used as district guesses.
+    """
     if not isinstance(doc, dict):
         return ""
-    location = doc.get("deliveryLocation") or doc.get("location") or doc.get("address")
-    nested = location if isinstance(location, dict) else {}
-    for value in (
-        doc.get("deliveryDistrict"), doc.get("district"), doc.get("districtName"),
-        doc.get("administrativeDistrict"), nested.get("deliveryDistrict"),
-        nested.get("district"), nested.get("districtName"),
-        nested.get("administrativeDistrict"),
-    ):
-        normalized = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
-        if normalized:
-            return normalized
-    raw_address = next((doc.get(key) for key in ("deliveryAddress", "businessAddress", "shippingAddress", "address", "deliveryLocation") if isinstance(doc.get(key), str) and doc.get(key).strip()), "")
-    if not raw_address and isinstance(location, dict):
-        raw_address = location.get("formattedAddress") or location.get("addressLine1") or location.get("address_line1") or ""
-    parts = [re.sub(r"[^a-z0-9]", "", part.lower()) for part in str(raw_address).split(",")]
-    parts = [part for part in parts if part]
-    return parts[-1] if len(parts) >= 2 else ""
+    nested_values = []
+    for key in ("deliveryLocation", "location", "address", "deliveryAddress", "shippingAddress"):
+        value = doc.get(key)
+        if isinstance(value, dict):
+            nested_values.append(value)
+    explicit_keys = ("deliveryDistrict", "district", "districtName", "administrativeDistrict")
+    for source in [doc, *nested_values]:
+        for key in explicit_keys:
+            value = source.get(key)
+            token = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+            if token:
+                return token
+    # Legacy warehouse records often have only city/town. This allows a registered
+    # warehouse with city=Perambalur to match a business address ending in Perambalur.
+    locality_keys = ("city", "town", "municipality", "locality", "deliveryCity")
+    for source in [doc, *nested_values]:
+        for key in locality_keys:
+            value = source.get(key)
+            token = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+            if token:
+                return token
+    raw_values = []
+    for key in ("deliveryAddress", "businessAddress", "shippingAddress", "address", "deliveryLocation", "formattedAddress"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            raw_values.append(value)
+        elif isinstance(value, dict):
+            for address_key in ("formattedAddress", "addressLine1", "address_line1", "street", "city", "town", "municipality", "locality"):
+                part = value.get(address_key)
+                if isinstance(part, str) and part.strip():
+                    raw_values.append(part)
+    for raw in raw_values:
+        parts = [re.sub(r"[^a-z0-9]", "", part.lower()) for part in raw.split(",")]
+        parts = [part for part in parts if part and part not in {"india", "tamilnadu"}]
+        if len(parts) >= 2:
+            return parts[-1]
+    return ""
 
 
 @router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
