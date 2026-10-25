@@ -4495,6 +4495,51 @@ async def complete_event_delivery_with_otp_and_pod(
     return {"success": True, "data": {"deliveryJobId": job_id, "status": "delivered", "photoUrl": photo_url, "recipientName": recipientName.strip(), "otpVerified": True}, "message": "Event order delivered with customer OTP and proof of delivery"}
 
 
+@router.get("/me/b2b-delivery-orders")
+async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_user)):
+    """List B2B business orders assigned for final-mile delivery in a separate Pickup Routes section."""
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("delivery", "delivery_partner", "delivery_manager", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Only delivery partners can view assigned B2B deliveries")
+    user_id = str(current_user.get("_id") or "")
+    assigned_values: List[Any] = [user_id]
+    if ObjectId.is_valid(user_id):
+        assigned_values.append(ObjectId(user_id))
+    profile = await MongoDB.get_collection("delivery_partners").find_one({
+        "$or": [
+            {"userId": {"$in": assigned_values}},
+            {"user_id": {"$in": assigned_values}},
+        ],
+        "deletedAt": {"$in": [None, False, ""]},
+    })
+    if profile and profile.get("_id") is not None:
+        assigned_values.extend([profile["_id"], str(profile["_id"])])
+    query = {
+        "status": {"$in": ["in_transit", "delivered"]},
+        "finalDeliveryPartner": {"$in": assigned_values},
+        "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+    }
+    orders = await MongoDB.get_collection("b2b_orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=200)
+    items = []
+    for order in orders:
+        oid = str(order.get("_id") or "")
+        items.append({
+            "id": oid,
+            "orderId": oid,
+            "orderNumber": order.get("orderNumber") or ("B2B-" + oid[-6:].upper()),
+            "status": order.get("status"),
+            "productName": order.get("productName") or order.get("name") or "B2B order",
+            "quantityKg": order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity"),
+            "businessName": order.get("businessName") or order.get("buyerName") or order.get("organizationName") or "Business buyer",
+            "deliveryAddress": order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress") or order.get("deliveryLocation") or {},
+            "deliveryNotes": order.get("deliveryNotes") or "",
+            "finalDeliveryAssignedAt": order.get("finalDeliveryAssignedAt"),
+            "deliveredAt": order.get("deliveredAt"),
+            "deliveryProof": order.get("deliveryProof"),
+        })
+    return {"success": True, "data": {"orders": items, "count": len(items)}}
+
+
 @router.get("/me/farmer-fulfillment-warehouse-transfers")
 async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Depends(get_current_user)):
     """List assigned destination-warehouse transfer legs, including Bulk/Event requests."""
