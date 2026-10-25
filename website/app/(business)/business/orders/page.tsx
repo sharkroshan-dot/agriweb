@@ -25,22 +25,31 @@ const statusVariant: Record<string, any> = {
 const ORDER_FILTERS = ["", "active", "completed", "cancelled"];
 
 function StatusTimeline({ status }: { status: string }) {
-  const flow = ["confirmed", "preparing", "quality_check", "dispatched", "in_transit", "delivered", "completed"];
-  if (status === "cancelled") {
-    return <p className="text-xs text-red-600">Cancelled</p>;
-  }
+  const flow = [
+    "confirmed", "preparing", "quality_check", "ready_for_pickup", "picked_up",
+    "warehouse_received", "transfer_in_transit", "destination_warehouse_received",
+    "in_transit", "delivered", "completed",
+  ];
+  const labels: Record<string, string> = {
+    confirmed: "Order placed", preparing: "Preparing", quality_check: "Quality check",
+    ready_for_pickup: "Ready for pickup", picked_up: "Collected from farm",
+    warehouse_received: "Warehouse received", transfer_in_transit: "Warehouse transfer",
+    destination_warehouse_received: "Destination received", in_transit: "Final delivery",
+    delivered: "Delivered", completed: "Completed",
+  };
+  if (status === "cancelled") return <p className="text-xs text-red-600">Cancelled</p>;
   const idx = flow.indexOf(status);
   return (
-    <div className="flex items-center gap-1">
-      {flow.map((s, i) => (
-        <div key={s} className="flex items-center">
-          <div
-            className={`h-2.5 w-2.5 rounded-full ${i <= idx ? (i === idx ? "bg-emerald-600 ring-2 ring-emerald-200" : "bg-emerald-500") : "bg-gray-200"}`}
-            title={s}
-          />
-          {i < flow.length - 1 && <div className={`h-0.5 w-3 sm:w-5 ${i < idx ? "bg-emerald-500" : "bg-gray-200"}`} />}
-        </div>
-      ))}
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1">
+        {flow.map((s, i) => (
+          <div key={s} className="flex min-w-0 flex-1 items-center">
+            <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${idx >= 0 && i <= idx ? (i === idx ? "bg-emerald-600 ring-2 ring-emerald-200" : "bg-emerald-500") : "bg-gray-200"}`} title={labels[s]} />
+            {i < flow.length - 1 && <div className={`h-0.5 min-w-1 flex-1 ${idx >= 0 && i < idx ? "bg-emerald-500" : "bg-gray-200"}`} />}
+          </div>
+        ))}
+      </div>
+      <p className="text-xs font-medium text-slate-600">Current stage: {labels[status] || status.replace(/_/g, " ")}</p>
     </div>
   );
 }
@@ -226,6 +235,8 @@ export default function BusinessOrdersPage() {
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["b2b", "orders"],
     queryFn: () => api.get("/b2b/orders"),
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const updateMutation = useMutation({
