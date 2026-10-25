@@ -45,6 +45,44 @@ function StatusTimeline({ status }: { status: string }) {
   );
 }
 
+function OrderActivityTimeline({ order }: { order: any }) {
+  const events = Array.isArray(order.statusHistory) ? [...order.statusHistory].sort((a: any, b: any) => {
+    const ta = new Date(a.timestamp || a.createdAt || 0).getTime();
+    const tb = new Date(b.timestamp || b.createdAt || 0).getTime();
+    return ta - tb;
+  }) : [];
+  const label = (value: any) => String(value || "Order updated").replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+  return (
+    <div className="rounded-lg border bg-slate-50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800">Order activity & fulfillment updates</p>
+        <Badge variant="outline">{events.length} updates</Badge>
+      </div>
+      {events.length === 0 ? (
+        <p className="text-xs text-slate-500">No additional fulfillment events recorded yet. This timeline will update as farmers, pickup teams, warehouse staff, and delivery partners process the order.</p>
+      ) : (
+        <ol className="space-y-3">
+          {events.slice().reverse().map((event: any, index: number) => (
+            <li key={String(event.timestamp || event.createdAt || index) + "-" + index} className="flex gap-3">
+              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <p className="text-sm font-medium text-slate-800">{label(event.action || event.status)}</p>
+                  <time className="text-xs text-slate-500">{event.timestamp || event.createdAt ? new Date(event.timestamp || event.createdAt).toLocaleString() : "Time unavailable"}</time>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {event.actorRole ? label(event.actorRole) : "AgriConnect"}{event.status ? " · " + label(event.status) : ""}
+                </p>
+                {event.details ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{event.details}</p> : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["b2b", "invoice", order.id],
@@ -268,6 +306,7 @@ export default function BusinessOrdersPage() {
                 </div>
 
                 <StatusTimeline status={o.status} />
+                <OrderActivityTimeline order={o} />
 
                 <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                   {o.deliveryCity ? (
