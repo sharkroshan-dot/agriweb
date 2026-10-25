@@ -4803,12 +4803,19 @@ async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Dep
     # workflow. These live in b2b_orders (not the retail orders collection and
     # not always in farmer_fulfillment_transfer_legs), so surface them in the
     # existing Delivery Partner > Pickup Routes > Warehouse Transfer Routes UI.
-    b2b_orders = MongoDB.get_collection("orders")
+    # B2B logistics orders are stored in b2b_orders. Querying the retail
+    # orders collection here caused dispatched B2B transfer orders to disappear
+    # from the delivery partner's Warehouse Transfer Routes section.
+    b2b_orders = MongoDB.get_collection("b2b_orders")
     b2b_assigned_values = [user_oid, str(current_user["_id"])] + profile_ids + [str(x) for x in profile_ids]
     b2b_rows = await b2b_orders.find({
         "status": "transfer_in_transit",
-        "transferTeam": {"$in": b2b_assigned_values},
-        "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+        "$or": [
+            {"transferTeam": {"$in": b2b_assigned_values}},
+            {"transferPartnerUserId": {"$in": b2b_assigned_values}},
+            {"assignedTransferPartnerId": {"$in": b2b_assigned_values}},
+        ],
+        "$and": [{"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]}],
     }).sort("transferDispatchedAt", -1).to_list(length=200)
     for b2b in b2b_rows:
         b2b_id = str(b2b.get("_id") or "")
