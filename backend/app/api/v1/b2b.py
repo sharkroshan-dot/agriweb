@@ -1623,7 +1623,27 @@ async def recommend_b2b_fulfillment_route(
         await order_repo.update({"_id": order["_id"]}, {"deliveryLocation": geocoded_location, "deliveryCoordinatesResolvedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
         order["deliveryLocation"] = geocoded_location
 
-    # Resolve the farmer's actual profile rather than silently trusting a stale sourceWarehouseId.
+    # Stock has already been received by a warehouse. For an inter-warehouse transfer,
+    # the actual receiving/source warehouse is authoritative; do not re-route the stock
+    # backwards to whichever warehouse happens to be closest to the farm.
+    recorded_source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or "")
+    recorded_source = await warehouse_repo.find_one({"_id": ObjectId(recorded_source_id), "deletedAt": None}) if ObjectId.is_valid(recorded_source_id) else None
+    if recorded_source:
+        source_status = str(recorded_source.get("status") or recorded_source.get("operationalStatus") or "active").lower()
+        source_coords_existing = _location_coords_from_doc(recorded_source)
+        if source_status not in ("active", "operational", "enabled", "open") or not source_coords_existing:
+            return {"success": True, "data": {"available": False, "reason": "The warehouse that received this stock is inactive or has no valid coordinates. Fix its warehouse record before transferring."}}
+        source_district_existing = _normalized_district(recorded_source)
+        source_id_existing = str(recorded_source.get("_id"))
+        source_name_existing = recorded_source.get("name") or recorded_source.get("warehouseName") or recorded_source.get("code") or "Source Warehouse"
+    else:
+        source_coords_existing = None
+        source_district_existing = ""
+        source_id_existing = ""
+        source_name_existing = ""
+
+    # Farmer profile is used only as a fallback when this order has no persisted source
+    # warehouse. It must never override the warehouse that has already received the stock.
     farmer_doc = order.get("farmerInfo") if isinstance(order.get("farmerInfo"), dict) else order.get("farmer") if isinstance(order.get("farmer"), dict) else {}
     farmer_id = str(order.get("farmerId") or order.get("farmerUserId") or order.get("sellerId") or "")
     if farmer_id and ObjectId.is_valid(farmer_id):
@@ -1641,9 +1661,7 @@ async def recommend_b2b_fulfillment_route(
         except Exception:
             logger.exception("Could not load B2B farmer by user ID for order %s", order_id)
     farmer_coords = _location_coords_from_doc(farmer_doc)
-    if not farmer_coords:
-        # Do not use the whole order as a fallback: it may contain the buyer's
-        # delivery coordinates and incorrectly choose a source warehouse near the buyer.
+    if not recorded_source and not farmer_coords:
         farmer_address = farmer_doc.get("farmLocation") or farmer_doc.get("location") or farmer_doc.get("address") or farmer_doc.get("farmAddress")
         if isinstance(farmer_address, str) and farmer_address.strip():
             try:
@@ -1653,8 +1671,8 @@ async def recommend_b2b_fulfillment_route(
                     farmer_doc = {**farmer_doc, "location": farmer_geocoded}
             except Exception:
                 logger.exception("Could not geocode farm location for B2B order %s", order_id)
-    if not farmer_coords:
-        return {"success": True, "data": {"available": False, "reason": "Farmer/farm coordinates are missing. Add the farm location before automatic source-warehouse selection; buyer delivery coordinates are not used as farm coordinates."}}
+    if not recorded_source and not farmer_coords:
+        return {"success": True, "data": {"available": False, "reason": "This order has no recorded source/receiving warehouse and the farmer location is missing. Set the actual warehouse that received the stock before calculating an inter-warehouse transfer."}}
 
     warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
     active = []
@@ -1669,6 +1687,13 @@ async def recommend_b2b_fulfillment_route(
     farm_district = _normalized_district(farmer_doc)
     buyer_district = _normalized_district(order)
     if not buyer_district:
+        raw_buyer_address = order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress")
+        if not raw_buyer_address and isinstance(order.get("deliveryLocation"), str):
+            raw_buyer_address = order.get("deliveryLocation")
+        if not raw_buyer_address and isinstance(order.get("deliveryLocation"), dict):
+            raw_buyer_address = order["deliveryLocation"].get("formattedAddress") or order["deliveryLocation"].get("addressLine1") or order["deliveryLocation"].get("address_line1")
+        buyer_district = _normalized_district({"deliveryAddress": raw_buyer_address})
+    if not buyer_district:
         buyer_district = _normalized_district({"deliveryLocation": geocoded_location or order.get("deliveryLocation"), "deliveryAddress": order.get("deliveryAddress") or order.get("businessAddress")})
     known_districts = {_normalized_district(row[0]) for row in active}
     known_districts.discard("")
@@ -1678,11 +1703,20 @@ async def recommend_b2b_fulfillment_route(
         matches = [part for part in raw_parts if part in known_districts]
         buyer_district = matches[-1] if matches else ""
     # Prefer a warehouse in the farmer's district; within that group choose the nearest to the farm.
-    source_pool = [row for row in active if farm_district and _normalized_district(row[0]) == farm_district]
-    if not source_pool:
-        source_pool = active
-    source, source_coords = min(source_pool, key=lambda row: haversine_km(farmer_coords[1], farmer_coords[0], row[1][1], row[1][0]))
-    farm_to_source_km = round(haversine_km(farmer_coords[1], farmer_coords[0], source_coords[1], source_coords[0]), 2)
+    if recorded_source:
+        source = recorded_source
+        source_coords = source_coords_existing
+        source_id = source_id_existing
+        source_name = source_name_existing
+        farm_to_source_km = None
+    else:
+        source_pool = [row for row in active if farm_district and _normalized_district(row[0]) == farm_district]
+        if not source_pool:
+            source_pool = active
+        source, source_coords = min(source_pool, key=lambda row: haversine_km(farmer_coords[1], farmer_coords[0], row[1][1], row[1][0]))
+        source_id = str(source.get("_id"))
+        source_name = source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse"
+        farm_to_source_km = round(haversine_km(farmer_coords[1], farmer_coords[0], source_coords[1], source_coords[0]), 2)
     distance_km = round(haversine_km(source_coords[1], source_coords[0], buyer_coords[1], buyer_coords[0]), 2)
 
     sibling_query = {"deletedAt": None}
@@ -1693,9 +1727,6 @@ async def recommend_b2b_fulfillment_route(
     siblings = await order_repo.find_many(sibling_query, limit=500) if "rfqId" in sibling_query and "businessUserId" in sibling_query else [order]
     portions = [p for p in siblings if p.get("farmerId") or p.get("farmerUserId") or p.get("farmerInfo") or p.get("farmer")]
     multi_farmer = len(portions) > 1
-    source_id = str(source.get("_id"))
-    source_name = source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse"
-
     if distance_km <= 15:
         route = "nearby_multi_farmer" if multi_farmer else "nearby_single_farmer"
         return {"success": True, "data": {"available": True, "fulfillmentRoute": route, "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": source_id, "destinationWarehouseName": source_name, "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "portionCount": max(1, len(portions)), "reason": "Delivery is within 15 km of the source warehouse; direct delivery stays at the source warehouse."}}
