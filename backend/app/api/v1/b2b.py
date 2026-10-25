@@ -1427,8 +1427,34 @@ async def update_order_status(
             update["qualityCheck"] = "pending"
             if data.qualityNotes:
                 update["qualityNotes"] = data.qualityNotes
-        if data.status == ORDER_READY_FOR_PICKUP and order.get("qualityCheck") != "passed":
-            raise HTTPException(status_code=400, detail="Pass the quality check before marking this order ready for pickup.")
+        if data.status == ORDER_READY_FOR_PICKUP:
+            if order.get("qualityCheck") != "passed":
+                raise HTTPException(status_code=400, detail="Pass the quality check before marking this order ready for pickup.")
+            # A ready B2B order must have a real pickup warehouse. Without one,
+            # the warehouse collection job and delivery pickup offer cannot be
+            # published, even though the farmer UI would otherwise show Ready.
+            pickup_warehouse_id = str(
+                order.get("pickupWarehouseId")
+                or order.get("assignedWarehouseId")
+                or order.get("sourceWarehouseId")
+                or order.get("warehouseId")
+                or order.get("receivingWarehouseId")
+                or ""
+            )
+            if not ObjectId.is_valid(pickup_warehouse_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot mark this B2B order ready for collection: no source pickup warehouse is assigned. Assign the actual pickup warehouse before continuing.",
+                )
+            pickup_warehouse = await warehouse_repo.find_one({
+                "_id": ObjectId(pickup_warehouse_id), "deletedAt": None
+            })
+            if not pickup_warehouse:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot publish B2B farm pickup: the assigned pickup warehouse is not registered or active in the warehouse directory.",
+                )
+            update["pickupWarehouseId"] = pickup_warehouse_id
         if data.status == ORDER_PICKED_UP:
             update["pickedUpAt"] = datetime.utcnow()
         if data.status == ORDER_WAREHOUSE_RECEIVED:
@@ -1448,7 +1474,8 @@ async def update_order_status(
         # changing b2b_orders.status leaves the order invisible to pickup partners.
         if data.status == ORDER_READY_FOR_PICKUP:
             pickup_warehouse_id = str(
-                order.get("assignedWarehouseId")
+                order.get("pickupWarehouseId")
+                or order.get("assignedWarehouseId")
                 or order.get("sourceWarehouseId")
                 or order.get("warehouseId")
                 or order.get("receivingWarehouseId")
