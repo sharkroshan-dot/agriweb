@@ -1575,15 +1575,21 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
     return None, None
 
 def _normalized_district(doc: Optional[Dict[str, Any]]) -> str:
+    """Return only an explicitly identified administrative district.
+
+    Towns, villages, localities and city labels must never be treated as districts.
+    When district metadata is absent, routing falls back to geographic distance
+    across all eligible warehouses rather than filtering on a locality name.
+    """
     if not isinstance(doc, dict):
         return ""
     location = doc.get("deliveryLocation") or doc.get("location") or doc.get("address")
     nested = location if isinstance(location, dict) else {}
     for value in (
         doc.get("deliveryDistrict"), doc.get("district"), doc.get("districtName"),
-        doc.get("deliveryCity"), doc.get("city"), doc.get("cityName"),
-        nested.get("district"), nested.get("districtName"), nested.get("city"),
-        nested.get("town"), nested.get("locality"),
+        doc.get("administrativeDistrict"), nested.get("deliveryDistrict"),
+        nested.get("district"), nested.get("districtName"),
+        nested.get("administrativeDistrict"),
     ):
         normalized = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
         if normalized:
@@ -1683,11 +1689,12 @@ async def recommend_b2b_fulfillment_route(
         wid = str(warehouse.get("_id") or "")
         if not wid or wid == source_id:
             continue
-        # Inter-district routing must target the business delivery district when that
-        # district is known. Do not choose a warehouse from another district just
-        # because its coordinates are closer to the geocoded point.
+        # Filter by district only when the address/warehouse contains an explicit
+        # administrative district. A village or town (e.g. Chettikulam) is not a
+        # district; when district is unknown, compare eligible warehouses across
+        # every district using geocoded distance instead of falsely rejecting all.
         warehouse_district = _normalized_district(warehouse)
-        if buyer_district and warehouse_district != buyer_district:
+        if buyer_district and warehouse_district and warehouse_district != buyer_district:
             continue
         total = warehouse.get("totalCapacity", warehouse.get("capacity"))
         used = warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0))
@@ -1700,9 +1707,9 @@ async def recommend_b2b_fulfillment_route(
         distance_to_buyer = round(haversine_km(buyer_coords[1], buyer_coords[0], coords[1], coords[0]), 2)
         candidates.append((distance_to_buyer, warehouse, coords, available_capacity))
     if not candidates:
-        return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "reason": f"No active destination warehouse with sufficient capacity was found in the business delivery district ({buyer_district or 'unknown'}). The system will not select a warehouse from a different district automatically."}}
+        return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "reason": (f"No active destination warehouse with sufficient capacity was found in the explicitly identified business district ({buyer_district})." if buyer_district else "No active destination warehouse with sufficient capacity and valid coordinates was found across the configured districts. The address locality was not treated as a district.")}}
     distance_to_buyer, destination, destination_coords, available_capacity = min(candidates, key=lambda row: row[0])
-    return {"success": True, "data": {"available": True, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": str(destination.get("_id")), "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination Warehouse", "destinationDistrict": _normalized_district(destination), "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "destinationAvailableCapacityKg": round(available_capacity, 2), "distanceToBusinessKm": distance_to_buyer, "portionCount": max(1, len(portions)), "reason": f"Delivery is over 15 km from the source. Selected the nearest active, capacity-eligible warehouse in the business delivery district ({buyer_district or 'unknown'})."}}
+    return {"success": True, "data": {"available": True, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": str(destination.get("_id")), "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination Warehouse", "destinationDistrict": _normalized_district(destination), "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "destinationAvailableCapacityKg": round(available_capacity, 2), "distanceToBusinessKm": distance_to_buyer, "portionCount": max(1, len(portions)), "reason": (f"Delivery is over 15 km from the source. Selected the nearest active, capacity-eligible warehouse in the business delivery district ({buyer_district})." if buyer_district else "Delivery is over 15 km from the source. No administrative district was explicitly identified, so the nearest active warehouse with sufficient capacity was selected across configured districts using geographic coordinates.")}}
 
 
 @router.get("/warehouse/fulfillment/destination-warehouses")
