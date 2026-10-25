@@ -4626,15 +4626,47 @@ async def update_my_b2b_delivery_order_status(
     assigned_values: List[Any] = [user_id]
     if ObjectId.is_valid(user_id):
         assigned_values.append(ObjectId(user_id))
-    profile = await MongoDB.get_collection("delivery_partners").find_one({
-        "$or": [{"userId": {"$in": assigned_values}}, {"user_id": {"$in": assigned_values}}],
-        "deletedAt": {"$in": [None, False, ""]},
-    })
-    if profile and profile.get("_id") is not None:
-        assigned_values.extend([profile["_id"], str(profile["_id"])])
-    assigned = str(order.get("finalDeliveryPartner") or "")
-    if role not in ("admin", "super_admin") and assigned not in [str(x) for x in assigned_values]:
-        raise HTTPException(status_code=403, detail="Only the assigned final delivery partner can update this B2B order")
+    # Resolve the authenticated account using the same canonical helper as
+    # the delivery partner profile endpoint. Dispatch currently stores the
+    # selected partner profile ID in finalDeliveryPartner, not necessarily the
+    # login user's ID.
+    try:
+        profile = await DeliveryService.get_delivery_partner(user_id)
+    except Exception:
+        profile = None
+    if not profile:
+        profile = await MongoDB.get_collection("delivery_partners").find_one({
+            "$or": [
+                {"userId": {"$in": assigned_values}},
+                {"user_id": {"$in": assigned_values}},
+                {"user": {"$in": assigned_values}},
+            ]
+        })
+    if profile:
+        for key in ("_id", "id", "userId", "user_id"):
+            value = profile.get(key)
+            if value is not None and not isinstance(value, dict):
+                assigned_values.extend([value, str(value)])
+    # Some older orders store the assignment as an object instead of a scalar.
+    assigned_raw = order.get("finalDeliveryPartner")
+    assigned_values_from_order = [assigned_raw]
+    if isinstance(assigned_raw, dict):
+        assigned_values_from_order.extend(
+            assigned_raw.get(key) for key in ("_id", "id", "userId", "user_id", "deliveryPartnerId")
+        )
+    assigned_values_from_order.extend([
+        order.get("finalDeliveryPartnerId"),
+        order.get("finalDeliveryPartnerUserId"),
+        order.get("deliveryPartnerId"),
+        order.get("deliveryPartnerUserId"),
+    ])
+    authorized = any(
+        str(value) in {str(item) for item in assigned_values if item is not None}
+        for value in assigned_values_from_order
+        if value not in (None, "")
+    )
+    if role not in ("admin", "super_admin") and not authorized:
+        raise HTTPException(status_code=403, detail="This B2B order is assigned to a different delivery partner account. Refresh the assignment or contact the warehouse manager.")
     current = str(order.get("status") or "")
     now = datetime.utcnow()
     if status_value == "started":
