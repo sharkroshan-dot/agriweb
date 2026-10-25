@@ -1696,7 +1696,7 @@ async def update_b2b_warehouse_fulfillment(
         valid_current = current == ORDER_WAREHOUSE_RECEIVED and str(order.get("sourceWarehouseId") or "") == str(order.get("destinationWarehouseId") or "") or current == ORDER_DESTINATION_RECEIVED
         quality = order.get("destinationQualityCheck") if current == ORDER_DESTINATION_RECEIVED else order.get("warehouseQualityCheck")
         route = order.get("fulfillmentRoute")
-        if current == ORDER_WAREHOUSE_RECEIVED and route not in ("nearby_single_farmer",):
+        if current == ORDER_WAREHOUSE_RECEIVED and not (route == "nearby_single_farmer" or (route == "nearby_multi_farmer" and order.get("consolidationCompletedAt"))):
             raise HTTPException(status_code=400, detail="Choose and complete the required fulfillment route before final delivery")
         if current == ORDER_DESTINATION_RECEIVED and route != "long_distance":
             raise HTTPException(status_code=400, detail="Destination receipt is only valid for a long-distance route")
