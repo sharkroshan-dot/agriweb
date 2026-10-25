@@ -919,8 +919,17 @@ export default function DeliveryPickupRoutesPage() {
                   )}
                   {r.status === "completed" && (
                     <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                      <p className="font-medium text-blue-950">Return to the assigned warehouse</p>
+                      <p className="mt-1 text-sm text-blue-900">All farm pickups are complete. When the vehicle and collected produce physically reach the assigned warehouse, record arrival below. This creates/links the expected Incoming Stock records; warehouse staff must still confirm receipt, inspect quality and store the stock.</p>
+                      <Button className="mt-3" onClick={() => act(r, "returned_to_warehouse")}>
+                        <Warehouse className="mr-2 h-4 w-4" /> Arrived at Warehouse
+                      </Button>
+                    </div>
+                  )}
+                  {r.status === "returned_to_warehouse" && (
+                    <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4">
                       <p className="font-medium text-blue-950">Waiting for warehouse receipt</p>
-                      <p className="mt-1 text-sm text-blue-900">Your farm pickup is complete. The warehouse team must confirm physical receipt in Incoming Stock. The route will update from the warehouse receipt workflow; no further confirmation is required from the delivery partner.</p>
+                      <p className="mt-1 text-sm text-blue-900">Warehouse arrival has been recorded. The warehouse team must now confirm receipt, inspect quality and store the stock in Incoming Stock.</p>
                     </div>
                   )}
                 </CardContent>
