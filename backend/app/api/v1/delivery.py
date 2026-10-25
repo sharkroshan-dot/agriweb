@@ -3407,7 +3407,42 @@ async def update_my_pickup_route_status(
             "status": "completed",
             "completedAt": now,
         })
-        return {"success": True, "data": await enrich_pickup_route_display(await warehouse_pickup_route_repository.get_by_id(route_id)), "message": "Pickup route completed"}
+
+        # Materialize one Incoming Stock record per collected order as soon as
+        # the delivery partner finishes the pickup route. Warehouse staff own
+        # the physical receipt, quality check and storage confirmation; this
+        # action only makes the expected shipments visible in the warehouse UI.
+        incoming_rows = await WarehouseService.create_pickup_route_incoming(route_id)
+        for incoming in incoming_rows:
+            collection_id = str(incoming.get("collectionId") or "")
+            if not ObjectId.is_valid(collection_id):
+                continue
+            job = await warehouse_collection_repository.get_by_id(collection_id)
+            if job and incoming.get("_id"):
+                await warehouse_collection_repository.update_job(collection_id, {
+                    "incomingStockId": incoming["_id"],
+                })
+
+        warehouse = await warehouse_repository.get_by_id(str(route.get("warehouseId")))
+        if warehouse:
+            manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
+            if manager_id:
+                try:
+                    await NotificationService.send_custom_notification(
+                        manager_id,
+                        f"Pickup route {route.get('routeNumber', route_id)} is complete. {len(incoming_rows)} expected shipment(s) are available in B2B Pickup & Fulfillment for warehouse receiving.",
+                        title="Incoming B2B Pickup Shipments",
+                        data={"type": "warehouse_pickup_pending_receipt", "routeId": route_id, "incomingCount": len(incoming_rows)},
+                    )
+                except Exception:
+                    logger.exception("Unable to notify warehouse manager about expected pickup shipments")
+
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        return {
+            "success": True,
+            "data": await enrich_pickup_route_display(updated),
+            "message": f"Pickup route completed; {len(incoming_rows)} shipment(s) sent to warehouse receiving",
+        }
 
     # The partner confirms physical return; this creates incoming-stock records.
     if route_status == "returned_to_warehouse":
