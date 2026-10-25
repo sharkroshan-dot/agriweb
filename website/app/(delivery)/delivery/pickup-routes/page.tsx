@@ -430,7 +430,7 @@ export default function DeliveryPickupRoutesPage() {
               <Button type="button" variant={datePeriod === "yesterday" ? "default" : "outline"} className={datePeriod === "yesterday" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
