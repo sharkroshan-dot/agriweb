@@ -1540,7 +1540,14 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
         coords = _location_coords_from_doc({"location": address}) or _location_coords_from_doc(address)
         if coords:
             return coords, {"type": "Point", "coordinates": [coords[0], coords[1]]}
-    raw_address = next((order.get(k) for k in ("deliveryAddress", "businessAddress", "shippingAddress", "address") if isinstance(order.get(k), str) and order.get(k).strip()), "")
+    raw_address = next((order.get(k) for k in ("deliveryAddress", "businessAddress", "shippingAddress", "address", "deliveryLocation") if isinstance(order.get(k), str) and order.get(k).strip()), "")
+    if not raw_address:
+        for key in ("deliveryLocation", "deliveryAddress", "businessAddress", "shippingAddress", "address"):
+            value = order.get(key)
+            if isinstance(value, dict):
+                raw_address = ", ".join(str(value.get(part) or "").strip() for part in ("formattedAddress", "addressLine1", "address_line1", "street", "line1", "addressLine2", "address_line2") if str(value.get(part) or "").strip())
+                if raw_address:
+                    break
     city = order.get("deliveryCity") or order.get("city") or order.get("deliveryDistrict") or order.get("district") or ""
     state = order.get("deliveryState") or order.get("state") or "Tamil Nadu"
     country = order.get("deliveryCountry") or order.get("country") or "India"
