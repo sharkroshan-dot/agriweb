@@ -1709,6 +1709,20 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                     order.update(sync_update)
 
         await _enrich_order(order)
+        # Expose the number of distinct farmer portions for the B2B-only UI.
+        # The frontend uses this to show consolidation controls only when needed.
+        order["b2bFarmerCount"] = 1
+        if order.get("rfqId") is not None and order.get("businessUserId") is not None:
+            sibling_rows = await order_repo.find_many({
+                "rfqId": order.get("rfqId"),
+                "businessUserId": order.get("businessUserId"),
+                "deletedAt": None,
+            }, limit=500)
+            farmer_keys = {
+                str(p.get("farmerId") or p.get("farmerUserId") or (p.get("farmerInfo") or {}).get("id") or (p.get("farmer") or {}).get("id") or p.get("_id"))
+                for p in sibling_rows
+            }
+            order["b2bFarmerCount"] = max(1, len(farmer_keys))
         # Expose a stable frontend identifier while retaining the Mongo ID as a string.
         order["id"] = str(order.get("_id"))
         source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or "")
