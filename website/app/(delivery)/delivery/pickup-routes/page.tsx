@@ -190,7 +190,7 @@ const stopStatusLabel = (value: string) => ({
 } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function DeliveryPickupRoutesPage() {
-  const [routeView, setRouteView] = useState<"pickup" | "transfers">("pickup");
+  const [routeView, setRouteView] = useState<"pickup" | "transfers" | "b2b">("pickup");
   const [datePeriod, setDatePeriod] = useState<"today" | "yesterday">("today");
   const offersQ = useQuery({
     queryKey: ["myPickupOffers"],
@@ -212,6 +212,12 @@ export default function DeliveryPickupRoutesPage() {
     queryFn: () => api.get("/delivery/me/farmer-fulfillment-warehouse-transfers"),
     refetchInterval: 5000,
   });
+  const b2bDeliveriesQ = useQuery({
+    queryKey: ["myAssignedB2BDeliveries"],
+    queryFn: () => api.get("/delivery/me/b2b-delivery-orders"),
+    refetchInterval: 5000,
+  });
+  const [b2bProof, setB2bProof] = useState<Record<string, string>>({});
   const [actual, setActual] = useState<Record<string, string>>({});
   const [expandedFarmStops, setExpandedFarmStops] = useState<Record<string, boolean>>({});
   const marketplaceQ = useQuery({
@@ -225,6 +231,7 @@ export default function DeliveryPickupRoutesPage() {
   const allAcceptedPickupJobs = marketplaceQ.data?.data?.acceptedJobs || [];
   const allHubTransfers = hubTransfersQ.data?.data?.transfers || [];
   const allWarehouseTransfers = warehouseTransfersQ.data?.data?.transfers || [];
+  const b2bDeliveries = b2bDeliveriesQ.data?.data?.orders || [];
 
   // Keep unfinished routes from earlier days visible while viewing Today so a
   // delivery partner cannot lose sight of work that still needs handover.
@@ -353,6 +360,23 @@ export default function DeliveryPickupRoutesPage() {
     }
   };
 
+  const actOnB2BDelivery = async (order:any,status:"started"|"delivered") => {
+    try {
+      const proof = String(b2bProof[order.id] || "").trim();
+      if (status === "delivered" && !proof) {
+        toast.error("Enter delivery proof or recipient handoff notes before completing this B2B delivery.");
+        return;
+      }
+      await api.put("/delivery/me/b2b-delivery-orders/"+order.id+"/status", undefined, {
+        params: { status, ...(status === "delivered" ? { proof } : {}) },
+      });
+      toast.success(status === "started" ? "B2B delivery started" : "B2B order delivered to business");
+      await b2bDeliveriesQ.refetch();
+    } catch (e:any) {
+      toast.error(e?.message || "Unable to update B2B delivery");
+    }
+  };
+
   const actOnHubTransfer = async (transfer:any,status:"started"|"arrived_at_hub") => {
     try {
       await api.put("/delivery/me/farmer-fulfillment-hub-transfers/"+transfer.id+"/status", undefined, {params:{status}});
@@ -406,7 +430,7 @@ export default function DeliveryPickupRoutesPage() {
               <Button type="button" variant={datePeriod === "yesterday" ? "default" : "outline"} className={datePeriod === "yesterday" ? "bg-emerald-700 hover:bg-emerald-800" : ""} onClick={() => setDatePeriod("yesterday")} aria-pressed={datePeriod === "yesterday"}>Yesterday</Button>
             </div>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-semibold text-emerald-950">Farm Pickup Routes</p>
@@ -455,7 +479,64 @@ export default function DeliveryPickupRoutesPage() {
           <Truck className="mr-2 h-5 w-5" /> Warehouse Transfer Routes
           <Badge className="ml-2" variant={routeView === "transfers" ? "secondary" : "outline"}>{warehouseTransfers.length + hubTransfers.length}</Badge>
         </Button>
+        <Button
+          type="button"
+          variant={routeView === "b2b" ? "default" : "outline"}
+          className={routeView === "b2b" ? "h-12 bg-emerald-700 text-base hover:bg-emerald-800" : "h-12 text-base"}
+          onClick={() => setRouteView("b2b")}
+          aria-pressed={routeView === "b2b"}
+        >
+          <Truck className="mr-2 h-5 w-5" /> B2B Business Deliveries
+          <Badge className="ml-2" variant={routeView === "b2b" ? "secondary" : "outline"}>{b2bDeliveries.length}</Badge>
+        </Button>
       </div>
+
+      {routeView === "b2b" && (
+        <section className="space-y-4">
+          <Card className="border-emerald-200">
+            <CardHeader className="border-b bg-emerald-50/70">
+              <CardTitle className="flex items-center gap-2 text-base"><Truck className="h-5 w-5"/>B2B Business Deliveries</CardTitle>
+              <p className="text-sm text-muted-foreground">Only B2B orders assigned to your delivery-partner account appear here. Farm pickups and warehouse transfers remain in their own sections.</p>
+            </CardHeader>
+            <CardContent className="space-y-3 p-5">
+              {b2bDeliveriesQ.isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading assigned B2B deliveries…</p>
+              ) : b2bDeliveries.length === 0 ? (
+                <div className="py-8 text-center">
+                  <Truck className="mx-auto h-9 w-9 text-slate-400"/>
+                  <h3 className="mt-3 font-semibold">No assigned B2B business deliveries</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">When a warehouse assigns and dispatches a B2B order to you, it will appear here.</p>
+                  <Button className="mt-4" variant="outline" onClick={() => void b2bDeliveriesQ.refetch()}>Refresh B2B Deliveries</Button>
+                </div>
+              ) : b2bDeliveries.map((order:any) => (
+                <div key={order.id} className="rounded-xl border p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <p className="font-semibold">Order {order.orderNumber || order.id}</p>
+                      <p className="text-sm text-muted-foreground">{order.productName || "B2B order"} · {order.quantityKg ?? "—"} kg</p>
+                      <p className="text-sm text-muted-foreground">Business: {order.businessName || "Business buyer"}</p>
+                      <p className="text-sm text-muted-foreground">Delivery address: {typeof order.deliveryAddress === "string" ? order.deliveryAddress : [order.deliveryAddress?.addressLine1, order.deliveryAddress?.address_line1, order.deliveryAddress?.street, order.deliveryAddress?.city, order.deliveryAddress?.district, order.deliveryAddress?.state, order.deliveryAddress?.pincode].filter(Boolean).join(", ") || "Address not recorded"}</p>
+                      <p className="text-sm">Status: <span className="font-medium">{String(order.status || "in_transit").replace(/_/g," ")}</span></p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {order.status === "in_transit" && !order.finalDeliveryStartedAt && <Button onClick={() => actOnB2BDelivery(order,"started")}><Truck className="mr-2 h-4 w-4"/>Start Delivery</Button>}
+                      {order.status === "in_transit" && <Button variant="outline" onClick={() => void b2bDeliveriesQ.refetch()}>Refresh Status</Button>}
+                      {order.status === "delivered" && <Badge variant="outline">Delivered</Badge>}
+                    </div>
+                  </div>
+                  {order.status === "in_transit" && (
+                    <div className="mt-4 space-y-2 rounded-lg bg-slate-50 p-3">
+                      <label className="block text-sm font-medium">Delivery proof / recipient handoff notes</label>
+                      <Input value={b2bProof[order.id] || ""} onChange={e => setB2bProof(previous => ({...previous,[order.id]:e.target.value}))} placeholder="Recipient name, handoff notes, proof reference"/>
+                      <Button onClick={() => actOnB2BDelivery(order,"delivered")}><CheckCircle2 className="mr-2 h-4 w-4"/>Confirm Delivered to Business</Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </section>
+      )}
 
       {routeView === "transfers" && (
         <>
