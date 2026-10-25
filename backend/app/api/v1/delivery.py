@@ -4518,13 +4518,16 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
         "$and": [
             {"status": {"$in": ["in_transit", "delivered"]}},
             {"finalDeliveryPartner": {"$in": assigned_values}},
-            # Restrict this section to actual business/B2B orders. Do not leak
-            # ordinary customer delivery jobs into the B2B-only tab.
-            {"businessUserId": {"$exists": True, "$nin": [None, ""]}},
+            # Restrict this section to B2B/business records using the markers
+            # present across current and legacy order schemas. Ordinary retail
+            # orders without any business/RFQ marker must not appear here.
             {"$or": [
-                {"buyerCategory": {"$in": ["business", "organization"]}},
-                {"buyerType": {"$in": ["business", "organization"]}},
                 {"businessUserId": {"$exists": True, "$nin": [None, ""]}},
+                {"buyerCategory": {"$in": ["business", "organization", "bulk_event"]}},
+                {"buyerType": {"$in": ["business", "organization"]}},
+                {"requestType": {"$in": ["bulk_event", "b2b", "business"]}},
+                {"rfqId": {"$exists": True, "$nin": [None, ""]}},
+                {"businessProfileId": {"$exists": True, "$nin": [None, ""]}},
             ]},
             {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]},
         ]
