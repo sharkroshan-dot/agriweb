@@ -159,7 +159,7 @@ const mergeFarmStopsForDisplay = (input: any[]) => {
     const rankValues = uniqueOrders.map((order: any) => statusRank[String(order.status || "pending")] ?? 0);
     const farmStatus = rankValues.length ? uniqueOrders[rankValues.indexOf(Math.min(...rankValues))]?.status || group.status : group.status;
     const customerOrderKeys = new Set(uniqueOrders.map((order: any, index: number) => {
-      const orderNumber = String(order.orderNumber || "").trim();
+      const orderNumber = String(order.orderNumber || order.orderNo || order.b2bOrderNumber || order.b2bOrderId || order.orderId || "").trim();
       if (orderNumber && orderNumber !== "Order reference unavailable") return "number:" + orderNumber.toLocaleLowerCase();
       if (order.orderId) return "id:" + String(order.orderId);
       return "collection:" + String(order.collectionId || index);
@@ -524,7 +524,7 @@ export default function DeliveryPickupRoutesPage() {
                         <div className="mt-3 space-y-2 border-t pt-3">
                           {orders.map((order: any, orderIndex: number) => (
                             <div key={order.collectionId || order.orderId || orderIndex} className="rounded-md bg-white p-2">
-                              <p className="text-sm font-medium">{order.orderNumber ? "Order " + order.orderNumber : "Order " + (orderIndex + 1)}</p>
+                              <p className="text-sm font-medium">{order.orderNumber || order.orderNo || order.b2bOrderNumber ? "Order " + (order.orderNumber || order.orderNo || order.b2bOrderNumber) : order.b2bOrderId || order.orderId ? "B2B Order " + String(order.b2bOrderId || order.orderId).slice(-8).toUpperCase() : "Order " + (orderIndex + 1)}</p>
                               <p className="text-xs text-muted-foreground">{order.productName || "Product details unavailable"} · {order.quantity || 0} kg</p>
                             </div>
                           ))}
