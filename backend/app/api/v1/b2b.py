@@ -1724,48 +1724,70 @@ async def recommend_b2b_fulfillment_route(
         return {"success": True, "data": {"available": False, "reason": "No active warehouse with valid coordinates is configured."}}
 
     farm_district = _normalized_district(farmer_doc)
-    known_districts = {_normalized_district(row[0]) for row in active}
-    known_districts.discard("")
-    # Prefer explicit business district fields. For legacy text addresses, only
-    # accept a district token that matches a registered warehouse district; never
-    # mistake the last address token ("India" / "Tamil Nadu") for a district.
-    buyer_district = ""
+    # Build district aliases from all registered warehouse location fields.
+    # Some legacy records have district=Trichy but city=Perambalur (or only city),
+    # so a single normalized field can wrongly hide a valid warehouse.
+    def _warehouse_location_tokens(doc: Dict[str, Any]) -> set:
+        tokens = set()
+        nested_values = [doc.get(key) for key in ("address", "location", "deliveryLocation")]
+        sources = [doc] + [value for value in nested_values if isinstance(value, dict)]
+        for source in sources:
+            for key in ("district", "districtName", "administrativeDistrict", "city", "town", "municipality", "locality"):
+                value = source.get(key)
+                token = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+                if token and token not in {"india", "tamilnadu"}:
+                    tokens.add(token)
+            for key in ("formattedAddress", "addressLine1", "address_line1", "street"):
+                value = source.get(key)
+                if isinstance(value, str):
+                    for part in value.split(","):
+                        token = re.sub(r"[^a-z0-9]", "", part.lower())
+                        if token and token not in {"india", "tamilnadu"}:
+                            tokens.add(token)
+        return tokens
+
+    known_districts = set()
+    for warehouse, _coords in active:
+        known_districts.update(_warehouse_location_tokens(warehouse))
     delivery_location = order.get("deliveryLocation")
     explicit_district_values = [
         order.get("deliveryDistrict"), order.get("district"), order.get("districtName"),
         delivery_location.get("district") if isinstance(delivery_location, dict) else None,
         delivery_location.get("deliveryDistrict") if isinstance(delivery_location, dict) else None,
     ]
-    for value in explicit_district_values:
-        token = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
-        if token:
-            buyer_district = token
-            break
+    buyer_district = next((re.sub(r"[^a-z0-9]", "", str(value).lower()) for value in explicit_district_values if str(value or "").strip()), "")
     raw_address_values = [
         order.get("deliveryAddress"), order.get("businessAddress"), order.get("shippingAddress"),
         order.get("address"), delivery_location, geocoded_location,
     ]
-    address_texts = []
+    address_tokens = set()
     for value in raw_address_values:
         if isinstance(value, str) and value.strip():
-            address_texts.append(value)
+            for part in value.split(","):
+                token = re.sub(r"[^a-z0-9]", "", part.lower())
+                if token and token not in {"india", "tamilnadu"}:
+                    address_tokens.add(token)
         elif isinstance(value, dict):
-            for key in ("formattedAddress", "addressLine1", "address_line1", "street", "city", "district", "state", "country"):
+            for key in ("formattedAddress", "addressLine1", "address_line1", "street", "city", "district", "districtName", "town", "municipality", "locality"):
                 part = value.get(key)
                 if isinstance(part, str) and part.strip():
-                    address_texts.append(part)
-    address_tokens = {
-        re.sub(r"[^a-z0-9]", "", part.lower())
-        for address in address_texts for part in address.split(",")
-        if re.sub(r"[^a-z0-9]", "", part.lower())
-    }
-    matched_districts = address_tokens.intersection(known_districts)
-    if matched_districts:
-        # Match only known registered districts; don't infer a district from an
-        # unrecognized locality or country token.
-        buyer_district = next(iter(matched_districts))
-    elif buyer_district and buyer_district not in known_districts:
-        # An explicit but unrecognized district cannot safely qualify a destination.
+                    for token_part in part.split(","):
+                        token = re.sub(r"[^a-z0-9]", "", token_part.lower())
+                        if token and token not in {"india", "tamilnadu"}:
+                            address_tokens.add(token)
+    # Address-to-warehouse matching must be based on an exact registered location
+    # token, never merely the last comma-separated address element.
+    matching_tokens = address_tokens.intersection(known_districts)
+    if matching_tokens:
+        # Prefer a registered administrative district match when one is present.
+        registered_districts = {
+            _normalized_district(warehouse)
+            for warehouse, _coords in active
+            if _normalized_district(warehouse)
+        }
+        district_matches = matching_tokens.intersection(registered_districts)
+        buyer_district = next(iter(district_matches or matching_tokens))
+    elif buyer_district:
         buyer_district = buyer_district
     # Prefer a warehouse in the farmer's district; within that group choose the nearest to the farm.
     if recorded_source:
@@ -1806,10 +1828,10 @@ async def recommend_b2b_fulfillment_route(
         # administrative district. A village or town (e.g. Chettikulam) is not a
         # district; when district is unknown, compare eligible warehouses across
         # every district using geocoded distance instead of falsely rejecting all.
-        warehouse_district = _normalized_district(warehouse)
-        if not buyer_district or not warehouse_district or warehouse_district != buyer_district:
-            # No transfer destination is eligible unless both the business district
-            # and warehouse district are known and match exactly.
+        warehouse_tokens = _warehouse_location_tokens(warehouse)
+        if not buyer_district or not warehouse_tokens or buyer_district not in warehouse_tokens:
+            # Destination must match the business address using a registered
+            # district/city/locality alias from its warehouse record.
             continue
         total = warehouse.get("totalCapacity", warehouse.get("capacity"))
         used = warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0))
@@ -1824,7 +1846,7 @@ async def recommend_b2b_fulfillment_route(
     if not candidates:
         return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "reason": (f"No active destination warehouse with sufficient capacity and verified coordinates was found in the business district ({buyer_district})." if buyer_district else "The business delivery district could not be matched to a registered warehouse district. Add/verify the business district and warehouse district records; automatic transfer is blocked.")}}
     distance_to_buyer, destination, destination_coords, available_capacity = min(candidates, key=lambda row: row[0])
-    return {"success": True, "data": {"available": True, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": str(destination.get("_id")), "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination Warehouse", "destinationDistrict": _normalized_district(destination), "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "destinationAvailableCapacityKg": round(available_capacity, 2), "distanceToBusinessKm": distance_to_buyer, "portionCount": max(1, len(portions)), "reason": (f"Delivery is over 15 km from the source. Selected the nearest active, capacity-eligible warehouse in the business delivery district ({buyer_district})." if buyer_district else "Delivery is over 15 km from the source. No administrative district was explicitly identified, so the nearest active warehouse with sufficient capacity was selected across configured districts using geographic coordinates.")}}
+    return {"success": True, "data": {"available": True, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": str(destination.get("_id")), "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination Warehouse", "destinationDistrict": _normalized_district(destination) or destination.get("city") or destination.get("town"), "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "destinationAvailableCapacityKg": round(available_capacity, 2), "distanceToBusinessKm": distance_to_buyer, "portionCount": max(1, len(portions)), "reason": (f"Delivery is over 15 km from the source. Selected the nearest active, capacity-eligible warehouse in the business delivery district ({buyer_district})." if buyer_district else "Delivery is over 15 km from the source. No administrative district was explicitly identified, so the nearest active warehouse with sufficient capacity was selected across configured districts using geographic coordinates.")}}
 
 
 @router.get("/warehouse/fulfillment/destination-warehouses")
