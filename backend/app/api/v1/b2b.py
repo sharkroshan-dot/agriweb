@@ -1495,7 +1495,29 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
             if order.get(key) is not None:
                 order[key] = str(order[key])
-    return {"success": True, "data": {"orders": orders, "count": len(orders)}}
+
+    # Counts are computed from persisted database queries, not the capped list
+    # returned for rendering. Derived workflow stages use server-side predicates.
+    base = {"deletedAt": None}
+    async def count_status(status: str, extra: Optional[Dict[str, Any]] = None) -> int:
+        criteria: Dict[str, Any] = {**base, "status": status}
+        if extra:
+            criteria.update(extra)
+        return await order_repo.count(criteria)
+
+    summary = {
+        "readyForFarmPickup": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$in": [None, ""]}}),
+        "pickupAssigned": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$nin": [None, ""]}}),
+        "collectedFromFarm": await count_status(ORDER_PICKED_UP),
+        "warehouseReceived": await count_status(ORDER_WAREHOUSE_RECEIVED),
+        "routingRequired": await order_repo.count({**base, "status": ORDER_WAREHOUSE_RECEIVED, "$or": [{"fulfillmentRoute": {"$exists": False}}, {"fulfillmentRoute": None}, {"fulfillmentRoute": ""}]}),
+        "awaitingConsolidation": await order_repo.count({**base, "fulfillmentRoute": "nearby_multi_farmer", "status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED]}, "consolidationCompletedAt": {"$in": [None, ""]}}),
+        "warehouseTransferInTransit": await count_status(ORDER_TRANSFER_IN_TRANSIT),
+        "readyForDirectDelivery": await order_repo.count({**base, "status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED]}, "warehouseQualityCheck": "passed", "$or": [{"fulfillmentRoute": "nearby_single_farmer"}, {"fulfillmentRoute": "long_distance", "status": ORDER_DESTINATION_RECEIVED}, {"fulfillmentRoute": "nearby_multi_farmer", "consolidationCompletedAt": {"$nin": [None, ""]}}]}),
+        "directDeliveryInTransit": await count_status(ORDER_IN_TRANSIT),
+        "deliveredToBusiness": await order_repo.count({**base, "status": {"$in": [ORDER_DELIVERED, ORDER_COMPLETED]}}),
+    }
+    return {"success": True, "data": {"orders": orders, "count": len(orders), "summary": summary}}
 
 
 @router.put("/warehouse/fulfillment/{order_id}")
