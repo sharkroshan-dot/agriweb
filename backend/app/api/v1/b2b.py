@@ -1573,7 +1573,9 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="No warehouse transfer is in transit")
         if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
             raise HTTPException(status_code=400, detail="Enter destination received quantity")
-        update.update({"status": ORDER_DESTINATION_RECEIVED, "destinationReceivedQuantityKg": round(data.receivedQuantityKg, 2), "destinationReceivedAt": datetime.utcnow(), "destinationReceivedBy": str(current_user.get("_id")), "destinationQualityCheck": data.qualityCheck or "pending", "destinationWarehouseNotes": data.notes})
+        if data.qualityCheck not in ("passed", "failed"):
+            raise HTTPException(status_code=400, detail="Destination quality inspection must be explicitly marked passed or failed")
+        update.update({"status": ORDER_DESTINATION_RECEIVED, "destinationReceivedQuantityKg": round(data.receivedQuantityKg, 2), "destinationReceivedAt": datetime.utcnow(), "destinationReceivedBy": str(current_user.get("_id")), "destinationQualityCheck": data.qualityCheck, "destinationWarehouseNotes": data.notes})
     elif action == "dispatch_to_buyer":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch B2B orders")
@@ -1584,6 +1586,11 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Choose and complete the required fulfillment route before final delivery")
         if current == ORDER_DESTINATION_RECEIVED and route != "long_distance":
             raise HTTPException(status_code=400, detail="Destination receipt is only valid for a long-distance route")
+        if route == "nearby_multi_farmer" and not order.get("consolidationCompletedAt"):
+            raise HTTPException(status_code=400, detail="Direct delivery is blocked until every required farmer portion is received, inspected, and consolidation is completed")
+        if route == "long_distance" and current == ORDER_WAREHOUSE_RECEIVED:
+            if not order.get("destinationWarehouseId") or str(order.get("destinationWarehouseId")) == str(order.get("sourceWarehouseId")):
+                raise HTTPException(status_code=400, detail="An eligible destination warehouse must be selected before transfer dispatch")
         if not valid_current or quality != "passed":
             raise HTTPException(status_code=400, detail="The correct warehouse must receive and pass quality inspection before final delivery")
         update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
@@ -1592,7 +1599,13 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only delivery staff can confirm business delivery")
         if current != ORDER_IN_TRANSIT:
             raise HTTPException(status_code=400, detail="Order must be in transit before delivery confirmation")
-        update.update({"status": ORDER_DELIVERED, "deliveredAt": datetime.utcnow(), "deliveredBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
+        if not data.notes or not data.notes.strip():
+            raise HTTPException(status_code=400, detail="Delivery proof / handoff notes are required")
+        assigned_partner = str(order.get("finalDeliveryPartner") or "")
+        current_user_id = str(current_user.get("_id") or "")
+        if role not in ("admin", "super_admin") and assigned_partner and assigned_partner != current_user_id:
+            raise HTTPException(status_code=403, detail="Only the assigned delivery team member can confirm this delivery")
+        update.update({"status": ORDER_DELIVERED, "deliveredAt": datetime.utcnow(), "deliveredBy": current_user_id, "deliveryProof": data.notes.strip(), "deliveryNotes": data.notes.strip()})
     else:
         raise HTTPException(status_code=400, detail="Unknown B2B logistics action")
 
