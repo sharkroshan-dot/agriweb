@@ -49,6 +49,7 @@ from app.services.order_service import geocode_address
 from app.services.notification_service import NotificationService
 from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
+from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 from app.services.warehouse_service import WarehouseService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
@@ -1485,6 +1486,37 @@ async def update_order_status(
                         )
                         quantity = float(order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
                         order_number = str(order.get("orderNumber") or order.get("orderNo") or f"B2B-{str(order['_id'])[-6:]}")
+                        # The warehouse Farm Collection queue reads warehouse_collections,
+                        # while the partner route page reads warehouse_pickup_routes.
+                        # Create one collection job so the same B2B order appears in both.
+                        collection_jobs = await warehouse_collection_repository.get_by_order(str(order["_id"]), "b2b")
+                        collection_job = next(
+                            (job for job in collection_jobs if str(job.get("status") or "") not in
+                             ("collected", "departed_farm", "arrived_warehouse", "cancelled")),
+                            None,
+                        )
+                        collection_id = str(collection_job.get("_id")) if collection_job else None
+                        if not collection_job:
+                            collection_id = await warehouse_collection_repository.create_job({
+                                "warehouseId": ObjectId(pickup_warehouse_id),
+                                "orderId": order["_id"],
+                                "b2bOrderId": str(order["_id"]),
+                                "orderNumber": order_number,
+                                "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                                "farmerName": farmer_name,
+                                "productName": order.get("productName") or "B2B produce",
+                                "quantity": quantity,
+                                "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                                "pickupAddress": (
+                                    (farmer_doc or {}).get("farmAddress")
+                                    or (farmer_doc or {}).get("address")
+                                    or order.get("farmAddress")
+                                    or "Farm address not provided"
+                                ),
+                                "collectionType": "b2b",
+                                "status": "ready_for_pickup",
+                                "createdFrom": "b2b_order",
+                            })
                         await warehouse_pickup_route_repository.create_route({
                             "routeNumber": order_number + "-PICKUP",
                             "routeDate": now.strftime("%Y-%m-%d"),
@@ -1501,6 +1533,7 @@ async def update_order_status(
                                 "sequence": 1,
                                 "farmKey": f"b2b:{str(order['_id'])}",
                                 "b2bOrderId": str(order["_id"]),
+                                "collectionId": collection_id,
                                 "orderId": str(order["_id"]),
                                 "orderNumber": order_number,
                                 "farmerId": farmer_id or None,
@@ -1517,6 +1550,7 @@ async def update_order_status(
                                 "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
                                 "orders": [{
                                     "b2bOrderId": str(order["_id"]),
+                                    "collectionId": collection_id,
                                     "orderId": str(order["_id"]),
                                     "orderNumber": order_number,
                                     "farmerId": farmer_id or None,
