@@ -1668,6 +1668,31 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         ]
     }, sort=[("updatedAt", -1)], limit=500)
     current_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "")
+    # Resolve warehouse accounts that store the association on the warehouse
+    # document instead of the user/session. Without this, every warehouse login
+    # receives the same global B2B queue and can see another warehouse's actions.
+    if role in ("warehouse", "warehouse_manager", "warehouse_staff") and not ObjectId.is_valid(current_warehouse_id):
+        user_id = str(current_user.get("_id") or current_user.get("id") or "")
+        user_values: List[Any] = [user_id]
+        if ObjectId.is_valid(user_id):
+            user_values.append(ObjectId(user_id))
+        warehouse_links = [
+            {"userId": {"$in": user_values}},
+            {"managerId": {"$in": user_values}},
+            {"ownerId": {"$in": user_values}},
+            {"warehouseManagerId": {"$in": user_values}},
+            {"staffUserIds": {"$in": user_values}},
+            {"members.userId": {"$in": user_values}},
+        ]
+        linked_warehouse = await warehouse_repo.find_one({
+            "$and": [
+                {"deletedAt": None},
+                {"$or": warehouse_links},
+            ]
+        })
+        if linked_warehouse:
+            current_warehouse_id = str(linked_warehouse.get("_id") or "")
+
 
     # Reconcile legacy B2B orders from their authoritative farm-collection and
     # pickup-route records. Older jobs may not have written status to b2b_orders,
@@ -1743,6 +1768,33 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
             if order.get(key) is not None:
                 order[key] = str(order[key])
+
+    # Warehouse managers should only see actionable stages for the warehouse
+    # they are signed into. Source warehouses handle farm receipt and dispatch;
+    # destination warehouses see a transfer only after it has been dispatched.
+    # Admins retain the global oversight queue.
+    if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        scoped_orders = []
+        for order in orders:
+            source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or order.get("pickupWarehouseId") or "")
+            destination_id = str(order.get("destinationWarehouseId") or "")
+            status = str(order.get("status") or "")
+            if status == ORDER_TRANSFER_IN_TRANSIT:
+                if current_warehouse_id in (source_id, destination_id):
+                    scoped_orders.append(order)
+            elif status == ORDER_DESTINATION_RECEIVED:
+                if current_warehouse_id == destination_id:
+                    scoped_orders.append(order)
+            elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED):
+                # Keep completed/read-only tracking visible only to the warehouse
+                # that last handled the stock or the destination warehouse.
+                if current_warehouse_id in (source_id, destination_id):
+                    scoped_orders.append(order)
+            elif current_warehouse_id == source_id or (
+                status == ORDER_READY_FOR_PICKUP and current_warehouse_id == str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "")
+            ):
+                scoped_orders.append(order)
+        orders = scoped_orders
 
     # Counts are computed from persisted database queries, not the capped list
     # returned for rendering. Derived workflow stages use server-side predicates.
