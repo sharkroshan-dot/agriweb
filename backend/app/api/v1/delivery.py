@@ -2838,9 +2838,9 @@ async def get_my_pickup_routes(
         }
         assigned_orders = await MongoDB.db.b2b_orders.find({
             "status": {"$in": ["ready_for_pickup", "picked_up"]},
-            **assignment_query,
-            "$or": [
-                *assignment_query["$or"],
+            "$and": [
+                {"$or": assignment_query["$or"]},
+                {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}]},
             ],
         }).sort("pickupAssignedAt", -1).to_list(length=300)
         # Mongo's flat-field query cannot match assignment objects such as
@@ -2860,7 +2860,10 @@ async def get_my_pickup_routes(
         ]}
         nested_orders = await MongoDB.db.b2b_orders.find({
             "status": {"$in": ["ready_for_pickup", "picked_up"]},
-            **nested_query,
+            "$and": [
+                {"$or": nested_query["$or"]},
+                {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}]},
+            ],
         }).sort("pickupAssignedAt", -1).to_list(length=300)
         seen_order_ids = {str(item.get("_id") or "") for item in assigned_orders}
         assigned_orders.extend(
