@@ -50,7 +50,18 @@ export default function B2BFulfillmentPage() {
       <div><h1 className="text-2xl font-bold text-slate-900">B2B Pickup &amp; Fulfillment</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">The dedicated control center for business orders: farm pickup, warehouse receipt, transfer, delivery and business handoff. All actions update the original B2B order.</p></div>
       <Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
     </div>
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{stages.map(s => <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-slate-500">{s.label}</p><p className="mt-1 text-2xl font-bold">{orders.filter((o: any) => s.statuses.includes(o.status)).length}</p></CardContent></Card>)}</div>
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
+      { label: "Ready for Farm Pickup", statuses: ["ready_for_pickup"] },
+      { label: "Pickup Assigned", test: (o: any) => o.status === "ready_for_pickup" && Boolean(o.pickupTeam) },
+      { label: "Collected from Farm", statuses: ["picked_up"] },
+      { label: "Warehouse Received", statuses: ["warehouse_received"] },
+      { label: "Routing Required", test: (o: any) => o.status === "warehouse_received" && !o.fulfillmentRoute },
+      { label: "Awaiting Consolidation", test: (o: any) => o.fulfillmentRoute === "nearby_multi_farmer" && o.status === "warehouse_received" && !o.consolidationCompletedAt },
+      { label: "Warehouse Transfer in Transit", statuses: ["transfer_in_transit"] },
+      { label: "Ready for Direct Delivery", test: (o: any) => ["warehouse_received", "destination_warehouse_received"].includes(o.status) && o.warehouseQualityCheck === "passed" && (o.status !== "destination_warehouse_received" || o.destinationQualityCheck === "passed") && (o.fulfillmentRoute === "nearby_single_farmer" || (o.fulfillmentRoute === "long_distance" && o.status === "destination_warehouse_received") || (o.fulfillmentRoute === "nearby_multi_farmer" && Boolean(o.consolidationCompletedAt))) },
+      { label: "Direct Delivery in Transit", statuses: ["in_transit"] },
+      { label: "Delivered to Business", statuses: ["delivered", "completed"] },
+    ].map((s: any) => <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-slate-500">{s.label}</p><p className="mt-1 text-2xl font-bold">{orders.filter((o: any) => s.test ? s.test(o) : s.statuses.includes(o.status)).length}</p></CardContent></Card>)}</div>
     {query.isLoading ? <p className="py-12 text-center text-slate-500">Loading B2B orders…</p> : query.isError ? <Card><CardContent className="p-6 text-sm text-red-700">Could not load B2B orders. Check the API response and warehouse permissions, then refresh.</CardContent></Card> : !orders.length ? <Card><CardContent className="p-10 text-center text-slate-500">No B2B orders are currently in the pickup or fulfillment workflow.</CardContent></Card> : <div className="space-y-4">{orders.map((o: any) => {
       const f = form(o.id);
       const teamId = String(f.pickupTeam || o.pickupTeam || "");
