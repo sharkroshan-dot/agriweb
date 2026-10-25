@@ -3350,6 +3350,27 @@ async def update_my_pickup_route_status(
         })
         incoming_rows = await WarehouseService.create_pickup_route_incoming(route_id)
         arrived_at = datetime.utcnow()
+
+        # A returned pickup route has been physically handed over to the source
+        # warehouse. Release its accepted delivery-job capacity so the partner
+        # can accept another route using the same vehicle. Keep capacity
+        # committed while the route is still being collected or in transit.
+        try:
+            await MongoDB.db.delivery_jobs.update_many(
+                {
+                    "routeId": {"$in": [route_id, ObjectId(route_id) if ObjectId.is_valid(route_id) else route_id]},
+                    "status": "accepted",
+                    "deletedAt": None,
+                },
+                {"$set": {
+                    "status": "delivered",
+                    "completedAt": arrived_at,
+                    "updatedAt": arrived_at,
+                    "completionReason": "pickup_route_handed_over_to_warehouse",
+                }},
+            )
+        except Exception:
+            logger.exception("Unable to release vehicle capacity after pickup route handover")
         for incoming in incoming_rows:
             collection_id = str(incoming.get("collectionId") or "")
             if not ObjectId.is_valid(collection_id):
