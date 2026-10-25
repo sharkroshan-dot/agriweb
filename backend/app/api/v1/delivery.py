@@ -4540,6 +4540,61 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
     return {"success": True, "data": {"orders": items, "count": len(items)}}
 
 
+@router.put("/me/b2b-delivery-orders/{order_id}/status")
+async def update_my_b2b_delivery_order_status(
+    order_id: str,
+    status_value: str = Query(..., alias="status"),
+    proof: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Let only the assigned final-mile partner start or complete a B2B business delivery."""
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("delivery", "delivery_partner", "delivery_manager", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Only delivery partners can update B2B delivery")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid B2B order ID")
+    orders = MongoDB.get_collection("b2b_orders")
+    order = await orders.find_one({"_id": ObjectId(order_id), "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    user_id = str(current_user.get("_id") or "")
+    assigned_values: List[Any] = [user_id]
+    if ObjectId.is_valid(user_id):
+        assigned_values.append(ObjectId(user_id))
+    profile = await MongoDB.get_collection("delivery_partners").find_one({
+        "$or": [{"userId": {"$in": assigned_values}}, {"user_id": {"$in": assigned_values}}],
+        "deletedAt": {"$in": [None, False, ""]},
+    })
+    if profile and profile.get("_id") is not None:
+        assigned_values.extend([profile["_id"], str(profile["_id"])])
+    assigned = str(order.get("finalDeliveryPartner") or "")
+    if role not in ("admin", "super_admin") and assigned not in [str(x) for x in assigned_values]:
+        raise HTTPException(status_code=403, detail="Only the assigned final delivery partner can update this B2B order")
+    current = str(order.get("status") or "")
+    now = datetime.utcnow()
+    if status_value == "started":
+        if current != "in_transit":
+            raise HTTPException(status_code=409, detail=f"B2B delivery cannot start from status {current}")
+        update = {"finalDeliveryStartedAt": now, "updatedAt": now}
+        message = "B2B delivery started"
+    elif status_value == "delivered":
+        if current != "in_transit":
+            raise HTTPException(status_code=409, detail=f"B2B delivery cannot complete from status {current}")
+        if not proof or not proof.strip():
+            raise HTTPException(status_code=400, detail="Delivery proof / handoff notes are required")
+        update = {"status": "delivered", "deliveredAt": now, "deliveredBy": user_id, "deliveryProof": proof.strip(), "deliveryNotes": proof.strip(), "updatedAt": now}
+        message = "B2B order delivered to business"
+    else:
+        raise HTTPException(status_code=400, detail="Status must be started or delivered")
+    result = await orders.update_one({"_id": order["_id"], "status": current}, {"$set": update})
+    if not result.modified_count:
+        latest = await orders.find_one({"_id": order["_id"]})
+        if status_value == "delivered" and str((latest or {}).get("status")) == "delivered":
+            return {"success": True, "data": {"id": order_id, "status": "delivered"}, "message": "B2B order is already delivered"}
+        raise HTTPException(status_code=409, detail="B2B order changed while updating. Refresh and try again.")
+    return {"success": True, "data": {"id": order_id, "status": update.get("status", current)}, "message": message}
+
+
 @router.get("/me/farmer-fulfillment-warehouse-transfers")
 async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Depends(get_current_user)):
     """List assigned destination-warehouse transfer legs, including Bulk/Event requests."""
