@@ -322,9 +322,8 @@ class WarehouseService:
                     "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
                     "packingRequired": packing_required,
                     "status": "in_transit",
-                    # The route is only materialized here after the pickup team
-                    # has completed/returned the route to the warehouse.
-                    "arrivedWarehouseAt": datetime.utcnow(),
+                    # This is an expected incoming shipment until warehouse staff
+                    # physically receive it; do not stamp warehouse arrival here.
                     "updatedAt": datetime.utcnow(),
                 })
                 existing = await incoming_stock_repository.get_by_id(str(existing["_id"]))
@@ -365,8 +364,7 @@ class WarehouseService:
                 "sourceMode": source_mode,
                 "fulfillmentMethod": fulfillment_method or ("farmer" if not packing_required else "warehouse"),
                 "packingRequired": packing_required,
-                # Incoming records are created only after the route returns to warehouse.
-                "arrivedWarehouseAt": datetime.utcnow(),
+                # Physical arrival is recorded by the warehouse receiving action.
             })
             if incoming_id:
                 row = await incoming_stock_repository.get_by_id(incoming_id)
@@ -374,7 +372,6 @@ class WarehouseService:
                     created.append(row)
         if created:
             await warehouse_pickup_route_repository.update_route(route_id, {
-                "warehouseArrivalAt": datetime.utcnow(),
                 "incomingStockIds": [row["_id"] for row in created if row.get("_id")],
             })
         return created
