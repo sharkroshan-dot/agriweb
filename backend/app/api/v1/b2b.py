@@ -1908,8 +1908,21 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Warehouse receipt and passed quality inspection are required before routing")
         if data.fulfillmentRoute not in ("nearby_single_farmer", "nearby_multi_farmer", "long_distance"):
             raise HTTPException(status_code=400, detail="Choose a valid fulfillment route")
+        source_id_for_route = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or "")
+        if not ObjectId.is_valid(source_id_for_route):
+            raise HTTPException(status_code=400, detail="Actual receiving warehouse is missing. Record the warehouse that physically received the stock before confirming a route.")
+        source_for_route = await warehouse_repo.find_one({"_id": ObjectId(source_id_for_route), "deletedAt": None})
+        source_coords_for_route = _location_coords_from_doc(source_for_route or {})
+        buyer_coords_for_route = _location_coords_from_doc({"location": order.get("deliveryLocation")}) or _location_coords_from_doc(order)
+        if not source_for_route or not source_coords_for_route or not buyer_coords_for_route:
+            raise HTTPException(status_code=400, detail="Actual source warehouse and business delivery coordinates are required before confirming a route.")
+        route_distance_km = haversine_km(source_coords_for_route[1], source_coords_for_route[0], buyer_coords_for_route[1], buyer_coords_for_route[0])
+        if data.fulfillmentRoute in ("nearby_single_farmer", "nearby_multi_farmer") and route_distance_km > 15:
+            raise HTTPException(status_code=409, detail=f"Selected nearby route is invalid: source-to-business distance is {route_distance_km:.2f} km, above the 15 km threshold.")
+        if data.fulfillmentRoute == "long_distance" and route_distance_km <= 15:
+            raise HTTPException(status_code=409, detail=f"Inter-warehouse transfer is not recommended: source-to-business distance is {route_distance_km:.2f} km, within the 15 km nearby threshold.")
         if data.fulfillmentRoute == "long_distance":
-            if not data.destinationWarehouseId or str(data.destinationWarehouseId) == str(order.get("sourceWarehouseId") or ""):
+            if not data.destinationWarehouseId or str(data.destinationWarehouseId) == source_id_for_route:
                 raise HTTPException(status_code=400, detail="Select a different eligible destination warehouse for long-distance fulfillment")
             if not ObjectId.is_valid(str(data.destinationWarehouseId)):
                 raise HTTPException(status_code=400, detail="Invalid destination warehouse ID")
@@ -1930,6 +1943,37 @@ async def update_b2b_warehouse_fulfillment(
             destination_coords = _location_coords_from_doc(destination)
             if not buyer_coords or not destination_coords:
                 raise HTTPException(status_code=400, detail="Destination and business delivery coordinates are required to validate route suitability")
+            # Recheck district eligibility at confirmation time, not just capacity.
+            # Only an explicit district or a token matching a registered warehouse
+            # district is accepted; unknown district data blocks transfer.
+            destination_district = _normalized_district(destination)
+            known_districts = {
+                _normalized_district(row)
+                for row in await warehouse_repo.find_many({"deletedAt": None}, limit=500)
+                if _normalized_district(row)
+            }
+            delivery_location = order.get("deliveryLocation")
+            district_values = [
+                order.get("deliveryDistrict"), order.get("district"), order.get("districtName"),
+                delivery_location.get("district") if isinstance(delivery_location, dict) else None,
+                delivery_location.get("deliveryDistrict") if isinstance(delivery_location, dict) else None,
+            ]
+            business_district = next((re.sub(r"[^a-z0-9]", "", str(v).lower()) for v in district_values if str(v or "").strip()), "")
+            address_values = [order.get("deliveryAddress"), order.get("businessAddress"), order.get("shippingAddress"), delivery_location]
+            address_tokens = set()
+            for value in address_values:
+                if isinstance(value, str):
+                    address_tokens.update(re.sub(r"[^a-z0-9]", "", part.lower()) for part in value.split(","))
+                elif isinstance(value, dict):
+                    for key in ("formattedAddress", "addressLine1", "address_line1", "city", "district", "state", "country"):
+                        part = value.get(key)
+                        if isinstance(part, str):
+                            address_tokens.update(re.sub(r"[^a-z0-9]", "", token.lower()) for token in part.split(","))
+            matching = address_tokens.intersection(known_districts)
+            if matching:
+                business_district = next(iter(matching))
+            if not business_district or not destination_district or destination_district != business_district:
+                raise HTTPException(status_code=409, detail="Destination warehouse district cannot be verified as matching the business delivery district. Update the business address/district and warehouse district records before confirming this transfer.")
             update["destinationWarehouseId"] = str(data.destinationWarehouseId)
         else:
             update["destinationWarehouseId"] = str(order.get("sourceWarehouseId") or "")
