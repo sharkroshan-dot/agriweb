@@ -1574,12 +1574,29 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
         logger.exception("Failed to geocode B2B delivery address for order %s", order.get("_id"))
     return None, None
 
+def _normalized_district(doc: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(doc, dict):
+        return ""
+    location = doc.get("deliveryLocation") or doc.get("location") or doc.get("address")
+    nested = location if isinstance(location, dict) else {}
+    for value in (
+        doc.get("deliveryDistrict"), doc.get("district"), doc.get("districtName"),
+        doc.get("deliveryCity"), doc.get("city"), doc.get("cityName"),
+        nested.get("district"), nested.get("districtName"), nested.get("city"),
+        nested.get("town"), nested.get("locality"),
+    ):
+        normalized = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+        if normalized:
+            return normalized
+    return ""
+
+
 @router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
 async def recommend_b2b_fulfillment_route(
     order_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Recommend the B2B route from saved farm/business addresses and eligible warehouse capacity."""
+    """Recommend route using the farmer's actual location and business delivery district."""
     role = str(current_user.get("role") or "").lower()
     if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Only warehouse staff can request fulfillment routing")
@@ -1592,55 +1609,85 @@ async def recommend_b2b_fulfillment_route(
         raise HTTPException(status_code=400, detail="Automatic routing is available after warehouse receipt")
     if order.get("warehouseQualityCheck") != "passed":
         raise HTTPException(status_code=400, detail="Quality must pass before route recommendation")
+
     buyer_coords, geocoded_location = await _resolve_b2b_delivery_location(order)
     if not buyer_coords:
         return {"success": True, "data": {"available": False, "reason": "The business delivery address could not be geocoded. Add a complete address with city, district and PIN code, then refresh automatic routing."}}
     if geocoded_location and not _location_coords_from_doc({"location": order.get("deliveryLocation")}) and not _location_coords_from_doc(order):
         await order_repo.update({"_id": order["_id"]}, {"deliveryLocation": geocoded_location, "deliveryCoordinatesResolvedAt": datetime.utcnow(), "updatedAt": datetime.utcnow()})
         order["deliveryLocation"] = geocoded_location
-    source_id = str(order.get("sourceWarehouseId") or "")
-    source = await warehouse_repo.find_one({"_id": ObjectId(source_id), "deletedAt": None}) if ObjectId.is_valid(source_id) else None
-    if not source:
-        # If source warehouse was not explicitly saved, infer the closest active warehouse to the farmer.
-        farmer_coords = _location_coords_from_doc(order.get("farmerInfo") or order.get("farmer") or order)
-        warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
-        viable = []
-        for warehouse in warehouses:
-            status = str(warehouse.get("status") or warehouse.get("operationalStatus") or "active").lower()
-            coords = _location_coords_from_doc(warehouse)
-            if status in ("active", "operational", "enabled", "open") and coords and farmer_coords:
-                viable.append((haversine_km(farmer_coords[1], farmer_coords[0], coords[1], coords[0]), warehouse))
-        if viable:
-            source = min(viable, key=lambda row: row[0])[1]
-            source_id = str(source.get("_id"))
-    if not source:
-        return {"success": True, "data": {"available": False, "reason": "Source warehouse or farmer coordinates are missing; automatic routing cannot safely choose a route."}}
-    source_coords = _location_coords_from_doc(source)
-    if not source_coords:
-        return {"success": True, "data": {"available": False, "reason": "Source warehouse coordinates are missing."}}
+
+    # Resolve the farmer's actual profile rather than silently trusting a stale sourceWarehouseId.
+    farmer_doc = order.get("farmerInfo") if isinstance(order.get("farmerInfo"), dict) else order.get("farmer") if isinstance(order.get("farmer"), dict) else {}
+    farmer_id = str(order.get("farmerId") or order.get("farmerUserId") or order.get("sellerId") or "")
+    if farmer_id and ObjectId.is_valid(farmer_id):
+        try:
+            fetched_farmer = await farmer_repository.get_by_id(farmer_id)
+            if fetched_farmer:
+                farmer_doc = {**farmer_doc, **fetched_farmer}
+        except Exception:
+            logger.exception("Could not load B2B farmer profile for order %s", order_id)
+    if not _location_coords_from_doc(farmer_doc) and farmer_id:
+        try:
+            fetched_farmer = await farmer_repository.get_by_user_id(farmer_id)
+            if fetched_farmer:
+                farmer_doc = {**farmer_doc, **fetched_farmer}
+        except Exception:
+            logger.exception("Could not load B2B farmer by user ID for order %s", order_id)
+    farmer_coords = _location_coords_from_doc(farmer_doc)
+    if not farmer_coords:
+        farmer_coords = _location_coords_from_doc(order)
+    if not farmer_coords:
+        return {"success": True, "data": {"available": False, "reason": "Farmer/farm coordinates are missing. The system will not assume Manachanallur or another warehouse is the correct source without farm location data."}}
+
+    warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
+    active = []
+    for warehouse in warehouses:
+        state = str(warehouse.get("status") or warehouse.get("operationalStatus") or "active").lower()
+        coords = _location_coords_from_doc(warehouse)
+        if state in ("active", "operational", "enabled", "open") and coords:
+            active.append((warehouse, coords))
+    if not active:
+        return {"success": True, "data": {"available": False, "reason": "No active warehouse with valid coordinates is configured."}}
+
+    farm_district = _normalized_district(farmer_doc)
+    buyer_district = _normalized_district(order)
+    if not buyer_district:
+        buyer_district = _normalized_district({"deliveryLocation": geocoded_location or order.get("deliveryLocation")})
+    # Prefer a warehouse in the farmer's district; within that group choose the nearest to the farm.
+    source_pool = [row for row in active if farm_district and _normalized_district(row[0]) == farm_district]
+    if not source_pool:
+        source_pool = active
+    source, source_coords = min(source_pool, key=lambda row: haversine_km(farmer_coords[1], farmer_coords[0], row[1][1], row[1][0]))
+    farm_to_source_km = round(haversine_km(farmer_coords[1], farmer_coords[0], source_coords[1], source_coords[0]), 2)
     distance_km = round(haversine_km(source_coords[1], source_coords[0], buyer_coords[1], buyer_coords[0]), 2)
-    # A single B2B order can be split into multiple farmer portions linked by the same RFQ and buyer.
+
     sibling_query = {"deletedAt": None}
     if order.get("rfqId") is not None:
         sibling_query["rfqId"] = order.get("rfqId")
     if order.get("businessUserId") is not None:
         sibling_query["businessUserId"] = order.get("businessUserId")
     siblings = await order_repo.find_many(sibling_query, limit=500) if "rfqId" in sibling_query and "businessUserId" in sibling_query else [order]
-    portions = [p for p in siblings if str(p.get("_id")) != ""]
+    portions = [p for p in siblings if p.get("farmerId") or p.get("farmerUserId") or p.get("farmerInfo") or p.get("farmer")]
     multi_farmer = len(portions) > 1
+    source_id = str(source.get("_id"))
+    source_name = source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse"
+
     if distance_km <= 15:
         route = "nearby_multi_farmer" if multi_farmer else "nearby_single_farmer"
-        return {"success": True, "data": {"available": True, "fulfillmentRoute": route, "distanceKm": distance_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse", "destinationWarehouseId": source_id, "destinationWarehouseName": source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse", "portionCount": len(portions), "reason": "Business delivery is within 15 km of the source warehouse."}}
+        return {"success": True, "data": {"available": True, "fulfillmentRoute": route, "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": source_id, "destinationWarehouseName": source_name, "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "portionCount": max(1, len(portions)), "reason": "Delivery is within 15 km of the source warehouse; direct delivery stays at the source warehouse."}}
+
     required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
-    warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
     candidates = []
-    for warehouse in warehouses:
+    for warehouse, coords in active:
         wid = str(warehouse.get("_id") or "")
         if not wid or wid == source_id:
             continue
-        status = str(warehouse.get("status") or warehouse.get("operationalStatus") or "active").lower()
-        coords = _location_coords_from_doc(warehouse)
-        if status not in ("active", "operational", "enabled", "open") or not coords:
+        # Inter-district routing must target the business delivery district when that
+        # district is known. Do not choose a warehouse from another district just
+        # because its coordinates are closer to the geocoded point.
+        warehouse_district = _normalized_district(warehouse)
+        if buyer_district and warehouse_district != buyer_district:
             continue
         total = warehouse.get("totalCapacity", warehouse.get("capacity"))
         used = warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0))
@@ -1651,11 +1698,11 @@ async def recommend_b2b_fulfillment_route(
         if required_kg <= 0 or available_capacity < required_kg:
             continue
         distance_to_buyer = round(haversine_km(buyer_coords[1], buyer_coords[0], coords[1], coords[0]), 2)
-        candidates.append((distance_to_buyer, warehouse, available_capacity))
+        candidates.append((distance_to_buyer, warehouse, coords, available_capacity))
     if not candidates:
-        return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "reason": "Delivery address is over 15 km away, but no active destination warehouse with sufficient capacity and valid coordinates is available."}}
-    distance_to_buyer, destination, available_capacity = min(candidates, key=lambda row: row[0])
-    return {"success": True, "data": {"available": True, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse", "destinationWarehouseId": str(destination.get("_id")), "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination Warehouse", "destinationAvailableCapacityKg": round(available_capacity, 2), "distanceToBusinessKm": distance_to_buyer, "portionCount": len(portions), "reason": "Business delivery is over 15 km from the source warehouse; nearest eligible destination warehouse selected by delivery address."}}
+        return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "reason": f"No active destination warehouse with sufficient capacity was found in the business delivery district ({buyer_district or 'unknown'}). The system will not select a warehouse from a different district automatically."}}
+    distance_to_buyer, destination, destination_coords, available_capacity = min(candidates, key=lambda row: row[0])
+    return {"success": True, "data": {"available": True, "fulfillmentRoute": "long_distance", "distanceKm": distance_km, "farmToSourceKm": farm_to_source_km, "thresholdKm": 15, "sourceWarehouseId": source_id, "sourceWarehouseName": source_name, "destinationWarehouseId": str(destination.get("_id")), "destinationWarehouseName": destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination Warehouse", "destinationDistrict": _normalized_district(destination), "farmerDistrict": farm_district or None, "businessDistrict": buyer_district or None, "destinationAvailableCapacityKg": round(available_capacity, 2), "distanceToBusinessKm": distance_to_buyer, "portionCount": max(1, len(portions)), "reason": f"Delivery is over 15 km from the source. Selected the nearest active, capacity-eligible warehouse in the business delivery district ({buyer_district or 'unknown'})."}}
 
 
 @router.get("/warehouse/fulfillment/destination-warehouses")
