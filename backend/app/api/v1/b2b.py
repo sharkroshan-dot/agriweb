@@ -1475,6 +1475,7 @@ class B2BLogisticsAction(BaseModel):
     receivedQuantityKg: Optional[float] = Field(None, ge=0)
     qualityCheck: Optional[str] = None
     destinationWarehouseId: Optional[str] = None
+    fulfillmentRoute: Optional[str] = None
     deliveryPartner: Optional[str] = None
     notes: Optional[str] = None
 
@@ -1538,6 +1539,25 @@ async def update_b2b_warehouse_fulfillment(
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
         update.update({"status": ORDER_WAREHOUSE_RECEIVED, "receivedQuantityKg": round(data.receivedQuantityKg, 2), "warehouseQualityCheck": data.qualityCheck, "warehouseReceivedAt": datetime.utcnow(), "warehouseReceivedBy": str(current_user.get("_id")), "warehouseNotes": data.notes})
+    elif action == "set_fulfillment_route":
+        if role not in allowed_warehouse:
+            raise HTTPException(status_code=403, detail="Only warehouse staff can plan B2B fulfillment")
+        if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed":
+            raise HTTPException(status_code=400, detail="Warehouse receipt and passed quality inspection are required before routing")
+        if data.fulfillmentRoute not in ("nearby_single_farmer", "nearby_multi_farmer", "long_distance"):
+            raise HTTPException(status_code=400, detail="Choose a valid fulfillment route")
+        if data.fulfillmentRoute == "long_distance":
+            if not data.destinationWarehouseId or str(data.destinationWarehouseId) == str(order.get("sourceWarehouseId") or ""):
+                raise HTTPException(status_code=400, detail="Select a different eligible destination warehouse for long-distance fulfillment")
+            update["destinationWarehouseId"] = data.destinationWarehouseId
+        else:
+            update["destinationWarehouseId"] = str(order.get("sourceWarehouseId") or "")
+        update.update({
+            "fulfillmentRoute": data.fulfillmentRoute,
+            "fulfillmentRoutePlannedAt": datetime.utcnow(),
+            "fulfillmentRoutePlannedBy": str(current_user.get("_id")),
+            "updatedAt": datetime.utcnow(),
+        })
     elif action == "dispatch_to_destination":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch a warehouse transfer")
@@ -1559,6 +1579,11 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch B2B orders")
         valid_current = current == ORDER_WAREHOUSE_RECEIVED and str(order.get("sourceWarehouseId") or "") == str(order.get("destinationWarehouseId") or "") or current == ORDER_DESTINATION_RECEIVED
         quality = order.get("destinationQualityCheck") if current == ORDER_DESTINATION_RECEIVED else order.get("warehouseQualityCheck")
+        route = order.get("fulfillmentRoute")
+        if current == ORDER_WAREHOUSE_RECEIVED and route not in ("nearby_single_farmer",):
+            raise HTTPException(status_code=400, detail="Choose and complete the required fulfillment route before final delivery")
+        if current == ORDER_DESTINATION_RECEIVED and route != "long_distance":
+            raise HTTPException(status_code=400, detail="Destination receipt is only valid for a long-distance route")
         if not valid_current or quality != "passed":
             raise HTTPException(status_code=400, detail="The correct warehouse must receive and pass quality inspection before final delivery")
         update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
