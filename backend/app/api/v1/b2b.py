@@ -1489,10 +1489,26 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
     statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
     orders = await order_repo.find_many({"status": {"$in": statuses}, "deletedAt": None}, sort=[("updatedAt", -1)], limit=500)
+    current_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "")
     for order in orders:
         await _enrich_order(order)
         # Expose a stable frontend identifier while retaining the Mongo ID as a string.
         order["id"] = str(order.get("_id"))
+        source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or "")
+        destination_id = str(order.get("destinationWarehouseId") or "")
+        # A transfer remains the same B2B order, but is visible in both warehouse
+        # work queues with an explicit side label: source = outbound, destination = inbound.
+        if order.get("status") == ORDER_TRANSFER_IN_TRANSIT:
+            if current_warehouse_id and current_warehouse_id == source_id:
+                order["warehouseTransferSide"] = "source_outgoing"
+            elif current_warehouse_id and current_warehouse_id == destination_id:
+                order["warehouseTransferSide"] = "destination_incoming"
+            else:
+                order["warehouseTransferSide"] = "transfer_in_transit"
+        elif order.get("status") == ORDER_DESTINATION_RECEIVED and current_warehouse_id and current_warehouse_id == destination_id:
+            order["warehouseTransferSide"] = "destination_received"
+        else:
+            order["warehouseTransferSide"] = None
         for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
             if order.get(key) is not None:
                 order[key] = str(order[key])
