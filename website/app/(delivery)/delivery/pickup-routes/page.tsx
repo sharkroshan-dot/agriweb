@@ -236,7 +236,55 @@ export default function DeliveryPickupRoutesPage() {
       (completed && isInDatePeriod(item, datePeriod, "pickup")) ||
       (datePeriod === "today" && isCarryoverRoute(item) && !completed);
   });
-  const offers = allOffers.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
+  // The offers endpoint can return a stale open copy of an order whose valid route
+  // is already assigned and visible in My Routes. Match by route ID AND stable
+  // business identifiers because legacy duplicate documents may have different Mongo IDs.
+  const normalizeRouteKey = (value: any) => String(value ?? "").trim().toLocaleLowerCase();
+  const routeBusinessKeys = (route: any) => {
+    const keys = new Set<string>();
+    const add = (value: any) => {
+      const normalized = normalizeRouteKey(value);
+      if (normalized && normalized !== "order reference unavailable" && normalized !== "undefined" && normalized !== "null") {
+        keys.add(normalized);
+      }
+    };
+    add(route?.id);
+    add(route?._id);
+    add(route?.routeNumber);
+    add(route?.b2bOrderId);
+    add(route?.orderNumber);
+    add(route?.orderNo);
+    for (const id of route?.orderIds || []) add(id);
+    for (const stop of route?.stops || []) {
+      add(stop?.b2bOrderId);
+      add(stop?.orderNumber);
+      add(stop?.orderNo);
+      add(stop?.orderId);
+      for (const order of stop?.orders || []) {
+        add(order?.b2bOrderId);
+        add(order?.orderNumber);
+        add(order?.orderNo);
+        add(order?.orderId);
+      }
+    }
+    return keys;
+  };
+  const activeRouteKeys = new Set<string>();
+  for (const route of allRoutes) {
+    // Only suppress a stale offer when the same route/order is already assigned
+    // or in progress. Keep completed routes available in historical views.
+    if (["assigned", "started", "arrived_at_farm", "collected", "departed_farm", "completed"].includes(
+      normalizeRouteKey(route?.status)
+    )) {
+      for (const key of routeBusinessKeys(route)) activeRouteKeys.add(key);
+    }
+  }
+  const offers = allOffers.filter((item: any) => {
+    if (!isInDatePeriod(item, datePeriod, "pickup")) return false;
+    if (normalizeRouteKey(item?.status || "offered") !== "offered") return true;
+    const keys = routeBusinessKeys(item);
+    return !Array.from(keys).some((key) => activeRouteKeys.has(key));
+  });
   const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
   const acceptedPickupJobs = allAcceptedPickupJobs.filter((item: any) =>
     isInDatePeriod(item, datePeriod, "pickup") ||
