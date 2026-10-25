@@ -1862,6 +1862,18 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Enter the received quantity in kg")
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
+        receiving_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or order.get("sourceWarehouseId") or "")
+        if receiving_warehouse_id:
+            if not ObjectId.is_valid(receiving_warehouse_id):
+                raise HTTPException(status_code=400, detail="The receiving warehouse assignment is invalid; select/configure the actual warehouse before receiving stock")
+            receiving_warehouse = await warehouse_repo.find_one({"_id": ObjectId(receiving_warehouse_id), "deletedAt": None})
+            if not receiving_warehouse:
+                raise HTTPException(status_code=400, detail="The receiving warehouse is not registered")
+            receiving_status = str(receiving_warehouse.get("status") or receiving_warehouse.get("operationalStatus") or "active").lower()
+            if receiving_status not in ("active", "operational", "enabled", "open"):
+                raise HTTPException(status_code=400, detail="The receiving warehouse is not active")
+            update["sourceWarehouseId"] = receiving_warehouse_id
+            update["sourceWarehouseName"] = receiving_warehouse.get("name") or receiving_warehouse.get("warehouseName") or receiving_warehouse.get("code")
         update.update({"status": ORDER_WAREHOUSE_RECEIVED, "receivedQuantityKg": round(data.receivedQuantityKg, 2), "warehouseQualityCheck": data.qualityCheck, "warehouseReceivedAt": datetime.utcnow(), "warehouseReceivedBy": str(current_user.get("_id")), "warehouseNotes": data.notes})
     elif action == "set_fulfillment_route":
         if role not in allowed_warehouse:
