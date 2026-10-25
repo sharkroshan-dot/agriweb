@@ -61,7 +61,7 @@ const isTransferCompleted = (item: any) =>
 
 const routeDateValue = (item: any, workflow: "pickup" | "transfer" = "pickup") => {
   if (workflow === "pickup" && isPickupCompleted(item)) {
-    return item?.returnedAt || item?.arrivedWarehouseAt || item?.warehouseArrivedAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
+    return item?.warehouseArrivalAt || item?.arrivedWarehouseAt || item?.warehouseArrivedAt || item?.returnedAt || item?.completedAt || item?.updatedAt || item?.routeDate || item?.createdAt;
   }
   if (workflow === "transfer" && isTransferCompleted(item)) {
     // These names match the timestamps written by the delivery API.
