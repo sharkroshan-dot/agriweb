@@ -4602,6 +4602,46 @@ async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Dep
         rows.append(leg_doc)
         known_event_ids.add(event_id)
 
+    # Include B2B business orders dispatched directly from the B2B fulfillment
+    # workflow. These live in b2b_orders (not the retail orders collection and
+    # not always in farmer_fulfillment_transfer_legs), so surface them in the
+    # existing Delivery Partner > Pickup Routes > Warehouse Transfer Routes UI.
+    b2b_orders = MongoDB.get_collection("b2b_orders")
+    b2b_assigned_values = [user_oid, str(current_user["_id"])] + profile_ids + [str(x) for x in profile_ids]
+    b2b_rows = await b2b_orders.find({
+        "status": "transfer_in_transit",
+        "transferTeam": {"$in": b2b_assigned_values},
+        "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+    }).sort("transferDispatchedAt", -1).to_list(length=200)
+    for b2b in b2b_rows:
+        b2b_id = str(b2b.get("_id") or "")
+        if not ObjectId.is_valid(b2b_id):
+            continue
+        # Reuse the same status buttons as existing warehouse transfer routes.
+        partner_status = str(b2b.get("transferPartnerStatus") or "assigned")
+        if partner_status not in ("assigned", "in_transit", "arrived_at_destination"):
+            partner_status = "assigned"
+        rows.append({
+            "_id": b2b["_id"],
+            "orderId": b2b["_id"],
+            "id": b2b_id,
+            "orderNumber": b2b.get("orderNumber") or ("B2B-" + b2b_id[-6:].upper()),
+            "legType": "warehouse_to_destination_warehouse",
+            "status": partner_status,
+            "sourceWarehouseId": b2b.get("sourceWarehouseId"),
+            "destinationWarehouseId": b2b.get("destinationWarehouseId"),
+            "sourceWarehouseName": b2b.get("sourceWarehouseName"),
+            "destinationWarehouseName": b2b.get("destinationWarehouseName"),
+            "assignedPartnerUserId": user_oid,
+            "assignedAt": b2b.get("transferDispatchedAt") or b2b.get("updatedAt") or datetime.utcnow(),
+            "dispatchedAt": b2b.get("transferDispatchedAt"),
+            "createdAt": b2b.get("transferDispatchedAt") or b2b.get("createdAt") or datetime.utcnow(),
+            "updatedAt": b2b.get("updatedAt") or datetime.utcnow(),
+            "isB2BOrder": True,
+            "quantityKg": b2b.get("receivedQuantityKg") or b2b.get("packedQuantityKg") or b2b.get("quantityKg"),
+            "transferVehicle": b2b.get("transferVehicle"),
+        })
+
     output = []
     seen = set()
     for row in rows:
