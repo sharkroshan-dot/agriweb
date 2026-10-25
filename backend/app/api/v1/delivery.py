@@ -2713,6 +2713,15 @@ async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_cu
     if not membership or str(membership.get("status") or "").lower() != "approved":
         raise HTTPException(status_code=403, detail="You are not an approved pickup partner for this warehouse")
 
+    # Reject stale/duplicate offers before vehicle-capacity validation so a
+    # route already claimed or returned to the warehouse cannot show a
+    # misleading insufficient-capacity error.
+    if str(route.get("status") or "").strip().lower() != "offered" or route.get("deliveryPartnerId"):
+        raise HTTPException(
+            status_code=409,
+            detail="This pickup route is no longer available; refresh the pickup routes list.",
+        )
+
     partner_name = ""
     try:
         partner_user = await UserService.get_user_by_id(str(profile.get("userId") or current_user["_id"]))
