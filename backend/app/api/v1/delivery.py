@@ -4534,6 +4534,7 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
             "deliveryAddress": order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress") or order.get("deliveryLocation") or {},
             "deliveryNotes": order.get("deliveryNotes") or "",
             "finalDeliveryAssignedAt": order.get("finalDeliveryAssignedAt"),
+            "finalDeliveryStartedAt": order.get("finalDeliveryStartedAt"),
             "deliveredAt": order.get("deliveredAt"),
             "deliveryProof": order.get("deliveryProof"),
         })
