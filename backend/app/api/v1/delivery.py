@@ -4717,12 +4717,33 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
                 raise HTTPException(status_code=409, detail=f"Cannot confirm destination arrival from status {current}")
             next_status, time_field = "arrived_at_destination", "transferPartnerArrivedAtDestination"
         now = datetime.utcnow()
+        # Older B2B orders do not have transferPartnerStatus persisted yet.
+        # The UI intentionally treats a missing value as "assigned", so the
+        # compare-and-set must accept missing/null as well as an explicit value.
+        status_guard = (
+            {"transferPartnerStatus": current}
+            if b2b.get("transferPartnerStatus") is not None
+            else {"$or": [
+                {"transferPartnerStatus": {"$exists": False}},
+                {"transferPartnerStatus": None},
+                {"transferPartnerStatus": ""},
+            ]}
+        )
         result = await b2b_orders.update_one(
-            {"_id": b2b["_id"], "status": "transfer_in_transit", "transferPartnerStatus": current},
+            {"$and": [
+                {"_id": b2b["_id"], "status": "transfer_in_transit", "transferTeam": {"$in": assigned_values}},
+                status_guard,
+            ]},
             {"$set": {"transferPartnerStatus": next_status, time_field: now, "updatedAt": now}},
         )
         if not result.modified_count:
-            raise HTTPException(status_code=409, detail="B2B transfer status changed. Refresh and try again.")
+            # Return the persisted state when another request already applied
+            # this transition, rather than reporting a false conflict.
+            latest = await b2b_orders.find_one({"_id": b2b["_id"]})
+            latest_status = str((latest or {}).get("transferPartnerStatus") or "")
+            if latest_status != next_status:
+                raise HTTPException(status_code=409, detail=f"B2B transfer status could not be updated (current transfer status: {latest_status or 'assigned'}). Refresh and try again.")
+        return {"success": True, "data": {"id": transfer_id, "status": next_status, "isB2BOrder": True}, "message": "B2B transfer started" if transfer_status == "started" else "B2B transfer arrival recorded. Destination warehouse receipt is required."}
         return {"success": True, "data": {"id": transfer_id, "status": next_status, "isB2BOrder": True}, "message": "B2B transfer started" if transfer_status == "started" else "B2B transfer arrival recorded. Destination warehouse receipt is required."}
     current = str(leg.get("status") or "")
     if transfer_status == "started":
