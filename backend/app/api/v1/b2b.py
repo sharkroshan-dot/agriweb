@@ -1942,24 +1942,65 @@ async def recommend_b2b_fulfillment_route(
         return {"success": True, "data": {"available": False, "reason": "The source warehouse has no configured district. Add its official district before routing."}}
 
     warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=1000)
-    active = [
-        w for w in warehouses
-        if str(w.get("status") or w.get("operationalStatus") or "active").lower() in ("active", "operational", "enabled", "open")
-    ]
-    # Resolve the single active district warehouse. District aliases are accepted
-    # only when explicitly stored in that warehouse's administrative/location fields.
+    def is_active_warehouse(w: Dict[str, Any]) -> bool:
+        # Support the status variants used by older warehouse records while
+        # still excluding explicitly disabled/deleted warehouses.
+        if w.get("deletedAt") not in (None, ""):
+            return False
+        if w.get("isActive") is False or w.get("active") is False or w.get("isOperational") is False:
+            return False
+        status_values = [
+            str(w.get("status") or "").strip().lower(),
+            str(w.get("operationalStatus") or "").strip().lower(),
+        ]
+        status_values = [value for value in status_values if value]
+        return not status_values or any(value in ("active", "operational", "enabled", "open", "approved", "verified") for value in status_values)
+
+    active = [w for w in warehouses if is_active_warehouse(w)]
+
+    # Warehouse records in this project have used several schemas over time.
+    # Match the buyer district against administrative fields, legacy city/town
+    # fields, nested addresses and explicitly configured service-district lists.
+    # Compare normalized whole tokens; do not use substring matching.
     def district_tokens(doc: Dict[str, Any]) -> set:
         tokens = set()
         sources = [doc]
-        for key in ("address", "location", "deliveryLocation"):
+        for key in ("address", "location", "deliveryLocation", "shippingAddress", "serviceArea", "warehouseAddress"):
             value = doc.get(key)
             if isinstance(value, dict):
                 sources.append(value)
+
+        district_keys = (
+            "district", "districtName", "administrativeDistrict", "deliveryDistrict",
+            "city", "cityName", "town", "municipality", "locality", "deliveryCity",
+        )
         for item in sources:
-            for key in ("district", "districtName", "administrativeDistrict", "deliveryDistrict"):
-                token = re.sub(r"[^a-z0-9]", "", str(item.get(key) or "").lower())
-                if token:
-                    tokens.add(token)
+            for key in district_keys:
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    token = re.sub(r"[^a-z0-9]", "", value.lower())
+                    if token:
+                        tokens.add(token)
+            # A few legacy address records only contain a formatted address.
+            for key in ("formattedAddress", "fullAddress", "addressLine1", "address_line1", "address", "street"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    for part in value.split(","):
+                        token = re.sub(r"[^a-z0-9]", "", part.lower())
+                        if token and token not in {"india", "tamilnadu", "tn"}:
+                            tokens.add(token)
+
+        for key in ("serviceAreas", "serviceDistricts", "supportedDistricts", "districts", "operatingDistricts"):
+            values = doc.get(key)
+            if isinstance(values, str):
+                values = [values]
+            if isinstance(values, (list, tuple, set)):
+                for value in values:
+                    if isinstance(value, dict):
+                        value = value.get("district") or value.get("districtName") or value.get("name") or value.get("city")
+                    token = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+                    if token:
+                        tokens.add(token)
         return tokens
 
     destination_matches = [w for w in active if buyer_district in district_tokens(w)]
