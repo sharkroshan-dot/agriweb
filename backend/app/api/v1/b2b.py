@@ -2366,27 +2366,43 @@ async def update_b2b_warehouse_fulfillment(
     elif action == "complete_consolidation":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can complete B2B consolidation")
-        if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed" or order.get("fulfillmentRoute") != "nearby_multi_farmer":
-            raise HTTPException(status_code=400, detail="This portion must be received, quality-passed, and routed to Nearby — Multiple Farmers")
+        route = str(order.get("fulfillmentRoute") or "")
+        is_same_district = route == "nearby_multi_farmer" and current == ORDER_WAREHOUSE_RECEIVED and order.get("warehouseQualityCheck") == "passed"
+        is_inter_district = route == "long_distance" and current == ORDER_DESTINATION_RECEIVED and order.get("destinationQualityCheck") == "passed"
+        if not (is_same_district or is_inter_district):
+            raise HTTPException(status_code=400, detail="Consolidation is allowed only after all required portions reach the correct district warehouse and pass quality inspection")
         rfq_id = order.get("rfqId")
         business_id = order.get("businessUserId")
         if not rfq_id or not business_id:
             raise HTTPException(status_code=400, detail="The original RFQ and business buyer are required to identify all portions")
         portions = await order_repo.find_many({"rfqId": rfq_id, "businessUserId": business_id, "deletedAt": None}, limit=500)
-        if len(portions) < 2:
-            raise HTTPException(status_code=400, detail="This RFQ has fewer than two farmer portions; use Nearby — Single Farmer")
-        outstanding = [
-            p for p in portions
-            if p.get("status") != ORDER_WAREHOUSE_RECEIVED
-            or p.get("warehouseQualityCheck") != "passed"
-            or p.get("fulfillmentRoute") != "nearby_multi_farmer"
-        ]
+        distinct_farmers = {
+            str(p.get("farmerId") or p.get("farmerUserId") or (p.get("farmerInfo") or {}).get("id") or (p.get("farmer") or {}).get("id") or p.get("_id"))
+            for p in portions
+        }
+        if len(distinct_farmers) < 2:
+            raise HTTPException(status_code=400, detail="This B2B order contains fewer than two distinct farmers; consolidation is not required")
+        if is_same_district:
+            outstanding = [
+                p for p in portions
+                if p.get("status") != ORDER_WAREHOUSE_RECEIVED
+                or p.get("warehouseQualityCheck") != "passed"
+                or p.get("fulfillmentRoute") != "nearby_multi_farmer"
+            ]
+        else:
+            destination_id = str(order.get("destinationWarehouseId") or "")
+            outstanding = [
+                p for p in portions
+                if p.get("status") != ORDER_DESTINATION_RECEIVED
+                or p.get("destinationQualityCheck") != "passed"
+                or p.get("fulfillmentRoute") != "long_distance"
+                or str(p.get("destinationWarehouseId") or "") != destination_id
+            ]
         if outstanding:
-            raise HTTPException(status_code=409, detail=f"Consolidation blocked: {len(outstanding)} farmer portion(s) are not yet received, quality-passed, and routed for consolidation")
+            raise HTTPException(status_code=409, detail=f"Consolidation blocked: {len(outstanding)} farmer portion(s) have not reached the required warehouse or have not passed quality inspection")
         now = datetime.utcnow()
         for portion in portions:
             await order_repo.update({"_id": portion["_id"]}, {
-                "fulfillmentRoute": "nearby_multi_farmer",
                 "consolidationCompletedAt": now,
                 "consolidationCompletedBy": str(current_user.get("_id")),
                 "consolidationStatus": "completed",
@@ -2405,6 +2421,11 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Destination receipt is only valid for a long-distance route")
         if route == "nearby_multi_farmer" and not order.get("consolidationCompletedAt"):
             raise HTTPException(status_code=400, detail="Direct delivery is blocked until every required farmer portion is received, inspected, and consolidation is completed")
+        if route == "long_distance" and order.get("rfqId") and order.get("businessUserId") and not order.get("consolidationCompletedAt"):
+            sibling_portions = await order_repo.find_many({"rfqId": order.get("rfqId"), "businessUserId": order.get("businessUserId"), "deletedAt": None}, limit=500)
+            distinct_farmers = {str(p.get("farmerId") or p.get("farmerUserId") or (p.get("farmerInfo") or {}).get("id") or (p.get("farmer") or {}).get("id") or p.get("_id")) for p in sibling_portions}
+            if len(distinct_farmers) > 1:
+                raise HTTPException(status_code=400, detail="Final delivery is blocked until all farmer portions arrive at the destination district warehouse and consolidation is completed")
         if route == "long_distance" and current == ORDER_WAREHOUSE_RECEIVED:
             if not order.get("destinationWarehouseId") or str(order.get("destinationWarehouseId")) == str(order.get("sourceWarehouseId")):
                 raise HTTPException(status_code=400, detail="An eligible destination warehouse must be selected before transfer dispatch")
