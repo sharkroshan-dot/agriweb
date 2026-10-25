@@ -1657,7 +1657,16 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
         raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
     statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
-    orders = await order_repo.find_many({"status": {"$in": statuses}, "deletedAt": None}, sort=[("updatedAt", -1)], limit=500)
+    orders = await order_repo.find_many({
+        "$and": [
+            {"deletedAt": None},
+            {"$or": [
+                {"status": {"$in": statuses}},
+                {"warehouseCollectionStatus": {"$in": ["collected", "departed_farm", "arrived_warehouse", "warehouse_arrived"]}},
+                {"warehouseFulfillmentStage": {"$in": ["collected", "collection_departed", "warehouse_arrived"]}},
+            ]},
+        ]
+    }, sort=[("updatedAt", -1)], limit=500)
     current_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "")
     for order in orders:
         await _enrich_order(order)
@@ -2230,8 +2239,9 @@ async def update_b2b_warehouse_fulfillment(
     elif action == "receive_stock":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can receive B2B stock")
-        if current != ORDER_PICKED_UP:
-            raise HTTPException(status_code=400, detail="Stock can be received only after pickup is confirmed")
+        collection_stage = str(order.get("warehouseCollectionStatus") or order.get("warehouseFulfillmentStage") or "").strip().lower()
+        if current != ORDER_PICKED_UP and collection_stage not in ("collected", "departed_farm", "arrived_warehouse", "warehouse_arrived", "collection_departed"):
+            raise HTTPException(status_code=400, detail="Stock can be received only after the pickup partner has collected the order and returned to the warehouse")
         if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
             raise HTTPException(status_code=400, detail="Enter the received quantity in kg")
         if data.qualityCheck not in ("passed", "failed"):
