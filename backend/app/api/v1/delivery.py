@@ -4514,13 +4514,14 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
     })
     if profile and profile.get("_id") is not None:
         assigned_values.extend([profile["_id"], str(profile["_id"])])
+    # B2B orders may have been assigned using either the user ID or the
+    # registered delivery-partner profile ID, and older dispatch records use
+    # different assignment field names. Fetch only active B2B deliveries, then
+    # normalize assignment IDs in Python so BSON ObjectId/string differences
+    # do not silently hide an assigned order.
     query = {
         "$and": [
             {"status": {"$in": ["in_transit", "delivered"]}},
-            {"finalDeliveryPartner": {"$in": assigned_values}},
-            # Restrict this section to B2B/business records using the markers
-            # present across current and legacy order schemas. Ordinary retail
-            # orders without any business/RFQ marker must not appear here.
             {"$or": [
                 {"businessUserId": {"$exists": True, "$nin": [None, ""]}},
                 {"buyerCategory": {"$in": ["business", "organization", "bulk_event"]}},
@@ -4532,7 +4533,20 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
             {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]},
         ]
     }
-    orders = await MongoDB.get_collection("orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=200)
+    candidates = await MongoDB.get_collection("orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=500)
+    assigned_id_strings = {str(value) for value in assigned_values if value is not None}
+    orders = []
+    for candidate in candidates:
+        assignment_values = [
+            candidate.get("finalDeliveryPartner"),
+            candidate.get("finalDeliveryPartnerId"),
+            candidate.get("deliveryPartner"),
+            candidate.get("deliveryPartnerId"),
+            candidate.get("assignedDeliveryPartnerId"),
+            candidate.get("assignedDeliveryPartner"),
+        ]
+        if any(str(value) in assigned_id_strings for value in assignment_values if value not in (None, "")):
+            orders.append(candidate)
     items = []
     for order in orders:
         oid = str(order.get("_id") or "")
