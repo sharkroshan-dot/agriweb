@@ -4519,7 +4519,7 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
         "finalDeliveryPartner": {"$in": assigned_values},
         "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
     }
-    orders = await MongoDB.get_collection("b2b_orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=200)
+    orders = await MongoDB.get_collection("orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=200)
     items = []
     for order in orders:
         oid = str(order.get("_id") or "")
@@ -4553,7 +4553,7 @@ async def update_my_b2b_delivery_order_status(
         raise HTTPException(status_code=403, detail="Only delivery partners can update B2B delivery")
     if not ObjectId.is_valid(order_id):
         raise HTTPException(status_code=400, detail="Invalid B2B order ID")
-    orders = MongoDB.get_collection("b2b_orders")
+    orders = MongoDB.get_collection("orders")
     order = await orders.find_one({"_id": ObjectId(order_id), "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]})
     if not order:
         raise HTTPException(status_code=404, detail="B2B order not found")
@@ -4706,7 +4706,7 @@ async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Dep
     # workflow. These live in b2b_orders (not the retail orders collection and
     # not always in farmer_fulfillment_transfer_legs), so surface them in the
     # existing Delivery Partner > Pickup Routes > Warehouse Transfer Routes UI.
-    b2b_orders = MongoDB.get_collection("b2b_orders")
+    b2b_orders = MongoDB.get_collection("orders")
     b2b_assigned_values = [user_oid, str(current_user["_id"])] + profile_ids + [str(x) for x in profile_ids]
     b2b_rows = await b2b_orders.find({
         "status": "transfer_in_transit",
@@ -4790,7 +4790,7 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
     # same existing Pickup Routes actions without requiring a separate transfer
     # leg to exist for this order.
     if not leg:
-        b2b_orders = MongoDB.get_collection("b2b_orders")
+        b2b_orders = MongoDB.get_collection("orders")
         user_id = str(current_user["_id"])
         profile = await MongoDB.get_collection("delivery_partners").find_one({
             "$or": [{"userId": ObjectId(user_id)}, {"userId": user_id}, {"user_id": ObjectId(user_id)}, {"user_id": user_id}],
