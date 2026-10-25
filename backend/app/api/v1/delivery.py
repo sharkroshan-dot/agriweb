@@ -3145,8 +3145,41 @@ async def update_my_pickup_route_status(
                 # link plus route ownership is the authoritative assignment check;
                 # requiring collectionTeamId == partner_id incorrectly blocks valid
                 # assigned routes when the IDs use different representations.
-                if not farm_job or str(farm_job.get("pickupRouteId") or "") != route_id:
-                    raise HTTPException(status_code=404, detail="One or more farm orders are no longer linked to your assigned pickup route")
+                if not farm_job:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Farm collection job {farm_collection_id} no longer exists",
+                    )
+
+                linked_route_id = str(farm_job.get("pickupRouteId") or "").strip()
+                # Older pickup routes can contain a collection ID in their stop
+                # payload even though the collection job never received the
+                # pickupRouteId back-reference. Since this route was loaded and
+                # ownership-checked above, and this job ID is explicitly present
+                # in the selected stop, safely repair only a missing back-reference.
+                if not linked_route_id:
+                    repair = {"pickupRouteId": ObjectId(route_id)}
+                    if not farm_job.get("collectionTeamId"):
+                        repair["collectionTeamId"] = ObjectId(partner_id)
+                    await warehouse_collection_repository.update_job(
+                        str(farm_job["_id"]), repair
+                    )
+                    farm_job = {
+                        **farm_job,
+                        "pickupRouteId": ObjectId(route_id),
+                        **({"collectionTeamId": ObjectId(partner_id)} if not farm_job.get("collectionTeamId") else {}),
+                    }
+                    linked_route_id = route_id
+
+                if linked_route_id != route_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Farm collection job {farm_collection_id} is linked to "
+                            "a different pickup route. Refresh/reassign the route before "
+                            "recording farm arrival."
+                        ),
+                    )
                 farm_jobs.append(farm_job)
             return farm_jobs
 
