@@ -1320,8 +1320,15 @@ async def get_my_collections(
                 or readable((batch or {}).get("name"))
             ),
             "collectionTeamName": team_name,
-            "collectionTeamVehicleType": readable((team or {}).get("vehicleType")),
-            "collectionTeamVehicleNumber": readable((team or {}).get("vehicleNumber")),
+            "collectionTeamVehicleType": (
+                readable((team or {}).get("vehicleType"))
+                or readable((route or {}).get("deliveryPartnerVehicleType"))
+            ),
+            "collectionTeamVehicleNumber": (
+                readable((team or {}).get("vehicleNumber"))
+                or readable((route or {}).get("deliveryPartnerVehicleNumber"))
+                or readable((route or {}).get("vehicleNumber"))
+            ),
             "routeNumber": readable((route or {}).get("routeNumber")),
             "pickupAddress": pickup_address or "Farm address not provided",
             "warehouseName": readable(warehouse.get("name")) or readable(warehouse.get("warehouseName")) or "Assigned warehouse",
