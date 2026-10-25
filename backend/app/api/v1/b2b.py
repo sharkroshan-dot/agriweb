@@ -1656,6 +1656,10 @@ async def update_order_status(
 
 class B2BLogisticsAction(BaseModel):
     action: str
+    # Both fields are accepted because older UI forms use qualityNotes while
+    # the current B2B fulfillment page submits notes.
+    notes: Optional[str] = None
+    qualityNotes: Optional[str] = None
     pickupTeam: Optional[str] = None
     transferTeam: Optional[str] = None
     transferTeamName: Optional[str] = None
