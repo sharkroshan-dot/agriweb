@@ -1520,6 +1520,64 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     return {"success": True, "data": {"orders": orders, "count": len(orders), "summary": summary}}
 
 
+@router.get("/warehouse/fulfillment/destination-warehouses")
+async def list_b2b_destination_warehouses(
+    orderId: str = Query(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Return active destination warehouses with known spare capacity for this B2B order."""
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Only warehouse staff can select a destination warehouse")
+    if not ObjectId.is_valid(orderId):
+        raise HTTPException(status_code=400, detail="Invalid B2B order ID")
+    order = await order_repo.find_one({"_id": ObjectId(orderId), "deletedAt": None})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if order.get("status") != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed":
+        raise HTTPException(status_code=400, detail="Source warehouse receipt and passed quality inspection are required")
+    required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
+    if required_kg <= 0:
+        raise HTTPException(status_code=400, detail="Order quantity is required before selecting a destination")
+    buyer_coords = _location_coords_from_doc({"location": order.get("deliveryLocation")}) or _location_coords_from_doc(order)
+    warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
+    options = []
+    for warehouse in warehouses:
+        wid = str(warehouse.get("_id") or warehouse.get("id") or "")
+        if not wid or wid == str(order.get("sourceWarehouseId") or ""):
+            continue
+        state = str(warehouse.get("status") or warehouse.get("operationalStatus") or "active").lower()
+        if state not in ("active", "operational", "enabled", "open"):
+            continue
+        total = warehouse.get("totalCapacity", warehouse.get("capacity"))
+        used = warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0))
+        try:
+            spare = float(total) - float(used or 0)
+        except (TypeError, ValueError):
+            # Never treat an unknown capacity as available capacity.
+            continue
+        if spare < required_kg:
+            continue
+        coords = _location_coords_from_doc(warehouse)
+        distance = None
+        if buyer_coords and coords:
+            distance = round(haversine_km(buyer_coords[1], buyer_coords[0], coords[1], coords[0]), 1)
+        # Require known destination and buyer locations for route suitability.
+        if distance is None:
+            continue
+        options.append({
+            "id": wid,
+            "name": warehouse.get("name") or warehouse.get("warehouseName") or warehouse.get("code") or f"Warehouse {wid[-6:]}",
+            "district": warehouse.get("district"),
+            "city": warehouse.get("city"),
+            "availableCapacityKg": round(spare, 2),
+            "requiredCapacityKg": round(required_kg, 2),
+            "distanceToBusinessKm": distance,
+        })
+    options.sort(key=lambda item: item["distanceToBusinessKm"])
+    return {"success": True, "data": {"warehouses": options, "requiredCapacityKg": round(required_kg, 2)}}
+
+
 @router.put("/warehouse/fulfillment/{order_id}")
 async def update_b2b_warehouse_fulfillment(
     order_id: str,
@@ -1585,6 +1643,8 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only warehouse staff can dispatch a warehouse transfer")
         if current != ORDER_WAREHOUSE_RECEIVED or order.get("warehouseQualityCheck") != "passed":
             raise HTTPException(status_code=400, detail="Source warehouse must receive and pass quality inspection before transfer")
+        if order.get("fulfillmentRoute") != "long_distance":
+            raise HTTPException(status_code=400, detail="Save the Long Distance route before dispatching a warehouse transfer")
         if not order.get("destinationWarehouseId") or str(order.get("destinationWarehouseId")) == str(order.get("sourceWarehouseId")):
             raise HTTPException(status_code=400, detail="A different destination warehouse must be configured for this transfer")
         update.update({"status": ORDER_TRANSFER_IN_TRANSIT, "transferDispatchedAt": datetime.utcnow(), "transferDispatchedBy": str(current_user.get("_id")), "destinationWarehouseId": str(order.get("destinationWarehouseId")), "transferNotes": data.notes})
@@ -1593,6 +1653,8 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only destination warehouse staff can receive a transfer")
         if current != ORDER_TRANSFER_IN_TRANSIT:
             raise HTTPException(status_code=400, detail="No warehouse transfer is in transit")
+        if str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "") and str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "") != str(order.get("destinationWarehouseId") or "") and role not in ("admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only the destination warehouse can receive this transfer")
         if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
             raise HTTPException(status_code=400, detail="Enter destination received quantity")
         if data.qualityCheck not in ("passed", "failed"):
@@ -1615,6 +1677,10 @@ async def update_b2b_warehouse_fulfillment(
                 raise HTTPException(status_code=400, detail="An eligible destination warehouse must be selected before transfer dispatch")
         if not valid_current or quality != "passed":
             raise HTTPException(status_code=400, detail="The correct warehouse must receive and pass quality inspection before final delivery")
+        if not data.deliveryPartner or not str(data.deliveryPartner).strip():
+            raise HTTPException(status_code=400, detail="Select a registered delivery team before dispatch")
+        if route == "long_distance" and current == ORDER_DESTINATION_RECEIVED and not order.get("destinationReceivedAt"):
+            raise HTTPException(status_code=400, detail="Destination warehouse receipt must be recorded before final delivery")
         update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
     elif action == "confirm_delivery":
         if role not in allowed_delivery:
