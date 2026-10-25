@@ -4515,9 +4515,19 @@ async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_us
     if profile and profile.get("_id") is not None:
         assigned_values.extend([profile["_id"], str(profile["_id"])])
     query = {
-        "status": {"$in": ["in_transit", "delivered"]},
-        "finalDeliveryPartner": {"$in": assigned_values},
-        "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+        "$and": [
+            {"status": {"$in": ["in_transit", "delivered"]}},
+            {"finalDeliveryPartner": {"$in": assigned_values}},
+            # Restrict this section to actual business/B2B orders. Do not leak
+            # ordinary customer delivery jobs into the B2B-only tab.
+            {"businessUserId": {"$exists": True, "$nin": [None, ""]}},
+            {"$or": [
+                {"buyerCategory": {"$in": ["business", "organization"]}},
+                {"buyerType": {"$in": ["business", "organization"]}},
+                {"businessUserId": {"$exists": True, "$nin": [None, ""]}},
+            ]},
+            {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]},
+        ]
     }
     orders = await MongoDB.get_collection("orders").find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=200)
     items = []
