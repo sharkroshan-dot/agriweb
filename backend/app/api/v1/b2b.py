@@ -1668,7 +1668,46 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         ]
     }, sort=[("updatedAt", -1)], limit=500)
     current_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "")
+
+    # Reconcile legacy B2B orders from their authoritative farm-collection and
+    # pickup-route records. Older jobs may not have written status to b2b_orders,
+    # even though the pickup partner has already returned the route to warehouse.
+    # This makes the warehouse queue self-healing when it is opened/refreshed.
     for order in orders:
+        order_id = str(order.get("_id") or "")
+        if order.get("status") == ORDER_READY_FOR_PICKUP and ObjectId.is_valid(order_id):
+            collection_job = await warehouse_collection_repository.find_one({
+                "$and": [
+                    {"deletedAt": None},
+                    {"$or": [
+                        {"b2bOrderId": order_id},
+                        {"b2bOrderId": ObjectId(order_id)},
+                        {"orderId": order_id},
+                        {"orderId": ObjectId(order_id)},
+                        {"orderNumber": order.get("orderNumber")} if order.get("orderNumber") else {"_id": {"$exists": False}},
+                        {"b2bOrderNumber": order.get("orderNumber")} if order.get("orderNumber") else {"_id": {"$exists": False}},
+                    ]},
+                    {"status": {"$in": ["collected", "departed_farm", "arrived_warehouse"]}},
+                ]
+            })
+            if collection_job:
+                route_id = str(collection_job.get("pickupRouteId") or "")
+                route = await warehouse_pickup_route_repository.get_by_id(route_id) if ObjectId.is_valid(route_id) else None
+                route_status = str((route or {}).get("status") or "").lower()
+                collection_status = str(collection_job.get("status") or "").lower()
+                if collection_status in ("collected", "departed_farm", "arrived_warehouse") or route_status in ("completed", "returned_to_warehouse"):
+                    next_status = ORDER_WAREHOUSE_RECEIVED if collection_status == "arrived_warehouse" and collection_job.get("warehouseReceivedAt") else ORDER_PICKED_UP
+                    sync_update = {
+                        "status": next_status,
+                        "warehouseCollectionStatus": collection_status or ("arrived_warehouse" if route_status == "returned_to_warehouse" else "departed_farm"),
+                        "warehouseFulfillmentStage": "warehouse_arrived" if route_status == "returned_to_warehouse" else ("collection_departed" if collection_status == "departed_farm" else collection_status),
+                        "updatedAt": datetime.utcnow(),
+                    }
+                    if next_status == ORDER_PICKED_UP:
+                        sync_update["pickedUpAt"] = collection_job.get("collectedAt") or collection_job.get("departedFarmAt") or datetime.utcnow()
+                    await order_repo.update({"_id": ObjectId(order_id)}, sync_update)
+                    order.update(sync_update)
+
         await _enrich_order(order)
         # Expose a stable frontend identifier while retaining the Mongo ID as a string.
         order["id"] = str(order.get("_id"))
