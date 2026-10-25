@@ -26,7 +26,7 @@ export default function B2BFulfillmentPage() {
     queryKey: ["b2b", "route-recommendations", routableOrders.map((o: any) => o.id).sort().join(",")],
     queryFn: async () => {
       const entries = await Promise.all(routableOrders.map(async (o: any) => {
-        const response = await api.get(`/b2b/warehouse/fulfillment/${encodeURIComponent(o.id)}/route-recommendation`);
+        const response = await api.post(`/b2b/warehouse/fulfillment/${encodeURIComponent(o.id)}/route-recommendation`, { orderId: o.id });
         return [o.id, response?.data?.data ?? response?.data ?? {}] as const;
       }));
       return Object.fromEntries(entries);
