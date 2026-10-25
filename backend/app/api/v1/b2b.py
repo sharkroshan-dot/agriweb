@@ -1373,12 +1373,29 @@ async def update_order_status(
     if current == ORDER_COMPLETED:
         raise HTTPException(status_code=400, detail="Order is already completed")
 
-    update: Dict[str, Any] = {"status": data.status, "updatedAt": datetime.utcnow()}
+    event_time = datetime.utcnow()
+    update: Dict[str, Any] = {"status": data.status, "updatedAt": event_time}
+    # Persist a customer-visible audit trail on the original B2B order. Every
+    # role action adds a timeline event so the business buyer can track the
+    # whole process without depending on separate pickup/transfer collections.
+    actor_id = str(current_user.get("_id") or current_user.get("id") or "")
+    def add_status_history(target: Dict[str, Any], *, event_status: Optional[str] = None, details: Optional[str] = None) -> None:
+        history = list(order.get("statusHistory") or [])
+        history.append({
+            "status": event_status or data.status,
+            "previousStatus": current,
+            "actorRole": str(role or "unknown"),
+            "actorId": actor_id,
+            "details": details or data.qualityNotes or "",
+            "timestamp": event_time,
+        })
+        target["statusHistory"] = history
 
     if data.status == ORDER_CANCELLED:
         if current != ORDER_CONFIRMED:
             raise HTTPException(status_code=400, detail="Only confirmed orders can be cancelled")
-        update["cancelledAt"] = datetime.utcnow()
+        update["cancelledAt"] = event_time
+        add_status_history(update, details="Order cancelled")
         await order_repo.update({"_id": order["_id"]}, update)
         other = str(order.get("businessUserId")) if role == "farmer" else str(order.get("farmerId"))
         await NotificationService.create_in_app_notification(
@@ -1401,6 +1418,7 @@ async def update_order_status(
             update["qualityCheck"] = data.qualityCheck
             if data.qualityNotes:
                 update["qualityNotes"] = data.qualityNotes
+            add_status_history(update, event_status="quality_check", details=f"Quality check {data.qualityCheck}" + (f": {data.qualityNotes}" if data.qualityNotes else ""))
             await order_repo.update({"_id": order["_id"]}, update)
             return {"success": True, "message": f"Quality check marked {data.qualityCheck}"}
 
@@ -1466,7 +1484,8 @@ async def update_order_status(
             if data.qualityNotes:
                 update["qualityNotes"] = data.qualityNotes
         if data.status == ORDER_DELIVERED:
-            update["deliveredAt"] = datetime.utcnow()
+            update["deliveredAt"] = event_time
+        add_status_history(update, details=data.qualityNotes or "")
         await order_repo.update({"_id": order["_id"]}, update)
 
         # Publish a farmer-marked B2B order to the existing delivery-partner
@@ -2601,6 +2620,19 @@ async def update_b2b_warehouse_fulfillment(
     else:
         raise HTTPException(status_code=400, detail="Unknown B2B logistics action")
 
+    # Append an audit event for every warehouse/pickup/transfer/final-mile
+    # action, including actions that do not change the top-level order status.
+    history = list(order.get("statusHistory") or [])
+    history.append({
+        "status": str(update.get("status") or current or "updated"),
+        "previousStatus": current,
+        "action": action,
+        "actorRole": role,
+        "actorId": str(current_user.get("_id") or current_user.get("id") or ""),
+        "details": str(data.notes or data.qualityNotes or ""),
+        "timestamp": datetime.utcnow(),
+    })
+    update["statusHistory"] = history
     await order_repo.update({"_id": order["_id"]}, update)
     return {"success": True, "message": "B2B fulfillment updated", "status": update.get("status", current), "orderId": str(order["_id"])}
 
