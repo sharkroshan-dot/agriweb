@@ -1820,6 +1820,33 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
         logger.exception("Failed to geocode B2B delivery address for order %s", order.get("_id"))
     return None, None
 
+def _normalized_b2b_business_district(order: Dict[str, Any]) -> str:
+    """Read only the B2B buyer's delivery district, never the farmer/order source district."""
+    explicit = [
+        order.get("deliveryDistrict"),
+        order.get("businessDeliveryDistrict"),
+        order.get("shippingDistrict"),
+    ]
+    for key in ("deliveryLocation", "deliveryAddress", "businessAddress", "shippingAddress"):
+        value = order.get(key)
+        if isinstance(value, dict):
+            explicit.extend(value.get(k) for k in ("deliveryDistrict", "district", "districtName", "administrativeDistrict"))
+    for value in explicit:
+        token = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+        if token:
+            return token
+    # A string address can be used only as a fallback when a district field was
+    # not stored. Remove state/country-like trailing values; never use order.district.
+    for key in ("deliveryAddress", "businessAddress", "shippingAddress"):
+        value = order.get(key)
+        if isinstance(value, str) and value.strip():
+            parts = [re.sub(r"[^a-z0-9]", "", p.lower()) for p in value.split(",")]
+            parts = [p for p in parts if p and p not in {"india", "tamilnadu", "tn"}]
+            if len(parts) >= 2:
+                return parts[-1]
+    return ""
+
+
 def _normalized_district(doc: Optional[Dict[str, Any]]) -> str:
     """Return a verified district/locality token from common warehouse/address schemas.
 
@@ -1899,7 +1926,7 @@ async def recommend_b2b_fulfillment_route(
 
     # District fields are authoritative. _normalized_district supports legacy
     # nested address fields; no geocoding or distance calculation is needed.
-    buyer_district = _normalized_district(order)
+    buyer_district = _normalized_b2b_business_district(order)
     if not buyer_district:
         delivery = order.get("deliveryLocation") or order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress")
         if isinstance(delivery, dict):
@@ -2250,7 +2277,7 @@ async def update_b2b_warehouse_fulfillment(
         if not source_for_route:
             raise HTTPException(status_code=400, detail="Actual source warehouse is not registered.")
         source_district_for_route = _normalized_district(source_for_route)
-        business_district_for_route = _normalized_district(order)
+        business_district_for_route = _normalized_b2b_business_district(order)
         if not business_district_for_route:
             delivery_doc = order.get("deliveryLocation") or order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress")
             if isinstance(delivery_doc, dict):
@@ -2284,7 +2311,7 @@ async def update_b2b_warehouse_fulfillment(
             if required_kg <= 0 or available_kg < required_kg:
                 raise HTTPException(status_code=409, detail="Destination warehouse does not have enough available capacity")
             destination_district = _normalized_district(destination)
-            business_district = _normalized_district(order)
+            business_district = _normalized_b2b_business_district(order)
             if not business_district:
                 delivery_doc = order.get("deliveryLocation") or order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress")
                 if isinstance(delivery_doc, dict):
