@@ -1513,7 +1513,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         "routingRequired": await order_repo.count({**base, "status": ORDER_WAREHOUSE_RECEIVED, "$or": [{"fulfillmentRoute": {"$exists": False}}, {"fulfillmentRoute": None}, {"fulfillmentRoute": ""}]}),
         "awaitingConsolidation": await order_repo.count({**base, "fulfillmentRoute": "nearby_multi_farmer", "status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED]}, "consolidationCompletedAt": {"$in": [None, ""]}}),
         "warehouseTransferInTransit": await count_status(ORDER_TRANSFER_IN_TRANSIT),
-        "readyForDirectDelivery": await order_repo.count({**base, "status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED]}, "warehouseQualityCheck": "passed", "$or": [{"fulfillmentRoute": "nearby_single_farmer"}, {"fulfillmentRoute": "long_distance", "status": ORDER_DESTINATION_RECEIVED}, {"fulfillmentRoute": "nearby_multi_farmer", "consolidationCompletedAt": {"$nin": [None, ""]}}]}),
+        "readyForDirectDelivery": await order_repo.count({**base, "$or": [{"status": ORDER_WAREHOUSE_RECEIVED, "warehouseQualityCheck": "passed", "fulfillmentRoute": "nearby_single_farmer"}, {"status": ORDER_WAREHOUSE_RECEIVED, "warehouseQualityCheck": "passed", "fulfillmentRoute": "nearby_multi_farmer", "consolidationCompletedAt": {"$nin": [None, ""]}}, {"status": ORDER_DESTINATION_RECEIVED, "destinationQualityCheck": "passed", "fulfillmentRoute": "long_distance"}]}),
         "directDeliveryInTransit": await count_status(ORDER_IN_TRANSIT),
         "deliveredToBusiness": await order_repo.count({**base, "status": {"$in": [ORDER_DELIVERED, ORDER_COMPLETED]}}),
     }
@@ -1588,6 +1588,8 @@ async def update_b2b_warehouse_fulfillment(
     role = str(current_user.get("role") or "").lower()
     allowed_warehouse = ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin")
     allowed_delivery = ("delivery", "delivery_partner", "delivery_manager", "admin", "super_admin")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid B2B order ID")
     order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
     if not order:
         raise HTTPException(status_code=404, detail="B2B order not found")
