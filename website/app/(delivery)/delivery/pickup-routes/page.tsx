@@ -919,9 +919,8 @@ export default function DeliveryPickupRoutesPage() {
                   )}
                   {r.status === "completed" && (
                     <div className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                      <p className="font-medium text-blue-950">Deliver collected orders to the assigned warehouse</p>
-                      <p className="mt-1 text-sm text-blue-900">Confirm only after the vehicle and sealed shipments physically reach the warehouse. This creates the Incoming Stock receiving records; warehouse staff must still Receive, inspect and Store.</p>
-                      <Button className="mt-3" onClick={() => act(r, "returned_to_warehouse")}>Confirm Delivery to Warehouse</Button>
+                      <p className="font-medium text-blue-950">Waiting for warehouse receipt</p>
+                      <p className="mt-1 text-sm text-blue-900">Your farm pickup is complete. The warehouse team must confirm physical receipt in Incoming Stock. The route will update from the warehouse receipt workflow; no further confirmation is required from the delivery partner.</p>
                     </div>
                   )}
                 </CardContent>
