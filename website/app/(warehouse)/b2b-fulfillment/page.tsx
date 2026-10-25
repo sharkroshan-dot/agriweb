@@ -56,7 +56,7 @@ export default function B2BFulfillmentPage() {
   const members = teamsQuery.data?.data?.members || teamsQuery.data?.members || [];
   const teams = members.filter((t: any) => Number(t.capacity || t.vehicleCapacity || 0) > 0);
   const mutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/warehouse/fulfillment/${id}`, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/warehouse/fulfillment/${encodeURIComponent(id)}`, { ...payload }),
     onSuccess: async () => {
       toast.success("B2B order workflow updated");
       await Promise.all([
