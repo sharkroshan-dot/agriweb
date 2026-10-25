@@ -271,9 +271,10 @@ export default function DeliveryPickupRoutesPage() {
   };
   const activeRouteKeys = new Set<string>();
   for (const route of allRoutes) {
-    // Only suppress a stale offer when the same route/order is already assigned
-    // or in progress. Keep completed routes available in historical views.
-    if (["assigned", "started", "arrived_at_farm", "collected", "departed_farm", "completed"].includes(
+    // Suppress stale duplicate offers while the same business order is assigned,
+    // in progress, completed, or already handed over to the warehouse. Otherwise
+    // a returned route can reappear as a new offer and fail capacity checks.
+    if (["assigned", "started", "arrived_at_farm", "collected", "departed_farm", "completed", "returned_to_warehouse", "arrived_warehouse", "warehouse_received", "received", "stored"].includes(
       normalizeRouteKey(route?.status)
     )) {
       for (const key of routeBusinessKeys(route)) activeRouteKeys.add(key);
