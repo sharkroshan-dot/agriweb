@@ -1575,12 +1575,7 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
     return None, None
 
 def _normalized_district(doc: Optional[Dict[str, Any]]) -> str:
-    """Return only an explicitly identified administrative district.
-
-    Towns, villages, localities and city labels must never be treated as districts.
-    When district metadata is absent, routing falls back to geographic distance
-    across all eligible warehouses rather than filtering on a locality name.
-    """
+    """Normalize explicit district fields and legacy comma-separated addresses."""
     if not isinstance(doc, dict):
         return ""
     location = doc.get("deliveryLocation") or doc.get("location") or doc.get("address")
@@ -1594,7 +1589,12 @@ def _normalized_district(doc: Optional[Dict[str, Any]]) -> str:
         normalized = re.sub(r"[^a-z0-9]", "", str(value or "").lower())
         if normalized:
             return normalized
-    return ""
+    raw_address = next((doc.get(key) for key in ("deliveryAddress", "businessAddress", "shippingAddress", "address", "deliveryLocation") if isinstance(doc.get(key), str) and doc.get(key).strip()), "")
+    if not raw_address and isinstance(location, dict):
+        raw_address = location.get("formattedAddress") or location.get("addressLine1") or location.get("address_line1") or ""
+    parts = [re.sub(r"[^a-z0-9]", "", part.lower()) for part in str(raw_address).split(",")]
+    parts = [part for part in parts if part]
+    return parts[-1] if len(parts) >= 2 else ""
 
 
 @router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
@@ -1642,9 +1642,19 @@ async def recommend_b2b_fulfillment_route(
             logger.exception("Could not load B2B farmer by user ID for order %s", order_id)
     farmer_coords = _location_coords_from_doc(farmer_doc)
     if not farmer_coords:
-        farmer_coords = _location_coords_from_doc(order)
+        # Do not use the whole order as a fallback: it may contain the buyer's
+        # delivery coordinates and incorrectly choose a source warehouse near the buyer.
+        farmer_address = farmer_doc.get("farmLocation") or farmer_doc.get("location") or farmer_doc.get("address") or farmer_doc.get("farmAddress")
+        if isinstance(farmer_address, str) and farmer_address.strip():
+            try:
+                farmer_geocoded = await geocode_address({"address_line1": farmer_address, "city": str(farmer_doc.get("city") or ""), "state": str(farmer_doc.get("state") or "Tamil Nadu"), "zip_code": str(farmer_doc.get("pincode") or farmer_doc.get("zipCode") or ""), "country": "India"})
+                farmer_coords = _location_coords_from_doc({"location": farmer_geocoded or {}})
+                if farmer_coords:
+                    farmer_doc = {**farmer_doc, "location": farmer_geocoded}
+            except Exception:
+                logger.exception("Could not geocode farm location for B2B order %s", order_id)
     if not farmer_coords:
-        return {"success": True, "data": {"available": False, "reason": "Farmer/farm coordinates are missing. The system will not assume Manachanallur or another warehouse is the correct source without farm location data."}}
+        return {"success": True, "data": {"available": False, "reason": "Farmer/farm coordinates are missing. Add the farm location before automatic source-warehouse selection; buyer delivery coordinates are not used as farm coordinates."}}
 
     warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
     active = []
@@ -1659,7 +1669,14 @@ async def recommend_b2b_fulfillment_route(
     farm_district = _normalized_district(farmer_doc)
     buyer_district = _normalized_district(order)
     if not buyer_district:
-        buyer_district = _normalized_district({"deliveryLocation": geocoded_location or order.get("deliveryLocation")})
+        buyer_district = _normalized_district({"deliveryLocation": geocoded_location or order.get("deliveryLocation"), "deliveryAddress": order.get("deliveryAddress") or order.get("businessAddress")})
+    known_districts = {_normalized_district(row[0]) for row in active}
+    known_districts.discard("")
+    if buyer_district and known_districts and buyer_district not in known_districts:
+        raw_delivery = order.get("deliveryAddress") or order.get("businessAddress") or order.get("deliveryLocation")
+        raw_parts = [re.sub(r"[^a-z0-9]", "", part.lower()) for part in str(raw_delivery or "").split(",")]
+        matches = [part for part in raw_parts if part in known_districts]
+        buyer_district = matches[-1] if matches else ""
     # Prefer a warehouse in the farmer's district; within that group choose the nearest to the farm.
     source_pool = [row for row in active if farm_district and _normalized_district(row[0]) == farm_district]
     if not source_pool:
@@ -1694,7 +1711,9 @@ async def recommend_b2b_fulfillment_route(
         # district; when district is unknown, compare eligible warehouses across
         # every district using geocoded distance instead of falsely rejecting all.
         warehouse_district = _normalized_district(warehouse)
-        if buyer_district and warehouse_district and warehouse_district != buyer_district:
+        if buyer_district and (not warehouse_district or warehouse_district != buyer_district):
+            # A known business district must match exactly; unknown-district warehouses
+            # cannot be assumed suitable just because they have spare capacity.
             continue
         total = warehouse.get("totalCapacity", warehouse.get("capacity"))
         used = warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0))
