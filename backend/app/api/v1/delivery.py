@@ -3045,15 +3045,45 @@ async def update_my_pickup_route_status(
         # document displayed by /b2b/warehouse/fulfillment.
         b2b_order_id = str(job.get("b2bOrderId") or "")
         linked_order_id = str(job.get("orderId") or "")
-        is_b2b_collection = bool(b2b_order_id) or str(job.get("collectionType") or "").strip().lower() == "b2b"
+        collection_type = str(job.get("collectionType") or "").strip().lower()
+        order_number = str(job.get("b2bOrderNumber") or job.get("orderNumber") or "")
+        is_b2b_collection = (
+            bool(b2b_order_id)
+            or collection_type in {"b2b", "bulk_harvest_pickup", "b2b_pickup", "business_order"}
+            or order_number.upper().startswith(("B2B-", "ORD-B2B-"))
+        )
+        # Some legacy collection jobs only saved the readable B2B order number
+        # and put the B2B document ID in orderId. Resolve by ID first, then by
+        # the stable order number so warehouse progress reaches b2b_orders.
+        if is_b2b_collection and not ObjectId.is_valid(b2b_order_id):
+            candidate_id = b2b_order_id or linked_order_id
+            if ObjectId.is_valid(candidate_id):
+                candidate = await b2b_order_repository.get_by_id(candidate_id)
+                if candidate:
+                    b2b_order_id = str(candidate.get("_id"))
+            if not ObjectId.is_valid(b2b_order_id) and order_number:
+                candidate = await b2b_order_repository.find_one({
+                    "$or": [
+                        {"orderNumber": order_number},
+                        {"orderNo": order_number},
+                        {"referenceNumber": order_number},
+                    ],
+                    "deletedAt": None,
+                })
+                if candidate:
+                    b2b_order_id = str(candidate.get("_id"))
         primary_order_id = b2b_order_id or linked_order_id
         order_ids = list(dict.fromkeys(
             str(value) for value in (primary_order_id, linked_order_id, b2b_order_id)
             if value and ObjectId.is_valid(str(value))
         ))
         if not order_ids:
+            logger.warning(
+                "Pickup route %s: unable to resolve linked order for collection job %s (type=%s, orderNumber=%s, b2bOrderId=%s, orderId=%s)",
+                route_id, job.get("_id"), collection_type, order_number, b2b_order_id, linked_order_id,
+            )
             return
-        order_id = primary_order_id if ObjectId.is_valid(primary_order_id) else order_ids[0]
+        order_id = b2b_order_id if is_b2b_collection and ObjectId.is_valid(b2b_order_id) else order_ids[0]
         stage_map = {
             "en_route": "collection_en_route",
             "arrived_at_farm": "collection_arrived",
@@ -3077,9 +3107,12 @@ async def update_my_pickup_route_status(
                 "deliveryDispatchAt": datetime.utcnow(),
             })
         if is_b2b_collection and ObjectId.is_valid(b2b_order_id):
-            # Critical fix: this is the collection the B2B warehouse page reads.
-            await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
-            # If a separate customer-order document is linked, update it too.
+            # This is the exact collection read by /b2b/warehouse/fulfillment.
+            updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
+            if not updated_b2b:
+                logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
+            # A separate customer order may be linked; keep it synchronized only
+            # when it is a distinct, valid ID.
             if ObjectId.is_valid(linked_order_id) and linked_order_id != b2b_order_id:
                 await order_repository.update({"_id": ObjectId(linked_order_id)}, order_update)
         else:
