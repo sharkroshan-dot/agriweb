@@ -2663,13 +2663,29 @@ async def get_my_pickup_routes(
     assigned_orders = []
     partner_object_ids = [ObjectId(x) for x in {partner_id, user_id} if ObjectId.is_valid(x)]
     partner_strings = list({partner_id, user_id})
+    # Assignment forms have changed over time: some rows store the partner ID,
+    # others store the approved membership/application ID. Resolve all approved
+    # memberships for this delivery profile and include their IDs in the repair
+    # query so an assigned B2B order cannot disappear from the driver's route.
+    membership_ids = []
+    try:
+        memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(partner_id)
+        membership_ids = [ObjectId(str(m["_id"])) for m in memberships if ObjectId.is_valid(str(m.get("_id") or ""))]
+    except Exception:
+        logger.exception("Could not resolve pickup memberships for delivery partner %s", partner_id)
+    assignment_ids = list({str(x) for x in (partner_object_ids + membership_ids)})
+    assignment_strings = list(set(partner_strings + assignment_ids))
     if MongoDB.db is not None:
         assigned_orders = await MongoDB.db.b2b_orders.find({
-            "status": "ready_for_pickup",
+            "status": {"$in": ["ready_for_pickup", "picked_up"]},
             "deletedAt": None,
             "$or": [
-                {"pickupTeam": {"$in": partner_object_ids}},
-                {"pickupTeam": {"$in": partner_strings}},
+                {"pickupTeam": {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}},
+                {"pickupTeam": {"$in": assignment_strings}},
+                {"pickupPartnerId": {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}},
+                {"pickupPartnerId": {"$in": assignment_strings}},
+                {"assignedPickupPartnerId": {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}},
+                {"assignedPickupPartnerId": {"$in": assignment_strings}},
             ],
         }).sort("pickupAssignedAt", -1).to_list(length=100)
     existing_b2b_ids = {
