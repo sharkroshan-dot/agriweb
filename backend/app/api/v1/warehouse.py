@@ -1138,7 +1138,22 @@ async def get_my_collections(
     result: List[Dict[str, Any]] = []
     for job in unique_jobs.values():
         item = serialize_collection(job)
-        order = await get_order(str(job.get("orderId") or ""))
+        # B2B pickup jobs may store the B2B document ID in b2bOrderId while
+        # orderId points to a linked commerce order (or a legacy identifier).
+        # Resolve both references so the Farm Collection card shows the actual
+        # business order number instead of "Order reference unavailable".
+        order_id_candidates = list(dict.fromkeys(
+            str(value) for value in (
+                job.get("b2bOrderId"),
+                job.get("orderId"),
+                job.get("originalOrderId"),
+            ) if value and ObjectId.is_valid(str(value))
+        ))
+        order = None
+        for candidate_order_id in order_id_candidates:
+            order = await get_order(candidate_order_id)
+            if order:
+                break
         event_request_id = str(job.get("eventRequestId") or "")
         event_request = None
         if event_request_id and ObjectId.is_valid(event_request_id):
@@ -1218,7 +1233,10 @@ async def get_my_collections(
             or "Product details unavailable"
         )
         order_number = (
-            readable((order or {}).get("orderNumber"))
+            readable(job.get("orderNumber"))
+            or readable(job.get("orderNo"))
+            or readable(job.get("b2bOrderNumber"))
+            or readable((order or {}).get("orderNumber"))
             or readable((order or {}).get("orderNo"))
             or readable((order or {}).get("referenceNumber"))
         )
@@ -1235,7 +1253,20 @@ async def get_my_collections(
         if not order_number and job.get("orderId"):
             order_number = "Order reference unavailable"
 
-        team_id = str(job.get("collectionTeamId") or "")
+        route_id = str(job.get("pickupRouteId") or "")
+        route = None
+        if route_id and ObjectId.is_valid(route_id):
+            if route_id not in route_cache:
+                route_cache[route_id] = await warehouse_pickup_route_repository.get_by_id(route_id)
+            route = route_cache[route_id]
+
+        # Route assignment is authoritative for legacy B2B pickup jobs where
+        # collectionTeamId was never copied onto the collection document.
+        team_id = str(
+            job.get("collectionTeamId")
+            or (route or {}).get("deliveryPartnerId")
+            or ""
+        )
         team = None
         if team_id and ObjectId.is_valid(team_id):
             if team_id not in partner_cache:
@@ -1251,14 +1282,8 @@ async def get_my_collections(
                 ) if part
             ) or readable(team_user.get("name")) or readable(team_user.get("displayName"))
         team_name = team_name or readable((team or {}).get("name"))
+        team_name = team_name or readable((route or {}).get("deliveryPartnerName"))
         team_name = team_name or ("Assigned pickup partner" if team_id else "Not assigned")
-
-        route_id = str(job.get("pickupRouteId") or "")
-        route = None
-        if route_id and ObjectId.is_valid(route_id):
-            if route_id not in route_cache:
-                route_cache[route_id] = await warehouse_pickup_route_repository.get_by_id(route_id)
-            route = route_cache[route_id]
 
         pickup_location = job.get("pickupLocation") or (order or {}).get("farmLocation") or (order or {}).get("farmerLocation") or (product or {}).get("farmLocation") or (farmer_profile.get("farmLocation") if isinstance(farmer_profile, dict) else None) or {}
         pickup_address = None
