@@ -1535,7 +1535,6 @@ async def recommend_b2b_fulfillment_route_post(
     return await recommend_b2b_fulfillment_route(order_id=order_id, current_user=current_user)
 
 
-@router.get("/warehouse/fulfillment/{order_id}/route-recommendation")
 async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optional[Tuple[float, float]], Optional[Dict[str, Any]]]:
     """Resolve legacy B2B delivery addresses to coordinates and persist the result."""
     candidates: List[Dict[str, Any]] = []
@@ -1637,12 +1636,11 @@ async def recommend_b2b_fulfillment_route(
         source_id_existing = str(recorded_source.get("_id"))
         source_name_existing = recorded_source.get("name") or recorded_source.get("warehouseName") or recorded_source.get("code") or "Source Warehouse"
     else:
-        source_coords_existing = None
-        source_district_existing = ""
-        source_id_existing = ""
-        source_name_existing = ""
+        # A farmer's location is not proof of where already-received stock is held.
+        # Never guess a source warehouse for a post-receipt fulfillment decision.
+        return {"success": True, "data": {"available": False, "reason": "The actual receiving warehouse is not recorded on this B2B order. Select/configure the warehouse that physically received the stock, then retry automatic routing."}}
 
-    # Farmer profile is used only as a fallback when this order has no persisted source
+    # Farmer profile is used only for district/context information; it cannot replace the recorded source warehouse.
     # warehouse. It must never override the warehouse that has already received the stock.
     farmer_doc = order.get("farmerInfo") if isinstance(order.get("farmerInfo"), dict) else order.get("farmer") if isinstance(order.get("farmer"), dict) else {}
     farmer_id = str(order.get("farmerId") or order.get("farmerUserId") or order.get("sellerId") or "")
@@ -1863,6 +1861,8 @@ async def update_b2b_warehouse_fulfillment(
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
         receiving_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or order.get("sourceWarehouseId") or "")
+        if not receiving_warehouse_id:
+            raise HTTPException(status_code=400, detail="Your warehouse account is not linked to a registered warehouse. Configure the actual receiving warehouse before confirming stock receipt.")
         if receiving_warehouse_id:
             if not ObjectId.is_valid(receiving_warehouse_id):
                 raise HTTPException(status_code=400, detail="The receiving warehouse assignment is invalid; select/configure the actual warehouse before receiving stock")
