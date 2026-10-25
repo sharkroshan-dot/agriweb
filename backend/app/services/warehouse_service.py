@@ -253,6 +253,7 @@ class WarehouseService:
         # order-level, so fan each farm group back into one incoming record per
         # order/collection to preserve product, quantity, batch and order links.
         from app.repositories.order_repository import order_repository
+        from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 
         route_orders: List[Dict[str, Any]] = []
         for farm_stop in route.get("stops") or []:
@@ -269,14 +270,39 @@ class WarehouseService:
 
         for order in route_orders:
             collection_id = str(order.get("collectionId") or "")
-            incoming_stock_id = str(order.get("incomingStockId") or "")
+            collection_job = (
+                await warehouse_collection_repository.get_by_id(collection_id)
+                if ObjectId.is_valid(collection_id) else None
+            )
+            if collection_job:
+                # Legacy B2B route stops can omit product/farmer/order fields.
+                # Recover those values from the persisted farm collection job.
+                for key in (
+                    "productId", "farmerId", "orderId", "b2bOrderId",
+                    "quantity", "actualCollectedQuantity", "actualQuantity",
+                    "variantId", "batchNumber", "storageType", "fulfillmentMethod",
+                    "packingRequired", "sourceMode", "productName", "farmerName",
+                    "pickupLocation", "orderNumber", "b2bOrderNumber",
+                ):
+                    if collection_job.get(key) is not None and (
+                        key in ("actualCollectedQuantity", "actualQuantity", "quantity")
+                        or not order.get(key)
+                    ):
+                        order[key] = collection_job[key]
+            incoming_stock_id = str(order.get("incomingStockId") or (collection_job or {}).get("incomingStockId") or "")
             existing = await incoming_stock_repository.get_by_id(incoming_stock_id) if ObjectId.is_valid(incoming_stock_id) else None
 
             # The farmer's persisted fulfillment choice is authoritative. Both
             # fulfillment types can travel through Farm Collection, but they
             # must enter different Incoming Stock workflows after arrival.
             linked_order = None
-            order_id = str(order.get("orderId") or (existing or {}).get("orderId") or "")
+            order_id = str(
+                order.get("b2bOrderId")
+                or order.get("orderId")
+                or (collection_job or {}).get("b2bOrderId")
+                or (existing or {}).get("orderId")
+                or ""
+            )
             if ObjectId.is_valid(order_id):
                 linked_order = await order_repository.get_by_id(order_id)
             fulfillment_method = str(
