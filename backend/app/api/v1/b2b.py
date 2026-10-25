@@ -2100,7 +2100,100 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Only orders marked Ready for Pickup can be assigned")
         if not data.pickupTeam or not data.vehicle:
             raise HTTPException(status_code=400, detail="Pickup team and vehicle are required")
-        update.update({"pickupTeam": data.pickupTeam.strip(), "pickupVehicle": data.vehicle.strip(), "pickupAssignedAt": datetime.utcnow(), "pickupAssignedBy": str(current_user.get("_id"))})
+        pickup_partner_id = data.pickupTeam.strip()
+        if not ObjectId.is_valid(pickup_partner_id):
+            raise HTTPException(status_code=400, detail="Select a registered pickup partner from the approved team list.")
+        pickup_warehouse_id = str(
+            order.get("assignedWarehouseId")
+            or order.get("sourceWarehouseId")
+            or order.get("warehouseId")
+            or order.get("receivingWarehouseId")
+            or ""
+        )
+        if not ObjectId.is_valid(pickup_warehouse_id):
+            raise HTTPException(status_code=409, detail="This B2B order has no valid source warehouse. Assign its actual pickup warehouse before assigning a pickup partner.")
+        pickup_warehouse = await warehouse_repo.find_one({"_id": ObjectId(pickup_warehouse_id), "deletedAt": None})
+        if not pickup_warehouse:
+            raise HTTPException(status_code=409, detail="The source warehouse assigned to this B2B order is not registered.")
+        membership = await warehouse_pickup_team_repository.get_membership(pickup_warehouse_id, pickup_partner_id)
+        if not membership:
+            raise HTTPException(status_code=403, detail="The selected delivery partner is not an approved pickup-team member of this order's source warehouse.")
+        update.update({
+            "pickupTeam": pickup_partner_id,
+            "pickupTeamName": data.pickupTeamName or membership.get("name") or membership.get("partnerName") or "Assigned pickup partner",
+            "pickupVehicle": data.vehicle.strip(),
+            "pickupAssignedAt": datetime.utcnow(),
+            "pickupAssignedBy": str(current_user.get("_id")),
+            "pickupWarehouseId": pickup_warehouse_id,
+        })
+        # Assignment must be reflected in the delivery partner's /me/pickup-routes
+        # queue, which only returns routes assigned to that partner. A route left
+        # in 'offered' is visible under pickup offers, not the assigned route page.
+        route = await warehouse_pickup_route_repository.find_one({
+            "b2bOrderId": str(order["_id"]), "deletedAt": None,
+            "status": {"$nin": ["cancelled", "closed", "archived", "returned_to_warehouse"]},
+        })
+        route_payload = {
+            "warehouseId": ObjectId(pickup_warehouse_id),
+            "deliveryPartnerId": ObjectId(pickup_partner_id),
+            "deliveryPartnerName": update["pickupTeamName"],
+            "deliveryPartnerVehicleType": membership.get("vehicleType"),
+            "deliveryPartnerVehicleNumber": data.vehicle.strip(),
+            "status": "assigned",
+            "assignedAt": datetime.utcnow(),
+            "assignedBy": ObjectId(str(current_user["_id"])) if ObjectId.is_valid(str(current_user.get("_id") or "")) else None,
+            "b2bOrderId": str(order["_id"]),
+            "orderIds": [str(order["_id"])],
+            "updatedAt": datetime.utcnow(),
+        }
+        if route:
+            await warehouse_pickup_route_repository.update_route(str(route["_id"]), route_payload)
+        else:
+            now = datetime.utcnow()
+            farmer_id = str(order.get("farmerId") or "")
+            farmer_doc = await farmer_repository.find_one({"_id": ObjectId(farmer_id), "deletedAt": None}) if ObjectId.is_valid(farmer_id) else None
+            location = (farmer_doc or {}).get("location") or (farmer_doc or {}).get("farmLocation") or (farmer_doc or {}).get("address") or {}
+            if isinstance(location, str):
+                location = {"formattedAddress": location}
+            farmer_name = (farmer_doc or {}).get("farmName") or (farmer_doc or {}).get("ownerName") or (farmer_doc or {}).get("name") or "Farmer"
+            quantity = float(order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
+            order_number = str(order.get("orderNumber") or order.get("orderNo") or f"B2B-{str(order['_id'])[-6:]}")
+            collection_jobs = await warehouse_collection_repository.get_by_order(str(order["_id"]), "b2b")
+            collection_job = next((job for job in collection_jobs if str(job.get("status") or "") not in ("collected", "departed_farm", "arrived_warehouse", "cancelled")), None)
+            collection_id = str(collection_job.get("_id")) if collection_job else None
+            if not collection_job:
+                collection_id = await warehouse_collection_repository.create_job({
+                    "warehouseId": ObjectId(pickup_warehouse_id), "orderId": order["_id"],
+                    "b2bOrderId": str(order["_id"]), "orderNumber": order_number,
+                    "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                    "farmerName": farmer_name, "productName": order.get("productName") or "B2B produce",
+                    "quantity": quantity, "pickupLocation": location if isinstance(location, dict) else {},
+                    "pickupAddress": (farmer_doc or {}).get("farmAddress") or (farmer_doc or {}).get("address") or order.get("farmAddress") or "Farm address not provided",
+                    "collectionType": "b2b", "status": "ready_for_pickup", "createdFrom": "b2b_order",
+                })
+            pickup_address = (farmer_doc or {}).get("farmAddress") or (farmer_doc or {}).get("address") or order.get("farmAddress") or "Farm address not provided"
+            route_payload.update({
+                "routeNumber": order_number + "-PICKUP", "routeDate": now.strftime("%Y-%m-%d"),
+                "routeType": "b2b_farm_pickup", "isB2BPickup": True, "status": "assigned",
+                "totalStops": 1, "totalOrders": 1, "totalQuantity": quantity,
+                "stops": [{
+                    "sequence": 1, "farmKey": f"b2b:{str(order['_id'])}", "b2bOrderId": str(order["_id"]),
+                    "collectionId": collection_id, "orderId": str(order["_id"]), "orderNumber": order_number,
+                    "farmerId": farmer_id or None, "farmerName": farmer_name, "productName": order.get("productName") or "B2B produce",
+                    "quantity": quantity, "status": "ready_for_pickup", "pickupAddress": pickup_address,
+                    "pickupLocation": location if isinstance(location, dict) else {},
+                    "orders": [{
+                        "b2bOrderId": str(order["_id"]), "collectionId": collection_id,
+                        "orderId": str(order["_id"]), "orderNumber": order_number, "farmerId": farmer_id or None,
+                        "farmerName": farmer_name, "productName": order.get("productName") or "B2B produce",
+                        "quantity": quantity, "status": "ready_for_pickup", "pickupAddress": pickup_address,
+                        "pickupLocation": location if isinstance(location, dict) else {},
+                    }],
+                }],
+                "createdBy": ObjectId(str(current_user["_id"])) if ObjectId.is_valid(str(current_user.get("_id") or "")) else None,
+                "createdAt": now,
+            })
+            await warehouse_pickup_route_repository.create_route(route_payload)
     elif action == "confirm_pickup":
         if role not in ("pickup_team", "pickup", "warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
             raise HTTPException(status_code=403, detail="Only the assigned pickup team or warehouse can confirm collection")
