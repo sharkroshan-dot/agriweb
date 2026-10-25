@@ -2510,6 +2510,144 @@ async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
         m for m in memberships if str(m.get("status") or "").lower() == "approved"
     ]
     warehouse_ids = [str(m["warehouseId"]) for m in approved_memberships if m.get("warehouseId")]
+
+    # Repair legacy B2B orders that were already marked ready_for_pickup before
+    # the B2B route-publishing hook existed. Only publish orders whose source
+    # warehouse is one of this partner's approved warehouses; the offer remains
+    # unassigned until a partner explicitly accepts it.
+    if MongoDB.db is not None and warehouse_ids:
+        warehouse_object_ids = [ObjectId(value) for value in warehouse_ids if ObjectId.is_valid(value)]
+        warehouse_values = list(set(warehouse_ids + [str(value) for value in warehouse_object_ids]))
+        warehouse_fields = (
+            "assignedWarehouseId", "sourceWarehouseId", "warehouseId",
+            "receivingWarehouseId", "pickupWarehouseId", "fulfillmentWarehouseId",
+        )
+        warehouse_match = [
+            {field: {"$in": warehouse_object_ids}}
+            for field in warehouse_fields
+        ] + [
+            {field: {"$in": warehouse_values}}
+            for field in warehouse_fields
+        ]
+        legacy_b2b_orders = await MongoDB.db.b2b_orders.find({
+            "status": "ready_for_pickup",
+            "deletedAt": None,
+            "$or": warehouse_match,
+        }).sort("updatedAt", -1).to_list(length=200)
+        for b2b_order in legacy_b2b_orders:
+            b2b_id = str(b2b_order.get("_id") or "")
+            if not b2b_id:
+                continue
+            existing = await warehouse_pickup_route_repository.find_one({
+                "b2bOrderId": b2b_id,
+                "deletedAt": None,
+                "status": {"$nin": ["cancelled", "closed", "archived"]},
+            })
+            if existing:
+                continue
+            warehouse_id = next((
+                str(b2b_order.get(field) or "")
+                for field in warehouse_fields
+                if str(b2b_order.get(field) or "") in warehouse_ids
+                or (
+                    isinstance(b2b_order.get(field), ObjectId)
+                    and str(b2b_order.get(field)) in warehouse_ids
+                )
+            ), "")
+            if not ObjectId.is_valid(warehouse_id):
+                # Handle legacy nested warehouse references.
+                for field in ("pickupWarehouse", "assignedWarehouse", "sourceWarehouse"):
+                    ref_value = b2b_order.get(field)
+                    if isinstance(ref_value, dict):
+                        candidate = str(ref_value.get("_id") or ref_value.get("id") or ref_value.get("warehouseId") or "")
+                        if candidate in warehouse_ids and ObjectId.is_valid(candidate):
+                            warehouse_id = candidate
+                            break
+            if not ObjectId.is_valid(warehouse_id):
+                continue
+
+            farmer_id = str(b2b_order.get("farmerId") or "")
+            try:
+                farmer_doc = await FarmerService.get_farmer_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+            except Exception:
+                farmer_doc = None
+            farmer_doc = farmer_doc or {}
+            farmer_location = farmer_doc.get("location") or farmer_doc.get("farmLocation") or farmer_doc.get("address") or {}
+            if isinstance(farmer_location, str):
+                farmer_location = {"formattedAddress": farmer_location}
+            pickup_address = (
+                farmer_doc.get("farmAddress") or farmer_doc.get("address")
+                or b2b_order.get("farmAddress") or "Farm address not provided"
+            )
+            quantity = float(b2b_order.get("packedQuantityKg") or b2b_order.get("quantityKg") or b2b_order.get("quantity") or 0)
+            order_number = str(b2b_order.get("orderNumber") or b2b_order.get("orderNo") or f"B2B-{b2b_id[-5:]}")
+            collection_jobs = await warehouse_collection_repository.get_by_order(b2b_id, "b2b")
+            collection_job = next((
+                job for job in collection_jobs
+                if str(job.get("status") or "") not in ("collected", "departed_farm", "arrived_warehouse", "cancelled")
+            ), None)
+            collection_id = str(collection_job.get("_id")) if collection_job else None
+            if not collection_job:
+                collection_id = await warehouse_collection_repository.create_job({
+                    "warehouseId": ObjectId(warehouse_id),
+                    "orderId": ObjectId(b2b_id),
+                    "b2bOrderId": b2b_id,
+                    "orderNumber": order_number,
+                    "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                    "farmerName": farmer_doc.get("farmName") or farmer_doc.get("ownerName") or farmer_doc.get("name") or b2b_order.get("farmerName") or "Farmer",
+                    "productName": b2b_order.get("productName") or "B2B produce",
+                    "quantity": quantity,
+                    "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                    "pickupAddress": pickup_address,
+                    "collectionType": "b2b",
+                    "status": "ready_for_pickup",
+                    "createdFrom": "b2b_order_recovery",
+                })
+            now = datetime.utcnow()
+            farmer_name = farmer_doc.get("farmName") or farmer_doc.get("ownerName") or farmer_doc.get("name") or b2b_order.get("farmerName") or "Farmer"
+            await warehouse_pickup_route_repository.create_route({
+                "routeNumber": order_number + "-PICKUP",
+                "routeDate": now.strftime("%Y-%m-%d"),
+                "warehouseId": ObjectId(warehouse_id),
+                "status": "offered",
+                "routeType": "b2b_farm_pickup",
+                "isB2BPickup": True,
+                "b2bOrderId": b2b_id,
+                "orderIds": [b2b_id],
+                "totalStops": 1,
+                "totalOrders": 1,
+                "totalQuantity": quantity,
+                "stops": [{
+                    "sequence": 1,
+                    "farmKey": "b2b:" + b2b_id,
+                    "b2bOrderId": b2b_id,
+                    "collectionId": collection_id,
+                    "orderId": b2b_id,
+                    "orderNumber": order_number,
+                    "farmerId": farmer_id or None,
+                    "farmerName": farmer_name,
+                    "productName": b2b_order.get("productName") or "B2B produce",
+                    "quantity": quantity,
+                    "status": "ready_for_pickup",
+                    "pickupAddress": pickup_address,
+                    "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                    "orders": [{
+                        "b2bOrderId": b2b_id,
+                        "collectionId": collection_id,
+                        "orderId": b2b_id,
+                        "orderNumber": order_number,
+                        "farmerId": farmer_id or None,
+                        "farmerName": farmer_name,
+                        "productName": b2b_order.get("productName") or "B2B produce",
+                        "quantity": quantity,
+                        "status": "ready_for_pickup",
+                        "pickupAddress": pickup_address,
+                        "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                    }],
+                }],
+                "createdAt": now,
+            })
+
     routes = await warehouse_pickup_route_repository.get_offered_for_warehouses(
         warehouse_ids, datetime.utcnow().strftime("%Y-%m-%d")
     )
