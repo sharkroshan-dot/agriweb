@@ -4686,8 +4686,44 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
         "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
         "deletedAt": None,
     })
+    # B2B transfers are stored on the original b2b_orders record. Support the
+    # same existing Pickup Routes actions without requiring a separate transfer
+    # leg to exist for this order.
     if not leg:
-        raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
+        b2b_orders = MongoDB.get_collection("b2b_orders")
+        user_id = str(current_user["_id"])
+        profile = await MongoDB.get_collection("delivery_partners").find_one({
+            "$or": [{"userId": ObjectId(user_id)}, {"userId": user_id}, {"user_id": ObjectId(user_id)}, {"user_id": user_id}],
+            "deletedAt": {"$in": [None, False, ""]},
+        })
+        assigned_values = [user_id, ObjectId(user_id)]
+        if profile and ObjectId.is_valid(str(profile.get("_id") or "")):
+            assigned_values.extend([str(profile["_id"]), profile["_id"]])
+        b2b = await b2b_orders.find_one({
+            "_id": ObjectId(transfer_id),
+            "status": "transfer_in_transit",
+            "transferTeam": {"$in": assigned_values},
+            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+        })
+        if not b2b:
+            raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
+        current = str(b2b.get("transferPartnerStatus") or "assigned")
+        if transfer_status == "started":
+            if current != "assigned":
+                raise HTTPException(status_code=409, detail=f"Cannot start transfer from status {current}")
+            next_status, time_field = "in_transit", "transferPartnerStartedAt"
+        else:
+            if current != "in_transit":
+                raise HTTPException(status_code=409, detail=f"Cannot confirm destination arrival from status {current}")
+            next_status, time_field = "arrived_at_destination", "transferPartnerArrivedAtDestination"
+        now = datetime.utcnow()
+        result = await b2b_orders.update_one(
+            {"_id": b2b["_id"], "status": "transfer_in_transit", "transferPartnerStatus": current},
+            {"$set": {"transferPartnerStatus": next_status, time_field: now, "updatedAt": now}},
+        )
+        if not result.modified_count:
+            raise HTTPException(status_code=409, detail="B2B transfer status changed. Refresh and try again.")
+        return {"success": True, "data": {"id": transfer_id, "status": next_status, "isB2BOrder": True}, "message": "B2B transfer started" if transfer_status == "started" else "B2B transfer arrival recorded. Destination warehouse receipt is required."}
     current = str(leg.get("status") or "")
     if transfer_status == "started":
         if current != "assigned":
