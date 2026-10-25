@@ -3027,9 +3027,21 @@ async def update_my_pickup_route_status(
     stops = route.get("stops") or []
 
     async def sync_order_status(job: dict, collection_status: str, collected_quantity: Optional[float] = None):
-        order_id = str(job.get("orderId") or "")
-        if not order_id or not ObjectId.is_valid(order_id):
+        # B2B collection records can carry both the business-order document ID
+        # and the linked/original order ID. The warehouse fulfillment page reads
+        # the B2B document, so update that record explicitly rather than relying
+        # on orderId always pointing to the same document.
+        primary_order_id = str(
+            job.get("b2bOrderId") if str(job.get("collectionType") or "").strip().lower() == "b2b" and job.get("b2bOrderId")
+            else job.get("orderId") or ""
+        )
+        order_ids = list(dict.fromkeys(
+            str(value) for value in (primary_order_id, job.get("orderId"), job.get("b2bOrderId"))
+            if value and ObjectId.is_valid(str(value))
+        ))
+        if not order_ids:
             return
+        order_id = primary_order_id if ObjectId.is_valid(primary_order_id) else order_ids[0]
         stage_map = {
             "en_route": "collection_en_route",
             "arrived_at_farm": "collection_arrived",
@@ -3055,7 +3067,8 @@ async def update_my_pickup_route_status(
                 "deliveryDispatchStatus": "in_transit_to_warehouse",
                 "deliveryDispatchAt": datetime.utcnow(),
             })
-        await order_repository.update({"_id": ObjectId(order_id)}, order_update)
+        for candidate_order_id in order_ids:
+            await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
         titles = {
             "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
             "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
