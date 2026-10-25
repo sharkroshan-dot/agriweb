@@ -20,6 +20,7 @@ from app.services.delivery_service import DeliveryService
 from app.services.order_service import geocode_address
 from app.services.user_service import UserService
 from app.services.farmer_service import FarmerService
+from app.repositories.farmer_repository import farmer_repository
 from app.services.payment_service import PaymentService
 from app.repositories.delivery_assignment_repository import delivery_assignment_repository
 from app.repositories.order_repository import order_repository
@@ -2568,7 +2569,7 @@ async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
 
             farmer_id = str(b2b_order.get("farmerId") or "")
             try:
-                farmer_doc = await FarmerService.get_farmer_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+                farmer_doc = await farmer_repository.get_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
             except Exception:
                 farmer_doc = None
             farmer_doc = farmer_doc or {}
@@ -2904,7 +2905,7 @@ async def get_my_pickup_routes(
         if not membership and not (str(order.get("pickupTeam") or "") in {partner_id, user_id}):
             continue
         farmer_id = str(order.get("farmerId") or "")
-        farmer_doc = await FarmerService.get_farmer_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+        farmer_doc = await farmer_repository.get_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
         farmer_doc = farmer_doc or {}
         location = farmer_doc.get("location") or farmer_doc.get("farmLocation") or farmer_doc.get("address") or {}
         if isinstance(location, str):
