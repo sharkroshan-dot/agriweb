@@ -190,7 +190,7 @@ const stopStatusLabel = (value: string) => ({
 } as Record<string, string>)[value] || value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function DeliveryPickupRoutesPage() {
-  const [routeView, setRouteView] = useState<"pickup" | "transfers">("transfers");
+  const [routeView, setRouteView] = useState<"pickup" | "transfers">("pickup");
   const [datePeriod, setDatePeriod] = useState<"today" | "yesterday">("today");
   const offersQ = useQuery({
     queryKey: ["myPickupOffers"],
@@ -228,10 +228,14 @@ export default function DeliveryPickupRoutesPage() {
 
   // Keep unfinished routes from earlier days visible while viewing Today so a
   // delivery partner cannot lose sight of work that still needs handover.
-  const routes = allRoutes.filter((item: any) =>
-    isInDatePeriod(item, datePeriod, "pickup") ||
-    (datePeriod === "today" && isCarryoverRoute(item) && !isPickupCompleted(item))
-  );
+  const routes = allRoutes.filter((item: any) => {
+    // A returned/received route belongs to the day the warehouse handover
+    // actually happened, not the original route creation day.
+    const completed = isPickupCompleted(item);
+    return isInDatePeriod(item, datePeriod, "pickup") ||
+      (completed && isInDatePeriod(item, datePeriod, "pickup")) ||
+      (datePeriod === "today" && isCarryoverRoute(item) && !completed);
+  });
   const offers = allOffers.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
   const pickupJobs = allPickupJobs.filter((item: any) => isInDatePeriod(item, datePeriod, "pickup"));
   const acceptedPickupJobs = allAcceptedPickupJobs.filter((item: any) =>
