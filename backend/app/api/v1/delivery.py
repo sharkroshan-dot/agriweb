@@ -3042,6 +3042,13 @@ async def update_my_pickup_route_status(
             "warehouseFulfillmentStage": stage_map.get(collection_status, collection_status),
             "updatedAt": datetime.utcnow(),
         }
+        # Keep the B2B fulfillment queue in sync with the pickup team's route.
+        # Without this, the farm collection job can be collected/departed while
+        # the original B2B order remains "ready_for_pickup" and the warehouse UI
+        # incorrectly continues to show the pickup-assignment controls.
+        if str(job.get("collectionType") or "").strip().lower() == "b2b" and collection_status in ("collected", "departed_farm", "arrived_warehouse"):
+            order_update["status"] = "picked_up"
+            order_update.setdefault("pickedUpAt", datetime.utcnow())
         if str(job.get("collectionType") or "") == "packed_orders_transfer" and collection_status in ("collected", "departed_farm"):
             order_update.update({
                 "fulfillmentStage": "dispatched",
