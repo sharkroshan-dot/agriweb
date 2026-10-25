@@ -1629,7 +1629,26 @@ async def update_b2b_warehouse_fulfillment(
         if data.fulfillmentRoute == "long_distance":
             if not data.destinationWarehouseId or str(data.destinationWarehouseId) == str(order.get("sourceWarehouseId") or ""):
                 raise HTTPException(status_code=400, detail="Select a different eligible destination warehouse for long-distance fulfillment")
-            update["destinationWarehouseId"] = data.destinationWarehouseId
+            if not ObjectId.is_valid(str(data.destinationWarehouseId)):
+                raise HTTPException(status_code=400, detail="Invalid destination warehouse ID")
+            destination = await warehouse_repo.find_one({"_id": ObjectId(str(data.destinationWarehouseId)), "deletedAt": None})
+            if not destination:
+                raise HTTPException(status_code=400, detail="Destination warehouse is not registered")
+            destination_status = str(destination.get("status") or destination.get("operationalStatus") or "active").lower()
+            if destination_status not in ("active", "operational", "enabled", "open"):
+                raise HTTPException(status_code=400, detail="Destination warehouse is not active")
+            required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
+            try:
+                available_kg = float(destination.get("totalCapacity", destination.get("capacity"))) - float(destination.get("usedCapacity", destination.get("occupiedCapacity", 0)) or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Destination warehouse capacity is missing or invalid")
+            if required_kg <= 0 or available_kg < required_kg:
+                raise HTTPException(status_code=409, detail="Destination warehouse does not have enough available capacity")
+            buyer_coords = _location_coords_from_doc({"location": order.get("deliveryLocation")}) or _location_coords_from_doc(order)
+            destination_coords = _location_coords_from_doc(destination)
+            if not buyer_coords or not destination_coords:
+                raise HTTPException(status_code=400, detail="Destination and business delivery coordinates are required to validate route suitability")
+            update["destinationWarehouseId"] = str(data.destinationWarehouseId)
         else:
             update["destinationWarehouseId"] = str(order.get("sourceWarehouseId") or "")
         update.update({
