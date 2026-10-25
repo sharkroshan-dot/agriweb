@@ -2539,10 +2539,23 @@ async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
             b2b_id = str(b2b_order.get("_id") or "")
             if not b2b_id:
                 continue
-            existing = await warehouse_pickup_route_repository.find_one({
-                "b2bOrderId": b2b_id,
+            # A B2B pickup can be published by both the legacy offer-repair
+            # path and the assigned-route repair path. Search all supported
+            # reference shapes and both BSON/string IDs before creating anything.
+            b2b_id_values = [b2b_id]
+            if ObjectId.is_valid(b2b_id):
+                b2b_id_values.append(ObjectId(b2b_id))
+            existing = await MongoDB.db.warehouse_pickup_routes.find_one({
                 "deletedAt": None,
                 "status": {"$nin": ["cancelled", "closed", "archived"]},
+                "$or": [
+                    {"b2bOrderId": {"$in": b2b_id_values}},
+                    {"orderIds": {"$in": b2b_id_values}},
+                    {"stops.b2bOrderId": {"$in": b2b_id_values}},
+                    {"stops.orderId": {"$in": b2b_id_values}},
+                    {"stops.orders.b2bOrderId": {"$in": b2b_id_values}},
+                    {"stops.orders.orderId": {"$in": b2b_id_values}},
+                ],
             })
             if existing:
                 continue
@@ -2653,8 +2666,28 @@ async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
         warehouse_ids, datetime.utcnow().strftime("%Y-%m-%d")
     )
 
-    enriched = []
+    # Legacy repair may have left duplicate route documents for the same B2B
+    # order. Collapse offers by B2B order ID, preferring assigned routes over
+    # stale open copies so the same order is not offered twice.
+    deduped = {}
     for route in routes:
+        order_key = str(route.get("b2bOrderId") or "")
+        if not order_key:
+            for stop in route.get("stops") or []:
+                order_key = str(stop.get("b2bOrderId") or stop.get("orderId") or "")
+                if order_key:
+                    break
+        key = "b2b:" + order_key if order_key else "route:" + str(route.get("_id") or "")
+        previous = deduped.get(key)
+        if previous is None:
+            deduped[key] = route
+            continue
+        priority = {"assigned": 3, "started": 3, "arrived_at_farm": 3, "collected": 3, "departed_farm": 3, "completed": 3, "returned_to_warehouse": 3, "offered": 1}
+        if priority.get(str(route.get("status") or ""), 0) > priority.get(str(previous.get("status") or ""), 0):
+            deduped[key] = route
+
+    enriched = []
+    for route in deduped.values():
         route = await enrich_route_assignment(route)
         winner_id = str(route.get("deliveryPartnerId") or "")
         route["claimState"] = (
