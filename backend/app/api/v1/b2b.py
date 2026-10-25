@@ -1676,14 +1676,31 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         user_values: List[Any] = [user_id]
         if ObjectId.is_valid(user_id):
             user_values.append(ObjectId(user_id))
+        user_email = str(current_user.get("email") or "").strip().lower()
         warehouse_links = [
             {"userId": {"$in": user_values}},
+            {"user_id": {"$in": user_values}},
             {"managerId": {"$in": user_values}},
+            {"managerUserId": {"$in": user_values}},
             {"ownerId": {"$in": user_values}},
             {"warehouseManagerId": {"$in": user_values}},
+            {"accountId": {"$in": user_values}},
+            {"createdBy": {"$in": user_values}},
             {"staffUserIds": {"$in": user_values}},
+            {"staffIds": {"$in": user_values}},
             {"members.userId": {"$in": user_values}},
+            {"members.user_id": {"$in": user_values}},
+            {"users.userId": {"$in": user_values}},
         ]
+        if user_email:
+            warehouse_links.extend([
+                {"managerEmail": user_email},
+                {"contactEmail": user_email},
+                {"email": user_email},
+                {"staffEmails": user_email},
+                {"members.email": user_email},
+                {"users.email": user_email},
+            ])
         linked_warehouse = await warehouse_repo.find_one({
             "$and": [
                 {"deletedAt": None},
@@ -1754,15 +1771,14 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         destination_id = str(order.get("destinationWarehouseId") or "")
         # A transfer remains the same B2B order, but is visible in both warehouse
         # work queues with an explicit side label: source = outbound, destination = inbound.
-        if order.get("status") == ORDER_TRANSFER_IN_TRANSIT:
-            if current_warehouse_id and current_warehouse_id == source_id:
-                order["warehouseTransferSide"] = "source_outgoing"
-            elif current_warehouse_id and current_warehouse_id == destination_id:
-                order["warehouseTransferSide"] = "destination_incoming"
-            else:
-                order["warehouseTransferSide"] = "transfer_in_transit"
-        elif order.get("status") == ORDER_DESTINATION_RECEIVED and current_warehouse_id and current_warehouse_id == destination_id:
-            order["warehouseTransferSide"] = "destination_received"
+        if current_warehouse_id and destination_id and current_warehouse_id == destination_id and source_id and source_id != destination_id:
+            # Destination warehouse must see only the inbound/receipt workflow,
+            # even if an older record still carries a stale source-stage status.
+            order["warehouseTransferSide"] = "destination_received" if order.get("status") == ORDER_DESTINATION_RECEIVED else "destination_incoming"
+        elif current_warehouse_id and source_id and current_warehouse_id == source_id and destination_id and source_id != destination_id and order.get("status") in (ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED):
+            order["warehouseTransferSide"] = "source_outgoing"
+        elif order.get("status") == ORDER_TRANSFER_IN_TRANSIT:
+            order["warehouseTransferSide"] = "transfer_in_transit"
         else:
             order["warehouseTransferSide"] = None
         for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
