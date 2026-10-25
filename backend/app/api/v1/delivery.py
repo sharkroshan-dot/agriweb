@@ -2814,31 +2814,59 @@ async def get_my_pickup_routes(
     assignment_ids = list({str(x) for x in (partner_object_ids + membership_ids)})
     assignment_strings = list(set(partner_strings + assignment_ids))
     if MongoDB.db is not None:
-        assigned_orders = await MongoDB.db.b2b_orders.find({
-            "status": {"$in": ["ready_for_pickup", "picked_up"]},
-            "deletedAt": None,
+        # Older B2B records have used both flat and nested assignment fields,
+        # and some legacy records omit deletedAt entirely. Query the known flat
+        # fields first, then inspect a bounded set of active pickup orders for
+        # nested assignment objects so an already-assigned order is not hidden.
+        assignment_fields = (
+            "pickupTeam", "pickupPartnerId", "assignedPickupPartnerId",
+            "pickupAssignedPartnerId", "pickupDeliveryPartnerId",
+            "assignedDeliveryPartnerId", "deliveryPartnerId",
+        )
+        assignment_ids_objects = [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]
+        assignment_query = {
             "$or": [
-                # Legacy and current B2B assignment field names. A route should
-                # be recoverable regardless of which supported field persisted
-                # the delivery partner or approved pickup membership.
                 *[
-                    {field: {"$in": [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]}}
-                    for field in (
-                        "pickupTeam", "pickupPartnerId", "assignedPickupPartnerId",
-                        "pickupAssignedPartnerId", "pickupDeliveryPartnerId",
-                        "assignedDeliveryPartnerId", "deliveryPartnerId",
-                    )
+                    {field: {"$in": assignment_ids_objects}}
+                    for field in assignment_fields
                 ],
                 *[
                     {field: {"$in": assignment_strings}}
-                    for field in (
-                        "pickupTeam", "pickupPartnerId", "assignedPickupPartnerId",
-                        "pickupAssignedPartnerId", "pickupDeliveryPartnerId",
-                        "assignedDeliveryPartnerId", "deliveryPartnerId",
-                    )
+                    for field in assignment_fields
                 ],
+            ]
+        }
+        assigned_orders = await MongoDB.db.b2b_orders.find({
+            "status": {"$in": ["ready_for_pickup", "picked_up"]},
+            **assignment_query,
+            "$or": [
+                *assignment_query["$or"],
             ],
-        }).sort("pickupAssignedAt", -1).to_list(length=100)
+        }).sort("pickupAssignedAt", -1).to_list(length=300)
+        # Mongo's flat-field query cannot match assignment objects such as
+        # pickupAssignment.partnerId. Merge those records by inspecting the
+        # same active status queue and matching only IDs belonging to this
+        # authenticated delivery partner or their approved membership.
+        nested_paths = (
+            "pickupAssignment.partnerId", "pickupAssignment.deliveryPartnerId",
+            "pickupAssignment.pickupTeam", "pickupAssignment.membershipId",
+            "pickup.assignmentId", "pickup.deliveryPartnerId",
+            "logistics.pickupTeam", "logistics.deliveryPartnerId",
+        )
+        nested_query = {"$or": [
+            {path: {"$in": assignment_ids_objects}} for path in nested_paths
+        ] + [
+            {path: {"$in": assignment_strings}} for path in nested_paths
+        ]}
+        nested_orders = await MongoDB.db.b2b_orders.find({
+            "status": {"$in": ["ready_for_pickup", "picked_up"]},
+            **nested_query,
+        }).sort("pickupAssignedAt", -1).to_list(length=300)
+        seen_order_ids = {str(item.get("_id") or "") for item in assigned_orders}
+        assigned_orders.extend(
+            item for item in nested_orders
+            if str(item.get("_id") or "") not in seen_order_ids
+        )
     existing_b2b_ids = {
         str(route.get("b2bOrderId") or "")
         for route in routes
