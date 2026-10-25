@@ -47,6 +47,8 @@ from app.services.inventory_service import InventoryService
 from app.services.payment_service import PaymentService
 from app.services.order_service import geocode_address
 from app.services.notification_service import NotificationService
+from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
+from app.services.warehouse_service import WarehouseService
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
 from app.database.mongodb import MongoDB
@@ -2087,15 +2089,32 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Select a registered transfer team before dispatch")
         if not data.transferVehicle or not str(data.transferVehicle).strip():
             raise HTTPException(status_code=400, detail="The selected transfer team's registered vehicle is required before dispatch")
-        # Ensure the selected team maps to an existing user; the UI only offers
-        # approved roster members and the API rejects arbitrary text identifiers.
-        team_user = await user_repository.get_by_id(str(data.transferTeam))
+        # The roster's deliveryPartnerId is the member's user ID; it is not
+        # necessarily the pickup-team membership document ID. Validate membership
+        # against the source warehouse's approved roster instead of treating it as
+        # a standalone user/document ID.
+        warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "")
+        source_warehouse = None
+        if not warehouse_id:
+            source_warehouse = await WarehouseService.get_warehouse_by_manager(str(current_user.get("_id")))
+            warehouse_id = str((source_warehouse or {}).get("_id") or "")
+        if not warehouse_id:
+            raise HTTPException(status_code=400, detail="Your account is not linked to the source warehouse. Link the warehouse account before assigning a transfer team.")
+        membership = await warehouse_pickup_team_repository.get_membership(warehouse_id, str(data.transferTeam))
+        if not membership:
+            raise HTTPException(status_code=400, detail="The selected team is not an approved member of this source warehouse. Refresh the registered transfer-team list.")
+        team_user_id = str(membership.get("userId") or membership.get("deliveryPartnerId") or data.transferTeam)
+        team_user = await user_repository.get_by_id(team_user_id)
         if not team_user:
-            raise HTTPException(status_code=400, detail="The selected transfer team no longer exists. Refresh the registered team list.")
+            raise HTTPException(status_code=400, detail="The approved transfer team member has no valid user account. Update the team registration before dispatch.")
+        registered_vehicle = " · ".join(str(membership.get(key) or team_user.get(key)) for key in ("vehicleNumber", "vehicleRegistrationNumber", "registrationNumber", "vehicleType") if membership.get(key) or team_user.get(key))
+        if registered_vehicle and str(data.transferVehicle).strip() not in registered_vehicle and str(data.transferVehicle).strip() not in [str(membership.get(key) or team_user.get(key) or "") for key in ("vehicleNumber", "vehicleRegistrationNumber", "registrationNumber", "vehicleType")]:
+            raise HTTPException(status_code=400, detail="Selected vehicle does not match the registered vehicle for this approved team member.")
         update.update({
             "status": ORDER_TRANSFER_IN_TRANSIT,
-            "transferTeam": str(data.transferTeam),
-            "transferTeamName": str(data.transferTeamName or team_user.get("name") or team_user.get("fullName") or team_user.get("email") or "Registered transfer team"),
+            "transferTeam": team_user_id,
+            "transferTeamMembershipId": str(membership.get("_id") or membership.get("id") or ""),
+            "transferTeamName": str(data.transferTeamName or membership.get("name") or team_user.get("name") or team_user.get("fullName") or team_user.get("email") or "Registered transfer team"),
             "transferVehicle": str(data.transferVehicle).strip(),
             "transferDispatchedAt": datetime.utcnow(),
             "transferDispatchedBy": str(current_user.get("_id")),
