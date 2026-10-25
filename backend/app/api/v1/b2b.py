@@ -2083,8 +2083,18 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Source warehouse must receive and pass quality inspection before transfer")
         if order.get("fulfillmentRoute") != "long_distance":
             raise HTTPException(status_code=400, detail="Save the Long Distance route before dispatching a warehouse transfer")
-        if not order.get("destinationWarehouseId") or str(order.get("destinationWarehouseId")) == str(order.get("sourceWarehouseId")):
-            raise HTTPException(status_code=400, detail="A different destination warehouse must be configured for this transfer")
+        actual_source_id = str(order.get("sourceWarehouseId") or order.get("receivedAtWarehouseId") or order.get("warehouseId") or "")
+        destination_id = str(order.get("destinationWarehouseId") or "")
+        if not actual_source_id or not ObjectId.is_valid(actual_source_id):
+            raise HTTPException(status_code=400, detail="The actual receiving/source warehouse is missing. Record the warehouse that holds this stock before dispatch.")
+        if not destination_id or not ObjectId.is_valid(destination_id):
+            raise HTTPException(status_code=400, detail="Select a valid registered destination warehouse before dispatch")
+        if destination_id == actual_source_id:
+            raise HTTPException(status_code=409, detail="The selected destination is the same warehouse that holds the stock. Select a different eligible destination warehouse.")
+        source_record = await warehouse_repo.find_one({"_id": ObjectId(actual_source_id), "deletedAt": None})
+        destination_record = await warehouse_repo.find_one({"_id": ObjectId(destination_id), "deletedAt": None})
+        if not source_record or not destination_record:
+            raise HTTPException(status_code=400, detail="Source or destination warehouse record could not be found. Refresh warehouse records before dispatch.")
         if not data.transferTeam or not ObjectId.is_valid(str(data.transferTeam)):
             raise HTTPException(status_code=400, detail="Select a registered transfer team before dispatch")
         if not data.transferVehicle or not str(data.transferVehicle).strip():
@@ -2118,7 +2128,10 @@ async def update_b2b_warehouse_fulfillment(
             "transferVehicle": str(data.transferVehicle).strip(),
             "transferDispatchedAt": datetime.utcnow(),
             "transferDispatchedBy": str(current_user.get("_id")),
-            "destinationWarehouseId": str(order.get("destinationWarehouseId")),
+            "sourceWarehouseId": actual_source_id,
+            "sourceWarehouseName": source_record.get("name") or source_record.get("warehouseName") or source_record.get("city") or "Source warehouse",
+            "destinationWarehouseId": destination_id,
+            "destinationWarehouseName": destination_record.get("name") or destination_record.get("warehouseName") or destination_record.get("city") or "Destination warehouse",
             "transferNotes": data.notes,
         })
     elif action == "receive_at_destination":
