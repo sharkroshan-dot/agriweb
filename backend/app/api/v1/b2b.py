@@ -1844,6 +1844,28 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             criteria.update(extra)
         return await order_repo.count(criteria)
 
+    # Keep source and destination warehouse actions separated. A transfer in
+    # transit may be visible to both ends; once received, only the destination
+    # warehouse should own the remaining fulfillment actions.
+    if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        scoped_orders = []
+        for item in orders:
+            status = str(item.get("status") or "")
+            source_id = str(item.get("sourceWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
+            destination_id = str(item.get("destinationWarehouseId") or "")
+            if status == ORDER_DESTINATION_RECEIVED:
+                if destination_id == current_warehouse_id:
+                    scoped_orders.append(item)
+                continue
+            if status == ORDER_TRANSFER_IN_TRANSIT:
+                if source_id == current_warehouse_id or destination_id == current_warehouse_id:
+                    scoped_orders.append(item)
+                continue
+            if source_id and source_id != current_warehouse_id:
+                continue
+            scoped_orders.append(item)
+        orders = scoped_orders
+
     summary = {
         "readyForFarmPickup": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$in": [None, ""]}}),
         "pickupAssigned": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$nin": [None, ""]}}),
