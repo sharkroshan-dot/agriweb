@@ -1807,6 +1807,28 @@ async def list_b2b_destination_warehouses(
         raise HTTPException(status_code=400, detail="Order quantity is required before selecting a destination")
     buyer_coords = _location_coords_from_doc({"location": order.get("deliveryLocation")}) or _location_coords_from_doc(order)
     warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
+    known_districts = {_normalized_district(row) for row in warehouses if _normalized_district(row)}
+    delivery_location = order.get("deliveryLocation")
+    district_values = [
+        order.get("deliveryDistrict"), order.get("district"), order.get("districtName"),
+        delivery_location.get("district") if isinstance(delivery_location, dict) else None,
+        delivery_location.get("deliveryDistrict") if isinstance(delivery_location, dict) else None,
+    ]
+    buyer_district = next((re.sub(r"[^a-z0-9]", "", str(value).lower()) for value in district_values if str(value or "").strip()), "")
+    address_values = [order.get("deliveryAddress"), order.get("businessAddress"), order.get("shippingAddress"), delivery_location]
+    address_tokens = set()
+    for value in address_values:
+        if isinstance(value, str):
+            address_tokens.update(re.sub(r"[^a-z0-9]", "", part.lower()) for part in value.split(","))
+        elif isinstance(value, dict):
+            for key in ("formattedAddress", "addressLine1", "address_line1", "city", "district", "state", "country"):
+                part = value.get(key)
+                if isinstance(part, str):
+                    address_tokens.update(re.sub(r"[^a-z0-9]", "", token.lower()) for token in part.split(","))
+    matching_districts = address_tokens.intersection(known_districts)
+    if matching_districts:
+        buyer_district = next(iter(matching_districts))
+    warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
     options = []
     for warehouse in warehouses:
         wid = str(warehouse.get("_id") or warehouse.get("id") or "")
@@ -1824,6 +1846,9 @@ async def list_b2b_destination_warehouses(
             continue
         if spare < required_kg:
             continue
+        warehouse_district = _normalized_district(warehouse)
+        if not buyer_district or not warehouse_district or warehouse_district != buyer_district:
+            continue
         coords = _location_coords_from_doc(warehouse)
         distance = None
         if buyer_coords and coords:
@@ -1834,7 +1859,7 @@ async def list_b2b_destination_warehouses(
         options.append({
             "id": wid,
             "name": warehouse.get("name") or warehouse.get("warehouseName") or warehouse.get("code") or f"Warehouse {wid[-6:]}",
-            "district": warehouse.get("district"),
+            "district": warehouse.get("district") or warehouse.get("districtName"),
             "city": warehouse.get("city"),
             "availableCapacityKg": round(spare, 2),
             "requiredCapacityKg": round(required_kg, 2),
