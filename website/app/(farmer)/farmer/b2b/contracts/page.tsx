@@ -25,10 +25,15 @@ interface Contract {
   contractNumber: string;
   businessName: string;
   cropName: string;
-  quantityPerMonthKg: number;
+  quantityPerMonthKg?: number;
+  quantityPerDeliveryKg?: number;
   pricePerKg: number;
   durationMonths: number;
+  frequency?: string;
+  recurrenceInterval?: number;
   startDate: string;
+  endDate?: string;
+  nextDeliveryAt?: string;
   status: "active" | "pending" | "paused" | "completed" | "cancelled";
 }
 
@@ -59,8 +64,8 @@ export default function FarmerB2bContractsPage() {
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
   const activeCount = contracts.filter((c) => c.status === "active").length;
-  const monthlyKg = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.quantityPerMonthKg, 0);
-  const monthlyValue = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.quantityPerMonthKg * c.pricePerKg, 0);
+  const monthlyKg = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0), 0);
+  const monthlyValue = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0) * Number(c.pricePerKg ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -125,8 +130,9 @@ export default function FarmerB2bContractsPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
                   <span className="flex items-center gap-1"><IndianRupee className="h-4 w-4 text-emerald-600" /> {c.pricePerKg}/kg</span>
-                  <span className="flex items-center gap-1"><Users className="h-4 w-4 text-blue-600" /> {c.quantityPerMonthKg} kg/mo</span>
-                  <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.durationMonths} months</span>
+                  <span className="flex items-center gap-1"><Users className="h-4 w-4 text-blue-600" /> {Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0)} kg / delivery</span>
+                  <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"}{Number(c.recurrenceInterval || 1) > 1 ? ` · every ${c.recurrenceInterval}` : ""}</span>
+                  {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
                 {c.status === "pending" && (
                   <div className="flex gap-2">
