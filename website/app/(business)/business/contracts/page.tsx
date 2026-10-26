@@ -8,13 +8,12 @@ import {
   Loader2,
   CheckCircle2,
   Clock,
-  XCircle,
   CalendarRange,
   IndianRupee,
   Users,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
-import { cn, formatPrice } from "../../../lib/utils";
+import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
