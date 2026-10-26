@@ -473,6 +473,35 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "deliveryMethod": (accept.deliveryMethod if accept and accept.deliveryMethod else (offer.get("deliveryMethod") or DELIVERY_METHODS[0])),
         "requiredDate": rfq.get("requiredDate"),
         "deliveryTimeSlot": rfq.get("deliveryTimeSlot"),
+        "deliveryDeadline": rfq.get("requiredDate"),
+        # Plan farmer preparation and pickup before the business delivery. For
+        # long-distance district transfers, dispatch is planned for the previous
+        # calendar day; warehouse staff must bring pickup earlier if route cutoff
+        # or estimated transit time requires it.
+        "farmerPrepareBy": (
+            (rfq.get("requiredDate").replace(tzinfo=None) - timedelta(days=1)).replace(hour=16, minute=0, second=0, microsecond=0)
+            if isinstance(rfq.get("requiredDate"), datetime)
+            else None
+        ),
+        "pickupDate": (
+            (rfq.get("requiredDate").replace(tzinfo=None) - timedelta(days=1)).date().isoformat()
+            if isinstance(rfq.get("requiredDate"), datetime)
+            else None
+        ),
+        "pickupWindowStart": "18:00",
+        "pickupWindowEnd": "23:59",
+        "transferDispatchDate": (
+            (rfq.get("requiredDate").replace(tzinfo=None) - timedelta(days=1)).date().isoformat()
+            if isinstance(rfq.get("requiredDate"), datetime)
+            and str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
+            else None
+        ),
+        "transferTimingRule": (
+            "Dispatch one day before delivery; calculate earlier pickup when transit or warehouse cutoff requires it."
+            if isinstance(rfq.get("requiredDate"), datetime)
+            and str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
+            else "Local warehouse delivery; follow assigned pickup deadline."
+        ),
         "deliveryCity": rfq.get("deliveryCity"),
         "deliveryState": rfq.get("deliveryState"),
         "deliveryAddress": rfq.get("deliveryAddress"),
