@@ -4108,13 +4108,26 @@ async def update_supply_contract_status(contract_id: str, data: SupplyContractSt
     is_farmer = role == "farmer" and str(contract.get("farmerId")) == str(current_user["_id"])
     if not (is_business or is_farmer):
         raise HTTPException(status_code=403, detail="You cannot change this contract")
-    if is_farmer and data.status not in ("active", "cancelled"):
-        raise HTTPException(status_code=403, detail="Farmers can accept or decline a pending contract")
-    if contract.get("status") in ("completed", "cancelled"):
+    current_status = contract.get("status")
+    if current_status in ("completed", "cancelled"):
         raise HTTPException(status_code=409, detail="A completed or cancelled contract cannot be changed")
-    if is_farmer and contract.get("status") != "pending":
-        raise HTTPException(status_code=409, detail="Only pending contracts can be accepted or declined")
-    await contract_repo.update({"_id": oid}, {"status": data.status, "acceptedAt": datetime.utcnow() if data.status == "active" else contract.get("acceptedAt"), "updatedAt": datetime.utcnow()})
+    if is_farmer:
+        if data.status not in ("active", "cancelled"):
+            raise HTTPException(status_code=403, detail="Farmers can only accept or decline a pending contract")
+        if current_status != "pending":
+            raise HTTPException(status_code=409, detail="Only pending contracts can be accepted or declined")
+    if is_business:
+        allowed_transitions = {
+            "pending": {"cancelled"},
+            "active": {"paused", "cancelled"},
+            "paused": {"active", "cancelled"},
+        }
+        if data.status not in allowed_transitions.get(current_status, set()):
+            raise HTTPException(
+                status_code=409,
+                detail="Invalid contract transition. The assigned farmer must accept a pending contract before scheduled orders can be generated.",
+            )
+    await contract_repo.update({"_id": oid}, {"status": data.status, "acceptedAt": datetime.utcnow() if is_farmer and data.status == "active" else contract.get("acceptedAt"), "updatedAt": datetime.utcnow()})
     updated = await contract_repo.find_one({"_id": oid})
     return {"success": True, "data": _contract_public(updated or {**contract, "status": data.status}), "message": "Contract status updated"}
 
