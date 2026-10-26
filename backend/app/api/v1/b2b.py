@@ -2343,6 +2343,44 @@ async def list_b2b_destination_warehouses(
     return {"success": True, "data": {"warehouses": options, "requiredCapacityKg": round(required_kg, 2)}}
 
 
+async def _resolve_b2b_current_warehouse_id(current_user: Dict[str, Any]) -> str:
+    """Resolve the warehouse attached to the signed-in warehouse account."""
+    direct = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "").strip()
+    if ObjectId.is_valid(direct):
+        registered = await warehouse_repo.find_one({"_id": ObjectId(direct), "deletedAt": None})
+        if registered:
+            return direct
+    user_id = str(current_user.get("_id") or current_user.get("id") or "").strip()
+    user_values: List[Any] = [user_id]
+    if ObjectId.is_valid(user_id):
+        user_values.append(ObjectId(user_id))
+    links: List[Dict[str, Any]] = [
+        {"userId": {"$in": user_values}},
+        {"user_id": {"$in": user_values}},
+        {"managerId": {"$in": user_values}},
+        {"managerUserId": {"$in": user_values}},
+        {"ownerId": {"$in": user_values}},
+        {"warehouseManagerId": {"$in": user_values}},
+        {"accountId": {"$in": user_values}},
+        {"createdBy": {"$in": user_values}},
+        {"staffUserIds": {"$in": user_values}},
+        {"staffIds": {"$in": user_values}},
+        {"members.userId": {"$in": user_values}},
+        {"members.user_id": {"$in": user_values}},
+        {"users.userId": {"$in": user_values}},
+    ]
+    email = str(current_user.get("email") or "").strip().lower()
+    if email:
+        links.extend([
+            {"managerEmail": email}, {"contactEmail": email}, {"email": email},
+            {"staffEmails": email}, {"members.email": email}, {"users.email": email},
+        ])
+    warehouse = await warehouse_repo.find_one({"deletedAt": None, "$or": links})
+    if warehouse and warehouse.get("_id") is not None:
+        return str(warehouse["_id"])
+    return ""
+
+
 @router.put("/warehouse/fulfillment/{order_id}")
 async def update_b2b_warehouse_fulfillment(
     order_id: str,
@@ -2479,9 +2517,12 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="Enter the received quantity in kg")
         if data.qualityCheck not in ("passed", "failed"):
             raise HTTPException(status_code=400, detail="Record a passed or failed quality inspection")
-        receiving_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or order.get("sourceWarehouseId") or "")
+        receiving_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
         if not receiving_warehouse_id:
-            raise HTTPException(status_code=400, detail="Your warehouse account is not linked to a registered warehouse. Configure the actual receiving warehouse before confirming stock receipt.")
+            raise HTTPException(status_code=409, detail="Your warehouse account is not linked to a registered warehouse. Link this account to the warehouse that physically receives the stock before confirming receipt.")
+        expected_source_id = str(order.get("sourceWarehouseId") or order.get("assignedWarehouseId") or order.get("warehouseId") or "")
+        if expected_source_id and receiving_warehouse_id != expected_source_id and role not in ("admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only the order's assigned source warehouse can confirm farm-pickup stock receipt.")
         if receiving_warehouse_id:
             if not ObjectId.is_valid(receiving_warehouse_id):
                 raise HTTPException(status_code=400, detail="The receiving warehouse assignment is invalid; select/configure the actual warehouse before receiving stock")
@@ -2628,8 +2669,11 @@ async def update_b2b_warehouse_fulfillment(
         transfer_destination_id = str(order.get("destinationWarehouseId") or "")
         if not transfer_source_id or not transfer_destination_id or transfer_source_id == transfer_destination_id:
             raise HTTPException(status_code=409, detail="Invalid transfer record: source and destination must be different registered warehouses. Correct the destination warehouse assignment before receiving this transfer.")
-        if str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "") and str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "") != str(order.get("destinationWarehouseId") or "") and role not in ("admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Only the destination warehouse can receive this transfer")
+        receiving_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
+        if role not in ("admin", "super_admin") and not receiving_warehouse_id:
+            raise HTTPException(status_code=409, detail="Your warehouse account is not linked to a registered warehouse. Configure the destination warehouse assignment before receiving this transfer.")
+        if role not in ("admin", "super_admin") and receiving_warehouse_id != transfer_destination_id:
+            raise HTTPException(status_code=403, detail="Only the designated destination warehouse can receive this transfer.")
         if data.receivedQuantityKg is None or data.receivedQuantityKg <= 0:
             raise HTTPException(status_code=400, detail="Enter destination received quantity")
         if data.qualityCheck not in ("passed", "failed"):
