@@ -84,6 +84,7 @@ async def lifespan(app: FastAPI):
     logger.info("🚀 Starting AgriConnect AI Backend...")
     expiry_task = None
     workflow_task = None
+    recurring_supply_task = None
     try:
         await MongoDB.connect()
         await RedisClient.connect()
@@ -105,6 +106,21 @@ async def lifespan(app: FastAPI):
                     logger.exception("Cross-role fulfillment reconciliation failed")
                 await asyncio.sleep(15)
         workflow_task = asyncio.create_task(workflow_reconciliation_loop())
+        async def recurring_supply_scheduler_loop():
+            # Run once at startup, then hourly. Generation is idempotency-guarded per contract schedule date.
+            while True:
+                try:
+                    from app.api.v1.b2b import generate_due_supply_orders
+                    result = await generate_due_supply_orders({"role": "admin"})
+                    count = int((result.get("data") or {}).get("count") or 0)
+                    if count:
+                        logger.info("Recurring supply scheduler generated %s B2B order(s)", count)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Recurring supply order generation failed")
+                await asyncio.sleep(3600)
+        recurring_supply_task = asyncio.create_task(recurring_supply_scheduler_loop())
         logger.info("✅ Database connections established")
     except Exception as exc:
         logger.error(f"❌ Database startup failed: {exc}")
@@ -117,6 +133,8 @@ async def lifespan(app: FastAPI):
         expiry_task.cancel()
     if workflow_task:
         workflow_task.cancel()
+    if recurring_supply_task:
+        recurring_supply_task.cancel()
     if basket_task:
         basket_task.cancel()
     try:
