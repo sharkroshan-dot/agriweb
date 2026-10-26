@@ -335,15 +335,64 @@ export default function FarmerB2bRfqsPage() {
               {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
               {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
             </div>
-            <p className="mt-1 text-sm text-gray-600">Quantity: {r.quantityKg ?? `${r.quantityPerWeekKg} kg/week`} kg</p>
+            <p className="mt-1 text-sm text-gray-700">
+              {r.recurring
+                ? `Required supply: ${r.quantityPerWeekKg ?? r.quantityPerDeliveryKg ?? r.quantityKg ?? "—"} kg per ${String(r.recurrenceFrequency || "week").replace(/ly$/, "") === "week" ? "week" : String(r.recurrenceFrequency || "weekly")}`
+                : `One-time quantity: ${r.quantityKg ?? "—"} kg`}
+            </p>
+            {r.recurring ? (
+              <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-900">
+                  <RefreshCw className="h-4 w-4" /> Recurring delivery plan
+                </div>
+                <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                  <div>
+                    <p className="text-xs text-slate-500">Delivery frequency</p>
+                    <p className="font-medium text-slate-800">
+                      {String(r.recurrenceFrequency || r.frequency || "Weekly").replace(/^./, (c: string) => c.toUpperCase())}
+                      {Number(r.recurrenceInterval || 1) > 1 ? ` · every ${r.recurrenceInterval} periods` : ""}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Contract start</p>
+                    <p className="font-medium text-slate-800">{r.scheduleStartDate ? new Date(r.scheduleStartDate).toLocaleDateString("en-IN") : "Not specified"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Contract end</p>
+                    <p className="font-medium text-slate-800">{r.scheduleEndDate ? new Date(r.scheduleEndDate).toLocaleDateString("en-IN") : "Not specified"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Quality requirement</p>
+                    <p className="font-medium text-slate-800">{r.qualityGrade || "Standard"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Payment terms</p>
+                    <p className="font-medium text-slate-800">{String(r.paymentTerms || "To be agreed").replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">Delivery time</p>
+                    <p className="font-medium text-slate-800">{r.deliveryTimeSlot || "To be agreed"}</p>
+                  </div>
+                </div>
+                {r.cancellationTerms ? (
+                  <div className="mt-3 border-t border-emerald-100 pt-2">
+                    <p className="text-xs text-slate-500">Quality / cancellation terms</p>
+                    <p className="text-sm text-slate-700">{r.cancellationTerms}</p>
+                  </div>
+                ) : null}
+                <p className="mt-3 text-xs leading-5 text-emerald-800">
+                  This is a repeating supply request, not a single order. If the business accepts your quote, the contract still needs your acceptance before scheduled deliveries can be generated.
+                </p>
+              </div>
+            ) : null}
             <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-500">
               {r.requiredDate ? (
                 <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4" /> {r.requiredDate}{r.deliveryTimeSlot ? `, ${r.deliveryTimeSlot}` : ""}</span>
               ) : r.deliveryDays ? (
                 <span className="flex items-center gap-1.5"><CalendarDays className="h-4 w-4" /> {r.deliveryDays}</span>
               ) : null}
-              {r.deliveryCity ? (
-                <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" /> {r.deliveryCity}{r.deliveryState ? `, ${r.deliveryState}` : ""}</span>
+              {r.deliveryCity || r.deliveryDistrict || r.deliveryState ? (
+                <span className="flex items-center gap-1.5"><MapPin className="h-4 w-4" /> {[r.deliveryAddress, r.deliveryCity, r.deliveryDistrict, r.deliveryState].filter(Boolean).join(", ")}</span>
               ) : null}
             </div>
             <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
