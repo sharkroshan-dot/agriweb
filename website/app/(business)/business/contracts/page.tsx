@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileSignature,
@@ -17,7 +17,6 @@ import { api } from "../../../lib/api/client";
 import { cn, formatPrice } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
 import { Badge } from "../../../components/ui/badge";
 import toast from "react-hot-toast";
 
@@ -35,16 +34,6 @@ interface Contract {
 
 export default function BusinessContractsPage() {
   const queryClient = useQueryClient();
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    farmerName: "",
-    cropName: "",
-    quantityPerMonthKg: "500",
-    pricePerKg: "",
-    durationMonths: "6",
-    startDate: "",
-  });
-
   const { data: contractsData, isLoading } = useQuery({
     queryKey: ["businessContracts"],
     queryFn: () => api.get("/b2b/contracts"),
@@ -55,17 +44,6 @@ export default function BusinessContractsPage() {
     const list = contractsData?.data?.contracts || contractsData?.data || [];
     return Array.isArray(list) ? list : [];
   }, [contractsData]);
-
-  const createMutation = useMutation({
-    mutationFn: (payload: any) => api.post("/b2b/contracts", payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
-      setShowForm(false);
-      setForm({ farmerName: "", cropName: "", quantityPerMonthKg: "500", pricePerKg: "", durationMonths: "6", startDate: "" });
-      toast.success("Contract sent to farmer for confirmation!");
-    },
-    onError: (err: any) => toast.error(err?.message || "Failed to create contract"),
-  });
 
   const generateDueMutation = useMutation({
     mutationFn: () => api.post("/b2b/contracts/generate-due-orders", {}),
@@ -93,9 +71,8 @@ export default function BusinessContractsPage() {
             {generateDueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarRange className="mr-2 h-4 w-4" />}
             Generate Due Orders
           </Button>
-          <Button onClick={() => setShowForm((v) => !v)}>
-            {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-            {showForm ? "Cancel" : "New Contract"}
+          <Button onClick={() => window.location.assign("/business/rfqs")}>
+            <Plus className="mr-2 h-4 w-4" /> Create Recurring RFQ
           </Button>
         </div>
       </div>
@@ -120,59 +97,6 @@ export default function BusinessContractsPage() {
           </CardContent>
         </Card>
       </div>
-
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">New Supply Contract</CardTitle>
-            <CardDescription>The farmer will confirm before the contract starts.</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Farmer / farm name *</label>
-              <Input value={form.farmerName} onChange={(e) => setForm({ ...form, farmerName: e.target.value })} placeholder="e.g. Kumar Farms" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Crop *</label>
-              <Input value={form.cropName} onChange={(e) => setForm({ ...form, cropName: e.target.value })} placeholder="e.g. Tomato" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Quantity / month (kg) *</label>
-              <Input type="number" min="1" value={form.quantityPerMonthKg} onChange={(e) => setForm({ ...form, quantityPerMonthKg: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Agreed price (â‚¹/kg) *</label>
-              <Input type="number" min="0" value={form.pricePerKg} onChange={(e) => setForm({ ...form, pricePerKg: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Duration (months) *</label>
-              <Input type="number" min="1" max="24" value={form.durationMonths} onChange={(e) => setForm({ ...form, durationMonths: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Start date *</label>
-              <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
-            </div>
-            <div className="sm:col-span-2 flex justify-end">
-              <Button
-                disabled={!form.farmerName || !form.cropName || !form.quantityPerMonthKg || !form.pricePerKg || !form.startDate || createMutation.isPending}
-                onClick={() =>
-                  createMutation.mutate({
-                    farmerName: form.farmerName,
-                    cropName: form.cropName,
-                    quantityPerMonthKg: Number(form.quantityPerMonthKg),
-                    pricePerKg: Number(form.pricePerKg),
-                    durationMonths: Number(form.durationMonths),
-                    startDate: new Date(form.startDate).toISOString(),
-                  })
-                }
-              >
-                {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileSignature className="mr-2 h-4 w-4" />}
-                Send Contract
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {isLoading ? (
         <div className="flex justify-center py-16">
