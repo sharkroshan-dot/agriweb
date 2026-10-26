@@ -4236,6 +4236,8 @@ async def update_supply_contract_status(contract_id: str, data: SupplyContractSt
 
 class DeliveryStockConfirmation(BaseModel):
     availableQuantityKg: float = Field(..., ge=0)
+    packedQuantityKg: Optional[float] = Field(None, ge=0)
+    readyForPickup: bool = True
     notes: Optional[str] = None
 
 
@@ -4275,12 +4277,15 @@ async def confirm_contract_delivery_stock(
     schedule_key = next_at.strftime("%Y-%m-%d")
     requested = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
     available = float(data.availableQuantityKg)
-    status = "confirmed" if available >= requested else "shortage"
+    packed = float(data.packedQuantityKg if data.packedQuantityKg is not None else available)
+    status = "confirmed" if available >= requested and packed >= requested and data.readyForPickup else "shortage"
     confirmations = dict(contract.get("deliveryConfirmations") or {})
     confirmations[schedule_key] = {
         "scheduledDate": schedule_key,
         "requestedQuantityKg": requested,
         "availableQuantityKg": available,
+        "packedQuantityKg": packed,
+        "readyForPickup": bool(data.readyForPickup and packed >= requested),
         "status": status,
         "notes": (data.notes or "").strip() or None,
         "confirmedBy": ObjectId(current_user["_id"]),
@@ -4297,10 +4302,11 @@ async def confirm_contract_delivery_stock(
         "success": True,
         "data": {"contractId": str(oid), "scheduledDeliveryDate": schedule_key,
                  "requestedQuantityKg": requested, "availableQuantityKg": available,
-                 "status": status, "shortageKg": max(0, round(requested - available, 2))},
-        "message": ("Stock confirmed. Scheduled order can be generated when due."
+                 "packedQuantityKg": packed, "readyForPickup": bool(data.readyForPickup and packed >= requested),
+                 "status": status, "shortageKg": max(0, round(requested - min(available, packed), 2))},
+        "message": ("Stock and packing confirmed. The scheduled pickup task is ready."
                     if status == "confirmed" else
-                    "Shortage recorded. No order will be generated until the business approves a resolution."),
+                    "A stock or packing shortage was recorded. No full-quantity pickup will be scheduled until the business approves a resolution."),
     }
 
 
@@ -4374,13 +4380,18 @@ async def resolve_contract_delivery_shortage(
 
 @router.post("/contracts/generate-due-orders")
 async def generate_due_supply_orders(current_user: dict = Depends(get_current_user)):
-    """Idempotently generate scheduled B2B orders for active contracts whose next delivery is due.
-    This endpoint is safe to retry; invoke it from the recurring-order scheduler at least daily.
+    """Idempotently generate confirmed scheduled B2B orders ahead of the delivery date.
+
+    The scheduler looks ahead so farmers and warehouse teams have time to prepare.
+    A batch is only created after the farmer confirms both available and packed stock.
     """
     if current_user.get("role") not in ("admin", "super_admin", "business"):
         raise HTTPException(status_code=403, detail="Not permitted to run recurring order generation")
     now = datetime.utcnow()
-    query = {"status": "active", "nextDeliveryAt": {"$lte": now}, "deletedAt": None}
+    # Generate up to 48 hours ahead. This is essential for night pickup and
+    # cross-district transfers that must depart one day before morning delivery.
+    planning_horizon = now + timedelta(days=2)
+    query = {"status": "active", "nextDeliveryAt": {"$lte": planning_horizon}, "deletedAt": None}
     if current_user.get("role") == "business":
         query["businessUserId"] = ObjectId(current_user["_id"])
     contracts = await contract_repo.find_many(query, limit=500) or []
@@ -4405,7 +4416,13 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             continue
         confirmed_quantity = float(confirmation.get("requestedQuantityKg") or 0)
         available_quantity = float(confirmation.get("availableQuantityKg") or 0)
-        if confirmed_quantity <= 0 or available_quantity < confirmed_quantity:
+        packed_quantity = float(confirmation.get("packedQuantityKg", available_quantity) or 0)
+        if (
+            confirmed_quantity <= 0
+            or available_quantity < confirmed_quantity
+            or packed_quantity < confirmed_quantity
+            or confirmation.get("readyForPickup", True) is not True
+        ):
             continue
         end_at = contract.get("endDate")
         if isinstance(end_at, datetime) and next_at > end_at:
@@ -4434,6 +4451,16 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "contractId": contract["_id"],
                 "contractNumber": contract.get("contractNumber"),
                 "scheduledDeliveryDate": schedule_key,
+                # Farmer preparation and collection are planned for the evening
+                # before the business delivery. The warehouse must override this
+                # when the calculated transfer cutoff requires an earlier pickup.
+                "farmerPrepareBy": datetime.combine(next_at.date() - timedelta(days=1), datetime.min.time()).replace(hour=16),
+                "pickupDate": (next_at.date() - timedelta(days=1)).isoformat(),
+                "pickupWindowStart": "18:00",
+                "pickupWindowEnd": "23:59",
+                "transferDispatchDate": (next_at.date() - timedelta(days=1)).isoformat(),
+                "transferTimingRule": "Cross-district transfers must depart one day before business delivery; dispatch earlier when route duration or warehouse cutoff requires it.",
+                "deliveryDeadline": next_at,
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
