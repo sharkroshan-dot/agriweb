@@ -45,6 +45,7 @@ const emptyForm = {
 export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyForm);
+  const [productLines, setProductLines] = useState([{ productName: "", category: "", quantityKg: 1, quantityPerDeliveryKg: 1 }]);
   const [aiRec, setAiRec] = useState<any>(null);
 
   const createMutation = useMutation({
@@ -188,22 +189,39 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Product *</label>
-          <Input value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="e.g. Tomato" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Category *</label>
-          <select
-            value={form.category}
-            onChange={(e) => set("category", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm outline-none focus:border-emerald-500"
-          >
-            <option value="">Select category</option>
-            {PRODUCT_CATEGORIES.map((category) => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
+        <div className="space-y-3 sm:col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-semibold text-slate-900">Products in this RFQ</h3>
+              <p className="text-xs text-slate-500">Add every product the business needs. Each row has its own quantity and category.</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setProductLines((rows) => [...rows, { productName: "", category: "", quantityKg: 1, quantityPerDeliveryKg: 1 }])}>
+              <Plus className="mr-1 h-4 w-4" /> Add Product
+            </Button>
+          </div>
+          {productLines.map((line, index) => (
+            <div key={index} className="grid gap-3 rounded-lg border bg-white p-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Product {index + 1} *</label>
+                <Input value={line.productName} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, productName: e.target.value } : row))} placeholder="e.g. Brinjal" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Category *</label>
+                <select value={line.category} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, category: e.target.value } : row))} className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm">
+                  <option value="">Select category</option>
+                  {PRODUCT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">{form.recurring ? "Quantity per delivery (kg) *" : "Quantity (kg) *"}</label>
+                <Input type="number" min="0.1" step="0.1" value={form.recurring ? line.quantityPerDeliveryKg : line.quantityKg} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, [form.recurring ? "quantityPerDeliveryKg" : "quantityKg"]: Number(e.target.value) } : row))} />
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <p className="pb-2 text-xs text-slate-500">Quality and budget set below apply to each product.</p>
+                <Button type="button" size="sm" variant="outline" disabled={productLines.length === 1} onClick={() => setProductLines((rows) => rows.filter((_, i) => i !== index))}>Remove</Button>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="space-y-1 sm:col-span-2">
@@ -433,10 +451,25 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && (form.quantityPerWeekKg <= 0 || !form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
+            disabled={productLines.some((line) => !line.productName.trim() || !line.category || (form.recurring ? line.quantityPerDeliveryKg <= 0 : line.quantityKg <= 0)) || new Set(productLines.map((line) => line.productName.trim().toLowerCase())).size !== productLines.length || createMutation.isPending || (form.recurring && (!form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
             onClick={() =>
               createMutation.mutate({
                 ...form,
+                productName: productLines[0].productName.trim(),
+                category: productLines[0].category,
+                products: productLines.map((line) => ({
+                  productName: line.productName.trim(),
+                  category: line.category,
+                  unit: "kg",
+                  quantityKg: form.recurring ? null : Number(line.quantityKg),
+                  quantityPerDeliveryKg: form.recurring ? Number(line.quantityPerDeliveryKg) : null,
+                  qualityGrade: form.qualityGrade,
+                  priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
+                  budgetMinPerKg: form.budgetMinPerKg !== "" ? Number(form.budgetMinPerKg) : null,
+                  budgetMaxPerKg: form.budgetMaxPerKg !== "" ? Number(form.budgetMaxPerKg) : null,
+                })),
+                quantityKg: form.recurring ? null : Number(productLines[0].quantityKg),
+                quantityPerWeekKg: form.recurring ? Number(productLines[0].quantityPerDeliveryKg) : null,
                 priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
                 budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
                 budgetMaxPerKg: form.budgetMaxPerKg ? Number(form.budgetMaxPerKg) : null,
