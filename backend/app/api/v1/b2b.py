@@ -577,7 +577,14 @@ class RFQCreate(BaseModel):
     deliveryAddress: Optional[str] = None
     deliveryLocation: Optional[dict] = None
     deliveryDays: Optional[str] = None
-    recurring: bool = True
+    recurring: bool = False
+    recurrenceFrequency: Optional[str] = None
+    recurrenceInterval: int = Field(1, ge=1, le=12)
+    scheduleStartDate: Optional[datetime] = None
+    scheduleEndDate: Optional[datetime] = None
+    contractRequired: bool = False
+    paymentTerms: Optional[str] = None
+    cancellationTerms: Optional[str] = None
     deadline: Optional[datetime] = None
     visibility: str = "state"
     notes: Optional[str] = None
@@ -598,8 +605,15 @@ async def create_rfq(
         raise HTTPException(status_code=400, detail="Recurring RFQs require frequency, schedule start date and schedule end date")
     if data.recurring and data.recurrenceFrequency not in ("daily", "weekly", "monthly"):
         raise HTTPException(status_code=400, detail="recurrenceFrequency must be daily, weekly or monthly")
-    if data.recurring and data.scheduleStartDate and data.scheduleEndDate and data.scheduleEndDate < data.scheduleStartDate:
-        raise HTTPException(status_code=400, detail="Schedule end date must be on or after the start date")
+    if data.recurring and data.scheduleStartDate and data.scheduleEndDate:
+        start_date = data.scheduleStartDate.replace(tzinfo=None)
+        end_date = data.scheduleEndDate.replace(tzinfo=None)
+        if end_date < start_date:
+            raise HTTPException(status_code=400, detail="Schedule end date must be on or after the start date")
+        if start_date < datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0):
+            raise HTTPException(status_code=400, detail="Schedule start date cannot be in the past")
+    if data.paymentTerms and data.paymentTerms not in ("advance", "cod", "net_7", "net_15", "net_30"):
+        raise HTTPException(status_code=400, detail="Unsupported payment terms")
     if not data.recurring and not data.quantityKg:
         raise HTTPException(status_code=400, detail="quantityKg is required for one-off RFQs")
     if data.visibility not in VISIBILITY:
@@ -634,6 +648,13 @@ async def create_rfq(
         "deliveryAddress": data.deliveryAddress,
         "deliveryLocation": data.deliveryLocation,
         "deliveryDays": data.deliveryDays,
+        "recurrenceFrequency": data.recurrenceFrequency if data.recurring else None,
+        "recurrenceInterval": data.recurrenceInterval if data.recurring else None,
+        "scheduleStartDate": data.scheduleStartDate if data.recurring else None,
+        "scheduleEndDate": data.scheduleEndDate if data.recurring else None,
+        "contractRequired": bool(data.recurring and data.contractRequired),
+        "paymentTerms": data.paymentTerms if data.recurring else None,
+        "cancellationTerms": data.cancellationTerms if data.recurring else None,
         "deadline": deadline,
         "visibility": data.visibility,
         "notes": data.notes,
@@ -4036,6 +4057,12 @@ async def create_supply_contract(data: SupplyContractCreate, current_user: dict 
         "rfqNumber": (rfq or {}).get("rfqNumber"),
         "offerId": offer["_id"] if offer else None,
         "cropName": (rfq or {}).get("productName") or data.cropName,
+        "deliveryAddress": (rfq or {}).get("deliveryAddress"),
+        "deliveryCity": (rfq or {}).get("deliveryCity"),
+        "deliveryState": (rfq or {}).get("deliveryState"),
+        "deliveryDistrict": (rfq or {}).get("deliveryDistrict"),
+        "deliveryLocation": (rfq or {}).get("deliveryLocation"),
+        "deliveryTimeSlot": (rfq or {}).get("deliveryTimeSlot"),
         "quantityPerDeliveryKg": quantity,
         "quantityPerMonthKg": float(data.quantityPerMonthKg or quantity),
         "pricePerKg": float(data.pricePerKg),
