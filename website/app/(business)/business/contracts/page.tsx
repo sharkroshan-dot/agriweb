@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -30,33 +30,8 @@ interface Contract {
   pricePerKg: number;
   durationMonths: number;
   startDate: string;
-  status: "active" | "pending" | "completed" | "cancelled";
+  status: "active" | "pending" | "paused" | "completed" | "cancelled";
 }
-
-const DEMO_CONTRACTS: Contract[] = [
-  {
-    id: "c1",
-    contractNumber: "CTR-2026-0081",
-    farmerName: "Kumar Farms",
-    cropName: "Tomato",
-    quantityPerMonthKg: 1000,
-    pricePerKg: 38,
-    durationMonths: 6,
-    startDate: new Date().toISOString(),
-    status: "active",
-  },
-  {
-    id: "c2",
-    contractNumber: "CTR-2026-0077",
-    farmerName: "Green Valley Farm",
-    cropName: "Onion",
-    quantityPerMonthKg: 500,
-    pricePerKg: 32,
-    durationMonths: 3,
-    startDate: new Date().toISOString(),
-    status: "pending",
-  },
-];
 
 export default function BusinessContractsPage() {
   const queryClient = useQueryClient();
@@ -78,8 +53,7 @@ export default function BusinessContractsPage() {
 
   const apiContracts = useMemo(() => {
     const list = contractsData?.data?.contracts || contractsData?.data || [];
-    if (Array.isArray(list) && list.length > 0) return list;
-    return DEMO_CONTRACTS;
+    return Array.isArray(list) ? list : [];
   }, [contractsData]);
 
   const createMutation = useMutation({
@@ -210,6 +184,7 @@ export default function BusinessContractsPage() {
                       <Badge variant="outline">{c.cropName}</Badge>
                       {c.status === "active" && <Badge variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Active</Badge>}
                       {c.status === "pending" && <Badge variant="warning"><Clock className="mr-1 h-3 w-3" /> Awaiting farmer</Badge>}
+                      {c.status === "paused" && <Badge variant="warning">Paused</Badge>}
                       {c.status === "completed" && <Badge variant="secondary">Completed</Badge>}
                       {c.status === "cancelled" && <Badge variant="destructive">Cancelled</Badge>}
                     </div>
