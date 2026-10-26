@@ -1086,6 +1086,44 @@ async def accept_offer_batch(
                     if claim.modified_count != 1:
                         raise HTTPException(status_code=409, detail="An offer was accepted concurrently; the whole batch was rolled back")
                 await order_repo.collection.insert_many(order_docs, ordered=True, session=session)
+                # A recurring RFQ creates one pending supply agreement per accepted farmer quote.
+                # The farmer must accept the contract before the scheduled-order generator can run.
+                if live_rfq.get("recurring"):
+                    for accepted_offer, accepted_qty, _ in order_specs:
+                        existing_contract = await contract_repo.collection.find_one(
+                            {"rfqId": rfq_id, "offerId": accepted_offer["_id"], "deletedAt": None},
+                            session=session,
+                        )
+                        if not existing_contract:
+                            schedule_start = live_rfq.get("scheduleStartDate") or live_rfq.get("requiredDate") or now
+                            schedule_end = live_rfq.get("scheduleEndDate")
+                            await contract_repo.collection.insert_one({
+                                "contractNumber": await _next_number("CTR", contract_repo),
+                                "businessUserId": ObjectId(current_user["_id"]),
+                                "farmerId": accepted_offer["farmerId"],
+                                "farmerName": accepted_offer.get("farmName") or accepted_offer.get("farmerName") or "Farmer",
+                                "businessName": ((await profile_repo.find_one({"userId": ObjectId(current_user["_id"]), "deletedAt": None})) or {}).get("companyName") or current_user.get("name") or "Business",
+                                "rfqId": rfq_id,
+                                "rfqNumber": live_rfq.get("rfqNumber"),
+                                "offerId": accepted_offer["_id"],
+                                "cropName": live_rfq.get("productName"),
+                                "quantityPerDeliveryKg": float(accepted_qty),
+                                "quantityPerMonthKg": float(accepted_qty),
+                                "pricePerKg": float(accepted_offer.get("pricePerKg") or 0),
+                                "frequency": live_rfq.get("recurrenceFrequency") or "weekly",
+                                "recurrenceInterval": int(live_rfq.get("recurrenceInterval") or 1),
+                                "startDate": schedule_start,
+                                "endDate": schedule_end,
+                                "durationMonths": max(1, int(((schedule_end - schedule_start).days / 30) if isinstance(schedule_end, datetime) and isinstance(schedule_start, datetime) else 1)),
+                                "nextDeliveryAt": schedule_start,
+                                "paymentTerms": live_rfq.get("paymentTerms") or "net_7",
+                                "cancellationTerms": live_rfq.get("cancellationTerms"),
+                                "status": "pending",
+                                "generatedScheduleKeys": [],
+                                "createdAt": now,
+                                "updatedAt": now,
+                                "deletedAt": None,
+                            }, session=session)
                 accepted_now = live_accepted + requested_total
                 if accepted_now >= total_qty - 1e-9 or live_rfq.get("recurring"):
                     await rfq_repo.collection.update_one({"_id": rfq_id}, {"$set": {"status": RFQ_AWARDED, "updatedAt": now}}, session=session)
