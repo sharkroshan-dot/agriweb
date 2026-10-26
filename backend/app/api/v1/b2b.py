@@ -480,7 +480,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "paymentMode": (accept.paymentMode if accept and accept.paymentMode else "cod"),
         "advanceAmount": float(accept.advanceAmount) if accept and accept.advanceAmount else 0.0,
         "paymentStatus": PAYMENT_PENDING,
-        "status": ORDER_CONFIRMED,
+        "status": ORDER_READY_FOR_PICKUP,
         "qualityCheck": "pending",
         "notes": (accept.notes if accept else None) or offer.get("message"),
         "startedAt": datetime.utcnow(),
@@ -4169,8 +4169,18 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
         if exists:
             pass
         else:
-            order = {
-                "orderNumber": await _next_number("B2B", order_repo),
+            # Build scheduled orders through the same warehouse-route calculation as
+            # one-off orders. A recurring order without a source warehouse cannot
+            # be assigned to a pickup team, so do not create an unusable order.
+            rfq = await rfq_repo.find_one({"_id": contract.get("rfqId"), "deletedAt": None}) if contract.get("rfqId") else None
+            offer = await offer_repo.find_one({"_id": contract.get("offerId"), "deletedAt": None}) if contract.get("offerId") else None
+            if not rfq or not offer:
+                raise HTTPException(status_code=409, detail=f"Contract {contract.get('contractNumber') or contract['_id']} is missing its original RFQ or accepted farmer quote; scheduled order was not created.")
+            quantity = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+            if quantity <= 0:
+                raise HTTPException(status_code=409, detail=f"Contract {contract.get('contractNumber') or contract['_id']} has no valid scheduled delivery quantity.")
+            order = await _build_order(rfq, offer, quantity, None)
+            order.update({
                 "contractId": contract["_id"],
                 "contractNumber": contract.get("contractNumber"),
                 "scheduledDeliveryDate": schedule_key,
@@ -4178,24 +4188,25 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
                 "offerId": contract.get("offerId"),
-                "productName": contract.get("cropName"),
-                "deliveryAddress": (contract.get("deliveryAddress") or {}),
-                "deliveryCity": contract.get("deliveryCity"),
-                "deliveryState": contract.get("deliveryState"),
-                "deliveryDistrict": contract.get("deliveryDistrict"),
-                "deliveryLocation": contract.get("deliveryLocation"),
-                "deliveryTimeSlot": contract.get("deliveryTimeSlot"),
-                "quantityKg": float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0),
-                "pricePerKg": float(contract.get("pricePerKg") or 0),
-                "totalAmount": round(float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0) * float(contract.get("pricePerKg") or 0), 2),
-                "status": ORDER_CONFIRMED,
+                "productName": contract.get("cropName") or order.get("productName"),
+                "deliveryAddress": contract.get("deliveryAddress") or order.get("deliveryAddress") or {},
+                "deliveryCity": contract.get("deliveryCity") or order.get("deliveryCity"),
+                "deliveryState": contract.get("deliveryState") or order.get("deliveryState"),
+                "deliveryDistrict": contract.get("deliveryDistrict") or order.get("deliveryDistrict"),
+                "deliveryLocation": contract.get("deliveryLocation") or order.get("deliveryLocation"),
+                "deliveryTimeSlot": contract.get("deliveryTimeSlot") or order.get("deliveryTimeSlot"),
+                "quantityKg": quantity,
+                "pricePerKg": float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0),
+                "productSubtotal": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
+                "totalAmount": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
+                "status": ORDER_READY_FOR_PICKUP,
                 "paymentStatus": PAYMENT_PENDING,
                 "deliveryMethod": "dedicated_transport",
                 "startedAt": now,
                 "createdAt": now,
                 "updatedAt": now,
                 "deletedAt": None,
-            }
+            })
             result = await orders_collection.insert_one(order)
             generated.append({"orderId": str(result.inserted_id), "contractId": str(contract["_id"]), "scheduledDeliveryDate": schedule_key})
         frequency = contract.get("frequency") or "monthly"
