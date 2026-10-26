@@ -67,6 +67,16 @@ export default function BusinessContractsPage() {
     onError: (err: any) => toast.error(err?.message || "Failed to create contract"),
   });
 
+  const generateDueMutation = useMutation({
+    mutationFn: () => api.post("/b2b/contracts/generate-due-orders", {}),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
+      const count = Number(res?.data?.count ?? res?.data?.data?.count ?? 0);
+      toast.success(count ? `Generated ${count} scheduled B2B order(s).` : "No scheduled deliveries are due right now.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not generate scheduled orders"),
+  });
+
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
   const monthlyTotal = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.quantityPerMonthKg, 0);
   const committedMonthly = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.quantityPerMonthKg * c.pricePerKg, 0);
@@ -76,12 +86,18 @@ export default function BusinessContractsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Supply Contracts</h1>
-          <p className="text-gray-500">Long-term supply agreements with farmers for predictable procurement.</p>
+          <p className="text-gray-500">Recurring RFQs become contracts after a quote is accepted. Farmers must accept contracts before scheduled orders can be generated.</p>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
-          {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-          {showForm ? "Cancel" : "New Contract"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" disabled={generateDueMutation.isPending} onClick={() => generateDueMutation.mutate()}>
+            {generateDueMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CalendarRange className="mr-2 h-4 w-4" />}
+            Generate Due Orders
+          </Button>
+          <Button onClick={() => setShowForm((v) => !v)}>
+            {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+            {showForm ? "Cancel" : "New Contract"}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -194,7 +210,8 @@ export default function BusinessContractsPage() {
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
                   <span className="flex items-center gap-1"><IndianRupee className="h-4 w-4 text-emerald-600" /> {c.pricePerKg}/kg</span>
                   <span className="flex items-center gap-1"><Users className="h-4 w-4 text-blue-600" /> {c.quantityPerMonthKg} kg/mo</span>
-                  <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.durationMonths} months</span>
+                  <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"} · {c.durationMonths} months</span>
+                  {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
               </CardContent>
             </Card>
