@@ -4176,6 +4176,144 @@ async def update_supply_contract_status(contract_id: str, data: SupplyContractSt
     return {"success": True, "data": _contract_public(updated or {**contract, "status": data.status}), "message": "Contract status updated"}
 
 
+class DeliveryStockConfirmation(BaseModel):
+    availableQuantityKg: float = Field(..., ge=0)
+    notes: Optional[str] = None
+
+
+class DeliveryShortageResolution(BaseModel):
+    action: str
+    newDeliveryDate: Optional[datetime] = None
+    approvedQuantityKg: Optional[float] = Field(None, gt=0)
+    notes: Optional[str] = None
+
+
+@router.post("/contracts/{contract_id}/delivery-confirmation")
+async def confirm_contract_delivery_stock(
+    contract_id: str,
+    data: DeliveryStockConfirmation,
+    current_user: dict = Depends(get_current_user),
+):
+    """Farmer confirms actual quantity for the next scheduled contract delivery."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only the contracted farmer can confirm delivery stock")
+    try:
+        oid = ObjectId(contract_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    contract = await contract_repo.find_one({"_id": oid, "deletedAt": None})
+    if not contract or str(contract.get("farmerId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    if contract.get("status") != "active":
+        raise HTTPException(status_code=409, detail="Only active contracts can confirm scheduled stock")
+    next_at = contract.get("nextDeliveryAt")
+    if isinstance(next_at, str):
+        try:
+            next_at = datetime.fromisoformat(next_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            raise HTTPException(status_code=409, detail="Contract has an invalid next delivery date")
+    if not isinstance(next_at, datetime):
+        raise HTTPException(status_code=409, detail="Contract has no valid next delivery date")
+    schedule_key = next_at.strftime("%Y-%m-%d")
+    requested = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+    available = float(data.availableQuantityKg)
+    status = "confirmed" if available >= requested else "shortage"
+    confirmations = dict(contract.get("deliveryConfirmations") or {})
+    confirmations[schedule_key] = {
+        "scheduledDate": schedule_key,
+        "requestedQuantityKg": requested,
+        "availableQuantityKg": available,
+        "status": status,
+        "notes": (data.notes or "").strip() or None,
+        "confirmedBy": ObjectId(current_user["_id"]),
+        "confirmedAt": datetime.utcnow(),
+        "updatedAt": datetime.utcnow(),
+    }
+    await contract_repo.update({"_id": oid}, {
+        "deliveryConfirmations": confirmations,
+        "latestDeliveryStatus": status,
+        "latestDeliveryDate": schedule_key,
+        "updatedAt": datetime.utcnow(),
+    })
+    return {
+        "success": True,
+        "data": {"contractId": str(oid), "scheduledDeliveryDate": schedule_key,
+                 "requestedQuantityKg": requested, "availableQuantityKg": available,
+                 "status": status, "shortageKg": max(0, round(requested - available, 2))},
+        "message": ("Stock confirmed. Scheduled order can be generated when due."
+                    if status == "confirmed" else
+                    "Shortage recorded. No order will be generated until the business approves a resolution."),
+    }
+
+
+@router.post("/contracts/{contract_id}/delivery-resolution")
+async def resolve_contract_delivery_shortage(
+    contract_id: str,
+    data: DeliveryShortageResolution,
+    current_user: dict = Depends(get_current_user),
+):
+    """Business approves a partial delivery, reschedule, or marks backup sourcing as required."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can resolve a delivery shortage")
+    try:
+        oid = ObjectId(contract_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    contract = await contract_repo.find_one({"_id": oid, "deletedAt": None})
+    if not contract or str(contract.get("businessUserId")) != str(current_user["_id"]):
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    next_at = contract.get("nextDeliveryAt")
+    if isinstance(next_at, str):
+        try:
+            next_at = datetime.fromisoformat(next_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            raise HTTPException(status_code=409, detail="Contract has an invalid next delivery date")
+    if not isinstance(next_at, datetime):
+        raise HTTPException(status_code=409, detail="Contract has no valid next delivery date")
+    schedule_key = next_at.strftime("%Y-%m-%d")
+    confirmations = dict(contract.get("deliveryConfirmations") or {})
+    confirmation = confirmations.get(schedule_key)
+    if not confirmation or confirmation.get("status") != "shortage":
+        raise HTTPException(status_code=409, detail="There is no reported shortage for the next scheduled delivery")
+    action = data.action.strip().lower()
+    now = datetime.utcnow()
+    if action == "partial":
+        quantity = float(data.approvedQuantityKg or 0)
+        available = float(confirmation.get("availableQuantityKg") or 0)
+        if quantity <= 0 or quantity > available:
+            raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the farmer's confirmed stock")
+        confirmation.update({"status": "confirmed", "requestedQuantityKg": quantity, "resolution": "partial",
+                             "resolutionNotes": data.notes, "resolvedAt": now})
+        confirmations[schedule_key] = confirmation
+        await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
+            "latestDeliveryStatus": "partial_approved", "updatedAt": now})
+        return {"success": True, "data": {"status": "partial_approved", "scheduledDeliveryDate": schedule_key,
+            "approvedQuantityKg": quantity}, "message": "Partial delivery approved; order generation will use the approved quantity."}
+    if action == "reschedule":
+        new_date = data.newDeliveryDate
+        if not new_date:
+            raise HTTPException(status_code=400, detail="newDeliveryDate is required for rescheduling")
+        new_date = new_date.replace(tzinfo=None)
+        if new_date.date() <= datetime.utcnow().date():
+            raise HTTPException(status_code=400, detail="Choose a future delivery date")
+        confirmation.update({"status": "rescheduled", "resolution": "reschedule",
+                             "resolutionNotes": data.notes, "resolvedAt": now, "rescheduledTo": new_date})
+        confirmations[schedule_key] = confirmation
+        await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
+            "nextDeliveryAt": new_date, "latestDeliveryStatus": "rescheduled", "updatedAt": now})
+        return {"success": True, "data": {"status": "rescheduled", "nextDeliveryAt": new_date.isoformat()},
+                "message": "Delivery rescheduled with business approval; the contract remains active."}
+    if action == "backup_required":
+        confirmation.update({"status": "backup_required", "resolution": "backup_required",
+                             "resolutionNotes": data.notes, "resolvedAt": now})
+        confirmations[schedule_key] = confirmation
+        await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
+            "latestDeliveryStatus": "backup_required", "updatedAt": now})
+        return {"success": True, "data": {"status": "backup_required", "scheduledDeliveryDate": schedule_key},
+                "message": "Backup sourcing required. The delivery is blocked until an approved replacement supplier is assigned."}
+    raise HTTPException(status_code=400, detail="action must be partial, reschedule, or backup_required")
+
+
 @router.post("/contracts/generate-due-orders")
 async def generate_due_supply_orders(current_user: dict = Depends(get_current_user)):
     """Idempotently generate scheduled B2B orders for active contracts whose next delivery is due.
@@ -4201,6 +4339,16 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
         schedule_key = next_at.strftime("%Y-%m-%d")
         if schedule_key in (contract.get("generatedScheduleKeys") or []):
             continue
+        # Do not generate an order until the farmer confirms the real quantity
+        # for this delivery, and the business has approved any partial supply.
+        confirmations = contract.get("deliveryConfirmations") or {}
+        confirmation = confirmations.get(schedule_key) if isinstance(confirmations, dict) else None
+        if not confirmation or confirmation.get("status") != "confirmed":
+            continue
+        confirmed_quantity = float(confirmation.get("requestedQuantityKg") or 0)
+        available_quantity = float(confirmation.get("availableQuantityKg") or 0)
+        if confirmed_quantity <= 0 or available_quantity < confirmed_quantity:
+            continue
         end_at = contract.get("endDate")
         if isinstance(end_at, datetime) and next_at > end_at:
             await contract_repo.update({"_id": contract["_id"]}, {"status": "completed", "updatedAt": now})
@@ -4220,7 +4368,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             offer = await offer_repo.find_one({"_id": contract.get("offerId"), "deletedAt": None}) if contract.get("offerId") else None
             if not rfq or not offer:
                 raise HTTPException(status_code=409, detail=f"Contract {contract.get('contractNumber') or contract['_id']} is missing its original RFQ or accepted farmer quote; scheduled order was not created.")
-            quantity = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+            quantity = confirmed_quantity
             if quantity <= 0:
                 raise HTTPException(status_code=409, detail=f"Contract {contract.get('contractNumber') or contract['_id']} has no valid scheduled delivery quantity.")
             order = await _build_order(rfq, offer, quantity, None)
