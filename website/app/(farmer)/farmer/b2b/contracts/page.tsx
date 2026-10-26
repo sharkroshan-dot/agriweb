@@ -12,6 +12,8 @@ import {
   IndianRupee,
   Users,
   Check,
+  PackageCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { formatPrice } from "../../../../lib/utils";
@@ -34,12 +36,15 @@ interface Contract {
   startDate: string;
   endDate?: string;
   nextDeliveryAt?: string;
-  status: "active" | "pending" | "paused" | "completed" | "cancelled";\n  latestDeliveryStatus?: string;
+  status: "active" | "pending" | "paused" | "completed" | "cancelled";
+  latestDeliveryStatus?: string;
 }
 
 export default function FarmerB2bContractsPage() {
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState<string | null>(null);\n  const [availableQty, setAvailableQty] = useState<Record<string, string>>({});\n  const [stockNotes, setStockNotes] = useState<Record<string, string>>({});
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [availableQty, setAvailableQty] = useState<Record<string, string>>({});
+  const [stockNotes, setStockNotes] = useState<Record<string, string>>({});
 
   const { data: contractsData, isLoading } = useQuery({
     queryKey: ["farmerContracts"],
