@@ -35,7 +35,7 @@ interface Contract {
   nextDeliveryAt?: string;
   deliveryDistrict?: string;
   deliveryCity?: string;
-  status: "active" | "pending" | "paused" | "completed" | "cancelled";
+  status: "active" | "pending" | "paused" | "completed" | "cancelled";\n  latestDeliveryStatus?: string;\n  latestDeliveryDate?: string;
 }
 
 export default function BusinessContractsPage() {
@@ -59,6 +59,16 @@ export default function BusinessContractsPage() {
       toast.success(count ? `Generated ${count} scheduled B2B order(s).` : "No scheduled deliveries are due right now.");
     },
     onError: (err: any) => toast.error(err?.message || "Could not generate scheduled orders"),
+  });
+
+  const resolveShortageMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) =>
+      api.post(`/b2b/contracts/${id}/delivery-resolution`, payload),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
+      toast.success(res?.data?.message || "Delivery shortage resolution saved.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not resolve delivery shortage"),
   });
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
