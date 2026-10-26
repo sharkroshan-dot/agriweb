@@ -594,6 +594,12 @@ async def create_rfq(
 
     if data.recurring and not data.quantityPerWeekKg:
         raise HTTPException(status_code=400, detail="quantityPerWeekKg is required for recurring RFQs")
+    if data.recurring and (not data.recurrenceFrequency or not data.scheduleStartDate or not data.scheduleEndDate):
+        raise HTTPException(status_code=400, detail="Recurring RFQs require frequency, schedule start date and schedule end date")
+    if data.recurring and data.recurrenceFrequency not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="recurrenceFrequency must be daily, weekly or monthly")
+    if data.recurring and data.scheduleStartDate and data.scheduleEndDate and data.scheduleEndDate < data.scheduleStartDate:
+        raise HTTPException(status_code=400, detail="Schedule end date must be on or after the start date")
     if not data.recurring and not data.quantityKg:
         raise HTTPException(status_code=400, detail="quantityKg is required for one-off RFQs")
     if data.visibility not in VISIBILITY:
