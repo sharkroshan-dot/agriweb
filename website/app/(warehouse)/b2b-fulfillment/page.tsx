@@ -54,7 +54,7 @@ export default function B2BFulfillmentPage() {
     });
   }, [recommendationQuery.data]);
   const members = teamsQuery.data?.data?.members || teamsQuery.data?.members || [];
-  const teams = members.filter((t: any) => Number(t.capacity || t.vehicleCapacity || 0) > 0);
+  const teams = members.filter((t: any) => Number(t.capacityKg || t.vehicleCapacityKg || t.capacity || t.vehicleCapacity || t.maxCapacityKg || 0) > 0);
   const mutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/warehouse/fulfillment/${encodeURIComponent(id)}`, { ...payload }),
     onSuccess: async () => {
