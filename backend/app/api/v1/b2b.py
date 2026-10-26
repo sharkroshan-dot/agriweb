@@ -1054,12 +1054,16 @@ async def accept_offer_batch(
         raise HTTPException(status_code=400, detail="Batch quantity must be greater than zero")
 
     now = datetime.utcnow()
+    # A recurring RFQ creates a contract, not an immediate fulfillment order.
+    # The first B2B order must be created only by the schedule generator when due;
+    # otherwise the accepted quote and the first schedule would create duplicate deliveries.
     order_docs = []
-    for offer, qty, accept_data in order_specs:
-        order = await _build_order(rfq, offer, qty, accept_data)
-        order["batchIdempotencyKey"] = data.idempotencyKey
-        order["createdAt"] = now
-        order_docs.append(order)
+    if not rfq.get("recurring"):
+        for offer, qty, accept_data in order_specs:
+            order = await _build_order(rfq, offer, qty, accept_data)
+            order["batchIdempotencyKey"] = data.idempotencyKey
+            order["createdAt"] = now
+            order_docs.append(order)
 
     # MongoDB multi-document transactions require a replica set. Detect a standalone
     # deployment early and return a precise setup message instead of the misleading
@@ -1112,7 +1116,8 @@ async def accept_offer_batch(
                     )
                     if claim.modified_count != 1:
                         raise HTTPException(status_code=409, detail="An offer was accepted concurrently; the whole batch was rolled back")
-                await order_repo.collection.insert_many(order_docs, ordered=True, session=session)
+                if order_docs:
+                    await order_repo.collection.insert_many(order_docs, ordered=True, session=session)
                 # A recurring RFQ creates one pending supply agreement per accepted farmer quote.
                 # The farmer must accept the contract before the scheduled-order generator can run.
                 if live_rfq.get("recurring"):
