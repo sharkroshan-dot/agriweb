@@ -11,6 +11,7 @@ import {
   CalendarRange,
   IndianRupee,
   Users,
+  AlertTriangle,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
@@ -35,7 +36,9 @@ interface Contract {
   nextDeliveryAt?: string;
   deliveryDistrict?: string;
   deliveryCity?: string;
-  status: "active" | "pending" | "paused" | "completed" | "cancelled";\n  latestDeliveryStatus?: string;\n  latestDeliveryDate?: string;
+  status: "active" | "pending" | "paused" | "completed" | "cancelled";
+  latestDeliveryStatus?: string;
+  latestDeliveryDate?: string;
 }
 
 export default function BusinessContractsPage() {
