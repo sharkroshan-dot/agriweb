@@ -34,12 +34,12 @@ interface Contract {
   startDate: string;
   endDate?: string;
   nextDeliveryAt?: string;
-  status: "active" | "pending" | "paused" | "completed" | "cancelled";
+  status: "active" | "pending" | "paused" | "completed" | "cancelled";\n  latestDeliveryStatus?: string;
 }
 
 export default function FarmerB2bContractsPage() {
   const queryClient = useQueryClient();
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);\n  const [availableQty, setAvailableQty] = useState<Record<string, string>>({});\n  const [stockNotes, setStockNotes] = useState<Record<string, string>>({});
 
   const { data: contractsData, isLoading } = useQuery({
     queryKey: ["farmerContracts"],
@@ -60,6 +60,17 @@ export default function FarmerB2bContractsPage() {
       toast.success("Contract updated!");
     },
     onError: (err: any) => toast.error(err?.message || "Failed to update contract"),
+  });
+
+  const stockMutation = useMutation({
+    mutationFn: ({ id, quantity, notes }: { id: string; quantity: number; notes?: string }) =>
+      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, notes }),
+    onSuccess: (res: any) => {
+      queryClient.invalidateQueries({ queryKey: ["farmerContracts"] });
+      const status = res?.data?.data?.status || res?.data?.status;
+      toast.success(status === "shortage" ? "Shortage reported. The business must choose a solution." : "Stock confirmed for the next delivery.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not confirm delivery stock"),
   });
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
@@ -134,6 +145,42 @@ export default function FarmerB2bContractsPage() {
                   <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"}{Number(c.recurrenceInterval || 1) > 1 ? ` · every ${c.recurrenceInterval}` : ""}</span>
                   {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
+                {c.status === "active" && (
+                  <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                      <PackageCheck className="h-4 w-4" /> Confirm stock for next delivery
+                    </p>
+                    <p className="mb-2 text-xs text-slate-600">
+                      Enter the actual kilograms you can supply on {c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toLocaleDateString("en-IN") : "the next scheduled date"}. If it is less than the agreed quantity, the business will be notified.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        type="number" min="0" step="0.1" inputMode="decimal"
+                        className="w-36 rounded-md border bg-white px-3 py-2 text-sm"
+                        placeholder="Available kg"
+                        value={availableQty[c.id] ?? ""}
+                        onChange={(e) => setAvailableQty((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      />
+                      <input
+                        className="min-w-40 flex-1 rounded-md border bg-white px-3 py-2 text-sm"
+                        placeholder="Optional note"
+                        value={stockNotes[c.id] ?? ""}
+                        onChange={(e) => setStockNotes((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={stockMutation.isPending || availableQty[c.id] === undefined || availableQty[c.id].trim() === "" || Number(availableQty[c.id]) < 0}
+                        onClick={() => stockMutation.mutate({ id: c.id, quantity: Number(availableQty[c.id]), notes: stockNotes[c.id] })}
+                      >
+                        {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-1 h-4 w-4" />}
+                        Confirm stock
+                      </Button>
+                    </div>
+                    {c.latestDeliveryStatus === "shortage" && (
+                      <p className="mt-2 flex items-center gap-1 text-sm text-amber-700"><AlertTriangle className="h-4 w-4" /> Shortage reported. Wait for the business to approve a solution.</p>
+                    )}
+                  </div>
+                )}
                 {c.status === "pending" && (
                   <div className="flex gap-2">
                     <Button
