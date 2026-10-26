@@ -20,6 +20,12 @@ const emptyForm = {
   recurring: false,
   quantityKg: 500,
   quantityPerWeekKg: 50,
+  recurrenceFrequency: "weekly",
+  recurrenceInterval: 1,
+  scheduleStartDate: "",
+  scheduleEndDate: "",
+  paymentTerms: "net_7",
+  cancellationTerms: "",
   qualityGrade: "Grade A",
   requiredDate: "",
   deliveryTimeSlot: "6–9 AM",
@@ -201,6 +207,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </div>
 
         <div className="space-y-1 sm:col-span-2">
+          {form.recurring && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 sm:col-span-2"><strong>Recurring Supply Contract</strong><p className="mt-1">Set the delivery schedule and terms below. After a farmer quote is accepted, the agreement must be confirmed by the farmer before scheduled B2B orders can be generated.</p></div>}
           <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
             {[{ key: false, label: "One-off order" }, { key: true, label: "Recurring supply" }].map((o) => (
               <button
@@ -221,10 +228,18 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </div>
 
         {form.recurring ? (
+          <>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Quantity (kg/week) *</label>
             <Input type="number" min="1" value={form.quantityPerWeekKg} onChange={(e) => set("quantityPerWeekKg", Number(e.target.value))} />
           </div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Delivery frequency *</label><select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Repeat every *</label><Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} /></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule start date *</label><Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} /></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule end date *</label><Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} /></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Payment terms</label><select value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="advance">Advance</option><option value="cod">Cash on delivery</option><option value="net_7">Net 7 days</option><option value="net_15">Net 15 days</option><option value="net_30">Net 30 days</option></select></div>
+          <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label><Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" /></div>
+          </>
         ) : (
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Quantity (kg) *</label>
@@ -428,6 +443,13 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
                 quantityKg: form.recurring ? null : form.quantityKg,
                 quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
+                recurrenceFrequency: form.recurring ? form.recurrenceFrequency : null,
+                recurrenceInterval: form.recurring ? form.recurrenceInterval : null,
+                scheduleStartDate: form.recurring && form.scheduleStartDate ? new Date(form.scheduleStartDate).toISOString() : null,
+                scheduleEndDate: form.recurring && form.scheduleEndDate ? new Date(form.scheduleEndDate).toISOString() : null,
+                contractRequired: form.recurring,
+                paymentTerms: form.recurring ? form.paymentTerms : null,
+                cancellationTerms: form.recurring ? form.cancellationTerms : null,
               })
             }
           >
