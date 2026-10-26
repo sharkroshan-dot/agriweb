@@ -560,8 +560,22 @@ async def get_business_profile(current_user: dict = Depends(get_current_user)):
 
 # ================== REQUESTS FOR QUOTE ==================
 
+class RFQProductLine(BaseModel):
+    productName: str = Field(..., min_length=1, max_length=120)
+    category: Optional[str] = None
+    quantityKg: Optional[float] = Field(None, gt=0)
+    quantityPerDeliveryKg: Optional[float] = Field(None, gt=0)
+    unit: str = "kg"
+    qualityGrade: Optional[str] = None
+    priceCeilingPerKg: Optional[float] = Field(None, gt=0)
+    budgetMinPerKg: Optional[float] = Field(None, ge=0)
+    budgetMaxPerKg: Optional[float] = Field(None, gt=0)
+    notes: Optional[str] = None
+
+
 class RFQCreate(BaseModel):
-    productName: str
+    productName: Optional[str] = None
+    products: Optional[List[RFQProductLine]] = None
     category: Optional[str] = None
     quantityPerWeekKg: Optional[float] = Field(None, gt=0)
     quantityKg: Optional[float] = Field(None, gt=0)
@@ -599,6 +613,49 @@ async def create_rfq(
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business accounts can create RFQs")
 
+    product_lines = [item.model_dump() for item in (data.products or [])]
+    if not product_lines and data.productName:
+        product_lines = [{
+            "productName": data.productName,
+            "category": data.category,
+            "quantityKg": data.quantityKg,
+            "quantityPerDeliveryKg": data.quantityPerWeekKg if data.recurring else None,
+            "unit": "kg",
+            "qualityGrade": data.qualityGrade,
+            "priceCeilingPerKg": data.priceCeilingPerKg,
+            "budgetMinPerKg": data.budgetMinPerKg,
+            "budgetMaxPerKg": data.budgetMaxPerKg,
+            "notes": None,
+        }]
+    if not product_lines:
+        raise HTTPException(status_code=400, detail="Add at least one product to the RFQ")
+    normalized_names = [str(line.get("productName") or "").strip().casefold() for line in product_lines]
+    if any(not name for name in normalized_names):
+        raise HTTPException(status_code=400, detail="Every product must have a name")
+    if len(set(normalized_names)) != len(normalized_names):
+        raise HTTPException(status_code=400, detail="Remove duplicate product names from this RFQ")
+    for line in product_lines:
+        quantity = line.get("quantityPerDeliveryKg") if data.recurring else line.get("quantityKg")
+        if not quantity or float(quantity) <= 0:
+            raise HTTPException(status_code=400, detail=f"Enter a valid {'per-delivery' if data.recurring else 'one-off'} quantity for {line['productName']}")
+    primary_product = product_lines[0]
+    if not data.productName:
+        data.productName = str(primary_product["productName"]).strip()
+    if data.category is None:
+        data.category = primary_product.get("category")
+    if data.qualityGrade is None:
+        data.qualityGrade = primary_product.get("qualityGrade")
+    if not data.priceCeilingPerKg:
+        data.priceCeilingPerKg = primary_product.get("priceCeilingPerKg")
+    if data.budgetMinPerKg is None:
+        data.budgetMinPerKg = primary_product.get("budgetMinPerKg")
+    if data.budgetMaxPerKg is None:
+        data.budgetMaxPerKg = primary_product.get("budgetMaxPerKg")
+    if data.recurring and not data.quantityPerWeekKg:
+        data.quantityPerWeekKg = float(primary_product.get("quantityPerDeliveryKg") or 0)
+    if not data.recurring and not data.quantityKg:
+        data.quantityKg = float(primary_product.get("quantityKg") or 0)
+
     if data.recurring and not data.quantityPerWeekKg:
         raise HTTPException(status_code=400, detail="quantityPerWeekKg is required for recurring RFQs")
     if data.recurring and (not data.recurrenceFrequency or not data.scheduleStartDate or not data.scheduleEndDate):
@@ -632,6 +689,7 @@ async def create_rfq(
         "businessUserId": ObjectId(current_user["_id"]),
         "businessProfileId": profile["_id"] if profile else None,
         "productName": data.productName.strip(),
+        "products": product_lines,
         "category": data.category,
         "recurring": bool(data.recurring),
         "quantityPerWeekKg": data.quantityPerWeekKg if data.recurring else None,
