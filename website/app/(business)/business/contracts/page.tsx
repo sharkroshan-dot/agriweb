@@ -24,10 +24,17 @@ interface Contract {
   contractNumber: string;
   farmerName: string;
   cropName: string;
-  quantityPerMonthKg: number;
+  quantityPerMonthKg?: number;
+  quantityPerDeliveryKg?: number;
   pricePerKg: number;
   durationMonths: number;
+  frequency?: string;
+  recurrenceInterval?: number;
   startDate: string;
+  endDate?: string;
+  nextDeliveryAt?: string;
+  deliveryDistrict?: string;
+  deliveryCity?: string;
   status: "active" | "pending" | "paused" | "completed" | "cancelled";
 }
 
@@ -55,8 +62,8 @@ export default function BusinessContractsPage() {
   });
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
-  const monthlyTotal = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.quantityPerMonthKg, 0);
-  const committedMonthly = contracts.filter((c) => c.status === "active").reduce((s, c) => s + c.quantityPerMonthKg * c.pricePerKg, 0);
+  const monthlyTotal = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0), 0);
+  const committedMonthly = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0) * Number(c.pricePerKg ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -128,12 +135,16 @@ export default function BusinessContractsPage() {
                       {c.status === "cancelled" && <Badge variant="destructive">Cancelled</Badge>}
                     </div>
                     <p className="mt-0.5 truncate text-sm text-gray-500">{c.farmerName}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {c.deliveryDistrict || c.deliveryCity ? `Delivery: ${[c.deliveryDistrict, c.deliveryCity].filter(Boolean).join(", ")}` : "Delivery destination recorded on the contract"}
+                      {c.endDate ? ` · Ends ${new Date(c.endDate).toLocaleDateString("en-IN")}` : ""}
+                    </p>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm text-gray-600">
                   <span className="flex items-center gap-1"><IndianRupee className="h-4 w-4 text-emerald-600" /> {c.pricePerKg}/kg</span>
-                  <span className="flex items-center gap-1"><Users className="h-4 w-4 text-blue-600" /> {c.quantityPerMonthKg} kg/mo</span>
-                  <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"} · {c.durationMonths} months</span>
+                  <span className="flex items-center gap-1"><Users className="h-4 w-4 text-blue-600" /> {Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0)} kg / delivery</span>
+                  <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"}{Number(c.recurrenceInterval || 1) > 1 ? ` · every ${c.recurrenceInterval}` : ""}</span>
                   {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
               </CardContent>
