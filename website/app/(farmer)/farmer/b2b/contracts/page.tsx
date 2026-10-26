@@ -44,6 +44,7 @@ export default function FarmerB2bContractsPage() {
   const queryClient = useQueryClient();
   const [confirming, setConfirming] = useState<string | null>(null);
   const [availableQty, setAvailableQty] = useState<Record<string, string>>({});
+  const [packedQty, setPackedQty] = useState<Record<string, string>>({});
   const [stockNotes, setStockNotes] = useState<Record<string, string>>({});
 
   const { data: contractsData, isLoading } = useQuery({
@@ -68,8 +69,8 @@ export default function FarmerB2bContractsPage() {
   });
 
   const stockMutation = useMutation({
-    mutationFn: ({ id, quantity, notes }: { id: string; quantity: number; notes?: string }) =>
-      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, notes }),
+    mutationFn: ({ id, quantity, packed, notes }: { id: string; quantity: number; packed: number; notes?: string }) =>
+      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, packedQuantityKg: packed, readyForPickup: packed >= quantity, notes }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["farmerContracts"] });
       const status = res?.data?.data?.status || res?.data?.status;
@@ -156,8 +157,13 @@ export default function FarmerB2bContractsPage() {
                       <PackageCheck className="h-4 w-4" /> Confirm stock for next delivery
                     </p>
                     <p className="mb-2 text-xs text-slate-600">
-                      Enter the actual kilograms you can supply on {c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toLocaleDateString("en-IN") : "the next scheduled date"}. If it is less than the agreed quantity, the business will be notified.
+                      Next business delivery: {c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toLocaleDateString("en-IN") : "date pending"}. Prepare the produce on the previous day. The normal farm pickup window is 6 PM–12 AM; long-distance routes may require an earlier pickup, shown on the generated pickup task.
                     </p>
+                    <div className="mb-3 rounded-md bg-white p-3 text-xs text-slate-700">
+                      <p><strong>Preparation target:</strong> previous day by 4:00 PM (initial planning target)</p>
+                      <p><strong>Pickup target:</strong> previous day, 6:00 PM–11:59 PM when the route cutoff allows</p>
+                      <p><strong>Important:</strong> do not mark the order ready unless the quantity is packed and available. If short, report the actual quantity and wait for business approval.</p>
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       <input
                         type="number" min="0" step="0.1" inputMode="decimal"
@@ -167,6 +173,13 @@ export default function FarmerB2bContractsPage() {
                         onChange={(e) => setAvailableQty((prev) => ({ ...prev, [c.id]: e.target.value }))}
                       />
                       <input
+                        type="number" min="0" step="0.1" inputMode="decimal"
+                        className="w-36 rounded-md border bg-white px-3 py-2 text-sm"
+                        placeholder="Packed kg"
+                        value={packedQty[c.id] ?? ""}
+                        onChange={(e) => setPackedQty((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      />
+                      <input
                         className="min-w-40 flex-1 rounded-md border bg-white px-3 py-2 text-sm"
                         placeholder="Optional note"
                         value={stockNotes[c.id] ?? ""}
@@ -174,8 +187,8 @@ export default function FarmerB2bContractsPage() {
                       />
                       <Button
                         size="sm"
-                        disabled={stockMutation.isPending || availableQty[c.id] === undefined || availableQty[c.id].trim() === "" || Number(availableQty[c.id]) < 0}
-                        onClick={() => stockMutation.mutate({ id: c.id, quantity: Number(availableQty[c.id]), notes: stockNotes[c.id] })}
+                        disabled={stockMutation.isPending || availableQty[c.id] === undefined || availableQty[c.id].trim() === "" || packedQty[c.id] === undefined || packedQty[c.id].trim() === "" || Number(availableQty[c.id]) < 0 || Number(packedQty[c.id]) < 0}
+                        onClick={() => stockMutation.mutate({ id: c.id, quantity: Number(availableQty[c.id]), packed: Number(packedQty[c.id]), notes: stockNotes[c.id] })}
                       >
                         {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-1 h-4 w-4" />}
                         Confirm stock
