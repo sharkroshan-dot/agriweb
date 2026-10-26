@@ -433,7 +433,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
+            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && (form.quantityPerWeekKg <= 0 || !form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
             onClick={() =>
               createMutation.mutate({
                 ...form,
