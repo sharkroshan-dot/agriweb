@@ -63,6 +63,7 @@ rfq_repo = BaseRepository("b2b_rfqs")
 offer_repo = BaseRepository("b2b_offers")
 order_repo = BaseRepository("b2b_orders")
 rating_repo = BaseRepository("b2b_ratings")
+contract_repo = BaseRepository("b2b_supply_contracts")
 farmer_profile_repo = BaseRepository("farmer_profiles")
 warehouse_repo = BaseRepository("warehouses")
 
@@ -3860,3 +3861,254 @@ async def demand_forecast(current_user: dict = Depends(get_current_user)):
         })
     items.sort(key=lambda x: x["expectedKgPerWeek"], reverse=True)
     return {"success": True, "data": {"items": items, "count": len(items)}}
+
+# ================== RECURRING SUPPLY CONTRACTS ==================
+
+class SupplyContractCreate(BaseModel):
+    farmerName: Optional[str] = None
+    farmerId: Optional[str] = None
+    rfqId: Optional[str] = None
+    offerId: Optional[str] = None
+    cropName: str
+    quantityPerMonthKg: Optional[float] = Field(None, gt=0)
+    quantityPerDeliveryKg: Optional[float] = Field(None, gt=0)
+    pricePerKg: float = Field(..., gt=0)
+    durationMonths: int = Field(1, ge=1, le=36)
+    startDate: datetime
+    frequency: Optional[str] = None
+    recurrenceInterval: int = Field(1, ge=1, le=12)
+    endDate: Optional[datetime] = None
+    paymentTerms: Optional[str] = None
+    cancellationTerms: Optional[str] = None
+
+
+class SupplyContractStatusUpdate(BaseModel):
+    status: str
+
+
+def _contract_public(row: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(row)
+    if result.get("_id") is not None:
+        result["id"] = str(result["_id"])
+        result["_id"] = str(result["_id"])
+    for key in ("businessUserId", "farmerId", "rfqId", "offerId"):
+        if result.get(key) is not None:
+            result[key] = str(result[key])
+    return result
+
+
+@router.get("/contracts")
+async def list_business_supply_contracts(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business accounts can view their supply contracts")
+    rows = await contract_repo.find_many({
+        "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None
+    }, sort=[("createdAt", -1)], limit=500) or []
+    return {"success": True, "data": {"contracts": [_contract_public(row) for row in rows]}}
+
+
+@router.get("/contracts/me")
+async def list_farmer_supply_contracts(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only farmers can view their supply contracts")
+    rows = await contract_repo.find_many({
+        "farmerId": ObjectId(current_user["_id"]), "deletedAt": None
+    }, sort=[("createdAt", -1)], limit=500) or []
+    return {"success": True, "data": {"contracts": [_contract_public(row) for row in rows]}}
+
+
+@router.post("/contracts")
+async def create_supply_contract(data: SupplyContractCreate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only business accounts can create supply contracts")
+
+    rfq = None
+    offer = None
+    farmer_id = data.farmerId
+    farmer_name = (data.farmerName or "").strip()
+    if data.rfqId:
+        try:
+            rfq = await rfq_repo.find_one({"_id": ObjectId(data.rfqId), "deletedAt": None})
+        except Exception:
+            rfq = None
+        if not rfq or str(rfq.get("businessUserId")) != str(current_user["_id"]):
+            raise HTTPException(status_code=404, detail="Recurring RFQ not found")
+        if not rfq.get("recurring"):
+            raise HTTPException(status_code=400, detail="Supply contracts can only be created from recurring RFQs")
+        if data.offerId:
+            try:
+                offer = await offer_repo.find_one({"_id": ObjectId(data.offerId), "rfqId": rfq["_id"], "deletedAt": None})
+            except Exception:
+                offer = None
+            if not offer:
+                raise HTTPException(status_code=404, detail="Farmer quote not found for this RFQ")
+            farmer_id = str(offer.get("farmerId"))
+            farmer_name = farmer_name or offer.get("farmName") or offer.get("farmerName") or ""
+    if not farmer_id and farmer_name:
+        name_filter = {"$regex": re.escape(farmer_name), "$options": "i"}
+        farmer_doc = await farmer_profile_repo.find_one({"$or": [{"farmName": name_filter}, {"name": name_filter}], "deletedAt": None})
+        if farmer_doc and farmer_doc.get("userId"):
+            farmer_id = str(farmer_doc["userId"])
+    try:
+        farmer_oid = ObjectId(farmer_id) if farmer_id else None
+    except Exception:
+        farmer_oid = None
+    if farmer_oid is None:
+        raise HTTPException(status_code=400, detail="Select a registered farmer from a recurring RFQ quote; a free-text farmer name is not sufficient")
+
+    now = datetime.utcnow()
+    frequency = (data.frequency or (rfq or {}).get("recurrenceFrequency") or "monthly").lower()
+    if frequency not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="Frequency must be daily, weekly or monthly")
+    quantity = float(data.quantityPerDeliveryKg or data.quantityPerMonthKg or (rfq or {}).get("quantityPerWeekKg") or 0)
+    if quantity <= 0:
+        raise HTTPException(status_code=400, detail="Quantity per scheduled delivery is required")
+    if data.startDate.replace(tzinfo=None) < now - timedelta(days=1):
+        raise HTTPException(status_code=400, detail="Contract start date cannot be in the past")
+    existing = await contract_repo.find_one({
+        "businessUserId": ObjectId(current_user["_id"]),
+        "rfqId": rfq["_id"] if rfq else None,
+        "offerId": offer["_id"] if offer else None,
+        "deletedAt": None,
+        "status": {"$nin": ["cancelled", "completed"]},
+    }) if rfq and offer else None
+    if existing:
+        return {"success": True, "data": _contract_public(existing), "message": "Contract already exists for this quote"}
+
+    end_date = data.endDate or (rfq or {}).get("scheduleEndDate")
+    contract = {
+        "contractNumber": await _next_number("CTR", contract_repo),
+        "businessUserId": ObjectId(current_user["_id"]),
+        "farmerId": farmer_oid,
+        "farmerName": farmer_name or "Farmer",
+        "businessName": ((await profile_repo.find_one({"userId": ObjectId(current_user["_id"]), "deletedAt": None})) or {}).get("companyName") or current_user.get("name") or "Business",
+        "rfqId": rfq["_id"] if rfq else None,
+        "rfqNumber": (rfq or {}).get("rfqNumber"),
+        "offerId": offer["_id"] if offer else None,
+        "cropName": (rfq or {}).get("productName") or data.cropName,
+        "quantityPerDeliveryKg": quantity,
+        "quantityPerMonthKg": float(data.quantityPerMonthKg or quantity),
+        "pricePerKg": float(data.pricePerKg),
+        "frequency": frequency,
+        "recurrenceInterval": int(data.recurrenceInterval or 1),
+        "durationMonths": int(data.durationMonths),
+        "startDate": data.startDate,
+        "endDate": end_date,
+        "nextDeliveryAt": data.startDate,
+        "paymentTerms": data.paymentTerms or (rfq or {}).get("paymentTerms") or "net_7",
+        "cancellationTerms": data.cancellationTerms or (rfq or {}).get("cancellationTerms"),
+        "status": "pending",
+        "generatedScheduleKeys": [],
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    }
+    created_id = await contract_repo.create(contract)
+    if not created_id:
+        raise HTTPException(status_code=500, detail="Could not create supply contract")
+    contract["_id"] = ObjectId(created_id)
+    return {"success": True, "data": _contract_public(contract), "message": "Contract sent to farmer for confirmation"}
+
+
+@router.put("/contracts/{contract_id}/status")
+async def update_supply_contract_status(contract_id: str, data: SupplyContractStatusUpdate, current_user: dict = Depends(get_current_user)):
+    if data.status not in ("active", "paused", "completed", "cancelled"):
+        raise HTTPException(status_code=400, detail="Unsupported contract status")
+    try:
+        oid = ObjectId(contract_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    contract = await contract_repo.find_one({"_id": oid, "deletedAt": None})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    role = current_user.get("role")
+    is_business = role == "business" and str(contract.get("businessUserId")) == str(current_user["_id"])
+    is_farmer = role == "farmer" and str(contract.get("farmerId")) == str(current_user["_id"])
+    if not (is_business or is_farmer):
+        raise HTTPException(status_code=403, detail="You cannot change this contract")
+    if is_farmer and data.status not in ("active", "cancelled"):
+        raise HTTPException(status_code=403, detail="Farmers can accept or decline a pending contract")
+    if contract.get("status") in ("completed", "cancelled"):
+        raise HTTPException(status_code=409, detail="A completed or cancelled contract cannot be changed")
+    if is_farmer and contract.get("status") != "pending":
+        raise HTTPException(status_code=409, detail="Only pending contracts can be accepted or declined")
+    await contract_repo.update({"_id": oid}, {"status": data.status, "acceptedAt": datetime.utcnow() if data.status == "active" else contract.get("acceptedAt"), "updatedAt": datetime.utcnow()})
+    updated = await contract_repo.find_one({"_id": oid})
+    return {"success": True, "data": _contract_public(updated or {**contract, "status": data.status}), "message": "Contract status updated"}
+
+
+@router.post("/contracts/generate-due-orders")
+async def generate_due_supply_orders(current_user: dict = Depends(get_current_user)):
+    """Idempotently generate scheduled B2B orders for active contracts whose next delivery is due.
+    This endpoint is safe to retry; invoke it from the recurring-order scheduler at least daily.
+    """
+    if current_user.get("role") not in ("admin", "super_admin", "business"):
+        raise HTTPException(status_code=403, detail="Not permitted to run recurring order generation")
+    now = datetime.utcnow()
+    query = {"status": "active", "nextDeliveryAt": {"$lte": now}, "deletedAt": None}
+    if current_user.get("role") == "business":
+        query["businessUserId"] = ObjectId(current_user["_id"])
+    contracts = await contract_repo.find_many(query, limit=500) or []
+    generated = []
+    for contract in contracts:
+        next_at = contract.get("nextDeliveryAt")
+        if isinstance(next_at, str):
+            try:
+                next_at = datetime.fromisoformat(next_at.replace("Z", "+00:00")).replace(tzinfo=None)
+            except Exception:
+                continue
+        if not isinstance(next_at, datetime):
+            continue
+        schedule_key = next_at.strftime("%Y-%m-%d")
+        if schedule_key in (contract.get("generatedScheduleKeys") or []):
+            continue
+        end_at = contract.get("endDate")
+        if isinstance(end_at, datetime) and next_at > end_at:
+            await contract_repo.update({"_id": contract["_id"]}, {"status": "completed", "updatedAt": now})
+            continue
+        db = MongoDB.db
+        if db is None:
+            raise HTTPException(status_code=503, detail="Database is not ready")
+        orders_collection = db["b2b_orders"]
+        exists = await orders_collection.find_one({"contractId": contract["_id"], "scheduledDeliveryDate": schedule_key, "deletedAt": None})
+        if exists:
+            pass
+        else:
+            order = {
+                "orderNumber": await _next_number("B2B", order_repo),
+                "contractId": contract["_id"],
+                "contractNumber": contract.get("contractNumber"),
+                "scheduledDeliveryDate": schedule_key,
+                "businessUserId": contract["businessUserId"],
+                "farmerId": contract["farmerId"],
+                "rfqId": contract.get("rfqId"),
+                "offerId": contract.get("offerId"),
+                "productName": contract.get("cropName"),
+                "quantityKg": float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0),
+                "pricePerKg": float(contract.get("pricePerKg") or 0),
+                "totalAmount": round(float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0) * float(contract.get("pricePerKg") or 0), 2),
+                "status": ORDER_CONFIRMED,
+                "paymentStatus": PAYMENT_PENDING,
+                "deliveryMethod": "dedicated_transport",
+                "startedAt": now,
+                "createdAt": now,
+                "updatedAt": now,
+                "deletedAt": None,
+            }
+            result = await orders_collection.insert_one(order)
+            generated.append({"orderId": str(result.inserted_id), "contractId": str(contract["_id"]), "scheduledDeliveryDate": schedule_key})
+        frequency = contract.get("frequency") or "monthly"
+        interval = int(contract.get("recurrenceInterval") or 1)
+        if frequency == "daily":
+            next_at = next_at + timedelta(days=interval)
+        elif frequency == "weekly":
+            next_at = next_at + timedelta(weeks=interval)
+        else:
+            # Calendar-month arithmetic avoids drifting on 29th-31st.
+            month = next_at.month - 1 + interval
+            year = next_at.year + month // 12
+            month = month % 12 + 1
+            import calendar
+            next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
+        await contract_repo.update({"_id": contract["_id"]}, {"nextDeliveryAt": next_at, "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])), "updatedAt": now})
+    return {"success": True, "data": {"generated": generated, "count": len(generated)}}
