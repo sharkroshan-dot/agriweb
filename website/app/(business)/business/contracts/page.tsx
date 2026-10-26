@@ -157,6 +157,30 @@ export default function BusinessContractsPage() {
                   <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"}{Number(c.recurrenceInterval || 1) > 1 ? ` · every ${c.recurrenceInterval}` : ""}</span>
                   {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
+                {c.latestDeliveryStatus === "shortage" && (
+                  <div className="mt-3 w-full rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
+                      <AlertTriangle className="h-4 w-4" /> Delivery shortage — choose how to proceed
+                    </p>
+                    <p className="mb-3 text-sm text-amber-800">The farmer reported insufficient stock. Approve a partial delivery, reschedule it, or request backup farmer sourcing.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" disabled={resolveShortageMutation.isPending} onClick={() => {
+                        const raw = window.prompt("How many kg should be approved for this delivery?");
+                        if (raw === null) return;
+                        const qty = Number(raw);
+                        if (!Number.isFinite(qty) || qty <= 0) { toast.error("Enter a valid quantity greater than zero."); return; }
+                        resolveShortageMutation.mutate({ id: c.id, payload: { action: "partial", approvedQuantityKg: qty, notes: "Business approved partial supply" } });
+                      }}>Approve partial supply</Button>
+                      <Button size="sm" variant="outline" disabled={resolveShortageMutation.isPending} onClick={() => {
+                        const raw = window.prompt("Enter the new delivery date (YYYY-MM-DD):");
+                        if (!raw) return;
+                        if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) { toast.error("Use date format YYYY-MM-DD."); return; }
+                        resolveShortageMutation.mutate({ id: c.id, payload: { action: "reschedule", newDeliveryDate: raw + "T09:00:00", notes: "Business approved rescheduling" } });
+                      }}>Reschedule delivery</Button>
+                      <Button size="sm" disabled={resolveShortageMutation.isPending} onClick={() => resolveShortageMutation.mutate({ id: c.id, payload: { action: "backup_required", notes: "Business requests backup farmer sourcing" } })}>Request backup farmer</Button>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
