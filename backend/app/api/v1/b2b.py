@@ -1629,9 +1629,10 @@ async def update_order_status(
                     status_code=409,
                     detail=f"Packed quantity is {packed_quantity:g} kg but the order requires {required_quantity:g} kg. Record and resolve the shortage with the business before marking ready for pickup.",
                 )
-            # A ready B2B order must have a real pickup warehouse. Without one,
-            # the warehouse collection job and delivery pickup offer cannot be
-            # published, even though the farmer UI would otherwise show Ready.
+            # Orders may enter the claimable pickup queue before a warehouse
+            # is selected. The warehouse that assigns the registered pickup team
+            # becomes the operational source warehouse. If a warehouse is already
+            # specified, validate it rather than silently accepting a stale ID.
             pickup_warehouse_id = str(
                 order.get("pickupWarehouseId")
                 or order.get("assignedWarehouseId")
@@ -1640,20 +1641,21 @@ async def update_order_status(
                 or order.get("receivingWarehouseId")
                 or ""
             )
-            if not ObjectId.is_valid(pickup_warehouse_id):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot mark this B2B order ready for collection: no source pickup warehouse is assigned. Assign the actual pickup warehouse before continuing.",
-                )
-            pickup_warehouse = await warehouse_repo.find_one({
-                "_id": ObjectId(pickup_warehouse_id), "deletedAt": None
-            })
-            if not pickup_warehouse:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot publish B2B farm pickup: the assigned pickup warehouse is not registered or active in the warehouse directory.",
-                )
-            update["pickupWarehouseId"] = pickup_warehouse_id
+            if pickup_warehouse_id:
+                if not ObjectId.is_valid(pickup_warehouse_id):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The configured pickup warehouse ID is invalid. Clear or correct the warehouse assignment before continuing.",
+                    )
+                pickup_warehouse = await warehouse_repo.find_one({
+                    "_id": ObjectId(pickup_warehouse_id), "deletedAt": None
+                })
+                if not pickup_warehouse:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The configured pickup warehouse is not registered. Correct the warehouse assignment or let a warehouse claim this order from the pickup queue.",
+                    )
+                update["pickupWarehouseId"] = pickup_warehouse_id
         if data.status == ORDER_PICKED_UP:
             update["pickedUpAt"] = datetime.utcnow()
         if data.status == ORDER_WAREHOUSE_RECEIVED:
@@ -2050,6 +2052,12 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             if status == ORDER_TRANSFER_IN_TRANSIT:
                 if source_id == current_warehouse_id or destination_id == current_warehouse_id:
                     scoped_orders.append(item)
+                continue
+            # A ready-for-pickup order is a claimable work item until a
+            # warehouse assigns its approved pickup team. Do not hide it just
+            # because an order template contains a suggested/stale source ID.
+            if status == ORDER_READY_FOR_PICKUP and not str(item.get("pickupTeam") or "").strip():
+                scoped_orders.append(item)
                 continue
             if source_id and source_id != current_warehouse_id:
                 continue
