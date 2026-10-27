@@ -437,18 +437,11 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
     tax_amount = round(product_subtotal * tax_rate / 100, 2)
     other_charges = max(0.0, float(offer.get("otherCharges", rfq.get("otherCharges", 0)) or 0))
     total = round(product_subtotal + delivery_charge + tax_amount + other_charges, 2)
-    # RFQ requiredDate is a string in the public API schema, while older RFQs
-    # may store a datetime. Normalize both forms before building the delivery plan.
-    delivery_deadline = rfq.get("requiredDate")
-    if isinstance(delivery_deadline, str):
-        try:
-            delivery_deadline = datetime.fromisoformat(delivery_deadline.replace("Z", "+00:00"))
-            if delivery_deadline.tzinfo is not None:
-                delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
-        except (TypeError, ValueError):
-            delivery_deadline = None
-    elif isinstance(delivery_deadline, datetime) and delivery_deadline.tzinfo is not None:
-        delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+    # requiredDate is commonly a date-only value from the business form.
+    # Resolve the chosen morning delivery slot before calculating preparation,
+    # pickup and transfer deadlines; treating the date as midnight can reject
+    # valid deliveries or incorrectly report them as feasible.
+    delivery_deadline = _parse_b2b_delivery_deadline(rfq)
     if isinstance(delivery_deadline, datetime):
         preparation_deadline = (delivery_deadline - timedelta(days=1)).replace(hour=16, minute=0, second=0, microsecond=0)
         planned_pickup_deadline = (delivery_deadline - timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
@@ -2106,6 +2099,67 @@ async def _resolve_b2b_delivery_location(order: Dict[str, Any]) -> Tuple[Optiona
         logger.exception("Failed to geocode B2B delivery address for order %s", order.get("_id"))
     return None, None
 
+def _parse_b2b_delivery_deadline(order: Dict[str, Any]) -> Optional[datetime]:
+    """Return the business delivery deadline as a naive UTC datetime.
+
+    Date-only values are interpreted in India Standard Time and combined with
+    the start of the requested delivery slot (for example, "6–9 AM"). Full
+    timestamp values retain their explicit timezone when supplied.
+    """
+    raw = order.get("deliveryDeadline") or order.get("requiredDate") or order.get("scheduledDeliveryDate") or order.get("nextDeliveryAt")
+    slot = str(order.get("deliveryTimeSlot") or "").strip()
+    parsed: Optional[datetime] = None
+    date_only = False
+    if isinstance(raw, datetime):
+        parsed = raw
+        date_only = parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0 and parsed.tzinfo is None
+    elif isinstance(raw, str) and raw.strip():
+        token = raw.strip()
+        try:
+            parsed = datetime.fromisoformat(token.replace("Z", "+00:00"))
+            date_only = len(token) <= 10 or (
+                parsed.hour == 0 and parsed.minute == 0 and parsed.second == 0 and parsed.tzinfo is None
+            )
+        except (TypeError, ValueError):
+            try:
+                parsed = datetime.strptime(token[:10], "%Y-%m-%d")
+                date_only = True
+            except (TypeError, ValueError):
+                return None
+    if parsed is None:
+        return None
+
+    # When the form supplies a date plus a morning slot, the slot's START is
+    # the delivery deadline. Common values include "6–9 AM", "7:00 AM - 9:00 AM",
+    # and "06:00-09:00". A missing AM/PM on the first time inherits the slot's
+    # final AM/PM marker (e.g. 6–9 AM).
+    if date_only and slot:
+        matches = list(re.finditer(r"(?<!\\d)(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)?", slot, re.IGNORECASE))
+        if matches:
+            first = matches[0]
+            meridiem = first.group(3) or next(
+                (m.group(3) for m in reversed(matches) if m.group(3)), None
+            )
+            hour = int(first.group(1))
+            minute = int(first.group(2) or 0)
+            if meridiem:
+                if hour < 1 or hour > 12 or minute > 59:
+                    return None
+                hour = hour % 12 + (12 if meridiem.upper() == "PM" else 0)
+            elif hour > 23 or minute > 59:
+                return None
+            parsed = parsed.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    # Naive date-only business schedules are local India time. Convert them to
+    # UTC-naive so comparisons against datetime.utcnow() are consistent.
+    ist = timezone(timedelta(hours=5, minutes=30))
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    if date_only:
+        return parsed.replace(tzinfo=ist).astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
+
+
 def _normalized_b2b_business_district(order: Dict[str, Any]) -> str:
     """Read only the B2B buyer's delivery district, never the farmer/order source district."""
     explicit = [
@@ -2343,16 +2397,7 @@ async def recommend_b2b_fulfillment_route(
     # source-to-destination distance when coordinates exist, then evaluate the
     # deadline using only configured transit/cutoff values. If operational data
     # is missing, show "needs_review" instead of falsely promising on-time delivery.
-    delivery_deadline = order.get("deliveryDeadline") or order.get("requiredDate") or order.get("scheduledDeliveryDate")
-    if isinstance(delivery_deadline, str):
-        try:
-            delivery_deadline = datetime.fromisoformat(delivery_deadline.replace("Z", "+00:00"))
-            if delivery_deadline.tzinfo is not None:
-                delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
-        except (TypeError, ValueError):
-            delivery_deadline = None
-    elif isinstance(delivery_deadline, datetime) and delivery_deadline.tzinfo is not None:
-        delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+    delivery_deadline = _parse_b2b_delivery_deadline(order)
 
     source_coords = _location_coords_from_doc(source)
     destination_coords = _location_coords_from_doc(destination)
@@ -2395,22 +2440,27 @@ async def recommend_b2b_fulfillment_route(
         schedule_reason = "No inter-warehouse transfer is required. Confirm the local delivery team's morning route and cutoff."
     elif not delivery_deadline:
         schedule_status = "needs_review"
-        schedule_reason = "Delivery deadline is missing or invalid; confirm a business delivery date/time before dispatch."
+        schedule_reason = "Delivery date/time is missing or invalid; confirm a business delivery date and morning time slot before dispatch."
     elif estimated_transit_hours is None:
         schedule_status = "needs_review"
         schedule_reason = "Transfer travel-time estimate is not configured. Set estimatedTransferHours/transferLeadTimeHours before confirming on-time feasibility."
     else:
+        now_for_plan = datetime.utcnow()
         required_arrival = delivery_deadline
-        planned_arrival = datetime.utcnow() + timedelta(hours=estimated_transit_hours)
-        if dispatch_cutoff and datetime.utcnow() > dispatch_cutoff:
+        planned_arrival = now_for_plan + timedelta(hours=estimated_transit_hours)
+        planned_dispatch_day = delivery_deadline.date() - timedelta(days=1)
+        if dispatch_cutoff and now_for_plan > dispatch_cutoff:
             schedule_status = "at_risk"
-            schedule_reason = "The configured dispatch cutoff has passed. Alert the warehouse and business and agree on an earlier/next feasible delivery slot."
+            schedule_reason = "The configured dispatch cutoff has passed. Alert the warehouse and business and agree on a new feasible delivery slot."
         elif planned_arrival > required_arrival:
             schedule_status = "at_risk"
-            schedule_reason = "Estimated transfer arrival is after the business delivery deadline. Do not promise the scheduled morning slot; alert the warehouse and business to reschedule or approve an earlier recovery plan."
+            schedule_reason = "Estimated transfer arrival is after the business morning delivery deadline. Do not promise the slot; agree on an earlier recovery plan or reschedule."
+        elif now_for_plan.date() > planned_dispatch_day:
+            schedule_status = "at_risk"
+            schedule_reason = "The planned one-day-before transfer dispatch date has passed. Confirm an explicitly approved recovery plan or reschedule before dispatch."
         else:
             schedule_status = "feasible"
-            schedule_reason = "Configured transfer lead time fits before the delivery deadline. Dispatch one day before delivery, or earlier if the cutoff requires it."
+            schedule_reason = "Configured transfer lead time fits before the morning delivery deadline. Dispatch on the previous day, or earlier if the cutoff requires it."
 
     return {"success": True, "data": {
         "available": True,
@@ -2803,16 +2853,7 @@ async def update_b2b_warehouse_fulfillment(
 
         # Enforce schedule feasibility on the server as well as in the UI. A
         # client-side disabled button alone is not a safe deadline control.
-        delivery_deadline = order.get("deliveryDeadline") or order.get("requiredDate") or order.get("scheduledDeliveryDate")
-        if isinstance(delivery_deadline, str):
-            try:
-                delivery_deadline = datetime.fromisoformat(delivery_deadline.replace("Z", "+00:00"))
-                if delivery_deadline.tzinfo is not None:
-                    delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
-            except (TypeError, ValueError):
-                delivery_deadline = None
-        elif isinstance(delivery_deadline, datetime) and delivery_deadline.tzinfo is not None:
-            delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        delivery_deadline = _parse_b2b_delivery_deadline(order)
         if not isinstance(delivery_deadline, datetime):
             raise HTTPException(status_code=409, detail="Delivery deadline is missing or invalid. Confirm a feasible business delivery date/time before dispatch.")
         transit_value = (
