@@ -1619,6 +1619,16 @@ async def update_order_status(
         if data.status == ORDER_READY_FOR_PICKUP:
             if order.get("qualityCheck") != "passed":
                 raise HTTPException(status_code=400, detail="Pass the quality check before marking this order ready for pickup.")
+            # Never let a one-time B2B order with a shortage enter pickup as if
+            # the full contracted quantity were packed. Partial delivery requires
+            # an explicit business-side resolution before warehouse collection.
+            required_quantity = float(order.get("quantityKg") or 0)
+            packed_quantity = float(order.get("packedQuantityKg") or 0)
+            if required_quantity > 0 and packed_quantity + 1e-6 < required_quantity:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Packed quantity is {packed_quantity:g} kg but the order requires {required_quantity:g} kg. Record and resolve the shortage with the business before marking ready for pickup.",
+                )
             # A ready B2B order must have a real pickup warehouse. Without one,
             # the warehouse collection job and delivery pickup offer cannot be
             # published, even though the farmer UI would otherwise show Ready.
