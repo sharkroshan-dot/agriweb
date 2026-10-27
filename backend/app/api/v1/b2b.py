@@ -2632,10 +2632,12 @@ async def recommend_b2b_fulfillment_route(
     source_coords = _location_coords_from_doc(source)
     destination_coords = _location_coords_from_doc(destination)
     transfer_distance_km = None
+    used_road_distance = False
     if source_coords and destination_coords:
         # Prefer real driving-road distance for dispatch planning. The straight-
         # line fallback is only used when the road-routing service is unavailable.
         transfer_distance_km = await _road_distance_km_between(source_coords, destination_coords)
+        used_road_distance = transfer_distance_km is not None
         if transfer_distance_km is None:
             transfer_distance_km = round(
                 haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
@@ -2651,9 +2653,7 @@ async def recommend_b2b_fulfillment_route(
     transit_estimate_basis = "needs_review"
     if transfer_distance_km is not None and transfer_distance_km >= 0:
         road_distance_for_eta = transfer_distance_km
-        if transfer_distance_km and transfer_distance_km == round(
-            haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
-        ):
+        if not used_road_distance:
             road_distance_for_eta = transfer_distance_km * 1.25
             transit_estimate_basis = "straight_line_fallback_road_factor_plus_2h_handling_buffer"
         else:
