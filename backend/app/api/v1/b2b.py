@@ -1896,33 +1896,38 @@ async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(
 
     # Include legacy rows with stale status values, then decide completion from
     # terminal workflow evidence rather than status alone.
-    candidates = await order_repo.find_many({
-        "$and": [
-            {"deletedAt": None},
-            {"$or": [
-                {"status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED]}},
-                {"destinationReceivedAt": {"$ne": None}},
-                {"completedAt": {"$ne": None}},
-            ]},
-        ]
-    }, sort=[("updatedAt", -1)], limit=1500)
+    # Query all non-deleted B2B orders in the bounded archive window. Legacy
+    # rows can have a status reset to warehouse_received, while the decisive
+    # destination receipt/inspection fields remain populated.
+    candidates = await order_repo.find_many(
+        {"deletedAt": None},
+        sort=[("updatedAt", -1)],
+        limit=2000,
+    )
     archived = [order for order in candidates if _b2b_warehouse_workflow_is_complete(order)]
 
     warehouse_id = await _resolve_b2b_current_warehouse_id(current_user) if role not in ("admin", "super_admin") else ""
     if role not in ("admin", "super_admin"):
         if not ObjectId.is_valid(warehouse_id):
             raise HTTPException(status_code=409, detail="Your warehouse account is not linked to a registered warehouse.")
+        warehouse_doc = await warehouse_repo.get_by_id(warehouse_id)
+        warehouse_names = {
+            str((warehouse_doc or {}).get(key) or "").strip().casefold()
+            for key in ("name", "warehouseName", "displayName", "code")
+            if (warehouse_doc or {}).get(key)
+        }
         filtered = []
         for order in archived:
             related_warehouses = {
-                str(order.get("sourceWarehouseId") or ""),
-                str(order.get("assignedWarehouseId") or ""),
-                str(order.get("warehouseId") or ""),
-                str(order.get("pickupWarehouseId") or ""),
-                str(order.get("receivedAtWarehouseId") or ""),
-                str(order.get("destinationWarehouseId") or ""),
+                str(order.get(key) or "")
+                for key in ("sourceWarehouseId", "assignedWarehouseId", "warehouseId", "pickupWarehouseId", "receivedAtWarehouseId", "destinationWarehouseId")
             }
-            if warehouse_id in related_warehouses:
+            related_names = {
+                str(order.get(key) or "").strip().casefold()
+                for key in ("sourceWarehouseName", "assignedWarehouseName", "warehouseName", "pickupWarehouseName", "destinationWarehouseName")
+                if order.get(key)
+            }
+            if warehouse_id in related_warehouses or bool(warehouse_names & related_names):
                 filtered.append(order)
         archived = filtered
 
