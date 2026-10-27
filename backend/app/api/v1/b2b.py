@@ -2155,7 +2155,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         if current_warehouse_id and destination_id and current_warehouse_id == destination_id and source_id and source_id != destination_id:
             # Destination warehouse must see only the inbound/receipt workflow,
             # even if an older record still carries a stale source-stage status.
-            order["warehouseTransferSide"] = "destination_received" if order.get("status") == ORDER_DESTINATION_RECEIVED else "destination_incoming"
+            order["warehouseTransferSide"] = (
+                "destination_received"
+                if order.get("status") == ORDER_DESTINATION_RECEIVED
+                else "destination_incoming"
+                if order.get("status") == ORDER_TRANSFER_IN_TRANSIT and order.get("transferPartnerStatus") == "arrived_at_destination"
+                else "destination_incoming"
+            )
         elif current_warehouse_id and source_id and current_warehouse_id == source_id and destination_id and source_id != destination_id and order.get("status") in (ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED):
             order["warehouseTransferSide"] = "source_outgoing"
         elif order.get("status") == ORDER_TRANSFER_IN_TRANSIT:
@@ -2181,8 +2187,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 destination_id = str(order.get("destinationWarehouseId") or "")
                 status = str(order.get("status") or "")
                 if status == ORDER_TRANSFER_IN_TRANSIT:
-                    # Only the source warehouse sees the order while it is on the road.
-                    if current_warehouse_id == source_id:
+                    # While moving, only source sees the transfer. Once the
+                    # assigned driver records physical arrival, expose it to
+                    # the destination warehouse for receipt confirmation.
+                    if current_warehouse_id == source_id or (
+                        current_warehouse_id == destination_id
+                        and str(order.get("transferPartnerStatus") or "") == "arrived_at_destination"
+                    ):
                         scoped_orders.append(order)
                 elif status == ORDER_DESTINATION_RECEIVED:
                     if current_warehouse_id == destination_id:
@@ -2259,7 +2270,10 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                         scoped_orders.append(item)
                     continue
                 if status == ORDER_TRANSFER_IN_TRANSIT:
-                    if source_id == current_warehouse_id:
+                    if source_id == current_warehouse_id or (
+                        destination_id == current_warehouse_id
+                        and str(item.get("transferPartnerStatus") or "") == "arrived_at_destination"
+                    ):
                         scoped_orders.append(item)
                     continue
                 if status == ORDER_READY_FOR_PICKUP:
@@ -3368,6 +3382,8 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only destination warehouse staff can receive a transfer")
         if current != ORDER_TRANSFER_IN_TRANSIT:
             raise HTTPException(status_code=400, detail="No warehouse transfer is in transit")
+        if str(order.get("transferPartnerStatus") or "") != "arrived_at_destination":
+            raise HTTPException(status_code=409, detail="The assigned transfer partner must confirm physical arrival before destination receipt.")
         transfer_source_id = str(order.get("sourceWarehouseId") or order.get("receivedAtWarehouseId") or order.get("warehouseId") or "")
         transfer_destination_id = str(order.get("destinationWarehouseId") or "")
         if not transfer_source_id or not transfer_destination_id or transfer_source_id == transfer_destination_id:
