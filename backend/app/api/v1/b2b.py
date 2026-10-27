@@ -194,11 +194,16 @@ def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, floa
         # arrays are inconsistent across older records and may contain [lat, lng].
         # Infer the swap from the coordinate ranges as well as metadata: warehouse
         # documents often do not have country/state fields populated.
-        if not is_geojson:
-            normal_in_india = 6 <= lat <= 38.5 and 67 <= lng <= 99
-            swapped_in_india = 6 <= lng <= 38.5 and 67 <= lat <= 99
-            if swapped_in_india and not normal_in_india:
-                lng, lat = lat, lng
+        normal_in_india = 6 <= lat <= 38.5 and 67 <= lng <= 99
+        swapped_in_india = 6 <= lng <= 38.5 and 67 <= lat <= 99
+        # GeoJSON mandates [longitude, latitude], but some legacy records were
+        # saved as [latitude, longitude] even after being labelled Point. Prefer
+        # the ordering that places the point inside India's geographic bounds.
+        # This range-based check is country-neutral unless one ordering uniquely
+        # matches the supported India bounds; all other countries retain the
+        # documented coordinate order.
+        if swapped_in_india and not normal_in_india:
+            lng, lat = lat, lng
         # Reject invalid coordinates instead of letting a malformed pair generate
         # a plausible-looking but wildly incorrect OSRM distance.
         if not (-180 <= lng <= 180 and -90 <= lat <= 90):
@@ -2642,6 +2647,32 @@ async def recommend_b2b_fulfillment_route(
             transfer_distance_km = round(
                 haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
             )
+        # Do not present a multi-thousand-kilometre route for two warehouses
+        # registered in Indian districts unless the route can be independently
+        # validated. This catches coordinates still corrupted in the database
+        # and prevents a false urgent/late classification based on bad geometry.
+        india_states = {
+            "tamil nadu", "andhra pradesh", "telangana", "kerala", "karnataka",
+            "maharashtra", "gujarat", "rajasthan", "madhya pradesh", "uttar pradesh",
+            "bihar", "west bengal", "odisha", "punjab", "haryana", "assam",
+        }
+        source_state = str(source.get("state") or source.get("stateName") or "").strip().lower()
+        destination_state = str(destination.get("state") or destination.get("stateName") or "").strip().lower()
+        source_country = str(source.get("country") or source.get("countryName") or "").strip().lower()
+        destination_country = str(destination.get("country") or destination.get("countryName") or "").strip().lower()
+        india_route = (
+            source_country in {"india", "in"} or destination_country in {"india", "in"}
+            or source_state in india_states or destination_state in india_states
+            or (source_state and destination_state and source_state == destination_state and source_state in india_states)
+        )
+        if india_route and transfer_distance_km is not None and transfer_distance_km > 1500:
+            logger.error(
+                "B2B warehouse route distance rejected as implausible for Indian warehouses: "
+                "source_id=%s source_coords=%s destination_id=%s destination_coords=%s distance_km=%s",
+                source_id, source_coords, destination_id, destination_coords, transfer_distance_km,
+            )
+            transfer_distance_km = None
+            used_road_distance = False
 
     # Do not trust per-order lead times here: older orders may contain an ETA
     # persisted from malformed/swapped coordinates (for example, hundreds of
