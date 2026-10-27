@@ -1914,7 +1914,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     role = str(current_user.get("role") or "").lower()
     if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
         raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
-    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT]
+    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
     orders = await order_repo.find_many({
         "$and": [
             {"deletedAt": None},
@@ -2059,7 +2059,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             elif status == ORDER_DESTINATION_RECEIVED:
                 if current_warehouse_id == destination_id:
                     scoped_orders.append(order)
-            elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED):
+            elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED):
                 # Keep completed/read-only tracking visible only to the warehouse
                 # that last handled the stock or the destination warehouse.
                 if current_warehouse_id in (source_id, destination_id):
