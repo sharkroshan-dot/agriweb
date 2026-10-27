@@ -4737,6 +4737,83 @@ async def resolve_contract_delivery_shortage(
             logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
         return {"success": True, "data": {"status": "rescheduled", "nextDeliveryAt": new_date.isoformat()},
                 "message": "Delivery rescheduled with business approval; the contract remains active."}
+    if action == "assign_replacement":
+        if not data.replacementOfferId:
+            raise HTTPException(status_code=400, detail="Choose an eligible replacement farmer quote")
+        try:
+            replacement_offer_id = ObjectId(data.replacementOfferId)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid replacement quote")
+        rfq_id = contract.get("rfqId")
+        if not rfq_id:
+            raise HTTPException(status_code=409, detail="This contract has no originating recurring RFQ for replacement sourcing")
+        replacement_offer = await offer_repo.find_one({"_id": replacement_offer_id, "rfqId": rfq_id, "deletedAt": None})
+        if not replacement_offer:
+            raise HTTPException(status_code=404, detail="Replacement quote not found for this recurring RFQ")
+        replacement_farmer_id = str(replacement_offer.get("farmerId") or "")
+        if not replacement_farmer_id or replacement_farmer_id == str(contract.get("farmerId")):
+            raise HTTPException(status_code=400, detail="Replacement must be a different registered farmer")
+        requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
+        available = float(confirmation.get("availableQuantityKg") or 0)
+        packed = float(confirmation.get("packedQuantityKg") or 0)
+        original_approved = float(confirmation.get("approvedQuantityKg") or min(available, packed))
+        missing = max(0.0, requested - original_approved)
+        if missing <= 0:
+            raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
+        replacement_available = float(replacement_offer.get("availableQuantityKg") or replacement_offer.get("minOrderKg") or 0)
+        if replacement_available < missing:
+            raise HTTPException(status_code=409, detail=f"Replacement farmer has only {replacement_available:g} kg available; {missing:g} kg is required")
+        rfq = await rfq_repo.find_one({"_id": rfq_id, "deletedAt": None})
+        if not rfq:
+            raise HTTPException(status_code=409, detail="Original recurring RFQ is unavailable")
+        replacement_order = await _build_order(rfq, replacement_offer, missing, None)
+        db = MongoDB.db
+        if db is None:
+            raise HTTPException(status_code=503, detail="Database is not ready")
+        existing_replacement = await db["b2b_orders"].find_one({
+            "contractId": oid, "scheduledDeliveryDate": schedule_key,
+            "replacementForFarmerId": contract.get("farmerId"), "deletedAt": None,
+        })
+        if existing_replacement:
+            raise HTTPException(status_code=409, detail="A replacement order already exists for this scheduled delivery")
+        replacement_order.update({
+            "contractId": oid, "contractNumber": contract.get("contractNumber"),
+            "scheduledDeliveryDate": schedule_key, "replacementForFarmerId": contract.get("farmerId"),
+            "replacementForShortageKg": missing, "isReplacementSupply": True,
+            "farmerId": replacement_offer.get("farmerId"), "businessUserId": contract.get("businessUserId"),
+            "productName": contract.get("cropName") or replacement_order.get("productName"),
+            "quantityKg": missing, "status": ORDER_READY_FOR_PICKUP,
+            "farmerPrepareBy": datetime.strptime(schedule_key, "%Y-%m-%d") - timedelta(days=1) + timedelta(hours=16),
+            "pickupDate": (datetime.strptime(schedule_key, "%Y-%m-%d").date() - timedelta(days=1)).isoformat(),
+            "pickupWindowStart": "18:00", "pickupWindowEnd": "23:59",
+            "deliveryDeadline": datetime.strptime(schedule_key, "%Y-%m-%d"),
+            "createdAt": now, "updatedAt": now, "deletedAt": None,
+        })
+        inserted = await db["b2b_orders"].insert_one(replacement_order)
+        confirmation.update({
+            "status": "replacement_assigned", "resolution": "replacement_supplier",
+            "resolutionNotes": data.notes, "replacementOfferId": str(replacement_offer_id),
+            "replacementFarmerId": replacement_farmer_id, "replacementOrderId": str(inserted.inserted_id),
+            "replacementQuantityKg": missing, "resolvedAt": now,
+        })
+        confirmations[schedule_key] = confirmation
+        await contract_repo.update({"_id": oid}, {
+            "deliveryConfirmations": confirmations, "latestDeliveryStatus": "replacement_assigned",
+            "latestDeliveryDate": schedule_key, "updatedAt": now,
+        })
+        try:
+            await NotificationService.create_in_app_notification(
+                str(contract.get("businessUserId")), NotificationType.PROMOTION,
+                "Replacement supplier assigned",
+                f"A replacement farmer was assigned {missing:g} kg for {contract.get('cropName') or 'produce'} on {schedule_key}.",
+                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "replacementOrderId": str(inserted.inserted_id)},
+                NotificationPriority.HIGH,
+            )
+        except Exception as exc:
+            logger.warning("Replacement supplier business notification failed for contract %s: %s", oid, exc)
+        return {"success": True, "data": {"status": "replacement_assigned", "scheduledDeliveryDate": schedule_key,
+            "replacementOrderId": str(inserted.inserted_id), "replacementQuantityKg": missing},
+            "message": f"Replacement order created for {missing:g} kg. It will follow the existing B2B warehouse fulfillment workflow."}
     if action == "backup_required":
         confirmation.update({"status": "backup_required", "resolution": "backup_required",
                              "resolutionNotes": data.notes, "resolvedAt": now})
