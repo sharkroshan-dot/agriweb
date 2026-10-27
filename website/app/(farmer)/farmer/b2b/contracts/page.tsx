@@ -122,6 +122,14 @@ export default function FarmerB2bContractsPage() {
       toast.error("Packed quantity must be greater than zero to mark ready.");
       return;
     }
+    if (!ready && available >= requiredQuantity(c) && packed >= requiredQuantity(c)) {
+      toast.error("The full required quantity is available and packed. Use Ready for pickup instead.");
+      return;
+    }
+    if (!ready && !stockNotes[c.id]?.trim()) {
+      toast.error("Add a note explaining the shortage so the business can decide how to proceed.");
+      return;
+    }
     stockMutation.mutate({ id: c.id, quantity: available, packed, ready, notes: stockNotes[c.id] });
   };
   const activeCount = contracts.filter((c) => c.status === "active").length;
