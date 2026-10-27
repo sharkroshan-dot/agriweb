@@ -262,6 +262,27 @@ async def _road_distance_km_between(
         logger.warning("B2B road distance lookup failed; using validated straight-line distance: %s", exc)
         return None
 
+async def _geocode_indian_district(district: str) -> Optional[Tuple[float, float]]:
+    """Resolve a Tamil Nadu district to (longitude, latitude) as a recovery path."""
+    if not district or not district.strip():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "AgriConnect-B2B-routing/1.0"}) as client:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": district.strip() + ", Tamil Nadu, India", "format": "jsonv2", "limit": 1, "countrycodes": "in"},
+            )
+            response.raise_for_status()
+            results = response.json()
+            if not results:
+                return None
+            lat, lon = float(results[0]["lat"]), float(results[0]["lon"])
+            if not (6 <= lat <= 14.5 and 76 <= lon <= 81.5):
+                return None
+            return lon, lat
+    except Exception as exc:
+        logger.warning("B2B district geocoding failed for %s: %s", district, exc)
+        return None
 
 async def _warehouse_route_for_b2b(
     farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]
@@ -2665,7 +2686,20 @@ async def recommend_b2b_fulfillment_route(
             or source_state in india_states or destination_state in india_states
             or (source_state and destination_state and source_state == destination_state and source_state in india_states)
         )
-        if india_route and transfer_distance_km is not None and transfer_distance_km > 1500:
+        source_district_token = re.sub(r"[^a-z0-9]", "", source_district.lower())
+        destination_district_token = re.sub(r"[^a-z0-9]", "", buyer_district.lower())
+        tamil_nadu_district_tokens = {
+            "trichy", "tiruchirappalli", "thiruchirapalli", "perambalur", "ariyalur",
+            "karur", "pudukkottai", "thanjavur", "thiruvarur", "nagapattinam",
+            "mayiladuthurai", "salem", "namakkal", "erode", "coimbatore", "tiruppur",
+            "dindigul", "madurai", "theni", "virudhunagar", "sivaganga",
+            "ramanathapuram", "tirunelveli", "thoothukudi", "kanniyakumari", "tenkasi",
+            "chengalpattu", "chennai", "kancheepuram", "tiruvallur", "thiruvallur",
+            "vellore", "ranipet", "tirupattur", "krishnagiri", "dharmapuri",
+            "villupuram", "kallakurichi", "cuddalore", "tiruvannamalai", "nilgiris",
+        }
+        inferred_tamil_nadu_route = source_district_token in tamil_nadu_district_tokens and destination_district_token in tamil_nadu_district_tokens
+        if (india_route or inferred_tamil_nadu_route) and transfer_distance_km is not None and transfer_distance_km > 1500:
             logger.error(
                 "B2B warehouse route distance rejected as implausible for Indian warehouses: "
                 "source_id=%s source_coords=%s destination_id=%s destination_coords=%s distance_km=%s",
@@ -2673,6 +2707,14 @@ async def recommend_b2b_fulfillment_route(
             )
             transfer_distance_km = None
             used_road_distance = False
+            if inferred_tamil_nadu_route:
+                geocoded_source = await _geocode_indian_district(source_district)
+                geocoded_destination = await _geocode_indian_district(buyer_district)
+                if geocoded_source and geocoded_destination:
+                    recovered_distance = await _road_distance_km_between(geocoded_source, geocoded_destination)
+                    if recovered_distance is not None and recovered_distance <= 1500:
+                        transfer_distance_km = recovered_distance
+                        used_road_distance = True
 
     # Do not trust per-order lead times here: older orders may contain an ETA
     # persisted from malformed/swapped coordinates (for example, hundreds of
