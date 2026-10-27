@@ -1861,13 +1861,56 @@ class B2BLogisticsAction(BaseModel):
     notes: Optional[str] = None
 
 
+@router.get("/warehouse/fulfillment/completed")
+async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
+    """Read-only archive for B2B orders whose delivery workflow has finished."""
+    role = str(current_user.get("role") or "").lower()
+    allowed = ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin")
+    if role not in allowed:
+        raise HTTPException(status_code=403, detail="Warehouse role required")
+
+    completed_statuses = [ORDER_DELIVERED, ORDER_COMPLETED]
+    archived = await order_repo.find_many({
+        "$and": [
+            {"deletedAt": None},
+            {"status": {"$in": completed_statuses}},
+        ]
+    }, sort=[("updatedAt", -1)], limit=1000)
+
+    warehouse_id = await _resolve_b2b_current_warehouse_id(current_user) if role not in ("admin", "super_admin") else ""
+    if role not in ("admin", "super_admin"):
+        if not ObjectId.is_valid(warehouse_id):
+            raise HTTPException(status_code=409, detail="Your warehouse account is not linked to a registered warehouse.")
+        filtered = []
+        for order in archived:
+            related_warehouses = {
+                str(order.get("sourceWarehouseId") or ""),
+                str(order.get("assignedWarehouseId") or ""),
+                str(order.get("warehouseId") or ""),
+                str(order.get("pickupWarehouseId") or ""),
+                str(order.get("receivedAtWarehouseId") or ""),
+                str(order.get("destinationWarehouseId") or ""),
+            }
+            if warehouse_id in related_warehouses:
+                filtered.append(order)
+        archived = filtered
+
+    for order in archived:
+        await _enrich_order(order)
+        order["id"] = str(order.get("_id") or order.get("id") or "")
+        for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
+            if order.get(key) is not None:
+                order[key] = str(order[key])
+    return {"success": True, "data": {"orders": archived, "count": len(archived)}}
+
+
 @router.get("/warehouse/fulfillment")
 async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
     """Warehouse-facing queue for B2B orders ready for pickup through final delivery."""
     role = str(current_user.get("role") or "").lower()
     if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
         raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
-    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
+    statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT]
     orders = await order_repo.find_many({
         "$and": [
             {"deletedAt": None},
