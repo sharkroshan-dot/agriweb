@@ -208,11 +208,22 @@ app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads"
 from app.middleware.rate_limit import RateLimitMiddleware
 app.add_middleware(RateLimitMiddleware)
 
-# CORS
-cors_origins = settings.BACKEND_CORS_ORIGINS
+# Security headers (CSP, HSTS, X-Frame-Options, etc.)
+from app.middleware.security_headers import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
+
+# CORS must be the outermost user middleware so its headers are also attached
+# to error responses from downstream middleware/endpoints. Explicitly allow the
+# local Next.js dev origins even when BACKEND_CORS_ORIGINS is unset in .env.
+configured_origins = list(settings.BACKEND_CORS_ORIGINS or [])
+local_dev_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+cors_origins = list(dict.fromkeys([*configured_origins, *local_dev_origins]))
 cors_regex = settings.BACKEND_CORS_ORIGIN_REGEX
-if settings.DEBUG:
-    cors_regex = r".*"
+if settings.DEBUG and not cors_regex:
+    cors_regex = r"^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -221,10 +232,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Security headers (CSP, HSTS, X-Frame-Options, etc.)
-from app.middleware.security_headers import SecurityHeadersMiddleware
-app.add_middleware(SecurityHeadersMiddleware)
 
 # Exception handlers
 setup_exception_handlers(app)
