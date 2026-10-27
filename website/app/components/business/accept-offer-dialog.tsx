@@ -9,16 +9,35 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import toast from "react-hot-toast";
 
-const DELIVERY_METHODS = ["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"];
-
 export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: any; onClose: () => void }) {
   const queryClient = useQueryClient();
-  const remaining = rfq.remainingQuantityKg ?? rfq.quantityKg ?? offer.availableQuantityKg;
-  const [qty, setQty] = useState(String(Math.min(offer.availableQuantityKg || remaining, remaining)));
-  const [deliveryMethod, setDeliveryMethod] = useState(offer.deliveryMethod || "farmer_delivery");
+  const remaining = Number(rfq.remainingQuantityKg ?? rfq.quantityKg ?? offer.availableQuantityKg ?? 0);
+  const offerAvailable = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
+  const maxAcceptable = Math.min(remaining > 0 ? remaining : offerAvailable, offerAvailable);
+  const [qty, setQty] = useState(String(maxAcceptable > 0 ? maxAcceptable : ""));
   const [paymentMode, setPaymentMode] = useState("cod");
   const [advance, setAdvance] = useState("");
   const [notes, setNotes] = useState("");
+
+  // Preview quote charges; the backend recalculates and persists the authoritative total.
+  const quantity = Math.max(0, Number(qty) || 0);
+  const unitPrice = Math.max(0, Number(offer.pricePerKg) || 0);
+  const productSubtotal = Math.round(quantity * unitPrice * 100) / 100;
+  const deliveryDistanceKm = offer.deliveryDistanceKm == null ? null : Number(offer.deliveryDistanceKm);
+  const deliveryPricing = offer.deliveryPricing || {};
+  const deliveryFee = deliveryDistanceKm === null
+    ? 0
+    : Math.round((
+        Math.max(0, Number(deliveryPricing.baseFee) || 0)
+        + deliveryDistanceKm * Math.max(0, Number(deliveryPricing.ratePerKm) || 0)
+        + quantity * Math.max(0, Number(deliveryPricing.ratePerKg) || 0)
+      ) * 100) / 100;
+  const deliveryLocationMissing = offer.deliveryFeeRequiresLocation === true || deliveryDistanceKm === null;
+  const configuredTaxRate = Math.max(0, Number(offer.taxRate ?? offer.taxPercent ?? rfq.taxRate ?? rfq.taxPercent) || 0);
+  const taxAmount = Math.round(productSubtotal * configuredTaxRate / 100 * 100) / 100;
+  const otherCharges = Math.max(0, Number(offer.otherCharges ?? rfq.otherCharges) || 0);
+  const totalPayable = Math.round((productSubtotal + deliveryFee + taxAmount + otherCharges) * 100) / 100;
+  const money = (amount: number) => amount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const accept = useMutation({
     mutationFn: (payload: any) => api.post(`/b2b/offers/${offer.id}/accept`, payload),
@@ -45,15 +64,19 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Quantity to accept (kg) *</label>
-              <Input type="number" min="1" max={Math.max(offer.availableQuantityKg || remaining, remaining)} value={qty} onChange={(e) => setQty(e.target.value)} />
+              <Input type="number" min="1" max={maxAcceptable} value={qty} onChange={(e) => setQty(e.target.value)} />
+              <p className="text-xs text-slate-500">You can accept up to {maxAcceptable} kg from this farmer and up to the RFQ's remaining quantity.</p>
+              {Number(qty) > maxAcceptable ? <p className="text-xs text-red-600">Quantity cannot exceed this farmer's offer or the remaining RFQ quantity.</p> : null}
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-500">Delivery method</label>
-              <select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
-                {DELIVERY_METHODS.map((m) => (
-                  <option key={m} value={m}>{m.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</option>
-                ))}
-              </select>
+            <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/50 p-3">
+              <p className="text-sm font-semibold text-slate-900">Order cost breakdown</p>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Product subtotal ({quantity} kg × ₹{money(unitPrice)}/kg)</span><span className="font-medium">₹{money(productSubtotal)}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Delivery fee{deliveryDistanceKm !== null ? ` (${deliveryDistanceKm.toFixed(1)} km; ₹${money(Number(deliveryPricing.ratePerKm) || 0)}/km + weight)` : " (distance unavailable)"}</span><span className="font-medium">{deliveryLocationMissing ? "Needs location" : `₹${money(deliveryFee)}`}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Tax{configuredTaxRate ? ` (${configuredTaxRate}% configured)` : " (no tax rate configured)"}</span><span className="font-medium">₹{money(taxAmount)}</span></div>
+              <div className="flex justify-between gap-3 text-sm"><span className="text-slate-600">Other applicable charges</span><span className="font-medium">₹{money(otherCharges)}</span></div>
+              <div className="flex justify-between gap-3 border-t border-emerald-200 pt-2 text-base font-bold"><span>Total payable</span><span>₹{money(totalPayable)}</span></div>
+              <p className="text-xs text-slate-500">Delivery uses AgriConnect base fee + distance rate + weight rate. The server recalculates the authoritative total. Tax and other charges are only included when configured.</p>
+              {deliveryLocationMissing ? <p className="text-xs font-medium text-red-600">Automatic delivery pricing needs valid farm and delivery-address coordinates. Add the missing location data before accepting this quote.</p> : null}
             </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Payment mode</label>
@@ -77,11 +100,11 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
               <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
               <Button
                 className="flex-1"
-                disabled={!qty || Number(qty) <= 0 || accept.isPending}
+                disabled={!qty || Number(qty) <= 0 || Number(qty) > maxAcceptable || deliveryLocationMissing || accept.isPending}
                 onClick={() =>
                   accept.mutate({
                     quantityKg: Number(qty),
-                    deliveryMethod,
+                    deliveryMethod: "dedicated_transport",
                     paymentMode,
                     advanceAmount: advance ? Number(advance) : 0,
                     notes,

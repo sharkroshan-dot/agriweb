@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, UploadFile, File
-from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body, UploadFile, File, Form
+from typing import List, Optional
+from typing import Dict, Any
 from datetime import datetime, timedelta
 from uuid import uuid4
 import os
@@ -19,11 +20,18 @@ from app.services.delivery_service import DeliveryService
 from app.services.order_service import geocode_address
 from app.services.user_service import UserService
 from app.services.farmer_service import FarmerService
+from app.repositories.farmer_repository import farmer_repository
 from app.services.payment_service import PaymentService
 from app.repositories.delivery_assignment_repository import delivery_assignment_repository
 from app.repositories.order_repository import order_repository
 from app.repositories.product_repository import product_repository
 from app.repositories.delivery_repository import delivery_repository
+from app.repositories.warehouse_repository import warehouse_repository
+from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_team_repository
+from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
+from app.repositories.warehouse_collection_repository import warehouse_collection_repository
+from app.services.warehouse_service import WarehouseService
+from app.services.warehouse_pickup_route_service import serialize_route, enrich_route_assignment, enrich_pickup_route_display
 from app.repositories.wallet_repository import wallet_repository, wallet_transaction_repository
 from app.repositories.withdrawal_repository import withdrawal_repository
 from app.repositories.cash_settlement_repository import cash_settlement_repository
@@ -37,9 +45,13 @@ from app.services.delivery_job_service import (
     build_job_document,
     eligible_partners_for_job,
     JOB_DEFAULT_EXPIRY_MINUTES,
+    passes_vehicle_type,
 )
 from app.repositories.delivery_job_repository import JOB_OPEN
 from app.services.notification_service import NotificationService
+from app.schemas.notification import NotificationType, NotificationPriority
+from app.services.delivery_priority_service import calculate_order_delivery_priority
+from app.services.delivery_availability_service import get_delivery_service_availability, estimate_fastest_eligibility
 import logging
 
 logger = logging.getLogger(__name__)
@@ -227,6 +239,14 @@ async def _enrich_assignment(assignment: dict) -> dict:
     assignment["customerName"] = order.get("customerName") or "Customer"
     assignment["earnings"] = order.get("deliveryCharge", 0)
     assignment["status"] = assignment.get("status") or order.get("orderStatus")
+    priority_order = await calculate_order_delivery_priority(order, persist=True)
+    assignment["priority"] = int(priority_order.get("priority", 1) or 1)
+    assignment["priorityLabel"] = priority_order.get("priorityLabel") or "Normal"
+    assignment["priorityReason"] = priority_order.get("priorityReason")
+    assignment["deliveryDeadline"] = priority_order.get("deliveryDeadline")
+    assignment["deliveryHoursRemaining"] = priority_order.get("deliveryHoursRemaining")
+    assignment["freshnessDeadline"] = priority_order.get("freshnessDeadline")
+    assignment["deadlinePassed"] = bool(priority_order.get("deadlinePassed", False))
     assignment["orderId"] = oid
     customer = None
     if order.get("customerId"):
@@ -297,6 +317,32 @@ async def _available_delivery_balance(partner_id: str, user_id: str) -> float:
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# B2B fulfillment orders live in their own collection; do not update them through
+# order_repository (the customer marketplace orders collection).
+b2b_order_repository = BaseRepository("b2b_orders")
+
+
+@router.post("/availability", response_model=dict)
+async def delivery_availability(
+    request: DeliveryFeeEstimateRequest,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Check whether delivery partners can currently serve this destination."""
+    destination = _normalize_location(request.coordinates) if request.coordinates else None
+    if not destination and request.deliveryAddressId:
+        try:
+            from app.repositories.address_repository import address_repository
+            address = await address_repository.get_address_by_id(
+                request.deliveryAddressId, str(current_user["_id"])
+            )
+            destination = _normalize_location((address or {}).get("location"))
+            if not destination and address:
+                destination = await geocode_address(address)
+        except Exception:
+            destination = None
+    result = await get_delivery_service_availability(destination=destination)
+    return {"success": True, "data": result}
 
 
 @router.post("/fee-estimate", response_model=dict)
@@ -397,6 +443,8 @@ async def delivery_fee_estimate(
             "freeDelivery": quote["freeDelivery"],
             "subsidy": quote["subsidy"],
             "distanceAvailable": quote["distanceAvailable"],
+            **(await get_delivery_service_availability(destination=destination)),
+            **estimate_fastest_eligibility(distance_km=quote.get("distanceKm")),
         },
     }
 
@@ -569,6 +617,16 @@ async def get_my_dashboard(current_user: dict = Depends(get_current_user)):
             oid = str(a["orderId"])
             seen.add(oid)
             a["id"] = str(a["_id"])
+            order = await order_repository.get_by_id(str(a["orderId"]))
+            if order:
+                priority_order = await calculate_order_delivery_priority(order, persist=True)
+                a["priority"] = int(priority_order.get("priority", 1) or 1)
+                a["priorityLabel"] = priority_order.get("priorityLabel") or "Normal"
+                a["priorityReason"] = priority_order.get("priorityReason")
+                a["deliveryDeadline"] = priority_order.get("deliveryDeadline")
+                a["deliveryHoursRemaining"] = priority_order.get("deliveryHoursRemaining")
+                a["freshnessDeadline"] = priority_order.get("freshnessDeadline")
+                a["deadlinePassed"] = bool(priority_order.get("deadlinePassed", False))
             result.append(a)
         orders = await order_repository.get_by_delivery_partner(key)
         for o in orders:
@@ -2038,7 +2096,7 @@ async def accept_available_order(
     else:
         assignment_id = str(assignment["_id"])
 
-    success = await delivery_assignment_repository.update_status(assignment_id, DeliveryStatus.IN_TRANSIT)
+    success = await delivery_assignment_repository.update_status(assignment_id, DeliveryStatus.ACCEPTED)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to accept order")
 
@@ -2046,7 +2104,7 @@ async def accept_available_order(
         {"_id": ObjectId(order_id)},
         {
             "deliveryPartnerId": ObjectId(partner_id),
-            "orderStatus": "in_transit",
+            "orderStatus": "accepted",
             "assignedAt": order.get("assignedAt") or datetime.utcnow(),
             "acceptedAt": datetime.utcnow(),
             "updatedAt": datetime.utcnow(),
@@ -2363,6 +2421,1161 @@ async def get_my_route(
         "success": True,
         "data": route
     }
+
+class WarehousePickupApplication(BaseModel):
+    warehouseId: str
+    vehicleType: str
+    vehicleNumber: str
+    vehicleModel: Optional[str] = None
+    vehicleYear: Optional[int] = None
+    capacity: Optional[float] = None
+    fuelType: Optional[str] = None
+    licenseDetails: Optional[Dict[str, Any]] = None
+    verificationDetails: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+
+
+@router.get("/me/pickup-team/warehouses")
+async def pickup_team_warehouses(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can apply for warehouse pickup teams")
+    # Older warehouse records may not have isActive populated. Include those legacy
+    # records, but continue excluding warehouses explicitly deactivated by an admin.
+    warehouses = await warehouse_repository.find_many({"deletedAt": None}, skip=0, limit=500, sort=[("name", 1)])
+    selectable = [w for w in warehouses if (w.get("isActive") is None or bool(w.get("isActive"))) and w.get("deletedAt") is None]
+    return {"success": True, "data": {"warehouses": [{
+        "id": str(w["_id"]),
+        "name": w.get("name") or w.get("warehouseName") or "Warehouse",
+        "address": w.get("address") or {},
+    } for w in selectable]}}
+
+
+@router.get("/me/pickup-team")
+async def get_my_pickup_team(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can access pickup team")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(str(profile["_id"]))
+    applications = await warehouse_pickup_team_repository.find_many({
+        "deliveryPartnerId": ObjectId(str(profile["_id"])),
+        "deletedAt": None,
+    }, skip=0, limit=100, sort=[("createdAt", -1)])
+    for x in memberships + applications:
+        x["id"] = str(x["_id"])
+        x["warehouseId"] = str(x["warehouseId"])
+        x["deliveryPartnerId"] = str(x["deliveryPartnerId"])
+    return {"success": True, "data": {"memberships": memberships, "applications": applications}}
+
+
+@router.post("/me/pickup-team/apply")
+async def apply_for_pickup_team(
+    data: WarehousePickupApplication,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can apply for warehouse pickup teams")
+    warehouse = await warehouse_repository.find_one({"_id": ObjectId(data.warehouseId), "isActive": True, "deletedAt": None})
+    if not warehouse:
+        raise HTTPException(status_code=404, detail="Warehouse not found")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    existing = await warehouse_pickup_team_repository.get_application(data.warehouseId, str(profile["_id"]))
+    if existing and existing.get("status") in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail=f"You already have a {existing.get('status')} application for this warehouse")
+    application_id = await warehouse_pickup_team_repository.create_application({
+        "warehouseId": ObjectId(data.warehouseId),
+        "deliveryPartnerId": ObjectId(str(profile["_id"])),
+        "userId": ObjectId(str(current_user["_id"])),
+        "vehicleType": data.vehicleType,
+        "vehicleNumber": data.vehicleNumber,
+        "vehicleModel": data.vehicleModel,
+        "vehicleYear": data.vehicleYear,
+        "capacity": data.capacity,
+        "fuelType": data.fuelType,
+        "licenseDetails": data.licenseDetails or {},
+        "verificationDetails": data.verificationDetails or {},
+        "notes": data.notes,
+    })
+    if not application_id:
+        raise HTTPException(status_code=400, detail="Failed to submit pickup team application")
+    return {"success": True, "data": {"id": application_id, "status": "pending"}, "message": "Application submitted for warehouse approval"}
+
+
+@router.get("/me/pickup-offers")
+async def get_my_pickup_offers(current_user: dict = Depends(get_current_user)):
+    """Show today's open and claimed routes for every approved pickup partner.
+
+    Claimed routes stay visible so every partner can see who won the route.
+    """
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can view pickup offers")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    partner_id = str(profile["_id"])
+    memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(partner_id)
+    approved_memberships = [
+        m for m in memberships if str(m.get("status") or "").lower() == "approved"
+    ]
+    warehouse_ids = [str(m["warehouseId"]) for m in approved_memberships if m.get("warehouseId")]
+
+    # Repair legacy B2B orders that were already marked ready_for_pickup before
+    # the B2B route-publishing hook existed. Only publish orders whose source
+    # warehouse is one of this partner's approved warehouses; the offer remains
+    # unassigned until a partner explicitly accepts it.
+    if MongoDB.db is not None and warehouse_ids:
+        warehouse_object_ids = [ObjectId(value) for value in warehouse_ids if ObjectId.is_valid(value)]
+        warehouse_values = list(set(warehouse_ids + [str(value) for value in warehouse_object_ids]))
+        warehouse_fields = (
+            "assignedWarehouseId", "sourceWarehouseId", "warehouseId",
+            "receivingWarehouseId", "pickupWarehouseId", "fulfillmentWarehouseId",
+        )
+        warehouse_match = [
+            {field: {"$in": warehouse_object_ids}}
+            for field in warehouse_fields
+        ] + [
+            {field: {"$in": warehouse_values}}
+            for field in warehouse_fields
+        ]
+        legacy_b2b_orders = await MongoDB.db.b2b_orders.find({
+            "status": "ready_for_pickup",
+            "deletedAt": None,
+            "$or": warehouse_match,
+        }).sort("updatedAt", -1).to_list(length=200)
+        for b2b_order in legacy_b2b_orders:
+            b2b_id = str(b2b_order.get("_id") or "")
+            if not b2b_id:
+                continue
+            # A B2B pickup can be published by both the legacy offer-repair
+            # path and the assigned-route repair path. Search all supported
+            # reference shapes and both BSON/string IDs before creating anything.
+            b2b_id_values = [b2b_id]
+            if ObjectId.is_valid(b2b_id):
+                b2b_id_values.append(ObjectId(b2b_id))
+            existing = await MongoDB.db.warehouse_pickup_routes.find_one({
+                "deletedAt": None,
+                "status": {"$nin": ["cancelled", "closed", "archived"]},
+                "$or": [
+                    {"b2bOrderId": {"$in": b2b_id_values}},
+                    {"orderIds": {"$in": b2b_id_values}},
+                    {"stops.b2bOrderId": {"$in": b2b_id_values}},
+                    {"stops.orderId": {"$in": b2b_id_values}},
+                    {"stops.orders.b2bOrderId": {"$in": b2b_id_values}},
+                    {"stops.orders.orderId": {"$in": b2b_id_values}},
+                ],
+            })
+            if existing:
+                continue
+            warehouse_id = next((
+                str(b2b_order.get(field) or "")
+                for field in warehouse_fields
+                if str(b2b_order.get(field) or "") in warehouse_ids
+                or (
+                    isinstance(b2b_order.get(field), ObjectId)
+                    and str(b2b_order.get(field)) in warehouse_ids
+                )
+            ), "")
+            if not ObjectId.is_valid(warehouse_id):
+                # Handle legacy nested warehouse references.
+                for field in ("pickupWarehouse", "assignedWarehouse", "sourceWarehouse"):
+                    ref_value = b2b_order.get(field)
+                    if isinstance(ref_value, dict):
+                        candidate = str(ref_value.get("_id") or ref_value.get("id") or ref_value.get("warehouseId") or "")
+                        if candidate in warehouse_ids and ObjectId.is_valid(candidate):
+                            warehouse_id = candidate
+                            break
+            if not ObjectId.is_valid(warehouse_id):
+                continue
+
+            farmer_id = str(b2b_order.get("farmerId") or "")
+            try:
+                farmer_doc = await farmer_repository.get_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+            except Exception:
+                farmer_doc = None
+            farmer_doc = farmer_doc or {}
+            farmer_location = farmer_doc.get("location") or farmer_doc.get("farmLocation") or farmer_doc.get("address") or {}
+            if isinstance(farmer_location, str):
+                farmer_location = {"formattedAddress": farmer_location}
+            pickup_address = (
+                farmer_doc.get("farmAddress") or farmer_doc.get("address")
+                or b2b_order.get("farmAddress") or "Farm address not provided"
+            )
+            quantity = float(b2b_order.get("packedQuantityKg") or b2b_order.get("quantityKg") or b2b_order.get("quantity") or 0)
+            order_number = str(b2b_order.get("orderNumber") or b2b_order.get("orderNo") or f"B2B-{b2b_id[-5:]}")
+            collection_jobs = await warehouse_collection_repository.get_by_order(b2b_id, "b2b")
+            collection_job = next((
+                job for job in collection_jobs
+                if str(job.get("status") or "") not in ("collected", "departed_farm", "arrived_warehouse", "cancelled")
+            ), None)
+            collection_id = str(collection_job.get("_id")) if collection_job else None
+            if not collection_job:
+                collection_id = await warehouse_collection_repository.create_job({
+                    "warehouseId": ObjectId(warehouse_id),
+                    "orderId": ObjectId(b2b_id),
+                    "b2bOrderId": b2b_id,
+                    "orderNumber": order_number,
+                    "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                    "farmerName": farmer_doc.get("farmName") or farmer_doc.get("ownerName") or farmer_doc.get("name") or b2b_order.get("farmerName") or "Farmer",
+                    "productName": b2b_order.get("productName") or "B2B produce",
+                    "quantity": quantity,
+                    "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                    "pickupAddress": pickup_address,
+                    "collectionType": "b2b",
+                    "status": "ready_for_pickup",
+                    "createdFrom": "b2b_order_recovery",
+                })
+            now = datetime.utcnow()
+            farmer_name = farmer_doc.get("farmName") or farmer_doc.get("ownerName") or farmer_doc.get("name") or b2b_order.get("farmerName") or "Farmer"
+            await warehouse_pickup_route_repository.create_route({
+                "routeNumber": order_number + "-PICKUP",
+                "routeDate": now.strftime("%Y-%m-%d"),
+                "warehouseId": ObjectId(warehouse_id),
+                "status": "offered",
+                "routeType": "b2b_farm_pickup",
+                "isB2BPickup": True,
+                "b2bOrderId": b2b_id,
+                "orderIds": [b2b_id],
+                "totalStops": 1,
+                "totalOrders": 1,
+                "totalQuantity": quantity,
+                "stops": [{
+                    "sequence": 1,
+                    "farmKey": "b2b:" + b2b_id,
+                    "b2bOrderId": b2b_id,
+                    "collectionId": collection_id,
+                    "orderId": b2b_id,
+                    "orderNumber": order_number,
+                    "farmerId": farmer_id or None,
+                    "farmerName": farmer_name,
+                    "productName": b2b_order.get("productName") or "B2B produce",
+                    "quantity": quantity,
+                    "status": "ready_for_pickup",
+                    "pickupAddress": pickup_address,
+                    "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                    "orders": [{
+                        "b2bOrderId": b2b_id,
+                        "collectionId": collection_id,
+                        "orderId": b2b_id,
+                        "orderNumber": order_number,
+                        "farmerId": farmer_id or None,
+                        "farmerName": farmer_name,
+                        "productName": b2b_order.get("productName") or "B2B produce",
+                        "quantity": quantity,
+                        "status": "ready_for_pickup",
+                        "pickupAddress": pickup_address,
+                        "pickupLocation": farmer_location if isinstance(farmer_location, dict) else {},
+                    }],
+                }],
+                "createdAt": now,
+            })
+
+    routes = await warehouse_pickup_route_repository.get_offered_for_warehouses(
+        warehouse_ids, datetime.utcnow().strftime("%Y-%m-%d")
+    )
+
+    # Legacy repair may have left duplicate route documents for the same B2B
+    # order. Collapse offers by B2B order ID, preferring assigned routes over
+    # stale open copies so the same order is not offered twice.
+    deduped = {}
+    for route in routes:
+        order_key = str(route.get("b2bOrderId") or "")
+        if not order_key:
+            for stop in route.get("stops") or []:
+                order_key = str(stop.get("b2bOrderId") or stop.get("orderId") or "")
+                if order_key:
+                    break
+        key = "b2b:" + order_key if order_key else "route:" + str(route.get("_id") or "")
+        previous = deduped.get(key)
+        if previous is None:
+            deduped[key] = route
+            continue
+        priority = {"assigned": 3, "started": 3, "arrived_at_farm": 3, "collected": 3, "departed_farm": 3, "completed": 3, "returned_to_warehouse": 3, "offered": 1}
+        if priority.get(str(route.get("status") or ""), 0) > priority.get(str(previous.get("status") or ""), 0):
+            deduped[key] = route
+
+    enriched = []
+    for route in deduped.values():
+        route = await enrich_route_assignment(route)
+        winner_id = str(route.get("deliveryPartnerId") or "")
+        route["claimState"] = (
+            "open" if not winner_id else
+            "mine" if winner_id == partner_id else
+            "claimed_by_other"
+        )
+        route["canAccept"] = route["claimState"] == "open"
+        enriched.append(await enrich_pickup_route_display(route))
+    return {"success": True, "data": {"routes": enriched}}
+
+
+@router.post("/me/pickup-offers/{route_id}/accept")
+async def accept_pickup_offer(route_id: str, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can accept pickup offers")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    partner_id = str(profile["_id"])
+    route = await warehouse_pickup_route_repository.get_by_id(route_id)
+    if not route:
+        raise HTTPException(status_code=404, detail="Pickup route not found")
+    membership = await warehouse_pickup_team_repository.get_membership(str(route["warehouseId"]), partner_id)
+    if not membership or str(membership.get("status") or "").lower() != "approved":
+        raise HTTPException(status_code=403, detail="You are not an approved pickup partner for this warehouse")
+
+    # Reject stale/duplicate offers before vehicle-capacity validation so a
+    # route already claimed or returned to the warehouse cannot show a
+    # misleading insufficient-capacity error.
+    if str(route.get("status") or "").strip().lower() != "offered" or route.get("deliveryPartnerId"):
+        raise HTTPException(
+            status_code=409,
+            detail="This pickup route is no longer available; refresh the pickup routes list.",
+        )
+
+    partner_name = ""
+    try:
+        partner_user = await UserService.get_user_by_id(str(profile.get("userId") or current_user["_id"]))
+        if partner_user:
+            partner_name = (
+                f"{partner_user.get('firstName', '')} {partner_user.get('lastName', '')}".strip()
+                or partner_user.get("name")
+                or ""
+            )
+    except Exception:
+        pass
+    partner_name = partner_name or profile.get("name") or "Pickup Partner"
+    vehicle_type = str(profile.get("vehicleType") or "")
+    vehicle_number = str(profile.get("vehicleNumber") or "")
+    route_weight = float(route.get("totalQuantity") or sum(float(s.get("quantity") or 0) for s in route.get("stops") or []))
+    if not passes_vehicle_type({**profile, "vehicleType": vehicle_type}, route_weight):
+        raise HTTPException(status_code=400, detail=f"Your {vehicle_type or 'vehicle'} cannot carry this {route_weight:g} kg pickup route.")
+    active_count, committed_weight = await partner_commitment(partner_id)
+    if not passes_capacity(profile, committed_weight, route_weight):
+        raise HTTPException(status_code=400, detail="Your remaining vehicle capacity is not sufficient for this pickup route.")
+
+    claimed = await warehouse_pickup_route_repository.claim_route(
+        route_id,
+        partner_id,
+        partner_name=partner_name,
+        vehicle_type=vehicle_type,
+        vehicle_number=vehicle_number,
+    )
+    if not claimed:
+        # Another partner may have won milliseconds earlier. Return the winner
+        # details so the losing client can immediately render the correct state.
+        latest = await warehouse_pickup_route_repository.get_by_id(route_id)
+        if latest and latest.get("deliveryPartnerId"):
+            latest = await enrich_route_assignment(latest)
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "This pickup route was already accepted by another pickup partner.",
+                    "route": await enrich_pickup_route_display(latest),
+                },
+            )
+        raise HTTPException(status_code=409, detail="This pickup route was already accepted by another pickup partner")
+
+    claimed = await enrich_route_assignment(claimed)
+    claimed["assignedBy"] = claimed.get("assignedBy") or ObjectId(partner_id)
+    await assign_route(claimed, {**membership, "deliveryPartnerUserId": str(membership.get("userId") or current_user["_id"])})
+
+    warehouse = await warehouse_repository.find_one({"_id": ObjectId(str(claimed["warehouseId"])), "deletedAt": None})
+    if warehouse:
+        manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
+        if manager_id:
+            await NotificationService.send_custom_notification(
+                manager_id,
+                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by {partner_name}.",
+                title="Pickup Route Accepted",
+                data={
+                    "type": "warehouse_pickup_route_claimed",
+                    "routeId": route_id,
+                    "deliveryPartnerId": partner_id,
+                    "deliveryPartnerName": partner_name,
+                    "vehicleType": vehicle_type,
+                    "vehicleNumber": vehicle_number,
+                },
+            )
+    members = await warehouse_pickup_team_repository.get_approved_members(str(claimed["warehouseId"]))
+    for member in members:
+        member_partner_id = str(member.get("deliveryPartnerId") or "")
+        if member_partner_id == partner_id:
+            continue
+        user_id = str(member.get("userId") or "")
+        if user_id:
+            await NotificationService.send_custom_notification(
+                user_id,
+                f"Pickup route {claimed.get('routeNumber', route_id)} was accepted by {partner_name}. "
+                f"Vehicle: {vehicle_type or 'Not specified'} · {vehicle_number or 'Not specified'}. "
+                "You cannot accept this route.",
+                title="Pickup Route Already Accepted",
+                data={
+                    "type": "warehouse_pickup_route_closed",
+                    "routeId": route_id,
+                    "deliveryPartnerId": partner_id,
+                    "deliveryPartnerName": partner_name,
+                    "vehicleType": vehicle_type,
+                    "vehicleNumber": vehicle_number,
+                },
+            )
+    return {
+        "success": True,
+        "data": await enrich_pickup_route_display(await warehouse_pickup_route_repository.get_by_id(route_id)),
+        "message": "Pickup route accepted successfully",
+    }
+
+
+@router.get("/me/pickup-routes")
+async def get_my_pickup_routes(
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can access pickup routes")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    # Return recent route history as well as active routes. The delivery-partner
+    # page needs completed routes to calculate Today/Yesterday pending/completed
+    # summaries accurately. Keep unfinished older routes visible as carryovers.
+    partner_id = str(profile["_id"])
+    user_id = str(current_user["_id"])
+    # Some older assignments stored the delivery profile ID, while newer UI
+    # selections can carry the authenticated user ID. Read routes by both IDs
+    # and de-duplicate them; this is a compatibility bridge, not a permission bypass.
+    routes_by_id = {}
+    for candidate_id in {partner_id, user_id}:
+        if ObjectId.is_valid(candidate_id):
+            for route in await warehouse_pickup_route_repository.get_by_partner(candidate_id):
+                routes_by_id[str(route.get("_id"))] = route
+    routes = list(routes_by_id.values())
+
+    # B2B orders live in b2b_orders, not the retail orders collection. Repair
+    # legacy assignments from the correct collection so existing assignments
+    # become visible without asking warehouse staff to reassign them.
+    assigned_orders = []
+    partner_object_ids = [ObjectId(x) for x in {partner_id, user_id} if ObjectId.is_valid(x)]
+    partner_strings = list({partner_id, user_id})
+    # Assignment forms have changed over time: some rows store the partner ID,
+    # others store the approved membership/application ID. Resolve all approved
+    # memberships for this delivery profile and include their IDs in the repair
+    # query so an assigned B2B order cannot disappear from the driver's route.
+    membership_ids = []
+    try:
+        memberships = await warehouse_pickup_team_repository.get_memberships_for_partner(partner_id)
+        membership_ids = [ObjectId(str(m["_id"])) for m in memberships if ObjectId.is_valid(str(m.get("_id") or ""))]
+    except Exception:
+        logger.exception("Could not resolve pickup memberships for delivery partner %s", partner_id)
+    assignment_ids = list({str(x) for x in (partner_object_ids + membership_ids)})
+    assignment_strings = list(set(partner_strings + assignment_ids))
+    if MongoDB.db is not None:
+        # Older B2B records have used both flat and nested assignment fields,
+        # and some legacy records omit deletedAt entirely. Query the known flat
+        # fields first, then inspect a bounded set of active pickup orders for
+        # nested assignment objects so an already-assigned order is not hidden.
+        assignment_fields = (
+            "pickupTeam", "pickupPartnerId", "assignedPickupPartnerId",
+            "pickupAssignedPartnerId", "pickupDeliveryPartnerId",
+            "assignedDeliveryPartnerId", "deliveryPartnerId",
+        )
+        assignment_ids_objects = [ObjectId(x) for x in assignment_ids if ObjectId.is_valid(x)]
+        assignment_query = {
+            "$or": [
+                *[
+                    {field: {"$in": assignment_ids_objects}}
+                    for field in assignment_fields
+                ],
+                *[
+                    {field: {"$in": assignment_strings}}
+                    for field in assignment_fields
+                ],
+            ]
+        }
+        assigned_orders = await MongoDB.db.b2b_orders.find({
+            "status": {"$in": ["ready_for_pickup", "picked_up"]},
+            "$and": [
+                {"$or": assignment_query["$or"]},
+                {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}]},
+            ],
+        }).sort("pickupAssignedAt", -1).to_list(length=300)
+        # Mongo's flat-field query cannot match assignment objects such as
+        # pickupAssignment.partnerId. Merge those records by inspecting the
+        # same active status queue and matching only IDs belonging to this
+        # authenticated delivery partner or their approved membership.
+        nested_paths = (
+            "pickupAssignment.partnerId", "pickupAssignment.deliveryPartnerId",
+            "pickupAssignment.pickupTeam", "pickupAssignment.membershipId",
+            "pickup.assignmentId", "pickup.deliveryPartnerId",
+            "logistics.pickupTeam", "logistics.deliveryPartnerId",
+        )
+        nested_query = {"$or": [
+            {path: {"$in": assignment_ids_objects}} for path in nested_paths
+        ] + [
+            {path: {"$in": assignment_strings}} for path in nested_paths
+        ]}
+        nested_orders = await MongoDB.db.b2b_orders.find({
+            "status": {"$in": ["ready_for_pickup", "picked_up"]},
+            "$and": [
+                {"$or": nested_query["$or"]},
+                {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}]},
+            ],
+        }).sort("pickupAssignedAt", -1).to_list(length=300)
+        seen_order_ids = {str(item.get("_id") or "") for item in assigned_orders}
+        assigned_orders.extend(
+            item for item in nested_orders
+            if str(item.get("_id") or "") not in seen_order_ids
+        )
+    existing_b2b_ids = {
+        str(route.get("b2bOrderId") or "")
+        for route in routes
+        if route.get("b2bOrderId")
+    }
+    for order in assigned_orders:
+        order_id = str(order.get("_id") or "")
+        if not order_id or order_id in existing_b2b_ids:
+            continue
+        warehouse_id = str(
+            order.get("pickupWarehouseId")
+            or order.get("assignedWarehouseId")
+            or order.get("sourceWarehouseId")
+            or order.get("sourceWarehouse")
+            or order.get("warehouseId")
+            or order.get("fulfillmentWarehouseId")
+            or ""
+        )
+        # Some legacy documents persist the warehouse as a nested reference.
+        if not ObjectId.is_valid(warehouse_id):
+            warehouse_ref = order.get("pickupWarehouse") or order.get("assignedWarehouse") or order.get("sourceWarehouse")
+            if isinstance(warehouse_ref, dict):
+                warehouse_id = str(warehouse_ref.get("_id") or warehouse_ref.get("id") or warehouse_ref.get("warehouseId") or "")
+        if not ObjectId.is_valid(warehouse_id):
+            logger.warning("Skipping B2B pickup route repair for order %s: missing valid pickup warehouse", order_id)
+            continue
+        membership = await warehouse_pickup_team_repository.get_membership(warehouse_id, partner_id)
+        if not membership:
+            membership = await warehouse_pickup_team_repository.get_membership(warehouse_id, user_id)
+        # The persisted assignment itself is authoritative for legacy rows; still
+        # require a valid registered warehouse before creating the route.
+        if not membership and not (str(order.get("pickupTeam") or "") in {partner_id, user_id}):
+            continue
+        farmer_id = str(order.get("farmerId") or "")
+        farmer_doc = await farmer_repository.get_by_id(farmer_id) if ObjectId.is_valid(farmer_id) else None
+        farmer_doc = farmer_doc or {}
+        location = farmer_doc.get("location") or farmer_doc.get("farmLocation") or farmer_doc.get("address") or {}
+        if isinstance(location, str):
+            location = {"formattedAddress": location}
+        pickup_address = farmer_doc.get("farmAddress") or farmer_doc.get("address") or order.get("farmAddress") or "Farm address not provided"
+        quantity = float(order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
+        order_number = str(order.get("orderNumber") or order.get("orderNo") or f"B2B-{order_id[-6:]}")
+        collection_jobs = await warehouse_collection_repository.get_by_order(order_id, "b2b")
+        collection_job = next((job for job in collection_jobs if str(job.get("status") or "") not in ("collected", "departed_farm", "arrived_warehouse", "cancelled")), None)
+        collection_id = str(collection_job.get("_id")) if collection_job else None
+        if not collection_job:
+            collection_id = await warehouse_collection_repository.create_job({
+                "warehouseId": ObjectId(warehouse_id), "orderId": ObjectId(order_id),
+                "b2bOrderId": order_id, "orderNumber": order_number,
+                "farmerId": ObjectId(farmer_id) if ObjectId.is_valid(farmer_id) else None,
+                "farmerName": farmer_doc.get("farmName") or farmer_doc.get("ownerName") or farmer_doc.get("name") or "Farmer",
+                "productName": order.get("productName") or "B2B produce", "quantity": quantity,
+                "pickupLocation": location if isinstance(location, dict) else {},
+                "pickupAddress": pickup_address, "collectionType": "b2b",
+                "status": "ready_for_pickup", "createdFrom": "b2b_order",
+            })
+        now = datetime.utcnow()
+        route_data = {
+            "warehouseId": ObjectId(warehouse_id), "deliveryPartnerId": ObjectId(partner_id),
+            "deliveryPartnerName": membership.get("name") or membership.get("partnerName") or "Pickup partner",
+            "deliveryPartnerVehicleType": membership.get("vehicleType"),
+            "deliveryPartnerVehicleNumber": order.get("pickupVehicle") or membership.get("vehicleNumber") or "PENDING",
+            "routeNumber": order_number + "-PICKUP", "routeDate": now.strftime("%Y-%m-%d"),
+            "routeType": "b2b_farm_pickup", "isB2BPickup": True, "b2bOrderId": order_id,
+            "orderIds": [order_id], "status": "assigned", "totalStops": 1, "totalOrders": 1,
+            "totalQuantity": quantity, "createdAt": now, "assignedAt": order.get("pickupAssignedAt") or now,
+            "stops": [{
+                "sequence": 1, "farmKey": f"b2b:{order_id}", "b2bOrderId": order_id,
+                "collectionId": collection_id, "orderId": order_id, "orderNumber": order_number,
+                "farmerId": farmer_id or None,
+                "farmerName": farmer_doc.get("farmName") or farmer_doc.get("ownerName") or farmer_doc.get("name") or "Farmer",
+                "productName": order.get("productName") or "B2B produce", "quantity": quantity,
+                "status": "ready_for_pickup", "pickupAddress": pickup_address,
+                "pickupLocation": location if isinstance(location, dict) else {},
+                "orders": [{
+                    "b2bOrderId": order_id, "collectionId": collection_id, "orderId": order_id,
+                    "orderNumber": order_number, "farmerId": farmer_id or None,
+                    "productName": order.get("productName") or "B2B produce",
+                    "quantity": quantity, "status": "ready_for_pickup", "pickupAddress": pickup_address,
+                    "pickupLocation": location if isinstance(location, dict) else {},
+                }],
+            }],
+        }
+        route_id = await warehouse_pickup_route_repository.create_route(route_data)
+        if route_id:
+            created_route = await warehouse_pickup_route_repository.get_by_id(route_id)
+            if created_route:
+                routes.append(created_route)
+                existing_b2b_ids.add(order_id)
+
+    display_routes = []
+    for route in routes:
+        display_routes.append(await enrich_pickup_route_display(route))
+    return {"success": True, "data": {"routes": display_routes}}
+
+
+@router.put("/me/pickup-routes/{route_id}/status")
+async def update_my_pickup_route_status(
+    route_id: str,
+    route_status: str = Query(..., alias="status", pattern="^(started|arrived_at_farm|collected|departed_farm|completed|returned_to_warehouse)$"),
+    collectionId: Optional[str] = Query(None),
+    actualQuantity: Optional[float] = Query(None, ge=0),
+    notes: Optional[str] = Query(None),
+    actualQuantities: Optional[Dict[str, float]] = Body(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Pickup partner is the source of truth for route and farm-stop progress."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update pickup routes")
+
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    partner_id = str(profile["_id"])
+    route = await warehouse_pickup_route_repository.get_by_id(route_id)
+    if not route or str(route.get("deliveryPartnerId")) != partner_id:
+        raise HTTPException(status_code=404, detail="Pickup route not found")
+
+    # Normalize legacy routes saved as one stop per order into farm-level stops
+    # before processing actions, not just when formatting the response.
+    route = await enrich_pickup_route_display(route)
+    now = datetime.utcnow()
+    stops = route.get("stops") or []
+
+    async def sync_order_status(job: dict, collection_status: str, collected_quantity: Optional[float] = None):
+        # B2B orders live in b2b_orders, not the customer orders collection.
+        # Resolve the B2B ID separately so pickup progress updates the exact
+        # document displayed by /b2b/warehouse/fulfillment.
+        b2b_order_id = str(job.get("b2bOrderId") or "")
+        linked_order_id = str(job.get("orderId") or "")
+        collection_type = str(job.get("collectionType") or "").strip().lower()
+        order_number = str(job.get("b2bOrderNumber") or job.get("orderNumber") or "")
+        is_b2b_collection = (
+            bool(b2b_order_id)
+            or collection_type in {"b2b", "bulk_harvest_pickup", "b2b_pickup", "business_order"}
+            or order_number.upper().startswith(("B2B-", "ORD-B2B-"))
+        )
+        # Some legacy collection jobs only saved the readable B2B order number
+        # and put the B2B document ID in orderId. Resolve by ID first, then by
+        # the stable order number so warehouse progress reaches b2b_orders.
+        if is_b2b_collection and not ObjectId.is_valid(b2b_order_id):
+            candidate_id = b2b_order_id or linked_order_id
+            if ObjectId.is_valid(candidate_id):
+                candidate = await b2b_order_repository.get_by_id(candidate_id)
+                if candidate:
+                    b2b_order_id = str(candidate.get("_id"))
+            if not ObjectId.is_valid(b2b_order_id) and order_number:
+                candidate = await b2b_order_repository.find_one({
+                    "$or": [
+                        {"orderNumber": order_number},
+                        {"orderNo": order_number},
+                        {"referenceNumber": order_number},
+                    ],
+                    "deletedAt": None,
+                })
+                if candidate:
+                    b2b_order_id = str(candidate.get("_id"))
+        primary_order_id = b2b_order_id or linked_order_id
+        order_ids = list(dict.fromkeys(
+            str(value) for value in (primary_order_id, linked_order_id, b2b_order_id)
+            if value and ObjectId.is_valid(str(value))
+        ))
+        if not order_ids:
+            logger.warning(
+                "Pickup route %s: unable to resolve linked order for collection job %s (type=%s, orderNumber=%s, b2bOrderId=%s, orderId=%s)",
+                route_id, job.get("_id"), collection_type, order_number, b2b_order_id, linked_order_id,
+            )
+            return
+        order_id = b2b_order_id if is_b2b_collection and ObjectId.is_valid(b2b_order_id) else order_ids[0]
+        stage_map = {
+            "en_route": "collection_en_route",
+            "arrived_at_farm": "collection_arrived",
+            "collected": "collected",
+            "departed_farm": "collection_departed",
+            "arrived_warehouse": "warehouse_arrived",
+        }
+        order_update = {
+            "warehouseCollectionStatus": collection_status,
+            "warehouseFulfillmentStage": stage_map.get(collection_status, collection_status),
+            "updatedAt": datetime.utcnow(),
+        }
+        # Keep the B2B fulfillment queue in sync with the pickup team's route.
+        if is_b2b_collection and collection_status in ("collected", "departed_farm", "arrived_warehouse"):
+            order_update["status"] = "picked_up"
+            order_update.setdefault("pickedUpAt", datetime.utcnow())
+        if str(job.get("collectionType") or "") == "packed_orders_transfer" and collection_status in ("collected", "departed_farm"):
+            order_update.update({
+                "fulfillmentStage": "dispatched",
+                "deliveryDispatchStatus": "in_transit_to_warehouse",
+                "deliveryDispatchAt": datetime.utcnow(),
+            })
+        if is_b2b_collection and ObjectId.is_valid(b2b_order_id):
+            # This is the exact collection read by /b2b/warehouse/fulfillment.
+            updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
+            if not updated_b2b:
+                logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
+            # A separate customer order may be linked; keep it synchronized only
+            # when it is a distinct, valid ID.
+            if ObjectId.is_valid(linked_order_id) and linked_order_id != b2b_order_id:
+                await order_repository.update({"_id": ObjectId(linked_order_id)}, order_update)
+        else:
+            for candidate_order_id in order_ids:
+                await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
+        titles = {
+            "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
+            "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
+            "collected": ("Shipment collected from farm", f"The pickup partner recorded {collected_quantity:g} kg collected." if collected_quantity is not None else "The shipment was collected from the farm."),
+            "departed_farm": ("Pickup partner departed farm", "The pickup partner has departed the farm with the collected shipment."),
+            "arrived_warehouse": ("Shipment arrived at warehouse", "The pickup route returned to the warehouse. Receiving and quality inspection are now required."),
+        }
+        title, message = titles[collection_status]
+        tracking_repository = b2b_order_repository if is_b2b_collection else order_repository
+        await tracking_repository.append_tracking_event(
+            order_id,
+            f"collection_{collection_status}",
+            title,
+            message,
+            actor_id=str(current_user["_id"]),
+            actor_role="delivery",
+            metadata={"routeId": route_id, "collectionId": str(job.get("_id"))},
+        )
+        refreshed = await tracking_repository.get_by_id(order_id)
+        if refreshed:
+            try:
+                await NotificationService.send_order_workflow_update(
+                    refreshed,
+                    stage=stage_map.get(collection_status, collection_status),
+                    title=f"Order #{refreshed.get('orderNumber') or order_id}: {title.lower()}",
+                    message=message,
+                    actor_role="delivery",
+                )
+            except Exception:
+                logger.exception("Unable to notify about pickup route progress")
+
+    def stop_collection_ids(stop: Dict[str, Any]) -> List[str]:
+        values = stop.get("collectionIds") or [
+            order.get("collectionId") for order in (stop.get("orders") or [])
+        ] or [stop.get("collectionId")]
+        return list(dict.fromkeys(
+            str(value) for value in values if value and ObjectId.is_valid(str(value))
+        ))
+
+    # Starting the route marks every order in every farm group En Route.
+    if collectionId is None and route_status == "started":
+        current = str(route.get("status") or "assigned")
+        if current != "assigned":
+            raise HTTPException(status_code=400, detail=f"Invalid route transition: {current} -> started")
+        for stop in stops:
+            stop["status"] = "en_route"
+            for order in stop.get("orders") or []:
+                order["status"] = "en_route"
+            for stop_collection_id in stop_collection_ids(stop):
+                job = await warehouse_collection_repository.get_by_id(stop_collection_id)
+                if not job or str(job.get("pickupRouteId") or "") != route_id:
+                    continue
+                if str(job.get("status") or "") in ("team_assigned", "ready_for_pickup", "pending"):
+                    await warehouse_collection_repository.update_job(stop_collection_id, {
+                        "status": "en_route",
+                        "enRouteAt": now,
+                    })
+                    await sync_order_status(job, "en_route")
+        await warehouse_pickup_route_repository.update_route(route_id, {
+            "status": "started",
+            "startedAt": now,
+            "stops": stops,
+        })
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        return {"success": True, "data": await enrich_pickup_route_display(updated), "message": "Pickup route started"}
+
+    # A route stop is a FARM. Arrival/departure are farm-level actions, while
+    # the actual quantity confirmation is recorded individually for each order.
+    if collectionId is not None:
+        if route_status not in ("arrived_at_farm", "collected", "departed_farm"):
+            raise HTTPException(status_code=400, detail="This action must update a farm stop, not the whole route")
+        if str(route.get("status") or "") not in ("started", "arrived_at_farm", "collected", "departed_farm"):
+            raise HTTPException(status_code=400, detail="Start the pickup route before updating farm stops")
+        if not ObjectId.is_valid(collectionId):
+            raise HTTPException(status_code=400, detail="Invalid collection order ID")
+
+        target_stop = next(
+            (stop for stop in stops if collectionId in stop_collection_ids(stop)),
+            None,
+        )
+        if target_stop is None:
+            raise HTTPException(status_code=404, detail="Farm stop not found on this route")
+        farm_collection_ids = stop_collection_ids(target_stop)
+        if not farm_collection_ids:
+            raise HTTPException(status_code=400, detail="This farm stop has no linked orders")
+
+        async def get_authorized_farm_jobs() -> List[Dict[str, Any]]:
+            farm_jobs = []
+            for farm_collection_id in farm_collection_ids:
+                farm_job = await warehouse_collection_repository.get_by_id(farm_collection_id)
+                # The route itself was loaded above and ownership-checked against
+                # the authenticated delivery-partner profile. Legacy collection jobs
+                # may store collectionTeamId as a membership ID, login-user ID, or
+                # stale team reference rather than the partner profile ID. The route
+                # link plus route ownership is the authoritative assignment check;
+                # requiring collectionTeamId == partner_id incorrectly blocks valid
+                # assigned routes when the IDs use different representations.
+                if not farm_job:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Farm collection job {farm_collection_id} no longer exists",
+                    )
+
+                linked_route_id = str(farm_job.get("pickupRouteId") or "").strip()
+                # Older pickup routes can contain a collection ID in their stop
+                # payload even though the collection job never received the
+                # pickupRouteId back-reference. Since this route was loaded and
+                # ownership-checked above, and this job ID is explicitly present
+                # in the selected stop, safely repair only a missing back-reference.
+                if not linked_route_id:
+                    repair = {"pickupRouteId": ObjectId(route_id)}
+                    if not farm_job.get("collectionTeamId"):
+                        repair["collectionTeamId"] = ObjectId(partner_id)
+                    await warehouse_collection_repository.update_job(
+                        str(farm_job["_id"]), repair
+                    )
+                    farm_job = {
+                        **farm_job,
+                        "pickupRouteId": ObjectId(route_id),
+                        **({"collectionTeamId": ObjectId(partner_id)} if not farm_job.get("collectionTeamId") else {}),
+                    }
+                    linked_route_id = route_id
+
+                if linked_route_id != route_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Farm collection job {farm_collection_id} is linked to "
+                            "a different pickup route. Refresh/reassign the route before "
+                            "recording farm arrival."
+                        ),
+                    )
+                farm_jobs.append(farm_job)
+            return farm_jobs
+
+        farm_jobs = await get_authorized_farm_jobs()
+
+        if route_status == "arrived_at_farm":
+            # This action is for the physical farm. Orders already collected or
+            # departed are kept as-is; only unfinished orders at this farm move
+            # to Arrived at Farm.
+            allowed_arrival = {"team_assigned", "ready_for_pickup", "en_route", "arrived_at_farm"}
+            already_advanced = {"collected", "departed_farm"}
+            invalid = [
+                job for job in farm_jobs
+                if str(job.get("status") or "") not in allowed_arrival | already_advanced
+            ]
+            if invalid:
+                raise HTTPException(
+                    status_code=400,
+                    detail="One or more orders at this farm cannot move to Arrived at Farm from their current status.",
+                )
+            for farm_job in farm_jobs:
+                current_status = str(farm_job.get("status") or "")
+                if current_status in already_advanced or current_status == "arrived_at_farm":
+                    continue
+                await warehouse_collection_repository.update_job(str(farm_job["_id"]), {
+                    "status": "arrived_at_farm",
+                    "arrivedAtFarmAt": now,
+                })
+                await sync_order_status(farm_job, "arrived_at_farm")
+            for order in target_stop.get("orders") or []:
+                if str(order.get("status") or "") not in already_advanced:
+                    order["status"] = "arrived_at_farm"
+                    order["arrivedAtFarmAt"] = now
+            refreshed_jobs = await get_authorized_farm_jobs()
+            refreshed_statuses = [str(value.get("status") or "") for value in refreshed_jobs]
+            if all(value == "departed_farm" for value in refreshed_statuses):
+                target_stop["status"] = "departed_farm"
+            elif all(value in ("collected", "departed_farm") for value in refreshed_statuses):
+                target_stop["status"] = "collected"
+            else:
+                target_stop["status"] = "arrived_at_farm"
+
+        elif route_status == "collected":
+            # Packed order transfers already have a verified quantity from
+            # Farmer Packing & Checking. Only non-packed collection types need
+            # the delivery partner to enter a measured quantity.
+            outstanding_farm_jobs = [
+                value for value in farm_jobs
+                if str(value.get("status") or "") == "arrived_at_farm"
+            ]
+            all_outstanding_are_packed = bool(outstanding_farm_jobs) and all(
+                str(value.get("collectionType") or "") == "packed_orders_transfer"
+                for value in outstanding_farm_jobs
+            )
+            if actualQuantities is not None or all_outstanding_are_packed:
+                actual_quantities = actualQuantities or {}
+                farm_jobs_by_id = {str(value.get("_id")): value for value in farm_jobs}
+                collectible_ids = [
+                    key for key, value in farm_jobs_by_id.items()
+                    if str(value.get("status") or "") == "arrived_at_farm"
+                ]
+                if not collectible_ids:
+                    raise HTTPException(status_code=400, detail="There are no outstanding orders to collect at this farm")
+
+                manual_quantity_ids = [
+                    key for key in collectible_ids
+                    if str(farm_jobs_by_id[key].get("collectionType") or "") != "packed_orders_transfer"
+                ]
+                if set(actual_quantities.keys()) != set(manual_quantity_ids):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Enter the actual quantity for each order that requires measuring, then confirm all together.",
+                    )
+
+                confirmed_quantities: Dict[str, float] = {}
+                for order_collection_id in collectible_ids:
+                    order_job = farm_jobs_by_id[order_collection_id]
+                    collection_type = str(order_job.get("collectionType") or "")
+                    qty = None
+
+                    if collection_type == "packed_orders_transfer":
+                        # Prefer the exact quantity saved during packing. The
+                        # collection job quantity is the final fallback because
+                        # incoming stock is created from the packed shipment.
+                        qty = order_job.get("actualPackedQuantity")
+                        if qty is None:
+                            qty = order_job.get("packedQuantity")
+
+                        if qty is None:
+                            order_id = str(order_job.get("orderId") or "")
+                            packed_order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
+                            items = (packed_order or {}).get("items") or []
+                            product_id = str(order_job.get("productId") or "")
+                            matching_items = [
+                                item for item in items
+                                if product_id and str(item.get("productId") or item.get("product_id") or "") == product_id
+                            ]
+                            if not matching_items and len(items) == 1:
+                                matching_items = items
+                            for item in matching_items:
+                                qty = item.get("actualPackedQuantity")
+                                if qty is None:
+                                    qty = item.get("packedQuantity")
+                                if qty is None:
+                                    qty = item.get("quantity")
+                                if qty is not None:
+                                    break
+
+                        if qty is None:
+                            qty = order_job.get("quantity")
+                    else:
+                        qty = actual_quantities.get(order_collection_id)
+
+                    if qty is None or float(qty) <= 0:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="A valid collection quantity is missing for one order at this farm. Check the packed quantity or enter the measured quantity before confirming collection.",
+                        )
+                    confirmed_quantities[order_collection_id] = float(qty)
+
+                for order_collection_id in collectible_ids:
+                    order_job = farm_jobs_by_id[order_collection_id]
+                    qty = confirmed_quantities[order_collection_id]
+                    await warehouse_collection_repository.update_job(order_collection_id, {
+                        "status": "collected",
+                        "collectedAt": now,
+                        "actualCollectedQuantity": qty,
+                        "quantityVariance": qty - float(order_job.get("quantity") or 0),
+                        **({"collectionNotes": notes} if notes else {}),
+                    })
+                    await sync_order_status(order_job, "collected", qty)
+                    for order in target_stop.get("orders") or []:
+                        if str(order.get("collectionId") or "") == order_collection_id:
+                            order["status"] = "collected"
+                            order["actualQuantity"] = qty
+                            order["collectedAt"] = now
+
+                refreshed_jobs = await get_authorized_farm_jobs()
+                farm_states = [str(value.get("status") or "") for value in refreshed_jobs]
+                if all(value == "departed_farm" for value in farm_states):
+                    target_stop["status"] = "departed_farm"
+                elif all(value in ("collected", "departed_farm") for value in farm_states):
+                    target_stop["status"] = "collected"
+                else:
+                    target_stop["status"] = "arrived_at_farm"
+            else:
+                # Compatibility for older clients submitting one order per request.
+                job = next((value for value in farm_jobs if str(value.get("_id")) == collectionId), None)
+                if not job:
+                    raise HTTPException(status_code=404, detail="The selected order is not part of this farm stop")
+                if str(job.get("status") or "") != "arrived_at_farm":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Confirm arrival at the farm before recording collection (current status: {job.get('status')})",
+                    )
+                if actualQuantity is None or actualQuantity <= 0:
+                    raise HTTPException(status_code=400, detail="Enter the actual collected quantity (kg) before confirming collection")
+                await warehouse_collection_repository.update_job(collectionId, {
+                    "status": "collected",
+                    "collectedAt": now,
+                    "actualCollectedQuantity": actualQuantity,
+                    "quantityVariance": float(actualQuantity) - float(job.get("quantity") or 0),
+                    **({"collectionNotes": notes} if notes else {}),
+                })
+                for order in target_stop.get("orders") or []:
+                    if str(order.get("collectionId") or "") == collectionId:
+                        order["status"] = "collected"
+                        order["actualQuantity"] = actualQuantity
+                        order["collectedAt"] = now
+                await sync_order_status(job, "collected", actualQuantity)
+                refreshed_jobs = await get_authorized_farm_jobs()
+                farm_states = [str(value.get("status") or "") for value in refreshed_jobs]
+                target_stop["status"] = (
+                    "collected" if all(value in ("collected", "departed_farm") for value in farm_states)
+                    else "arrived_at_farm"
+                )
+
+        else:  # Depart the physical farm only after every order is collected.
+            not_collected = [
+                job for job in farm_jobs
+                if str(job.get("status") or "") not in ("collected", "departed_farm")
+            ]
+            if not_collected:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Confirm actual quantities for all {len(not_collected)} remaining order(s) at this farm before departing.",
+                )
+            for farm_job in farm_jobs:
+                if str(farm_job.get("status") or "") != "departed_farm":
+                    await warehouse_collection_repository.update_job(str(farm_job["_id"]), {
+                        "status": "departed_farm",
+                        "departedFarmAt": now,
+                    })
+                    await sync_order_status(farm_job, "departed_farm")
+            for order in target_stop.get("orders") or []:
+                order["status"] = "departed_farm"
+                order["departedFarmAt"] = now
+            target_stop["status"] = "departed_farm"
+
+        all_departed = bool(stops) and all(
+            str(stop.get("status") or "") == "departed_farm" for stop in stops
+        )
+        route_update = {
+            "stops": stops,
+            "status": "departed_farm" if all_departed else "started",
+        }
+        if all_departed:
+            route_update["allStopsDepartedAt"] = now
+        await warehouse_pickup_route_repository.update_route(route_id, route_update)
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        message = (
+            "All farms departed. Complete the pickup route."
+            if all_departed
+            else f"Farm stop {route_status.replace('_', ' ')}"
+        )
+        return {"success": True, "data": await enrich_pickup_route_display(updated), "message": message}
+
+    # Completion is enabled only after every farm has been marked departed.
+    if route_status == "completed":
+        if str(route.get("status") or "") != "departed_farm" or not stops or any(
+            str(stop.get("status") or "") != "departed_farm" for stop in stops
+        ):
+            raise HTTPException(status_code=400, detail="Complete collection at every farm before completing the route")
+        await warehouse_pickup_route_repository.update_route(route_id, {
+            "status": "completed",
+            "completedAt": now,
+        })
+
+        # Materialize one Incoming Stock record per collected order as soon as
+        # the delivery partner finishes the pickup route. Warehouse staff own
+        # the physical receipt, quality check and storage confirmation; this
+        # action only makes the expected shipments visible in the warehouse UI.
+        incoming_rows = await WarehouseService.create_pickup_route_incoming(route_id)
+        for incoming in incoming_rows:
+            collection_id = str(incoming.get("collectionId") or "")
+            if not ObjectId.is_valid(collection_id):
+                continue
+            job = await warehouse_collection_repository.get_by_id(collection_id)
+            if job and incoming.get("_id"):
+                await warehouse_collection_repository.update_job(collection_id, {
+                    "incomingStockId": incoming["_id"],
+                })
+
+        warehouse = await warehouse_repository.get_by_id(str(route.get("warehouseId")))
+        if warehouse:
+            manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
+            if manager_id:
+                try:
+                    await NotificationService.send_custom_notification(
+                        manager_id,
+                        f"Pickup route {route.get('routeNumber', route_id)} is complete. {len(incoming_rows)} expected shipment(s) are available in B2B Pickup & Fulfillment for warehouse receiving.",
+                        title="Incoming B2B Pickup Shipments",
+                        data={"type": "warehouse_pickup_pending_receipt", "routeId": route_id, "incomingCount": len(incoming_rows)},
+                    )
+                except Exception:
+                    logger.exception("Unable to notify warehouse manager about expected pickup shipments")
+
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        return {
+            "success": True,
+            "data": await enrich_pickup_route_display(updated),
+            "message": f"Pickup route completed; {len(incoming_rows)} shipment(s) sent to warehouse receiving",
+        }
+
+    # The partner confirms physical return; this creates incoming-stock records.
+    if route_status == "returned_to_warehouse":
+        if str(route.get("status") or "") != "completed":
+            raise HTTPException(status_code=400, detail="Complete all farm pickups before returning the route to the warehouse")
+        await warehouse_pickup_route_repository.update_route(route_id, {
+            "status": "returned_to_warehouse",
+            "returnedAt": now,
+        })
+        incoming_rows = await WarehouseService.create_pickup_route_incoming(route_id)
+        arrived_at = datetime.utcnow()
+
+        # A returned pickup route has been physically handed over to the source
+        # warehouse. Release its accepted delivery-job capacity so the partner
+        # can accept another route using the same vehicle. Keep capacity
+        # committed while the route is still being collected or in transit.
+        try:
+            await MongoDB.db.delivery_jobs.update_many(
+                {
+                    "routeId": {"$in": [route_id, ObjectId(route_id) if ObjectId.is_valid(route_id) else route_id]},
+                    "status": "accepted",
+                    "deletedAt": None,
+                },
+                {"$set": {
+                    "status": "delivered",
+                    "completedAt": arrived_at,
+                    "updatedAt": arrived_at,
+                    "completionReason": "pickup_route_handed_over_to_warehouse",
+                }},
+            )
+        except Exception:
+            logger.exception("Unable to release vehicle capacity after pickup route handover")
+        for incoming in incoming_rows:
+            collection_id = str(incoming.get("collectionId") or "")
+            if not ObjectId.is_valid(collection_id):
+                continue
+            job = await warehouse_collection_repository.get_by_id(collection_id)
+            if not job:
+                continue
+            update_job = {"status": "arrived_warehouse", "arrivedWarehouseAt": arrived_at}
+            if incoming.get("_id"):
+                update_job["incomingStockId"] = incoming["_id"]
+            await warehouse_collection_repository.update_job(collection_id, update_job)
+            await sync_order_status(job, "arrived_warehouse")
+
+        warehouse = await warehouse_repository.get_by_id(str(route.get("warehouseId")))
+        if warehouse:
+            manager_id = str(warehouse.get("managerId") or warehouse.get("userId") or "")
+            if manager_id:
+                try:
+                    await NotificationService.send_custom_notification(
+                        manager_id,
+                        f"Pickup route {route.get('routeNumber', route_id)} has arrived at the warehouse. {len(incoming_rows)} incoming stock record(s) are ready for Receive -> Quality Check -> Store.",
+                        title="Pickup Route Arrived at Warehouse",
+                        data={"type": "warehouse_pickup_arrived", "routeId": route_id, "incomingCount": len(incoming_rows)},
+                    )
+                except Exception:
+                    logger.exception("Unable to notify warehouse manager that pickup returned")
+        updated = await warehouse_pickup_route_repository.get_by_id(route_id)
+        return {"success": True, "data": await enrich_pickup_route_display(updated), "message": "Pickup returned to warehouse"}
+
+    raise HTTPException(status_code=400, detail=f"Unsupported route action: {route_status}")
+
 
 @router.get("/me/route")
 async def get_my_route_compat(
@@ -2686,6 +3899,16 @@ async def get_my_delivery_jobs(
     )
     open_list = []
     for job in open_jobs or []:
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "event_source_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
+            continue
+        # Nearby Farmer Fulfillment is assigned to a specific partner; do not
+        # leak that job to every driver in the open marketplace.
+        eligible_ids = {str(value) for value in (job.get("eligiblePartnerIds") or [])}
+        assigned_partner = str(job.get("assignedPartnerId") or "")
+        if eligible_ids and partner_id not in eligible_ids:
+            continue
+        if assigned_partner and assigned_partner != partner_id:
+            continue
         coords = (job.get("pickupLocation") or {}).get("coordinates")
         dist = None
         if coords and len(coords) >= 2:
@@ -2695,9 +3918,12 @@ async def get_my_delivery_jobs(
     accepted_jobs = await delivery_job_repository.get_jobs_for_partner(partner_id)
     accepted_list = []
     for job in accepted_jobs or []:
+        if job.get("jobType", "customer_delivery") not in ("customer_delivery", "event_consolidated_delivery", "event_hub_transfer", "event_source_transfer", "farmer_fulfillment_consolidated_delivery", "farmer_fulfillment_nearby_delivery", "farmer_fulfillment_direct_warehouse_delivery"):
+            continue
         accepted_list.append(serialize_job_for_partner(job, reveal=True))
+    accepted_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31"))
 
-    open_list.sort(key=lambda j: (j.get("distanceFromPartner") if j.get("distanceFromPartner") is not None else 1e9))
+    open_list.sort(key=lambda j: (-int(j.get("priority", 1) or 1), j.get("deliveryDeadline") or "9999-12-31", j.get("distanceFromPartner") if j.get("distanceFromPartner") is not None else 1e9))
 
     return {
         "success": True,
@@ -2707,6 +3933,59 @@ async def get_my_delivery_jobs(
             "radius": radius,
         },
     }
+
+
+
+@router.get("/me/pickup-jobs")
+async def get_my_warehouse_pickup_jobs(
+    lat: Optional[float] = Query(None, ge=-90, le=90),
+    lng: Optional[float] = Query(None, ge=-180, le=180),
+    radius: int = Query(100, ge=5, le=200),
+    current_user: dict = Depends(get_current_user),
+):
+    """Dedicated warehouse-pickup marketplace for delivery partners."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can access warehouse pickup jobs")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    point = {"lat": lat, "lng": lng} if lat is not None and lng is not None else _partner_current_point(profile)
+    if not point:
+        raise HTTPException(status_code=400, detail="Current location is not set. Share your location to see pickup jobs.")
+    jobs = await delivery_job_repository.find_open_jobs_near(point["lng"], point["lat"], radius, limit=100)
+    open_jobs = []
+    for job in jobs or []:
+        if job.get("jobType") != "warehouse_pickup":
+            continue
+        if job.get("eligiblePartnerIds") and str(profile["_id"]) not in {str(x) for x in job["eligiblePartnerIds"]}:
+            continue
+        coords = (job.get("pickupLocation") or {}).get("coordinates") or []
+        dist = _haversine_km(point["lat"], point["lng"], coords[1], coords[0]) if len(coords) >= 2 else None
+        open_jobs.append(serialize_job_for_partner(job, distance_from_partner=dist, reveal=False))
+    # Enrich pickup marketplace cards from their authoritative route stops so
+    # partner views use current farmer/product/order/address names rather than
+    # the stale or ID-based snapshot on the delivery job.
+    async def add_route_display(job_data: dict) -> dict:
+        route_id = str(job_data.get("routeId") or "")
+        route = await warehouse_pickup_route_repository.get_by_id(route_id) if ObjectId.is_valid(route_id) else None
+        if route:
+            display_route = await enrich_pickup_route_display(route)
+            job_data["farmStops"] = display_route.get("stops") or []
+            job_data["routeNumber"] = display_route.get("routeNumber") or job_data.get("routeNumber") or "Pickup Route"
+            job_data["warehouseName"] = display_route.get("warehouseName") or job_data.get("warehouseName") or "Assigned warehouse"
+            job_data["totalStops"] = display_route.get("totalStops") or len(job_data["farmStops"])
+            job_data["totalQuantity"] = display_route.get("totalQuantity") or job_data.get("totalQuantity") or 0
+        pickup_name = str(job_data.get("pickupName") or "").strip()
+        job_data["pickupName"] = pickup_name if pickup_name and not ObjectId.is_valid(pickup_name) else "Farm pickup route"
+        return job_data
+
+    open_jobs = [await add_route_display(job) for job in open_jobs]
+    accepted = []
+    for job in await delivery_job_repository.get_jobs_for_partner(str(profile["_id"])):
+        if job.get("jobType") != "warehouse_pickup":
+            continue
+        accepted.append(
+            await add_route_display(serialize_job_for_partner(job, reveal=True))
+        )
+    return {"success": True, "data": {"openJobs": open_jobs, "acceptedJobs": accepted, "radius": radius}}
 
 
 @router.post("/jobs/{job_id}/accept")
@@ -2743,10 +4022,161 @@ async def accept_delivery_job(
             status_code=400,
             detail="Your vehicle capacity cannot fit this job. Complete or drop other deliveries first.",
         )
+    if not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
+        raise HTTPException(
+            status_code=400,
+            detail="Your vehicle type cannot safely carry this delivery job.",
+        )
+    eligible_ids = {str(x) for x in (job.get("eligiblePartnerIds") or [])}
+    if eligible_ids and partner_id not in eligible_ids:
+        raise HTTPException(status_code=403, detail="This delivery job is not assigned or eligible for your partner profile.")
+    assigned_partner_id = str(job.get("assignedPartnerId") or "")
+    if assigned_partner_id and assigned_partner_id != partner_id:
+        raise HTTPException(status_code=403, detail="This delivery job is assigned to another partner.")
+    if not passes_vehicle_type(profile, float(job.get("weightKg") or 0)):
+        raise HTTPException(status_code=400, detail="Your vehicle type cannot safely carry this warehouse pickup route.")
 
     if not await delivery_job_repository.claim_job(job_id, partner_id):
         raise HTTPException(status_code=409, detail="Another partner claimed this job first")
 
+    # Warehouse pickup marketplace jobs represent an entire multi-farm route.
+    # They do not use the customer-delivery order acceptance pipeline.
+    if job.get("jobType") == "warehouse_pickup":
+        route_id = str(job.get("routeId") or "")
+        route = await warehouse_pickup_route_repository.get_by_id(route_id)
+        if not route:
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Pickup route no longer exists")
+        if route.get("status") != "offered" or route.get("deliveryPartnerId"):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="This pickup route is no longer available")
+
+        partner_user = await UserService.get_user_by_id(str(profile.get("userId") or str(current_user["_id"])))
+        partner_name = (
+            f"{partner_user.get('firstName', '')} {partner_user.get('lastName', '')}".strip()
+            if partner_user else ""
+        ) or profile.get("name") or "Delivery Partner"
+
+        claimed_route = await warehouse_pickup_route_repository.claim_route(
+            route_id,
+            partner_id,
+            partner_name=partner_name,
+            vehicle_type=profile.get("vehicleType"),
+            vehicle_number=profile.get("vehicleNumber"),
+        )
+        if not claimed_route:
+            # The route claim is the authoritative atomic winner. Do not reopen
+            # the marketplace job after another partner has already claimed it.
+            await delivery_job_repository.mark_no_partner_found(job_id)
+            raise HTTPException(status_code=409, detail="Another partner claimed this pickup route first")
+
+        for stop in claimed_route.get("stops") or []:
+            collection_ids = stop.get("collectionIds") or [
+                order.get("collectionId") for order in (stop.get("orders") or [])
+            ] or [stop.get("collectionId")]
+            for collection_id in collection_ids:
+                collection_id = str(collection_id or "")
+                if not ObjectId.is_valid(collection_id):
+                    continue
+                await warehouse_collection_repository.update_job(collection_id, {
+                    "pickupRouteId": ObjectId(route_id),
+                    "collectionTeamId": ObjectId(partner_id),
+                    "status": "team_assigned",
+                    "teamAssignedAt": datetime.utcnow(),
+                })
+
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        return {
+            "success": True,
+            "data": {
+                "job": serialize_job_for_partner(job, reveal=True),
+                "route": await enrich_pickup_route_display(claimed_route),
+            },
+            "message": "Warehouse pickup route accepted successfully",
+        }
+
+    # Source warehouse -> consolidation transfers are individual sealed
+    # event portions. The destination warehouse confirms each physical receipt.
+    if job.get("jobType") == "event_source_transfer":
+        from app.api.v1.bulk_orders import request_repo, event_fulfillment_repo
+        request_id = str(job.get("eventRequestId") or "")
+        fulfillment_id = str(job.get("eventFulfillmentId") or "")
+        request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+        fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "requestId": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(fulfillment_id) and ObjectId.is_valid(request_id) else None
+        if not request or not fulfillment or str(fulfillment.get("consolidationTransferJobId") or "") != str(job_id):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Event portion transfer is no longer linked to its parent request")
+        if str(fulfillment.get("status") or "") != "stored" or str(fulfillment.get("consolidationTransferStatus") or "") not in ("in_transit", "assigned"):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="The source portion is not ready for consolidation transfer")
+        await delivery_job_repository.collection.update_one(
+            {"_id": ObjectId(job_id), "status": "accepted", "deletedAt": None},
+            {"$set": {"eventProgressStatus": "accepted", "updatedAt": datetime.utcnow()}},
+        )
+        await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+            "consolidationTransferStatus": "assigned",
+            "consolidationTransferPartnerId": ObjectId(partner_id),
+            "updatedAt": datetime.utcnow(),
+        })
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        refreshed = await delivery_job_repository.get_by_id(job_id)
+        return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event portion transfer accepted"}
+
+    # Event consolidation -> local-hub transfers are intermediate logistics
+    # jobs, not customer deliveries. The consolidation warehouse confirms receipt.
+    if job.get("jobType") == "event_hub_transfer":
+        from app.api.v1.bulk_orders import request_repo
+        request_id = str(job.get("eventRequestId") or job.get("orderId") or "")
+        request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+        if not request or str(request.get("eventHubTransferJobId") or "") != str(job_id):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Event hub transfer is no longer linked to the parent request")
+        if str(request.get("eventLocalHubStatus") or "") != "in_transit":
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="The event order is not awaiting local-hub transfer")
+        await delivery_job_repository.collection.update_one(
+            {"_id": ObjectId(job_id), "status": "accepted", "deletedAt": None},
+            {"$set": {"eventProgressStatus": "accepted", "updatedAt": datetime.utcnow()}},
+        )
+        await request_repo.update({"_id": request["_id"]}, {
+            "eventHubTransferStatus": "assigned",
+            "eventHubTransferPartnerId": ObjectId(partner_id),
+            "eventHubTransferPartnerName": profile.get("name") or "Delivery Partner",
+            "updatedAt": datetime.utcnow(),
+        })
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        refreshed = await delivery_job_repository.get_by_id(job_id)
+        return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event consolidation-to-local-hub transfer accepted"}
+
+    # Consolidated event/weekly bulk delivery starts at the warehouse and is
+    # intentionally not represented by a normal customer order document.
+    if job.get("jobType") == "event_consolidated_delivery":
+        from app.api.v1.bulk_orders import request_repo
+        request_id = str(job.get("eventRequestId") or job.get("orderId") or "")
+        request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+        if not request:
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=404, detail="Event bulk request for this delivery job no longer exists")
+        await request_repo.update({"_id": request["_id"]}, {
+            "eventDeliveryStatus": "delivery_partner_assigned",
+            "eventDeliveryPartnerId": ObjectId(partner_id),
+            "eventDeliveryPartnerName": profile.get("name") or "Delivery Partner",
+            "updatedAt": datetime.utcnow(),
+        })
+        await delivery_repository.update_status(partner_id, DeliveryPartnerStatus.BUSY, is_available=False)
+        refreshed = await delivery_job_repository.get_by_id(job_id)
+        return {
+            "success": True,
+            "data": serialize_job_for_partner(refreshed, reveal=True),
+            "message": "Consolidated event delivery accepted from warehouse",
+        }
+
+    # Final Farmer Fulfillment jobs are opened only after local-hub receipt.
+    # They must remain a single customer order and a single delivery assignment.
+    if job.get("jobType") == "farmer_fulfillment_consolidated_delivery":
+        if not bool(job.get("singleFinalDelivery")):
+            await delivery_job_repository.release_job(job_id)
+            raise HTTPException(status_code=409, detail="Invalid consolidated delivery job")
     # Wire the order + assignment so the existing delivery flow takes over.
     order_id = str(job["orderId"])
     order = await order_repository.get_by_id(order_id)
@@ -2806,7 +4236,10 @@ async def accept_delivery_job(
                 "deliveryPartnerId": ObjectId(partner_id),
                 "farmerId": ObjectId(farmer_id) if farmer_id else None,
                 "status": DeliveryStatus.IN_TRANSIT,
-                "priority": 1,
+                "priority": int(order.get("priority", 1) or 1),
+                "priorityLabel": order.get("priorityLabel") or "Normal",
+                "deliveryDeadline": order.get("deliveryDeadline"),
+                "deliveryHoursRemaining": order.get("deliveryHoursRemaining"),
                 "source": "job_marketplace",
                 "assignee": "partner",
                 "assignmentMethod": "self_service",
@@ -2830,3 +4263,807 @@ async def accept_delivery_job(
         "data": serialize_job_for_partner(refreshed, reveal=True),
         "message": "Delivery job accepted",
     }
+
+
+@router.put("/jobs/{job_id}/event-source-transfer-status")
+async def update_event_source_transfer_progress(
+    job_id: str,
+    progress: str = Query(..., alias="status", pattern="^(picked_up|arrived_at_consolidation)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Track an individual sealed event portion from source warehouse to consolidation."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update event portion transfers")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_source_transfer":
+        raise HTTPException(status_code=404, detail="Event source transfer job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event portion transfer is not assigned to you")
+    if str(job.get("status") or "") != "accepted":
+        raise HTTPException(status_code=409, detail="This event portion transfer is no longer active")
+    request_id = str(job.get("eventRequestId") or "")
+    fulfillment_id = str(job.get("eventFulfillmentId") or "")
+    from app.api.v1.bulk_orders import request_repo, event_fulfillment_repo
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    fulfillment = await event_fulfillment_repo.find_one({"_id": ObjectId(fulfillment_id), "requestId": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(fulfillment_id) and ObjectId.is_valid(request_id) else None
+    if not request or not fulfillment or str(fulfillment.get("consolidationTransferJobId") or "") != str(job_id):
+        raise HTTPException(status_code=404, detail="Parent event or portion transfer link not found")
+    current = str(job.get("eventProgressStatus") or "accepted")
+    expected_next = {"accepted": "picked_up", "picked_up": "arrived_at_consolidation"}
+    if expected_next.get(current) != progress:
+        raise HTTPException(status_code=409, detail="Invalid event portion transfer progression from " + current)
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "deletedAt": None},
+        {"$set": {
+            "eventProgressStatus": progress,
+            "updatedAt": now,
+            "pickedUpAt": now if progress == "picked_up" else job.get("pickedUpAt"),
+            "arrivedAtConsolidationAt": now if progress == "arrived_at_consolidation" else job.get("arrivedAtConsolidationAt"),
+        }},
+    )
+    await event_fulfillment_repo.update({"_id": fulfillment["_id"]}, {
+        "consolidationTransferStatus": progress,
+        "consolidationTransferArrivedAt": now if progress == "arrived_at_consolidation" else fulfillment.get("consolidationTransferArrivedAt"),
+        "updatedAt": now,
+    })
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryStatus": "consolidation_in_transit",
+        "eventConsolidationStatus": "consolidation_in_transit",
+        "updatedAt": now,
+    })
+    refreshed = await delivery_job_repository.get_by_id(job_id)
+    return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event portion transfer updated to " + progress.replace("_", " ")}
+
+
+@router.put("/jobs/{job_id}/event-hub-transfer-status")
+async def update_event_hub_transfer_progress(
+    job_id: str,
+    progress: str = Query(..., alias="status", pattern="^(picked_up|arrived_at_hub)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Track the intermediate sealed transfer; hub receipt still requires warehouse confirmation."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update event transfer progress")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_hub_transfer":
+        raise HTTPException(status_code=404, detail="Event local-hub transfer job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event transfer is not assigned to you")
+    if str(job.get("status") or "") != "accepted":
+        raise HTTPException(status_code=409, detail="This event transfer is no longer active")
+    request_id = str(job.get("eventRequestId") or "")
+    from app.api.v1.bulk_orders import request_repo
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    if not request or str(request.get("eventHubTransferJobId") or "") != str(job_id):
+        raise HTTPException(status_code=404, detail="Parent event order or transfer link not found")
+    current = str(job.get("eventProgressStatus") or "accepted")
+    expected_next = {"open": "picked_up", "accepted": "picked_up", "picked_up": "arrived_at_hub"}
+    if expected_next.get(current) != progress:
+        raise HTTPException(status_code=409, detail="Invalid transfer progression from " + current)
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "deletedAt": None},
+        {"$set": {
+            "eventProgressStatus": progress,
+            "updatedAt": now,
+            "pickedUpAt": now if progress == "picked_up" else job.get("pickedUpAt"),
+            "arrivedAtHubAt": now if progress == "arrived_at_hub" else job.get("arrivedAtHubAt"),
+        }},
+    )
+    request_update = {
+        "eventHubTransferStatus": progress,
+        "updatedAt": now,
+    }
+    if progress == "arrived_at_hub":
+        request_update.update({
+            "eventLocalHubStatus": "arrived_at_hub",
+            "eventLocalHubArrivedAt": now,
+            "eventDeliveryStatus": "awaiting_local_hub_receipt",
+        })
+    await request_repo.update({"_id": request["_id"]}, request_update)
+    refreshed = await delivery_job_repository.get_by_id(job_id)
+    return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event local-hub transfer updated to " + progress.replace("_", " ")}
+
+
+@router.put("/jobs/{job_id}/event-status")
+async def update_event_delivery_progress(
+    job_id: str,
+    progress: str = Query(..., alias="status", pattern="^(picked_up|out_for_delivery)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Advance a claimed event delivery job without requiring a normal orders/assignment row."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update event delivery progress")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_consolidated_delivery":
+        raise HTTPException(status_code=404, detail="Event delivery job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event delivery is not assigned to you")
+    if str(job.get("status") or "") != "accepted":
+        raise HTTPException(status_code=409, detail="Only an active accepted event delivery can be updated")
+    request_id = str(job.get("eventRequestId") or "")
+    from app.api.v1.bulk_orders import request_repo
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request no longer exists")
+    current = str(job.get("eventProgressStatus") or "accepted")
+    allowed_next = {"accepted": "picked_up", "picked_up": "out_for_delivery"}
+    if allowed_next.get(current) != progress:
+        raise HTTPException(status_code=409, detail=f"Invalid progress transition from {current} to {progress}")
+    now = datetime.utcnow()
+    await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "deletedAt": None},
+        {"$set": {"eventProgressStatus": progress, "updatedAt": now, "pickedUpAt": now if progress == "picked_up" else job.get("pickedUpAt"), "outForDeliveryAt": now if progress == "out_for_delivery" else job.get("outForDeliveryAt")}},
+    )
+    await request_repo.update({"_id": request["_id"]}, {
+        "eventDeliveryStatus": progress,
+        "updatedAt": now,
+    })
+    refreshed = await delivery_job_repository.get_by_id(job_id)
+    return {"success": True, "data": serialize_job_for_partner(refreshed, reveal=True), "message": "Event delivery progress updated to " + progress.replace("_", " ")}
+
+
+@router.post("/jobs/{job_id}/event-pod")
+async def complete_event_delivery_with_otp_and_pod(
+    job_id: str,
+    photo: UploadFile = File(...),
+    otp: str = Form(...),
+    recipientName: str = Form(...),
+    signature: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Complete an event delivery only with the customer's OTP and a validated POD photo."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can complete event deliveries")
+    if not recipientName.strip():
+        raise HTTPException(status_code=400, detail="Recipient name is required")
+    profile = await _get_or_create_partner(str(current_user["_id"]))
+    job = await delivery_job_repository.get_by_id(job_id)
+    if not job or str(job.get("jobType") or "") != "event_consolidated_delivery":
+        raise HTTPException(status_code=404, detail="Event delivery job not found")
+    if str(job.get("acceptedBy") or "") != str(profile["_id"]):
+        raise HTTPException(status_code=403, detail="This event delivery is not assigned to you")
+    if str(job.get("status") or "") != "accepted" or str(job.get("eventProgressStatus") or "") != "out_for_delivery":
+        raise HTTPException(status_code=409, detail="Mark the event order picked up and out for delivery before completing it")
+    request_id = str(job.get("eventRequestId") or "")
+    from app.api.v1.bulk_orders import request_repo, event_fulfillment_repo, ORDER_DELIVERED
+    request = await request_repo.find_one({"_id": ObjectId(request_id), "deletedAt": None}) if ObjectId.is_valid(request_id) else None
+    if not request:
+        raise HTTPException(status_code=404, detail="Event request no longer exists")
+    expected_otp = str(request.get("eventDeliveryVerificationCode") or "")
+    if not expected_otp or str(otp).strip() != expected_otp:
+        raise HTTPException(status_code=400, detail="Customer delivery OTP is invalid")
+    fulfillments = await event_fulfillment_repo.find_many({"requestId": request["_id"], "deletedAt": None}, limit=500)
+    if not fulfillments or any(str(row.get("status") or "") != "stored" for row in fulfillments):
+        raise HTTPException(status_code=409, detail="All event portions must remain stored and verified through delivery completion")
+    from app.utils.file_security import validate_upload, UploadValidationError
+    content = await photo.read()
+    try:
+        ext = validate_upload(
+            photo.filename or "event-pod",
+            content,
+            content_type=photo.content_type,
+            max_bytes=settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024,
+        )
+    except UploadValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    upload_dir = settings.UPLOAD_DIR
+    os.makedirs(upload_dir, exist_ok=True)
+    filename = "event-pod-" + uuid4().hex + ext
+    with open(os.path.join(upload_dir, filename), "wb") as handle:
+        handle.write(content)
+    photo_url = "/uploads/" + filename
+    now = datetime.utcnow()
+    result = await delivery_job_repository.collection.update_one(
+        {"_id": ObjectId(job_id), "status": "accepted", "acceptedBy": ObjectId(str(profile["_id"])), "eventProgressStatus": "out_for_delivery", "deletedAt": None},
+        {"$set": {
+            "status": "delivered",
+            "eventProgressStatus": "delivered",
+            "completedAt": now,
+            "updatedAt": now,
+            "proofOfDelivery": {"photoUrl": photo_url, "recipientName": recipientName.strip(), "signature": signature or "", "uploadedAt": now, "otpVerified": True},
+            "deliveryVerificationVerifiedAt": now,
+        }},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Event delivery changed while completing; refresh the job and retry")
+    await request_repo.update({"_id": request["_id"]}, {
+        "status": ORDER_DELIVERED,
+        "eventDeliveryStatus": "delivered",
+        "eventDeliveryDeliveredAt": now,
+        "eventDeliveryVerificationVerifiedAt": now,
+        "eventDeliveryProof": {"photoUrl": photo_url, "recipientName": recipientName.strip(), "signature": signature or "", "uploadedAt": now, "deliveryPartnerId": ObjectId(str(profile["_id"]))},
+        "updatedAt": now,
+    })
+    await delivery_repository.update_status(str(profile["_id"]), DeliveryPartnerStatus.AVAILABLE, is_available=True)
+    try:
+        from app.services.notification_service import NotificationService
+        await NotificationService.create_in_app_notification(
+            str(request.get("buyerUserId") or ""),
+            NotificationType.ORDER,
+            "Event order delivered",
+            "Your complete event order " + str(request.get("requestNumber") or "") + " was delivered and proof of delivery was recorded.",
+            {"requestId": str(request["_id"]), "deliveryJobId": job_id, "type": "event_delivery_completed"},
+            NotificationPriority.HIGH,
+        )
+    except Exception:
+        pass
+    return {"success": True, "data": {"deliveryJobId": job_id, "status": "delivered", "photoUrl": photo_url, "recipientName": recipientName.strip(), "otpVerified": True}, "message": "Event order delivered with customer OTP and proof of delivery"}
+
+
+@router.get("/me/b2b-delivery-orders")
+async def get_my_b2b_delivery_orders(current_user: dict = Depends(get_current_user)):
+    """List B2B business orders assigned for final-mile delivery in a separate Pickup Routes section."""
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("delivery", "delivery_partner", "delivery_manager", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Only delivery partners can view assigned B2B deliveries")
+    user_id = str(current_user.get("_id") or "")
+    assigned_values: List[Any] = [user_id]
+    if ObjectId.is_valid(user_id):
+        assigned_values.append(ObjectId(user_id))
+    # Use the same profile resolver as the rest of the delivery-partner API.
+    # Legacy profiles may store userId as a string/ObjectId or use a service-
+    # specific lookup that a raw collection query can miss.
+    try:
+        profile = await DeliveryService.get_delivery_partner(user_id)
+    except Exception:
+        profile = None
+    if not profile:
+        profile = await MongoDB.get_collection("delivery_partners").find_one({
+            "$or": [
+                {"userId": {"$in": assigned_values}},
+                {"user_id": {"$in": assigned_values}},
+                {"user": {"$in": assigned_values}},
+            ],
+            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+        })
+    if profile:
+        for key in ("_id", "id", "userId", "user_id"):
+            value = profile.get(key)
+            if value is not None and not isinstance(value, dict):
+                assigned_values.extend([value, str(value)])
+    # B2B orders may have been assigned using either the user ID or the
+    # registered delivery-partner profile ID, and older dispatch records use
+    # different assignment field names. Fetch only active B2B deliveries, then
+    # normalize assignment IDs in Python so BSON ObjectId/string differences
+    # do not silently hide an assigned order.
+    query = {
+        "$and": [
+            {"status": {"$in": ["in_transit", "delivered"]}},
+            {"$or": [
+                {"businessUserId": {"$exists": True, "$nin": [None, ""]}},
+                {"buyerCategory": {"$in": ["business", "organization", "bulk_event"]}},
+                {"buyerType": {"$in": ["business", "organization"]}},
+                {"requestType": {"$in": ["bulk_event", "b2b", "business"]}},
+                {"rfqId": {"$exists": True, "$nin": [None, ""]}},
+                {"businessProfileId": {"$exists": True, "$nin": [None, ""]}},
+            ]},
+            {"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]},
+        ]
+    }
+    # B2B logistics orders are stored in b2b_orders by the B2B API; legacy
+    # business/RFQ orders may exist in orders. Query both collections.
+    candidates = []
+    for collection_name in ("b2b_orders", "orders"):
+        collection = MongoDB.get_collection(collection_name)
+        candidates.extend(await collection.find(query).sort("finalDeliveryAssignedAt", -1).to_list(length=500))
+    # The B2B collection is authoritative even when a record's older schema
+    # lacks explicit business marker fields, so include assigned B2B records
+    # by status and assignment regardless of marker presence.
+    b2b_query = {
+        "status": {"$in": ["in_transit", "delivered"]},
+        "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+    }
+    candidates.extend(await MongoDB.get_collection("b2b_orders").find(b2b_query).sort("finalDeliveryAssignedAt", -1).to_list(length=500))
+    assigned_id_strings = {str(value) for value in assigned_values if value is not None}
+    orders = []
+    for candidate in candidates:
+        assignment_values = [
+            candidate.get("finalDeliveryPartner"),
+            candidate.get("finalDeliveryPartnerId"),
+            candidate.get("finalDeliveryPartnerUserId"),
+            candidate.get("deliveryPartner"),
+            candidate.get("deliveryPartnerId"),
+            candidate.get("deliveryPartnerUserId"),
+            candidate.get("assignedDeliveryPartnerId"),
+            candidate.get("assignedDeliveryPartner"),
+        ]
+        normalized_assignments = []
+        for value in assignment_values:
+            if isinstance(value, dict):
+                normalized_assignments.extend(value.get(key) for key in ("_id", "id", "userId", "user_id", "deliveryPartnerId"))
+            else:
+                normalized_assignments.append(value)
+        if any(str(value) in assigned_id_strings for value in normalized_assignments if value not in (None, "")):
+            orders.append(candidate)
+    # De-duplicate records because B2B records can be present in both queries.
+    unique_orders = {}
+    for order in orders:
+        unique_orders[str(order.get("_id") or "")] = order
+    items = []
+    for order in unique_orders.values():
+        oid = str(order.get("_id") or "")
+        items.append({
+            "id": oid,
+            "orderId": oid,
+            "orderNumber": order.get("orderNumber") or ("B2B-" + oid[-6:].upper()),
+            "status": order.get("status"),
+            "productName": order.get("productName") or order.get("name") or "B2B order",
+            "quantityKg": order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity"),
+            "businessName": order.get("businessName") or order.get("buyerName") or order.get("organizationName") or "Business buyer",
+            "deliveryAddress": order.get("deliveryAddress") or order.get("businessAddress") or order.get("shippingAddress") or order.get("deliveryLocation") or {},
+            "deliveryNotes": order.get("deliveryNotes") or "",
+            "finalDeliveryAssignedAt": order.get("finalDeliveryAssignedAt"),
+            "finalDeliveryStartedAt": order.get("finalDeliveryStartedAt"),
+            "deliveredAt": order.get("deliveredAt"),
+            "deliveryProof": order.get("deliveryProof"),
+        })
+    return {"success": True, "data": {"orders": items, "count": len(items)}}
+
+
+@router.put("/me/b2b-delivery-orders/{order_id}/status")
+async def update_my_b2b_delivery_order_status(
+    order_id: str,
+    status_value: str = Query(..., alias="status"),
+    proof: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """Let only the assigned final-mile partner start or complete a B2B business delivery."""
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("delivery", "delivery_partner", "delivery_manager", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Only delivery partners can update B2B delivery")
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid B2B order ID")
+    orders = MongoDB.get_collection("b2b_orders")
+    order = await orders.find_one({"_id": ObjectId(order_id), "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]})
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    user_id = str(current_user.get("_id") or "")
+    assigned_values: List[Any] = [user_id]
+    if ObjectId.is_valid(user_id):
+        assigned_values.append(ObjectId(user_id))
+    # Resolve the authenticated account using the same canonical helper as
+    # the delivery partner profile endpoint. Dispatch currently stores the
+    # selected partner profile ID in finalDeliveryPartner, not necessarily the
+    # login user's ID.
+    try:
+        profile = await DeliveryService.get_delivery_partner(user_id)
+    except Exception:
+        profile = None
+    if not profile:
+        profile = await MongoDB.get_collection("delivery_partners").find_one({
+            "$or": [
+                {"userId": {"$in": assigned_values}},
+                {"user_id": {"$in": assigned_values}},
+                {"user": {"$in": assigned_values}},
+            ]
+        })
+    if profile:
+        for key in ("_id", "id", "userId", "user_id"):
+            value = profile.get(key)
+            if value is not None and not isinstance(value, dict):
+                assigned_values.extend([value, str(value)])
+    # Some older orders store the assignment as an object instead of a scalar.
+    assigned_raw = order.get("finalDeliveryPartner")
+    assigned_values_from_order = [assigned_raw]
+    if isinstance(assigned_raw, dict):
+        assigned_values_from_order.extend(
+            assigned_raw.get(key) for key in ("_id", "id", "userId", "user_id", "deliveryPartnerId")
+        )
+    assigned_values_from_order.extend([
+        order.get("finalDeliveryPartnerId"),
+        order.get("finalDeliveryPartnerUserId"),
+        order.get("deliveryPartnerId"),
+        order.get("deliveryPartnerUserId"),
+    ])
+    authorized = any(
+        str(value) in {str(item) for item in assigned_values if item is not None}
+        for value in assigned_values_from_order
+        if value not in (None, "")
+    )
+    if role not in ("admin", "super_admin") and not authorized:
+        raise HTTPException(status_code=403, detail="This B2B order is assigned to a different delivery partner account. Refresh the assignment or contact the warehouse manager.")
+    current = str(order.get("status") or "")
+    now = datetime.utcnow()
+    if status_value == "started":
+        if current != "in_transit":
+            raise HTTPException(status_code=409, detail=f"B2B delivery cannot start from status {current}")
+        update = {"finalDeliveryStartedAt": now, "updatedAt": now}
+        message = "B2B delivery started"
+    elif status_value == "delivered":
+        if current != "in_transit":
+            raise HTTPException(status_code=409, detail=f"B2B delivery cannot complete from status {current}")
+        if not proof or not proof.strip():
+            raise HTTPException(status_code=400, detail="Delivery proof / handoff notes are required")
+        update = {"status": "delivered", "deliveredAt": now, "deliveredBy": user_id, "deliveryProof": proof.strip(), "deliveryNotes": proof.strip(), "updatedAt": now}
+        message = "B2B order delivered to business"
+    else:
+        raise HTTPException(status_code=400, detail="Status must be started or delivered")
+    result = await orders.update_one({"_id": order["_id"], "status": current}, {"$set": update})
+    if not result.modified_count:
+        latest = await orders.find_one({"_id": order["_id"]})
+        if status_value == "delivered" and str((latest or {}).get("status")) == "delivered":
+            return {"success": True, "data": {"id": order_id, "status": "delivered"}, "message": "B2B order is already delivered"}
+        raise HTTPException(status_code=409, detail="B2B order changed while updating. Refresh and try again.")
+    return {"success": True, "data": {"id": order_id, "status": update.get("status", current)}, "message": message}
+
+
+@router.get("/me/farmer-fulfillment-warehouse-transfers")
+async def get_my_farmer_fulfillment_warehouse_transfers(current_user: dict = Depends(get_current_user)):
+    """List assigned destination-warehouse transfer legs, including Bulk/Event requests."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can view warehouse transfers")
+    user_oid = ObjectId(str(current_user["_id"]))
+    # Resolve this login to its delivery-partner profile too. Older assignments
+    # sometimes persisted the profile ID in assignedPartnerUserId.
+    partner_profile = await MongoDB.get_collection("delivery_partners").find_one({
+        "$or": [{"userId": user_oid}, {"userId": str(current_user["_id"])}, {"user_id": user_oid}, {"user_id": str(current_user["_id"])}],
+        "deletedAt": {"$in": [None, False, ""]},
+    })
+    profile_ids = [ObjectId(str(partner_profile["_id"]))] if partner_profile and ObjectId.is_valid(str(partner_profile.get("_id"))) else []
+    assigned_user_values = [user_oid, str(current_user["_id"])]
+    assigned_profile_values = profile_ids + [str(x) for x in profile_ids]
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    query = {
+        "legType": "warehouse_to_destination_warehouse",
+        "deletedAt": {"$in": [None, False, ""]},
+        "status": {"$in": ["assigned", "in_transit", "arrived_at_destination"]},
+        "$or": [
+            {"assignedPartnerUserId": {"$in": assigned_user_values}},
+            {"assignedDeliveryPartnerId": {"$in": assigned_profile_values}},
+        ],
+    }
+    rows = await legs.find(query).sort("assignedAt", -1).to_list(length=200)
+
+    # Repair legacy Bulk/Event assignments saved on the parent request when the
+    # corresponding transfer leg was never persisted. Create a real leg so the
+    # existing start/arrival endpoint can operate on it.
+    bulk_requests = MongoDB.get_collection("bulk_requests")
+    event_fulfillments = MongoDB.get_collection("event_fulfillments")
+    assigned_event_or = [
+        {"assignedTransferPartnerUserId": {"$in": assigned_user_values}},
+        {"assignedTransferPartnerUserId": {"$in": assigned_profile_values}},
+        {"assignedTransferPartnerId": {"$in": assigned_profile_values}},
+        {"assignedTransferPartnerId": {"$in": assigned_user_values}},
+    ]
+    assigned_events = await bulk_requests.find({
+        "$and": [
+            {"deletedAt": {"$in": [None, False, ""]}},
+            {"$or": assigned_event_or},
+            {"$or": [
+                {"transferStatus": {"$in": ["destination_warehouse_transfer_pending", "destination_warehouse_in_transit"]}},
+                {"warehouseFulfillmentStage": {"$in": ["destination_warehouse_transfer_pending", "destination_warehouse_in_transit"]}},
+            ]},
+        ]
+    }).to_list(length=200)
+    known_event_ids = {str(row.get("orderId") or row.get("eventRequestId") or "") for row in rows if row.get("isEventOrder") or row.get("eventRequestId")}
+    for event in assigned_events:
+        event_id = str(event.get("_id") or "")
+        if not ObjectId.is_valid(event_id) or event_id in known_event_ids:
+            continue
+        source_id = str(event.get("sourceWarehouseId") or event.get("eventWarehouseId") or event.get("warehouseId") or "")
+        destination_id = str(event.get("eventDestinationWarehouseId") or event.get("destinationWarehouseId") or "")
+        if not ObjectId.is_valid(source_id) or not ObjectId.is_valid(destination_id) or source_id == destination_id:
+            continue
+        existing = await legs.find_one({
+            "orderId": ObjectId(event_id), "legType": "warehouse_to_destination_warehouse",
+            "sourceWarehouseId": ObjectId(source_id), "destinationWarehouseId": ObjectId(destination_id),
+            "deletedAt": {"$in": [None, False, ""]},
+        })
+        if existing:
+            await legs.update_one({"_id": existing["_id"]}, {"$set": {
+                "assignedPartnerUserId": user_oid,
+                "assignedDeliveryPartnerId": profile_ids[0] if profile_ids else existing.get("assignedDeliveryPartnerId"),
+                "status": "assigned" if str(existing.get("status") or "") in ("awaiting_team_assignment", "pending_assignment") else existing.get("status"),
+                "orderNumber": event.get("requestNumber") or event.get("orderNumber") or ("EVENT-" + event_id[-6:].upper()),
+                "isEventOrder": True, "eventRequestId": ObjectId(event_id), "updatedAt": datetime.utcnow(),
+            }})
+            existing = await legs.find_one({"_id": existing["_id"]})
+            if existing and str(existing.get("status") or "") in ("assigned", "in_transit", "arrived_at_destination"):
+                rows.append(existing)
+            known_event_ids.add(event_id)
+            continue
+        portions = await event_fulfillments.find({
+            "$or": [
+                {"requestId": {"$in": [ObjectId(event_id), event_id]}},
+                {"eventRequestId": {"$in": [ObjectId(event_id), event_id]}},
+                {"bulkRequestId": {"$in": [ObjectId(event_id), event_id]}},
+            ],
+            "deletedAt": {"$in": [None, False, ""]},
+        }).to_list(length=1000)
+        item_rows = event.get("items") or event.get("products") or event.get("fulfillmentItems") or []
+        quantity = sum(float(x.get("quantity") or x.get("requestedQuantity") or x.get("quantityRequested") or 0) for x in portions)
+        if quantity <= 0 and isinstance(item_rows, list):
+            quantity = sum(float(x.get("quantity") or x.get("requestedQuantity") or x.get("quantityRequested") or 0) for x in item_rows if isinstance(x, dict))
+        now = datetime.utcnow()
+        leg_doc = {
+            "orderId": ObjectId(event_id), "eventRequestId": ObjectId(event_id), "isEventOrder": True,
+            "orderNumber": event.get("requestNumber") or event.get("orderNumber") or ("EVENT-" + event_id[-6:].upper()),
+            "legType": "warehouse_to_destination_warehouse",
+            "sourceWarehouseId": ObjectId(source_id),
+            "sourceWarehouseName": event.get("sourceWarehouseName") or event.get("warehouseName") or "Source Warehouse",
+            "destinationWarehouseId": ObjectId(destination_id),
+            "destinationWarehouseName": event.get("eventDestinationWarehouseName") or event.get("destinationWarehouseName") or "Destination Warehouse",
+            "quantity": quantity, "status": "assigned", "assignedPartnerUserId": user_oid,
+            "assignedDeliveryPartnerId": profile_ids[0] if profile_ids else event.get("assignedTransferPartnerId"),
+            "assignedAt": event.get("transferAssignedAt") or now, "assignedBy": event.get("transferAssignedBy"),
+            "dispatchedAt": event.get("transferDispatchedAt") or event.get("transferAssignedAt") or now,
+            "createdAt": now, "updatedAt": now, "deletedAt": None,
+        }
+        inserted = await legs.insert_one(leg_doc)
+        leg_doc["_id"] = inserted.inserted_id
+        rows.append(leg_doc)
+        known_event_ids.add(event_id)
+
+    # Include B2B business orders dispatched directly from the B2B fulfillment
+    # workflow. These live in b2b_orders (not the retail orders collection and
+    # not always in farmer_fulfillment_transfer_legs), so surface them in the
+    # existing Delivery Partner > Pickup Routes > Warehouse Transfer Routes UI.
+    # B2B logistics orders are stored in b2b_orders. Querying the retail
+    # orders collection here caused dispatched B2B transfer orders to disappear
+    # from the delivery partner's Warehouse Transfer Routes section.
+    b2b_orders = MongoDB.get_collection("b2b_orders")
+    b2b_assigned_values = [user_oid, str(current_user["_id"])] + profile_ids + [str(x) for x in profile_ids]
+    b2b_rows = await b2b_orders.find({
+        "status": "transfer_in_transit",
+        "$or": [
+            {"transferTeam": {"$in": b2b_assigned_values}},
+            {"transferPartnerUserId": {"$in": b2b_assigned_values}},
+            {"assignedTransferPartnerId": {"$in": b2b_assigned_values}},
+        ],
+        "$and": [{"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]}],
+    }).sort("transferDispatchedAt", -1).to_list(length=200)
+    for b2b in b2b_rows:
+        b2b_id = str(b2b.get("_id") or "")
+        if not ObjectId.is_valid(b2b_id):
+            continue
+        # Reuse the same status buttons as existing warehouse transfer routes.
+        partner_status = str(b2b.get("transferPartnerStatus") or "assigned")
+        if partner_status not in ("assigned", "in_transit", "arrived_at_destination"):
+            partner_status = "assigned"
+        rows.append({
+            "_id": b2b["_id"],
+            "orderId": b2b["_id"],
+            "id": b2b_id,
+            "orderNumber": b2b.get("orderNumber") or ("B2B-" + b2b_id[-6:].upper()),
+            "legType": "warehouse_to_destination_warehouse",
+            "status": partner_status,
+            "sourceWarehouseId": b2b.get("sourceWarehouseId"),
+            "destinationWarehouseId": b2b.get("destinationWarehouseId"),
+            "sourceWarehouseName": b2b.get("sourceWarehouseName"),
+            "destinationWarehouseName": b2b.get("destinationWarehouseName"),
+            "assignedPartnerUserId": user_oid,
+            "assignedAt": b2b.get("transferDispatchedAt") or b2b.get("updatedAt") or datetime.utcnow(),
+            "dispatchedAt": b2b.get("transferDispatchedAt"),
+            "createdAt": b2b.get("transferDispatchedAt") or b2b.get("createdAt") or datetime.utcnow(),
+            "updatedAt": b2b.get("updatedAt") or datetime.utcnow(),
+            "isB2BOrder": True,
+            "quantityKg": b2b.get("receivedQuantityKg") or b2b.get("packedQuantityKg") or b2b.get("quantityKg"),
+            "transferVehicle": b2b.get("transferVehicle"),
+        })
+
+    output = []
+    seen = set()
+    for row in rows:
+        leg_id = str(row.get("_id") or "")
+        if leg_id in seen:
+            continue
+        seen.add(leg_id)
+        item = dict(row)
+        for key in ("_id", "orderId", "sourceWarehouseId", "destinationWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId", "eventRequestId"):
+            if item.get(key) is not None:
+                item[key] = str(item[key])
+        item["id"] = item.pop("_id", leg_id)
+        item["isEventOrder"] = bool(item.get("isEventOrder") or item.get("eventRequestId"))
+        order_id = str(row.get("orderId") or row.get("eventRequestId") or "")
+        order = await order_repository.get_by_id(order_id) if order_id else None
+        if order:
+            item["orderNumber"] = order.get("orderNumber") or item.get("orderNumber")
+        elif item["isEventOrder"] and order_id and ObjectId.is_valid(order_id):
+            event_request = await MongoDB.get_collection("bulk_requests").find_one({"_id": ObjectId(order_id)})
+            if event_request:
+                item["orderNumber"] = event_request.get("requestNumber") or event_request.get("orderNumber") or item.get("orderNumber") or ("EVENT-" + order_id[-6:].upper())
+                item["items"] = event_request.get("items") or event_request.get("products") or event_request.get("fulfillmentItems") or []
+                item["purpose"] = event_request.get("purpose") or event_request.get("eventName")
+        output.append(item)
+    return {"success": True, "data": {"transfers": output}}
+
+@router.put("/me/farmer-fulfillment-warehouse-transfers/{transfer_id}/status")
+async def update_my_farmer_fulfillment_warehouse_transfer_status(
+    transfer_id: str,
+    transfer_status: str = Query(..., alias="status", pattern="^(started|arrived_at_destination)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Partner records departure and physical arrival at the destination warehouse."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update warehouse transfers")
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid transfer ID")
+    legs = MongoDB.get_collection("farmer_fulfillment_transfer_legs")
+    leg = await legs.find_one({
+        "_id": ObjectId(transfer_id),
+        "legType": "warehouse_to_destination_warehouse",
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+    })
+    # B2B transfers are stored on the original b2b_orders record. Support the
+    # same existing Pickup Routes actions without requiring a separate transfer
+    # leg to exist for this order.
+    if not leg:
+        b2b_orders = MongoDB.get_collection("orders")
+        user_id = str(current_user["_id"])
+        profile = await MongoDB.get_collection("delivery_partners").find_one({
+            "$or": [{"userId": ObjectId(user_id)}, {"userId": user_id}, {"user_id": ObjectId(user_id)}, {"user_id": user_id}],
+            "deletedAt": {"$in": [None, False, ""]},
+        })
+        assigned_values = [user_id, ObjectId(user_id)]
+        if profile and ObjectId.is_valid(str(profile.get("_id") or "")):
+            assigned_values.extend([str(profile["_id"]), profile["_id"]])
+        b2b = await b2b_orders.find_one({
+            "_id": ObjectId(transfer_id),
+            "status": "transfer_in_transit",
+            "transferTeam": {"$in": assigned_values},
+            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+        })
+        if not b2b:
+            raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
+        current = str(b2b.get("transferPartnerStatus") or "assigned")
+        if transfer_status == "started":
+            if current != "assigned":
+                raise HTTPException(status_code=409, detail=f"Cannot start transfer from status {current}")
+            next_status, time_field = "in_transit", "transferPartnerStartedAt"
+        else:
+            if current != "in_transit":
+                raise HTTPException(status_code=409, detail=f"Cannot confirm destination arrival from status {current}")
+            next_status, time_field = "arrived_at_destination", "transferPartnerArrivedAtDestination"
+        now = datetime.utcnow()
+        # Older B2B orders do not have transferPartnerStatus persisted yet.
+        # The UI intentionally treats a missing value as "assigned", so the
+        # compare-and-set must accept missing/null as well as an explicit value.
+        status_guard = (
+            {"transferPartnerStatus": current}
+            if b2b.get("transferPartnerStatus") is not None
+            else {"$or": [
+                {"transferPartnerStatus": {"$exists": False}},
+                {"transferPartnerStatus": None},
+                {"transferPartnerStatus": ""},
+            ]}
+        )
+        result = await b2b_orders.update_one(
+            {"$and": [
+                {"_id": b2b["_id"], "status": "transfer_in_transit", "transferTeam": {"$in": assigned_values}},
+                status_guard,
+            ]},
+            {"$set": {"transferPartnerStatus": next_status, time_field: now, "updatedAt": now}},
+        )
+        if not result.modified_count:
+            # Return the persisted state when another request already applied
+            # this transition, rather than reporting a false conflict.
+            latest = await b2b_orders.find_one({"_id": b2b["_id"]})
+            latest_status = str((latest or {}).get("transferPartnerStatus") or "")
+            if latest_status != next_status:
+                raise HTTPException(status_code=409, detail=f"B2B transfer status could not be updated (current transfer status: {latest_status or 'assigned'}). Refresh and try again.")
+        return {"success": True, "data": {"id": transfer_id, "status": next_status, "isB2BOrder": True}, "message": "B2B transfer started" if transfer_status == "started" else "B2B transfer arrival recorded. Destination warehouse receipt is required."}
+        return {"success": True, "data": {"id": transfer_id, "status": next_status, "isB2BOrder": True}, "message": "B2B transfer started" if transfer_status == "started" else "B2B transfer arrival recorded. Destination warehouse receipt is required."}
+    current = str(leg.get("status") or "")
+    if transfer_status == "started":
+        if current != "assigned":
+            raise HTTPException(status_code=409, detail=f"Cannot start transfer from status {current}")
+        next_status, time_field = "in_transit", "startedAt"
+    else:
+        if current != "in_transit":
+            raise HTTPException(status_code=409, detail=f"Cannot confirm destination arrival from status {current}")
+        next_status, time_field = "arrived_at_destination", "arrivedAtDestination"
+    now = datetime.utcnow()
+    result = await legs.update_one(
+        {"_id": leg["_id"], "status": current, "assignedPartnerUserId": ObjectId(str(current_user["_id"]))},
+        {"$set": {"status": next_status, time_field: now, "updatedAt": now}},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Transfer status changed. Refresh and try again.")
+    if transfer_status == "arrived_at_destination":
+        order_id = str(leg.get("orderId") or "")
+        if ObjectId.is_valid(order_id):
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "transferStatus": "destination_warehouse_arrived_pending_receipt",
+                "updatedAt": now,
+            })
+            order = await order_repository.get_by_id(order_id)
+            if order:
+                try:
+                    await NotificationService.send_order_workflow_update(
+                        order, stage="destination_warehouse_arrived_pending_receipt",
+                        title=f"Order #{order.get('orderNumber') or order_id}: arrived at destination warehouse",
+                        message="The transfer partner recorded arrival. Destination warehouse staff must confirm physical receipt before sending the order to the local hub.",
+                        actor_role="delivery",
+                    )
+                except Exception:
+                    logger.exception("Unable to notify destination warehouse about arrival")
+    return {"success": True, "data": {"id": transfer_id, "status": next_status}, "message": "Transfer started" if transfer_status == "started" else "Arrival at destination recorded. Warehouse receipt is required."}
+
+
+@router.get("/me/farmer-fulfillment-hub-transfers")
+async def get_my_farmer_fulfillment_hub_transfers(current_user: dict = Depends(get_current_user)):
+    """List local-hub transfers assigned to this delivery partner."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can view assigned hub transfers")
+    transfers_collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
+    rows = await transfers_collection.find({
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+        "status": {"$in": ["assigned", "in_transit", "arrived_at_hub"]},
+    }).sort("assignedAt", -1).to_list(length=200)
+    output = []
+    for row in rows:
+        for key in ("_id", "orderId", "localHubId", "sourceWarehouseId", "assignedDeliveryPartnerId", "assignedPartnerUserId"):
+            if row.get(key) is not None:
+                row[key] = str(row[key])
+                if key == "_id":
+                    row["id"] = row[key]
+        output.append(row)
+    return {"success": True, "data": {"transfers": output}}
+
+
+@router.put("/me/farmer-fulfillment-hub-transfers/{transfer_id}/status")
+async def update_my_farmer_fulfillment_hub_transfer_status(
+    transfer_id: str,
+    transfer_status: str = Query(..., alias="status", pattern="^(started|arrived_at_hub)$"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Pickup partner starts the warehouse-to-hub journey and confirms physical hub arrival."""
+    if current_user.get("role") != "delivery":
+        raise HTTPException(status_code=403, detail="Only delivery partners can update hub transfers")
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid transfer ID")
+    collection = MongoDB.get_collection("farmer_fulfillment_hub_transfers")
+    transfer = await collection.find_one({
+        "_id": ObjectId(transfer_id),
+        "assignedPartnerUserId": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+    })
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Assigned local-hub transfer not found")
+    current = str(transfer.get("status") or "")
+    transitions = {"assigned": "started", "started": "in_transit", "in_transit": "arrived_at_hub"}
+    now = datetime.utcnow()
+    if transfer_status == "started":
+        if current != "assigned":
+            raise HTTPException(status_code=409, detail=f"Cannot start transfer from status {current}")
+        next_status = "in_transit"
+        time_field = "startedAt"
+    else:
+        if current not in ("in_transit", "started"):
+            raise HTTPException(status_code=409, detail=f"Cannot confirm hub arrival from status {current}")
+        next_status = "arrived_at_hub"
+        time_field = "arrivedAtHubAt"
+    result = await collection.update_one(
+        {"_id": transfer["_id"], "status": current, "assignedPartnerUserId": ObjectId(str(current_user["_id"]))},
+        {"$set": {"status": next_status, time_field: now, "updatedAt": now}},
+    )
+    if not result.modified_count:
+        raise HTTPException(status_code=409, detail="Transfer status changed. Refresh and try again.")
+    if transfer_status == "arrived_at_hub":
+        order_id = str(transfer.get("orderId") or "")
+        if ObjectId.is_valid(order_id):
+            await order_repository.update({"_id": ObjectId(order_id)}, {
+                "transferStatus": "hub_arrived_pending_receipt",
+                "updatedAt": now,
+            })
+            order = await order_repository.get_by_id(order_id)
+            if order:
+                try:
+                    await NotificationService.send_order_workflow_update(
+                        order,
+                        stage="hub_arrived_pending_receipt",
+                        title=f"Order #{order.get('orderNumber') or order_id}: arrived at local hub",
+                        message="The pickup team recorded arrival at the local hub. Hub staff must confirm physical receipt before final delivery can begin.",
+                        actor_role="delivery",
+                    )
+                except Exception:
+                    logger.exception("Unable to notify warehouse about local-hub arrival")
+    return {"success": True, "data": {"id": transfer_id, "status": next_status}, "message": "Transfer started" if transfer_status == "started" else "Arrival at local hub recorded. The hub must confirm receipt."}
+

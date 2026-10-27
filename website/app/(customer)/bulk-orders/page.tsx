@@ -2,12 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Sparkles, Loader2, Plus, CalendarDays, Truck, MapPin, Package, Eye, XCircle } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
+import toast from "react-hot-toast";
 
 const requestStatusVariant: Record<string, any> = {
   open: "success",
@@ -35,6 +36,27 @@ function ItemsSummary({ items }: { items: any[] }) {
 
 export default function CustomerBulkOrdersPage() {
   const [tab, setTab] = useState<"requests" | "orders">("requests");
+  const queryClient = useQueryClient();
+
+  const cancelRequestMutation = useMutation({
+    mutationFn: (requestId: string) => api.post(`/bulk-orders/requests/${requestId}/cancel`),
+    onSuccess: () => {
+      toast.success("Bulk/event request cancelled.");
+      queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
+      queryClient.invalidateQueries({ queryKey: ["bulk", "orders"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not cancel this request"),
+  });
+
+  const cancelOrderMutation = useMutation({
+    mutationFn: (orderId: string) => api.put(`/bulk-orders/orders/${orderId}/status`, { status: "cancelled" }),
+    onSuccess: () => {
+      toast.success("Bulk order cancelled.");
+      queryClient.invalidateQueries({ queryKey: ["bulk", "orders"] });
+      queryClient.invalidateQueries({ queryKey: ["bulk", "requests"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not cancel this order"),
+  });
 
   const { data: requestsData, isLoading: requestsLoading } = useQuery({
     queryKey: ["bulk", "requests"],
@@ -63,8 +85,7 @@ export default function CustomerBulkOrdersPage() {
         </Button>
       </div>
       <p className="text-sm text-gray-500">
-        Planning a wedding, function, festival or party? Request quotes for large quantities and let
-        farmers compete for your order — you pick the best offer.
+        Create a bulk, event, business, institutional, or weekly family order. AgriConnect tracks product quantities and every farmer/source portion through collection, warehouse receipt, consolidation, local-hub receipt, and final delivery.
       </p>
 
       <div className="flex gap-2">
@@ -100,19 +121,19 @@ export default function CustomerBulkOrdersPage() {
         ) : (
           <div className="space-y-3">
             {requests.map((r: any) => (
-              <Link key={r.id} href={`/bulk-orders/${r.id}`}>
+              <div key={r.id}>
                 <Card className="transition-colors hover:border-emerald-300">
                   <CardContent className="space-y-2 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline" className="border-purple-200 bg-purple-50 text-purple-700">
-                          {r.requestType === "b2b" ? "Business RFQ" : "🎉 Event Request"}
+                          {r.buyerCategory === "institution" ? "Institutional Bulk" : r.buyerCategory === "business" || r.requestType === "b2b" ? "Business / B2B RFQ" : r.buyerCategory === "individual" ? "Individual Bulk" : r.purchaseMode === "family_weekly" ? "🧺 Weekly Family Basket" : "🎉 Event Request"}
                         </Badge>
-                        <p className="font-medium">{r.requestNumber}</p>
+                        <Link href={`/bulk-orders/${r.id}`} className="font-medium hover:underline">{r.requestNumber}</Link>
                       </div>
                       <Badge variant={requestStatusVariant[r.status] || "secondary"}>{r.status.replace(/_/g, " ")}</Badge>
                     </div>
-                    <p className="text-sm font-medium capitalize text-gray-800">{r.purpose}</p>
+                    <p className="text-sm font-medium capitalize text-gray-800">{r.organizationName ? r.organizationName + " · " : ""}{r.purpose}{r.guestCount ? ` · ${r.guestCount} guests` : ""}{r.familySize ? ` · Family of ${r.familySize}` : ""}</p>
                     <ItemsSummary items={r.items} />
                     <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
@@ -123,10 +144,48 @@ export default function CustomerBulkOrdersPage() {
                         <MapPin className="h-3.5 w-3.5" /> {r.deliveryCity || r.deliveryAddress?.city || "Location"}
                       </span>
                       <span>{r.offerCount ?? 0} offer(s)</span>
+                      {["bulk_event", "b2b"].includes(r.requestType) ? (
+                        <>
+                          <Link
+                            href={`/bulk-orders/${r.id}/sourcing`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="font-medium text-emerald-700 hover:underline"
+                          >
+                            Smart Fulfillment
+                          </Link>
+                          <Link
+                            href={"/bulk-orders/" + r.id + "/tracking"}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                          >
+                            <Eye className="h-3.5 w-3.5" /> View Tracking
+                          </Link>
+                        </>
+                      ) : null}
                     </div>
+                    {r.status !== "awarded" && r.status !== "cancelled" ? (
+                      <div className="flex justify-end pt-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={cancelRequestMutation.isPending}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (window.confirm("Cancel this bulk/event request? Pending farmer offers will be declined.")) {
+                              cancelRequestMutation.mutate(r.id);
+                            }
+                          }}
+                        >
+                          {cancelRequestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                          Cancel Request
+                        </Button>
+                      </div>
+                    ) : null}
                   </CardContent>
                 </Card>
-              </Link>
+              </div>
             ))}
           </div>
         )
@@ -162,6 +221,30 @@ export default function CustomerBulkOrdersPage() {
                   <span>Deliver {o.requestedDeliveryDate}</span>
                   <span>₹{Number(o.totalAmount || 0).toFixed(2)}</span>
                   <span className="capitalize">{o.deliveryMethod?.replace(/_/g, " ")}</span>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <Link
+                    href={"/bulk-orders/" + o.requestId + "/tracking"}
+                    className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:underline"
+                  >
+                    <Eye className="h-4 w-4" /> View Tracking
+                  </Link>
+                  {o.status === "confirmed" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={cancelOrderMutation.isPending}
+                      onClick={() => {
+                        if (window.confirm("Cancel this bulk order? This is only allowed before preparation or dispatch starts.")) {
+                          cancelOrderMutation.mutate(o.id);
+                        }
+                      }}
+                    >
+                      {cancelOrderMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                      Cancel Order
+                    </Button>
+                  ) : null}
                 </div>
               </CardContent>
             </Card>

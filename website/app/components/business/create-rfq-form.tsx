@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bot, Loader2, Plus } from "lucide-react";
+import { Bot, Loader2, Plus, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../lib/api/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
 import { Button } from "../ui/button";
@@ -20,6 +20,12 @@ const emptyForm = {
   recurring: false,
   quantityKg: 500,
   quantityPerWeekKg: 50,
+  recurrenceFrequency: "weekly",
+  recurrenceInterval: 1,
+  scheduleStartDate: "",
+  scheduleEndDate: "",
+  paymentTerms: "net_7",
+  cancellationTerms: "",
   qualityGrade: "Grade A",
   requiredDate: "",
   deliveryTimeSlot: "6–9 AM",
@@ -27,6 +33,7 @@ const emptyForm = {
   deliveryState: "",
   deliveryDistrict: "",
   deliveryAddress: "",
+  deliveryLocation: null as { type: string; coordinates: [number, number]; latitude: number; longitude: number } | null,
   priceCeilingPerKg: "",
   budgetMinPerKg: "",
   budgetMaxPerKg: "",
@@ -38,6 +45,7 @@ const emptyForm = {
 export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState(emptyForm);
+  const [productLines, setProductLines] = useState([{ productName: "", category: "", quantityKg: 1, quantityPerDeliveryKg: 1 }]);
   const [aiRec, setAiRec] = useState<any>(null);
 
   const createMutation = useMutation({
@@ -57,7 +65,120 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
     onError: (err: any) => toast.error(err?.message || "AI price check failed"),
   });
 
+  const [locationLoading, setLocationLoading] = useState(false);
+
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  const geocodeManualAddress = async () => {
+    const query = form.deliveryAddress.trim();
+    if (!query) {
+      toast.error("Enter a delivery address first.");
+      return;
+    }
+
+    setLocationLoading(true);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=${encodeURIComponent(query)}`,
+        { headers: { Accept: "application/json" } },
+      );
+      if (!response.ok) throw new Error("Address lookup failed");
+      const results = await response.json();
+      const match = results?.[0];
+      if (!match) {
+        toast.error("Could not find that address on the map. Check the address or use live location.");
+        return;
+      }
+
+      const latitude = Number(match.lat);
+      const longitude = Number(match.lon);
+      const address = match.address || {};
+      setForm((current) => ({
+        ...current,
+        deliveryAddress: current.deliveryAddress.trim() || match.display_name || query,
+        deliveryCity: current.deliveryCity || address.city || address.town || address.village || address.municipality || address.county || "",
+        deliveryState: current.deliveryState || address.state || address.region || "",
+        deliveryDistrict: current.deliveryDistrict || address.state_district || address.county || address.city_district || "",
+        deliveryLocation: {
+          type: "Point",
+          coordinates: [longitude, latitude],
+          latitude,
+          longitude,
+        },
+      }));
+      toast.success("Address location found and saved for delivery routing.");
+    } catch {
+      toast.error("Could not look up the address. You can still enter it manually or use live location.");
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const useLiveLocation = () => {
+    if (!("geolocation" in navigator)) {
+      toast.error("Live location is not supported by this browser. Enter the address manually.");
+      return;
+    }
+
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async ({ coords }) => {
+        const latitude = coords.latitude;
+        const longitude = coords.longitude;
+        const location = {
+          type: "Point",
+          coordinates: [longitude, latitude] as [number, number],
+          latitude,
+          longitude,
+        };
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            { headers: { Accept: "application/json" } },
+          );
+          if (!response.ok) throw new Error("Address lookup failed");
+
+          const result = await response.json();
+          const address = result.address || {};
+          const city = address.city || address.town || address.village || address.municipality || address.county || "";
+          const state = address.state || address.region || "";
+          const district = address.state_district || address.county || address.city_district || "";
+          const formattedAddress = result.display_name || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+
+          setForm((current) => ({
+            ...current,
+            deliveryAddress: formattedAddress,
+            deliveryCity: current.deliveryCity || city,
+            deliveryState: current.deliveryState || state,
+            deliveryDistrict: current.deliveryDistrict || district,
+            deliveryLocation: location,
+          }));
+          toast.success("Live location added. Please verify the address before publishing.");
+        } catch {
+          setForm((current) => ({
+            ...current,
+            deliveryAddress: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+            deliveryLocation: location,
+          }));
+          toast.error("Coordinates saved, but the street address could not be found. Enter the address manually.");
+        } finally {
+          setLocationLoading(false);
+        }
+      },
+      (error) => {
+        setLocationLoading(false);
+        toast.error(
+          error.code === error.PERMISSION_DENIED
+            ? "Location permission denied. Allow location access or enter the address manually."
+            : error.code === error.TIMEOUT
+              ? "Getting your location timed out. Please try again."
+              : "Could not get your live location. Enter the address manually.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
 
   return (
     <Card className="border-emerald-200">
@@ -68,33 +189,54 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-2">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Product *</label>
-          <Input value={form.productName} onChange={(e) => set("productName", e.target.value)} placeholder="e.g. Tomato" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Category *</label>
-          <select
-            value={form.category}
-            onChange={(e) => set("category", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm outline-none focus:border-emerald-500"
-          >
-            <option value="">Select category</option>
-            {PRODUCT_CATEGORIES.map((category) => (
-              <option key={category} value={category}>{category}</option>
-            ))}
-          </select>
+        <div className="space-y-3 sm:col-span-2 rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-semibold text-slate-900">Products in this RFQ</h3>
+              <p className="text-xs text-slate-500">Add every product the business needs. Each row has its own quantity and category.</p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setProductLines((rows) => [...rows, { productName: "", category: "", quantityKg: 1, quantityPerDeliveryKg: 1 }])}>
+              <Plus className="mr-1 h-4 w-4" /> Add Product
+            </Button>
+          </div>
+          {productLines.map((line, index) => (
+            <div key={index} className="grid gap-3 rounded-lg border bg-white p-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Product {index + 1} *</label>
+                <Input value={line.productName} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, productName: e.target.value } : row))} placeholder="e.g. Brinjal" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">Category *</label>
+                <select value={line.category} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, category: e.target.value } : row))} className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm">
+                  <option value="">Select category</option>
+                  {PRODUCT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-600">{form.recurring ? "Quantity per delivery (kg) *" : "Quantity (kg) *"}</label>
+                <Input type="number" min="0.1" step="0.1" value={form.recurring ? line.quantityPerDeliveryKg : line.quantityKg} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, [form.recurring ? "quantityPerDeliveryKg" : "quantityKg"]: Number(e.target.value) } : row))} />
+              </div>
+              <div className="flex items-end justify-between gap-2">
+                <p className="pb-2 text-xs text-slate-500">Quality and budget set below apply to each product.</p>
+                <Button type="button" size="sm" variant="outline" disabled={productLines.length === 1} onClick={() => setProductLines((rows) => rows.filter((_, i) => i !== index))}>Remove</Button>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="space-y-1 sm:col-span-2">
-          <div className="flex rounded-lg border p-1">
+          {form.recurring && <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 sm:col-span-2"><strong>Recurring Supply Contract</strong><p className="mt-1">Set the delivery schedule and terms below. After a farmer quote is accepted, the agreement must be confirmed by the farmer before scheduled B2B orders can be generated.</p></div>}
+          <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
             {[{ key: false, label: "One-off order" }, { key: true, label: "Recurring supply" }].map((o) => (
               <button
                 key={String(o.key)}
                 type="button"
+                aria-pressed={form.recurring === o.key}
                 onClick={() => set("recurring", o.key)}
-                className={`flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                  form.recurring === o.key ? "bg-emerald-600 text-white" : "hover:bg-gray-100"
+                className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                  form.recurring === o.key
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "bg-white text-slate-600 hover:bg-emerald-50 hover:text-emerald-700"
                 }`}
               >
                 {o.label}
@@ -104,10 +246,18 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         </div>
 
         {form.recurring ? (
+          <>
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Quantity (kg/week) *</label>
             <Input type="number" min="1" value={form.quantityPerWeekKg} onChange={(e) => set("quantityPerWeekKg", Number(e.target.value))} />
           </div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Delivery frequency *</label><select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Repeat every *</label><Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} /></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule start date *</label><Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} /></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule end date *</label><Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} /></div>
+          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Payment terms</label><select value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="advance">Advance</option><option value="cod">Cash on delivery</option><option value="net_7">Net 7 days</option><option value="net_15">Net 15 days</option><option value="net_30">Net 30 days</option></select></div>
+          <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label><Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" /></div>
+          </>
         ) : (
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Quantity (kg) *</label>
@@ -138,22 +288,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </>
         )}
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Delivery city *</label>
-          <Input value={form.deliveryCity} onChange={(e) => set("deliveryCity", e.target.value)} placeholder="e.g. Coimbatore" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">State</label>
-          <Input value={form.deliveryState} onChange={(e) => set("deliveryState", e.target.value)} placeholder="e.g. Tamil Nadu" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">District</label>
-          <Input value={form.deliveryDistrict} onChange={(e) => set("deliveryDistrict", e.target.value)} placeholder="e.g. Coimbatore" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
-          <Input type="number" min="0" value={form.priceCeilingPerKg} onChange={(e) => set("priceCeilingPerKg", e.target.value)} />
-        </div>
+        {/* City, state and district are derived from the delivery address lookup or live location. */}
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Budget min (₹/kg)</label>
           <Input type="number" min="0" value={form.budgetMinPerKg} onChange={(e) => set("budgetMinPerKg", e.target.value)} />
@@ -161,6 +296,21 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Budget max (₹/kg)</label>
           <Input type="number" min="0" value={form.budgetMaxPerKg} onChange={(e) => set("budgetMaxPerKg", e.target.value)} />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Max price (₹/kg ceiling)</label>
+          <Input
+            type="number"
+            min="0"
+            value={form.priceCeilingPerKg}
+            onChange={(e) => set("priceCeilingPerKg", e.target.value)}
+            placeholder={aiRec?.suggestedPricePerKg != null ? `AI suggestion: ₹${aiRec.suggestedPricePerKg}/kg — click Use ₹${aiRec.suggestedPricePerKg}/kg below` : "Enter maximum price or use AI price check"}
+          />
+          <p className="text-xs text-gray-500">
+            {aiRec?.suggestedPricePerKg != null
+              ? `AI suggested ₹${aiRec.suggestedPricePerKg}/kg. Review the result below and click its Use button to fill this field, or enter your own price.`
+              : "Recommended: enter the product and delivery city, then click AI price check to get a price suggestion. You can also enter a price manually."}
+          </p>
         </div>
 
         <div className="space-y-1">
@@ -178,9 +328,34 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </select>
         </div>
 
-        <div className="space-y-1 sm:col-span-2">
-          <label className="text-xs font-medium text-gray-500">Delivery address</label>
-          <Input value={form.deliveryAddress} onChange={(e) => set("deliveryAddress", e.target.value)} placeholder="Business address for pickup/delivery" />
+        <div className="space-y-2 sm:col-span-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="text-xs font-medium text-gray-500">Delivery address *</label>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={geocodeManualAddress}>
+                <MapPin className="mr-1.5 h-4 w-4" />
+                Find address on map
+              </Button>
+              <Button type="button" variant="outline" size="sm" disabled={locationLoading} onClick={useLiveLocation}>
+                {locationLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-1.5 h-4 w-4" />}
+                {locationLoading ? "Getting location…" : "Use my live location"}
+              </Button>
+            </div>
+          </div>
+          <Input
+            value={form.deliveryAddress}
+            onChange={(e) => setForm((current) => ({ ...current, deliveryAddress: e.target.value, deliveryLocation: null }))}
+            placeholder="Enter full business delivery address manually"
+          />
+          <p className="text-xs text-gray-500">
+            Enter the complete address manually, choose Find address on map to save coordinates for distance routing, or use live location. Verify the address before publishing.
+          </p>
+          {form.deliveryLocation?.coordinates?.length === 2 && (
+            <p className="flex items-center gap-1 text-xs text-emerald-700">
+              <MapPin className="h-3.5 w-3.5" />
+              GPS coordinates saved ({form.deliveryLocation.latitude.toFixed(5)}, {form.deliveryLocation.longitude.toFixed(5)}).
+            </p>
+          )}
         </div>
         <div className="space-y-1 sm:col-span-2">
           <label className="text-xs font-medium text-gray-500">Additional requirements</label>
@@ -276,16 +451,38 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={!form.productName || !form.category || createMutation.isPending || (!form.recurring && (!form.quantityKg || form.quantityKg <= 0)) || (form.recurring && form.quantityPerWeekKg <= 0) || !form.deliveryCity}
+            disabled={productLines.some((line) => !line.productName.trim() || !line.category || (form.recurring ? line.quantityPerDeliveryKg <= 0 : line.quantityKg <= 0)) || new Set(productLines.map((line) => line.productName.trim().toLowerCase())).size !== productLines.length || createMutation.isPending || (form.recurring && (!form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
             onClick={() =>
               createMutation.mutate({
                 ...form,
+                productName: productLines[0].productName.trim(),
+                category: productLines[0].category,
+                products: productLines.map((line) => ({
+                  productName: line.productName.trim(),
+                  category: line.category,
+                  unit: "kg",
+                  quantityKg: form.recurring ? null : Number(line.quantityKg),
+                  quantityPerDeliveryKg: form.recurring ? Number(line.quantityPerDeliveryKg) : null,
+                  qualityGrade: form.qualityGrade,
+                  priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
+                  budgetMinPerKg: form.budgetMinPerKg !== "" ? Number(form.budgetMinPerKg) : null,
+                  budgetMaxPerKg: form.budgetMaxPerKg !== "" ? Number(form.budgetMaxPerKg) : null,
+                })),
+                quantityKg: form.recurring ? null : Number(productLines[0].quantityKg),
+                quantityPerWeekKg: form.recurring ? Number(productLines[0].quantityPerDeliveryKg) : null,
                 priceCeilingPerKg: form.priceCeilingPerKg ? Number(form.priceCeilingPerKg) : null,
                 budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
                 budgetMaxPerKg: form.budgetMaxPerKg ? Number(form.budgetMaxPerKg) : null,
                 deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
                 quantityKg: form.recurring ? null : form.quantityKg,
                 quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
+                recurrenceFrequency: form.recurring ? form.recurrenceFrequency : null,
+                recurrenceInterval: form.recurring ? form.recurrenceInterval : null,
+                scheduleStartDate: form.recurring && form.scheduleStartDate ? new Date(form.scheduleStartDate).toISOString() : null,
+                scheduleEndDate: form.recurring && form.scheduleEndDate ? new Date(form.scheduleEndDate).toISOString() : null,
+                contractRequired: form.recurring,
+                paymentTerms: form.recurring ? form.paymentTerms : null,
+                cancellationTerms: form.recurring ? form.cancellationTerms : null,
               })
             }
           >

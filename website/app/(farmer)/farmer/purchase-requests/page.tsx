@@ -112,6 +112,21 @@ export default function FarmerBulkOrdersPage() {
   const [tab, setTab] = useState<"not_submitted" | "submitted">("not_submitted");
   const [openFor, setOpenFor] = useState<string | null>(null);
 
+  const { data: eventData, isLoading: eventLoading } = useQuery({
+    queryKey: ["farmer", "event-fulfillments"],
+    queryFn: () => api.get("/bulk-orders/event-orders/fulfillments"),
+  });
+
+  const eventStatusMutation = useMutation({
+    mutationFn: (payload: { ids: string[]; status: string }) =>
+      Promise.all(payload.ids.map((id) => api.put(`/bulk-orders/event-orders/fulfillments/${id}/status`, { status: payload.status }))),
+    onSuccess: () => {
+      toast.success("Event fulfillment updated.");
+      queryClient.invalidateQueries({ queryKey: ["farmer", "event-fulfillments"] });
+    },
+    onError: (err: any) => toast.error(err?.message || "Failed to update event fulfillment"),
+  });
+
   const { data: bulkData, isLoading: bulkLoading } = useQuery({
     queryKey: ["farmer", "bulk-orders"],
     queryFn: () => api.get("/bulk-orders/requests", { params: { scope: "open" } }),
@@ -131,7 +146,7 @@ export default function FarmerBulkOrdersPage() {
     kind: "bulk",
     id: r.id,
     source: r.buyerType,
-    sourceLabel: "👤 Customer Event",
+    sourceLabel: r.eventFulfillmentMode === "planned" ? "🔵 Planned Event RFQ" : "👤 Customer Event",
     requestNumber: r.requestNumber,
     title: r.purpose,
     subtitle: (r.items || []).map((i: any) => `${i.name} ${i.quantityKg} kg`).join(" • "),
@@ -145,6 +160,7 @@ export default function FarmerBulkOrdersPage() {
     request: r,
   }));
 
+  const eventFulfillments = eventData?.data?.fulfillments || [];
   const submitted = items.filter((i) => i.myOfferStatus);
   const notSubmitted = items.filter((i) => !i.myOfferStatus);
   const sectionClass = "rounded-3xl border bg-white p-6";
@@ -235,9 +251,9 @@ export default function FarmerBulkOrdersPage() {
         >
           <Send className="h-4 w-4" />
           Submitted
-          {submitted.length > 0 && (
+          {(submitted.length + eventFulfillments.length) > 0 && (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-              {submitted.length}
+              {submitted.length + eventFulfillments.length}
             </span>
           )}
         </button>
@@ -283,7 +299,7 @@ export default function FarmerBulkOrdersPage() {
             <p className={countClass}>Requests you've submitted offers for</p>
           </div>
 
-          {submitted.length === 0 ? (
+          {submitted.length === 0 && eventFulfillments.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-12 text-center">
               <Send className="h-9 w-9 text-gray-300" />
               <p className="mt-3 font-medium text-gray-600">No submitted offers yet</p>
@@ -291,6 +307,74 @@ export default function FarmerBulkOrdersPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {eventFulfillments.length > 0 && (
+                <div className="rounded-2xl border border-purple-200 bg-purple-50/50 p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h3 className="font-semibold text-purple-900">Confirmed Event Fulfillment</h3>
+                      <p className="text-sm text-purple-700">Orders assigned to your farm after the buyer confirms sourcing.</p>
+                    </div>
+                    <Badge variant="outline" className="border-purple-300 bg-white text-purple-700">{eventFulfillments.length} allocation(s)</Badge>
+                  </div>
+                  <div className="space-y-4">
+                    {Object.values(eventFulfillments.reduce((groups: Record<string, any>, portion: any) => {
+                      const orderKey = String(portion.requestId || portion.requestNumber || portion.eventOrderId || portion.id);
+                      if (!groups[orderKey]) groups[orderKey] = { key: orderKey, requestNumber: portion.requestNumber || portion.requestId || "Event order", portions: [] };
+                      groups[orderKey].portions.push(portion);
+                      return groups;
+                    }, {})).map((order: any) => (
+                      <Card key={order.key} className="border-purple-100 bg-white">
+                        <CardContent className="space-y-4 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">Customer event order</Badge>
+                                <p className="font-semibold">{order.requestNumber}</p>
+                              </div>
+                              <p className="mt-1 text-sm text-slate-600">{order.portions.length} product portion(s) · one customer order</p>
+                            </div>
+                            <Badge variant="secondary">{order.portions.every((p: any) => ["ready_for_collection", "collected", "warehouse_received", "stored"].includes(String(p.status))) ? "Pickup process started" : "Farmer action required"}</Badge>
+                          </div>
+                          <div className="space-y-3">
+                            {order.portions.map((portion: any) => {
+                              const status = String(portion.status || "pending_farmer_confirmation");
+                              const nextStatus = status === "pending_farmer_confirmation" ? "accepted" : status === "accepted" ? "ready_for_collection" : null;
+                              return (
+                                <div key={portion.id} className="flex flex-col gap-3 rounded-xl border bg-slate-50/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="font-medium">{portion.productName || "Product"}</p>
+                                      <span className="text-sm text-slate-600">{portion.allocatedQuantityKg} kg</span>
+                                      <Badge variant={status === "cancelled" || status === "warehouse_rejected" ? "destructive" : status === "stored" ? "success" : "secondary"}>{status.replace(/_/g, " ")}</Badge>
+                                    </div>
+                                    <p className="mt-1 text-xs text-slate-500">{portion.farmName || "Your farm"}{portion.distanceKm != null && portion.distanceKm < 999 ? " · " + Number(portion.distanceKm).toFixed(1) + " km to destination" : ""}</p>
+                                  </div>
+                                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                    {status === "ready_for_collection" ? (
+                                      <Badge variant="success">Ready for Pickup · Awaiting pickup team</Badge>
+                                    ) : status === "collected" ? (
+                                      <Badge variant="secondary">Collected by pickup team</Badge>
+                                    ) : status === "warehouse_received" ? (
+                                      <Badge variant="secondary">Received at warehouse</Badge>
+                                    ) : status === "stored" ? (
+                                      <Badge variant="success">Stored</Badge>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+                            <div><p className="font-medium">Customer order actions</p><p className="text-xs text-slate-500">Apply one action to eligible products in this order.</p></div>
+                            {(() => { const pending = order.portions.filter((p: any) => String(p.status || "pending_farmer_confirmation") === "pending_farmer_confirmation"); const accepted = order.portions.filter((p: any) => String(p.status) === "accepted"); const ids = pending.length ? pending.map((p: any) => p.id) : accepted.map((p: any) => p.id); const status = pending.length ? "accepted" : accepted.length ? "ready_for_collection" : null; const label = pending.length ? (pending.length === order.portions.length ? "Confirm Order" : "Confirm Remaining Products") : accepted.length ? "Ready for Pickup (All Eligible Products)" : null; return status ? <Button disabled={eventStatusMutation.isPending} onClick={() => eventStatusMutation.mutate({ ids, status })}><CheckCircle className="mr-2 h-4 w-4" />{label}</Button> : <Badge variant="success">No farmer action pending</Badge>; })()}
+                          </div>
+                                                    <p className="text-xs text-slate-500">These products belong to the same customer event request. The pickup team records collection after all required farm portions are ready.</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
               {submitted.map(renderItem)}
             </div>
           )}

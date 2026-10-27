@@ -25,22 +25,69 @@ const statusVariant: Record<string, any> = {
 const ORDER_FILTERS = ["", "active", "completed", "cancelled"];
 
 function StatusTimeline({ status }: { status: string }) {
-  const flow = ["confirmed", "preparing", "quality_check", "dispatched", "in_transit", "delivered", "completed"];
-  if (status === "cancelled") {
-    return <p className="text-xs text-red-600">Cancelled</p>;
-  }
+  const flow = [
+    "confirmed", "preparing", "quality_check", "ready_for_pickup", "picked_up",
+    "warehouse_received", "transfer_in_transit", "destination_warehouse_received",
+    "in_transit", "delivered", "completed",
+  ];
+  const labels: Record<string, string> = {
+    confirmed: "Order placed", preparing: "Preparing", quality_check: "Quality check",
+    ready_for_pickup: "Ready for pickup", picked_up: "Collected from farm",
+    warehouse_received: "Warehouse received", transfer_in_transit: "Warehouse transfer",
+    destination_warehouse_received: "Destination received", in_transit: "Final delivery",
+    delivered: "Delivered", completed: "Completed",
+  };
+  if (status === "cancelled") return <p className="text-xs text-red-600">Cancelled</p>;
   const idx = flow.indexOf(status);
   return (
-    <div className="flex items-center gap-1">
-      {flow.map((s, i) => (
-        <div key={s} className="flex items-center">
-          <div
-            className={`h-2.5 w-2.5 rounded-full ${i <= idx ? (i === idx ? "bg-emerald-600 ring-2 ring-emerald-200" : "bg-emerald-500") : "bg-gray-200"}`}
-            title={s}
-          />
-          {i < flow.length - 1 && <div className={`h-0.5 w-3 sm:w-5 ${i < idx ? "bg-emerald-500" : "bg-gray-200"}`} />}
-        </div>
-      ))}
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-1">
+        {flow.map((s, i) => (
+          <div key={s} className="flex min-w-0 flex-1 items-center">
+            <div className={`h-2.5 w-2.5 shrink-0 rounded-full ${idx >= 0 && i <= idx ? (i === idx ? "bg-emerald-600 ring-2 ring-emerald-200" : "bg-emerald-500") : "bg-gray-200"}`} title={labels[s]} />
+            {i < flow.length - 1 && <div className={`h-0.5 min-w-1 flex-1 ${idx >= 0 && i < idx ? "bg-emerald-500" : "bg-gray-200"}`} />}
+          </div>
+        ))}
+      </div>
+      <p className="text-xs font-medium text-slate-600">Current stage: {labels[status] || status.replace(/_/g, " ")}</p>
+    </div>
+  );
+}
+
+function OrderActivityTimeline({ order }: { order: any }) {
+  const events = Array.isArray(order.statusHistory) ? [...order.statusHistory].sort((a: any, b: any) => {
+    const ta = new Date(a.timestamp || a.createdAt || 0).getTime();
+    const tb = new Date(b.timestamp || b.createdAt || 0).getTime();
+    return ta - tb;
+  }) : [];
+  const label = (value: any) => String(value || "Order updated").replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+  return (
+    <div className="rounded-lg border bg-slate-50 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-slate-800">Order activity & fulfillment updates</p>
+        <Badge variant="outline">{events.length} updates</Badge>
+      </div>
+      {events.length === 0 ? (
+        <p className="text-xs text-slate-500">No additional fulfillment events recorded yet. This timeline will update as farmers, pickup teams, warehouse staff, and delivery partners process the order.</p>
+      ) : (
+        <ol className="space-y-3">
+          {events.slice().reverse().map((event: any, index: number) => (
+            <li key={String(event.timestamp || event.createdAt || index) + "-" + index} className="flex gap-3">
+              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <p className="text-sm font-medium text-slate-800">{label(event.action || event.status)}</p>
+                  <time className="text-xs text-slate-500">{event.timestamp || event.createdAt ? new Date(event.timestamp || event.createdAt).toLocaleString() : "Time unavailable"}</time>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {event.actorRole ? label(event.actorRole) : "AgriConnect"}{event.status ? " · " + label(event.status) : ""}
+                </p>
+                {event.details ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{event.details}</p> : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -188,6 +235,8 @@ export default function BusinessOrdersPage() {
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["b2b", "orders"],
     queryFn: () => api.get("/b2b/orders"),
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const updateMutation = useMutation({
@@ -268,6 +317,7 @@ export default function BusinessOrdersPage() {
                 </div>
 
                 <StatusTimeline status={o.status} />
+                <OrderActivityTimeline order={o} />
 
                 <div className="flex flex-wrap gap-3 text-xs text-gray-500">
                   {o.deliveryCity ? (

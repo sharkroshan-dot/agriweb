@@ -1,0 +1,469 @@
+from datetime import datetime, timedelta
+from typing import Optional
+import secrets
+import os
+from bson import ObjectId
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field, EmailStr
+from app.api.v1.auth import get_current_user
+from app.database.mongodb import MongoDB
+from app.repositories.warehouse_repository import warehouse_repository
+from app.repositories.user_repository import user_repository
+from app.repositories.order_repository import order_repository
+from app.repositories.delivery_job_repository import delivery_job_repository, JOB_OPEN
+from app.services.delivery_job_service import build_job_document
+from app.core.security import Security
+from app.services.order_service import geocode_address
+from app.services.notification_service import NotificationService
+
+router = APIRouter()
+
+
+class HubPasswordChange(BaseModel):
+    currentPassword: str = Field(..., min_length=8, max_length=128)
+    newPassword: str = Field(..., min_length=8, max_length=128)
+
+
+class LocalHubCreate(BaseModel):
+    name: str = Field(..., min_length=3, max_length=120)
+    district: str = Field(..., min_length=2, max_length=100)
+    state: str = Field(..., min_length=2, max_length=100)
+    address: str = Field(..., min_length=5, max_length=500)
+    capacity: float = Field(..., gt=0)
+    managerName: str = Field(..., min_length=2, max_length=120)
+    username: str = Field(..., min_length=3, max_length=60, pattern=r"^[a-zA-Z0-9_.-]+$")
+    email: EmailStr
+
+
+def _safe(doc):
+    if not doc:
+        return doc
+    result = dict(doc)
+    if result.get("_id") is not None:
+        result["id"] = str(result.pop("_id"))
+    for key, value in list(result.items()):
+        if isinstance(value, ObjectId):
+            result[key] = str(value)
+        elif isinstance(value, datetime):
+            result[key] = value.isoformat()
+    return result
+
+
+def _hub_id(user):
+    facility_id = str(user.get("facilityId") or user.get("warehouseId") or "")
+    if user.get("facilityType") != "local_hub" or not ObjectId.is_valid(facility_id):
+        raise HTTPException(status_code=403, detail="This account is not assigned to a local hub")
+    return facility_id
+
+
+@router.post("/warehouse/me/local-hubs")
+async def create_local_hub(payload: LocalHubCreate, current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only a warehouse manager can create a local hub")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent warehouse was not found for this manager")
+    users = MongoDB.get_collection("users")
+    email = str(payload.email).lower().strip()
+    username = payload.username.strip().lower()
+    if await users.find_one({"$or": [{"email": email}, {"username": username}], "deletedAt": None}):
+        raise HTTPException(status_code=409, detail="Email or username is already registered")
+    # Resolve coordinates from the supplied street address before creating either
+    # account or hub records. GeoJSON uses [longitude, latitude] order.
+    location = await geocode_address({
+        "address_line1": payload.address.strip(),
+        "address_line2": "",
+        "city": payload.district.strip(),
+        "state": payload.state.strip(),
+        "zip_code": "",
+        "country": "India",
+    })
+    if not location or not isinstance(location.get("coordinates"), (list, tuple)) or len(location["coordinates"]) < 2:
+        raise HTTPException(
+            status_code=422,
+            detail="Could not locate this address. Check the full address, district and state, then try again.",
+        )
+    try:
+        longitude, latitude = float(location["coordinates"][0]), float(location["coordinates"][1])
+    except (TypeError, ValueError, IndexError):
+        raise HTTPException(status_code=422, detail="The address did not resolve to valid map coordinates")
+    if not (-180 <= longitude <= 180 and -90 <= latitude <= 90):
+        raise HTTPException(status_code=422, detail="The address resolved to invalid map coordinates")
+
+    now = datetime.utcnow()
+    temporary_password = secrets.token_urlsafe(12)
+    user_doc = {
+        "firstName": payload.managerName.strip(),
+        "lastName": "",
+        "name": payload.managerName.strip(),
+        "username": username,
+        "email": email,
+        "passwordHash": Security.get_password_hash(temporary_password),
+        "role": "warehouse",
+        "facilityType": "local_hub",
+        "facilityId": None,
+        "isVerified": True,
+        "isActive": True,
+        "status": "active",
+        "mustChangePassword": True,
+        "permissions": ["hub.dashboard", "hub.receive", "hub.inspect", "hub.inventory", "hub.delivery_assignment", "hub.complete_orders"],
+        "createdBy": ObjectId(str(current_user["_id"])),
+        "deletedAt": None,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    manager_id = await user_repository.create_user(user_doc)
+    if not manager_id:
+        raise HTTPException(status_code=500, detail="Could not create local hub manager account")
+    hub_doc = {
+        "name": payload.name.strip(),
+        "facilityType": "local_hub",
+        "parentWarehouseId": parent["_id"],
+        "managerId": ObjectId(manager_id),
+        "district": payload.district.strip(),
+        "state": payload.state.strip(),
+        "address": {"address": payload.address.strip(), "city": payload.district.strip(), "state": payload.state.strip()},
+        "capacity": float(payload.capacity),
+        "location": {"type": "Point", "coordinates": [longitude, latitude]},
+        "geocodedAddress": payload.address.strip(),
+        "geocodedAt": now,
+        "geocodingSource": location.get("source", "address-geocoding"),
+        "status": "active",
+        "createdBy": ObjectId(str(current_user["_id"])),
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    }
+    hubs = MongoDB.get_collection("warehouses")
+    inserted = await hubs.insert_one(hub_doc)
+    await users.update_one({"_id": ObjectId(manager_id)}, {"$set": {"facilityId": str(inserted.inserted_id), "warehouseId": str(inserted.inserted_id), "updatedAt": now}})
+    hub_name = hub_doc["name"]
+    login_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')}/login"
+    email_sent = await NotificationService.send_email(
+        to=email,
+        subject="Your AgriConnect Local Hub Manager Login",
+        plain_text=(
+            f"Hello {payload.managerName.strip()},\n\n"
+            f"Your manager account for {hub_name} has been created.\n"
+            f"Username: {username}\n"
+            f"Temporary password: {temporary_password}\n"
+            f"Login: {login_url}\n\n"
+            "Sign in using the Warehouse role and change your temporary password immediately."
+        ),
+        body=(
+            f"<h2>Welcome to AgriConnect</h2>"
+            f"<p>Hello {payload.managerName.strip()}, your manager account for <strong>{hub_name}</strong> has been created.</p>"
+            f"<p><strong>Username:</strong> {username}<br><strong>Temporary password:</strong> {temporary_password}</p>"
+            f"<p><a href=\"{login_url}\">Sign in to AgriConnect</a></p>"
+            "<p>Choose the <strong>Warehouse</strong> role and change your temporary password immediately after signing in.</p>"
+        ),
+    )
+    return {
+        "success": True,
+        "data": {
+            "hub": {"id": str(inserted.inserted_id), "name": hub_name, "district": hub_doc["district"], "state": hub_doc["state"], "status": "active"},
+            "manager": {"id": manager_id, "username": username, "email": email, "mustChangePassword": True},
+            "temporaryPassword": temporary_password,
+            "emailSent": email_sent,
+        },
+        "message": (
+            "Local hub and manager account created. Login credentials were emailed to the registered address."
+            if email_sent else
+            "Local hub and manager account created, but the email could not be sent. Check SMTP configuration and securely copy the temporary password now."
+        )
+    }
+
+
+@router.get("/warehouse/me/local-hubs")
+async def list_local_hubs(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only warehouse managers can manage local hubs")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent warehouse not found")
+    rows = await MongoDB.get_collection("warehouses").find({"parentWarehouseId": parent["_id"], "facilityType": "local_hub", "deletedAt": None}).sort("createdAt", -1).to_list(length=200)
+    output = []
+    for row in rows:
+        manager = await user_repository.get_by_id(str(row.get("managerId") or ""))
+        item = _safe(row)
+        item["manager"] = {"name": (manager or {}).get("name"), "username": (manager or {}).get("username"), "email": (manager or {}).get("email"), "isActive": (manager or {}).get("isActive", False)}
+        output.append(item)
+    return {"success": True, "data": {"hubs": output}}
+
+
+@router.post("/warehouse/me/local-hubs/{hub_id}/resend-login")
+async def resend_local_hub_manager_login(hub_id: str, current_user: dict = Depends(get_current_user)):
+    """Generate a fresh temporary password and email it to this hub's registered manager."""
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only a warehouse manager can resend local hub login details")
+    if not ObjectId.is_valid(hub_id):
+        raise HTTPException(status_code=400, detail="Invalid local hub id")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Parent warehouse was not found for this manager")
+    hubs = MongoDB.get_collection("warehouses")
+    hub = await hubs.find_one({"_id": ObjectId(hub_id), "parentWarehouseId": parent["_id"], "facilityType": "local_hub", "deletedAt": None})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Local hub was not found under your warehouse")
+    users = MongoDB.get_collection("users")
+    manager_id = hub.get("managerId")
+    manager = await users.find_one({"_id": manager_id, "deletedAt": None})
+    if not manager or not manager.get("email") or not manager.get("username"):
+        raise HTTPException(status_code=409, detail="This local hub has no valid registered manager email or username")
+    temporary_password = secrets.token_urlsafe(12)
+    previous_hash = manager.get("passwordHash")
+    previous_change_flag = manager.get("mustChangePassword", False)
+    now = datetime.utcnow()
+    await users.update_one(
+        {"_id": manager["_id"]},
+        {"$set": {"passwordHash": Security.get_password_hash(temporary_password), "mustChangePassword": True, "updatedAt": now}},
+    )
+    email = str(manager["email"]).strip().lower()
+    login_url = f"{os.getenv('FRONTEND_URL', 'http://localhost:3000').rstrip('/')}/login"
+    email_sent = await NotificationService.send_email(
+        to=email,
+        subject="Your AgriConnect Local Hub Manager Login Details",
+        plain_text=(
+            f"Hello {manager.get('name') or manager.get('firstName') or 'Local Hub Manager'},\n\n"
+            f"Hub: {hub.get('name', 'Local Hub')}\n"
+            f"Username: {manager['username']}\n"
+            f"Temporary password: {temporary_password}\n"
+            f"Login: {login_url}\n\n"
+            "This is a newly generated temporary password. Choose the Warehouse role and change it immediately after signing in."
+        ),
+        body=(
+            f"<h2>AgriConnect Local Hub Login</h2>"
+            f"<p>Your login details for <strong>{hub.get('name', 'Local Hub')}</strong> have been reset.</p>"
+            f"<p><strong>Username:</strong> {manager['username']}<br>"
+            f"<strong>Temporary password:</strong> {temporary_password}</p>"
+            f"<p><a href=\"{login_url}\">Sign in to AgriConnect</a></p>"
+            "<p>Choose the <strong>Warehouse</strong> role and change this temporary password immediately after signing in.</p>"
+        ),
+    )
+    if not email_sent:
+        rollback = {"updatedAt": now}
+        if previous_hash is not None:
+            rollback["passwordHash"] = previous_hash
+        if previous_change_flag is not None:
+            rollback["mustChangePassword"] = previous_change_flag
+        else:
+            rollback["mustChangePassword"] = False
+        await users.update_one({"_id": manager["_id"]}, {"$set": rollback})
+        raise HTTPException(
+            status_code=503,
+            detail="Could not email login details. Check SMTP_USER and SMTP_PASSWORD in the backend .env and verify SMTP access, then retry. The manager's previous password remains unchanged.",
+        )
+    return {
+        "success": True,
+        "data": {"hubId": hub_id, "email": email, "username": manager["username"], "emailSent": True},
+        "message": f"New temporary login details were emailed to {email}. The manager must change the password after signing in.",
+    }
+
+
+@router.get("/hub/me/dashboard")
+async def hub_dashboard(current_user: dict = Depends(get_current_user)):
+    hub_id = _hub_id(current_user)
+    hub = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(hub_id), "facilityType": "local_hub", "deletedAt": None})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Assigned local hub was not found")
+    transfers = MongoDB.get_collection("warehouse_order_transfers")
+    incoming = await transfers.find({"destinationWarehouseId": {"$in": [ObjectId(hub_id), hub_id]}, "deletedAt": None, "status": {"$in": ["dispatched", "in_transit", "arrived_at_destination", "received", "ready_for_delivery"]}}).sort("updatedAt", -1).to_list(length=300)
+    rows = []
+    for transfer in incoming:
+        order_id = str(transfer.get("orderId") or "")
+        order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
+        job = await delivery_job_repository.get_by_order_id(order_id) if order else None
+        rows.append({
+            "transferId": str(transfer["_id"]),
+            "orderId": order_id,
+            "orderNumber": (order or {}).get("orderNumber") or (order or {}).get("orderNo") or transfer.get("orderNumber") or transfer.get("orderNo") or "Order number unavailable",
+            "status": transfer.get("status", "dispatched"),
+            "orderStatus": (order or {}).get("orderStatus"),
+            "productSummary": ", ".join(str((item.get("productName") or item.get("name") or "Produce")) for item in ((order or {}).get("items") or [])[:3]) or "Order items",
+            "quantity": sum(float(item.get("quantity") or 0) for item in ((order or {}).get("items") or [])),
+            "deliveryAddress": (order or {}).get("deliveryAddress"),
+            "published": bool(job and job.get("status") in (JOB_OPEN, "accepted", "delivered")),
+            "jobStatus": (job or {}).get("status"),
+        })
+    return {"success": True, "data": {"hub": _safe(hub), "mustChangePassword": bool(current_user.get("mustChangePassword")), "orders": rows, "counts": {"incoming": sum(1 for r in rows if r["status"] in ("dispatched", "in_transit", "arrived_at_destination")), "received": sum(1 for r in rows if r["status"] in ("received", "ready_for_delivery")), "published": sum(1 for r in rows if r["published"])}}}
+
+
+@router.post("/hub/me/transfers/{transfer_id}/receive")
+async def receive_hub_transfer(transfer_id: str, current_user: dict = Depends(get_current_user)):
+    hub_id = _hub_id(current_user)
+    if not ObjectId.is_valid(transfer_id):
+        raise HTTPException(status_code=400, detail="Invalid transfer id")
+    transfers = MongoDB.get_collection("warehouse_order_transfers")
+    transfer = await transfers.find_one({"_id": ObjectId(transfer_id), "destinationWarehouseId": {"$in": [ObjectId(hub_id), hub_id]}, "deletedAt": None})
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transfer not addressed to this hub")
+    if transfer.get("status") not in ("dispatched", "in_transit", "arrived_at_destination", "received"):
+        raise HTTPException(status_code=409, detail=f"Cannot receive transfer from status {transfer.get('status')}")
+    now = datetime.utcnow()
+    await transfers.update_one({"_id": transfer["_id"]}, {"$set": {"status": "received", "receivedAt": now, "receivedBy": ObjectId(str(current_user["_id"])), "updatedAt": now}})
+    order_id = str(transfer.get("orderId") or "")
+    order = await order_repository.get_by_id(order_id) if ObjectId.is_valid(order_id) else None
+    if order:
+        hub = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(hub_id)})
+        location = (hub or {}).get("location") or {}
+        coords = location.get("coordinates") or []
+        await order_repository.update({"_id": ObjectId(order_id)}, {"transferStatus": "hub_received", "nearbyFulfillmentLocationId": ObjectId(hub_id), "nearbyFulfillmentLocation": {"name": (hub or {}).get("name"), "address": (hub or {}).get("address"), "coordinates": coords}, "deliveryPickupLocation": {"name": (hub or {}).get("name"), "address": (hub or {}).get("address"), "coordinates": coords}, "updatedAt": now})
+    return {"success": True, "data": {"transferId": transfer_id, "status": "received"}, "message": "Physical receipt recorded. The order can now be published for delivery."}
+
+
+@router.post("/hub/me/orders/{order_id}/publish")
+async def publish_hub_order(order_id: str, current_user: dict = Depends(get_current_user)):
+    hub_id = _hub_id(current_user)
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid order id")
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    transfers = MongoDB.get_collection("warehouse_order_transfers")
+    transfer = await transfers.find_one({"orderId": {"$in": [ObjectId(order_id), order_id]}, "destinationWarehouseId": {"$in": [ObjectId(hub_id), hub_id]}, "status": "received", "deletedAt": None})
+    if not transfer:
+        raise HTTPException(status_code=409, detail="Confirm physical receipt at this hub before publishing the order")
+    existing = await delivery_job_repository.get_by_order_id(order_id)
+    if existing and str(existing.get("localHubId") or "") == hub_id and existing.get("status") in (JOB_OPEN, "accepted", "delivered"):
+        return {"success": True, "data": {"jobId": str(existing["_id"]), "status": existing.get("status")}, "message": "Delivery job is already published from this hub"}
+    if existing and existing.get("status") in ("accepted", "delivered") and str(existing.get("localHubId") or "") != hub_id:
+        raise HTTPException(status_code=409, detail="This order already has a delivery partner or completed delivery from another source")
+    hub = await MongoDB.get_collection("warehouses").find_one({"_id": ObjectId(hub_id), "facilityType": "local_hub"})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Local hub not found")
+    order_for_job = dict(order)
+    order_for_job["nearbyFulfillmentLocationId"] = ObjectId(hub_id)
+    order_for_job["nearbyFulfillmentLocation"] = {"name": hub.get("name"), "address": hub.get("address"), "coordinates": ((hub.get("location") or {}).get("coordinates") or [])}
+    order_for_job["deliveryPickupLocation"] = {"name": hub.get("name"), "address": hub.get("address"), "coordinates": ((hub.get("location") or {}).get("coordinates") or [])}
+    order_for_job["orderStatus"] = "dispatched"
+    hub_coords = ((hub.get("location") or {}).get("coordinates") or [])
+    if len(hub_coords) < 2:
+        raise HTTPException(status_code=409, detail="Configure the local hub map coordinates before publishing delivery jobs")
+    farm = {"name": hub.get("name") or "Local Hub", "address": hub.get("address") or "", "lat": float(hub_coords[1]), "lng": float(hub_coords[0])}
+    job = build_job_document(order_for_job, farm, float(order.get("routeDistanceKm") or 0))
+    job["jobType"] = "customer_delivery"
+    job["localHubId"] = ObjectId(hub_id)
+    job["publishedByHubManagerId"] = ObjectId(str(current_user["_id"]))
+    job["pickupName"] = hub.get("name") or "Local Hub"
+    job["pickupAddress"] = (hub.get("address") or {}).get("address") if isinstance(hub.get("address"), dict) else str(hub.get("address") or "")
+    job["status"] = JOB_OPEN
+    job_id = await delivery_job_repository.create_job(job)
+    if not job_id:
+        raise HTTPException(status_code=500, detail="Unable to publish delivery job")
+    now = datetime.utcnow()
+    await order_repository.update({"_id": ObjectId(order_id)}, {"orderStatus": "dispatched", "transferStatus": "published_to_delivery_partners", "deliveryPickupLocation": order_for_job["deliveryPickupLocation"], "nearbyFulfillmentLocationId": ObjectId(hub_id), "updatedAt": now})
+    await transfers.update_one({"_id": transfer["_id"]}, {"$set": {"status": "ready_for_delivery", "deliveryJobId": ObjectId(job_id), "publishedAt": now, "updatedAt": now}})
+    return {"success": True, "data": {"jobId": job_id, "status": JOB_OPEN}, "message": "Order published to the delivery-partner marketplace"}
+
+
+@router.post("/warehouse/me/local-hubs/{hub_id}/orders/{order_id}/dispatch")
+async def dispatch_order_to_local_hub(hub_id: str, order_id: str, current_user: dict = Depends(get_current_user)):
+    """Dispatch an order from the manager's warehouse to one of its local hubs."""
+    if current_user.get("role") != "warehouse" or current_user.get("facilityType") == "local_hub":
+        raise HTTPException(status_code=403, detail="Only a warehouse manager can dispatch orders to a local hub")
+    if not ObjectId.is_valid(hub_id) or not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=400, detail="Invalid hub or order id")
+    parent = await warehouse_repository.get_by_manager(str(current_user["_id"]))
+    if not parent:
+        raise HTTPException(status_code=404, detail="Source warehouse not found")
+    hubs = MongoDB.get_collection("warehouses")
+    hub = await hubs.find_one({"_id": ObjectId(hub_id), "parentWarehouseId": parent["_id"], "facilityType": "local_hub", "status": "active", "deletedAt": None})
+    if not hub:
+        raise HTTPException(status_code=404, detail="Active local hub was not found under this warehouse")
+    order = await order_repository.get_by_id(order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if str(order.get("sourceWarehouseId") or order.get("warehouseId") or "") not in (str(parent["_id"]), ""):
+        raise HTTPException(status_code=403, detail="This order is not assigned to your source warehouse")
+    status_value = str(order.get("orderStatus") or "").strip().lower()
+    packing_stage = str(order.get("warehouseFulfillmentStage") or "").strip().lower()
+    # The customer order can legitimately remain "processing" after warehouse
+    # packing is finished. Use the authoritative packing verification fields
+    # rather than relying on orderStatus alone.
+    verified_packing = (
+        order.get("packingComplete") is True
+        and order.get("packingVerified") is True
+        and packing_stage in ("ready_for_dispatch", "delivery_decision", "dispatched")
+        and not bool(order.get("shortageResolutionRequired"))
+        and packing_stage != "shortage_pending"
+    )
+    if status_value not in ("packed", "ready_for_delivery", "ready_for_pickup", "dispatched") and not verified_packing:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"Order must be packed before dispatch (current order status: {status_value or 'unknown'}).",
+                "packingComplete": bool(order.get("packingComplete")),
+                "packingVerified": bool(order.get("packingVerified")),
+                "warehouseFulfillmentStage": packing_stage or "not_set",
+                "shortageResolutionRequired": bool(order.get("shortageResolutionRequired")),
+                "action": "Finish packing and resolve any shortage before dispatch."
+            },
+        )
+    transfers = MongoDB.get_collection("warehouse_order_transfers")
+    existing = await transfers.find_one({"orderId": {"$in": [ObjectId(order_id), order_id]}, "destinationWarehouseId": {"$in": [ObjectId(hub_id), hub_id]}, "deletedAt": None, "status": {"$in": ["dispatched", "in_transit", "arrived_at_destination", "received", "ready_for_delivery"]}})
+    if existing:
+        raise HTTPException(status_code=409, detail="This order already has an active transfer to this hub")
+    now = datetime.utcnow()
+    transfer_doc = {
+        "orderId": ObjectId(order_id),
+        "orderNumber": order.get("orderNumber") or order.get("orderNo") or order.get("displayOrderNumber"),
+        "sourceWarehouseId": parent["_id"],
+        "destinationWarehouseId": ObjectId(hub_id),
+        "destinationFacilityType": "local_hub",
+        "status": "dispatched",
+        "dispatchedAt": now,
+        "dispatchedBy": ObjectId(str(current_user["_id"])),
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    }
+    inserted = await transfers.insert_one(transfer_doc)
+    hub_name = hub.get("name") or hub.get("warehouseName") or hub.get("hubName") or "Local hub"
+    await order_repository.update({"_id": ObjectId(order_id)}, {
+        "orderStatus": "dispatched",
+        "transferStatus": "dispatched_to_local_hub",
+        "warehouseFulfillmentStage": "dispatched",
+        "sourceWarehouseId": parent["_id"],
+        "destinationWarehouseId": ObjectId(hub_id),
+        "nearbyFulfillmentLocationId": ObjectId(hub_id),
+        "localHubId": ObjectId(hub_id),
+        "localHubName": hub_name,
+        "updatedAt": now,
+    })
+    # Keep Outgoing / Dispatch in sync with the order and the created transfer.
+    # The shipment is now dispatched from the warehouse, but is still awaiting
+    # physical receipt by the local-hub manager.
+    outgoing_collection = MongoDB.get_collection("outgoing_stock")
+    await outgoing_collection.update_many(
+        {
+            "orderId": {"$in": [ObjectId(order_id), order_id]},
+            "warehouseId": {"$in": [parent["_id"], str(parent["_id"])]},
+            "deletedAt": None,
+        },
+        {"$set": {
+            "status": "dispatched",
+            "transferStatus": "dispatched_to_local_hub",
+            "destinationWarehouseId": ObjectId(hub_id),
+            "destinationFacilityType": "local_hub",
+            "localHubId": ObjectId(hub_id),
+            "localHubName": hub_name,
+            "localHubTransferId": inserted.inserted_id,
+            "dispatchedAt": now,
+            "updatedAt": now,
+        }},
+    )
+    return {"success": True, "data": {"transferId": str(inserted.inserted_id), "orderId": order_id, "hubId": hub_id, "hubName": hub_name, "status": "dispatched", "transferStatus": "dispatched_to_local_hub"}, "message": f"Order dispatched to {hub_name}. Waiting for local-hub receipt."}
+
+
+@router.post("/hub/me/change-password")
+async def change_local_hub_password(payload: HubPasswordChange, current_user: dict = Depends(get_current_user)):
+    _hub_id(current_user)
+    users = MongoDB.get_collection("users")
+    stored_user = await users.find_one({"_id": ObjectId(str(current_user["_id"])), "deletedAt": None})
+    if not stored_user or not Security.verify_password(payload.currentPassword, stored_user.get("passwordHash", "")):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if payload.currentPassword == payload.newPassword:
+        raise HTTPException(status_code=400, detail="Choose a new password different from the temporary password")
+    now = datetime.utcnow()
+    await users.update_one({"_id": ObjectId(str(current_user["_id"]))}, {"$set": {"passwordHash": Security.get_password_hash(payload.newPassword), "mustChangePassword": False, "passwordChangedAt": now, "updatedAt": now}})
+    return {"success": True, "message": "Password changed successfully"}

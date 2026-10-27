@@ -56,7 +56,15 @@ export default function LoginPage() {
       const raw = window.localStorage.getItem("agri_saved_emails");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) setSavedEmails(parsed.filter((e) => typeof e === "string").slice(0, 10));
+        if (Array.isArray(parsed)) {
+          const emails = [...new Set(
+            parsed
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.trim().toLowerCase())
+              .filter(Boolean),
+          )].slice(0, 10);
+          setSavedEmails(emails);
+        }
       }
     } catch {}
   }, []);
@@ -64,13 +72,11 @@ export default function LoginPage() {
   function saveEmail(emailValue: string) {
     const clean = emailValue.trim().toLowerCase();
     if (!clean) return;
-    setSavedEmails((prev) => {
-      const next = [clean, ...prev.filter((e) => e !== clean)].slice(0, 10);
-      try {
-        window.localStorage.setItem("agri_saved_emails", JSON.stringify(next));
-      } catch {}
-      return next;
-    });
+    const next = [clean, ...savedEmails.filter((savedEmail) => savedEmail !== clean)].slice(0, 10);
+    setSavedEmails(next);
+    try {
+      window.localStorage.setItem("agri_saved_emails", JSON.stringify(next));
+    } catch {}
   }
 
   useEffect(() => {
@@ -112,6 +118,7 @@ export default function LoginPage() {
     event.preventDefault();
     setIsLoading(true);
     setError("");
+    saveEmail(email);
 
     const result = await signIn("credentials", {
       email,
@@ -119,9 +126,7 @@ export default function LoginPage() {
       role,
       redirect: false,
     });
-
     if (result?.ok) {
-      saveEmail(email);
       await updateSession();
       router.push(callbackUrl || `/${role}/dashboard`);
       return;
@@ -131,9 +136,9 @@ export default function LoginPage() {
     if (code === "Network error") {
       setError("Could not reach the server. Check your internet connection and try again.");
     } else if (code === "Account not verified") {
-      setError("Your account is not verified yet. Check your email for the verification link.");
+      setError("Your account is not verified yet. Enter the verification code sent to your email or phone on the verification page.");
     } else {
-      setError("Incorrect email or password. Please try again.");
+      setError("Incorrect email/username or password. If login details were resent, use the newest temporary password from that email.");
     }
     setIsLoading(false);
   }
@@ -244,16 +249,16 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700" htmlFor="email">
-                Email address
+                Email address or username
               </label>
               <Input
                 id="email"
-                type="email"
+                type="text"
                 name="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
+                placeholder="Email address or username"
+                autoComplete="username"
                 list="saved-emails"
               />
               {savedEmails.length > 0 ? (

@@ -57,6 +57,7 @@ export default function FarmerPackingPage() {
   const [saving, setSaving] = useState(false);
   const [completedOrder, setCompletedOrder] = useState<any | null>(null);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [pickupSubmittingOrderId, setPickupSubmittingOrderId] = useState<string | null>(null);
 
   const ordersQuery = useQuery({
     queryKey: ["farmer-packing-orders"],
@@ -104,6 +105,32 @@ export default function FarmerPackingPage() {
   const progress = total ? Math.round((packed.length / total) * 100) : 0;
   const allPacked = total > 0 && packed.length >= total;
 
+  const packingPreview = useMemo(() => {
+    if (!selectedOrder) return { shortageLines: 0, shortageValue: 0, finalAmount: 0 };
+    const items = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
+    let shortageLines = 0;
+    let shortageValue = 0;
+    let subtotal = 0;
+    for (const [index, item] of items.entries()) {
+      const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
+      const ordered = Number(item.quantity ?? 0);
+      const packed = Number(packedQuantities[key] ?? ordered);
+      const safePacked = Number.isFinite(packed) ? Math.max(0, Math.min(ordered, packed)) : 0;
+      const unitPrice = Number(item.unitPrice ?? 0);
+      subtotal += safePacked * unitPrice;
+      if (safePacked < ordered) {
+        shortageLines += 1;
+        shortageValue += (ordered - safePacked) * unitPrice;
+      }
+    }
+    const discount = Math.min(Number(selectedOrder.discount ?? 0), subtotal);
+    const finalAmount = Math.max(
+      0,
+      subtotal + Number(selectedOrder.deliveryCharge ?? 0) + Number(selectedOrder.platformFee ?? 0) - discount
+    );
+    return { shortageLines, shortageValue, finalAmount };
+  }, [selectedOrder, packedQuantities]);
+
   const startPacking = (order: any) => {
     setSelectedOrder(order);
     const initial: Record<string, string> = {};
@@ -116,23 +143,23 @@ export default function FarmerPackingPage() {
 
   const finalizePacking = async () => {
     if (!selectedOrder) return;
-    const orderId = selectedOrder.id || selectedOrder._id;
-    const items = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
-    const packedItems = items.map((item: any, index: number) => {
-      const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
-      const value = Number(packedQuantities[key]);
-      const ordered = Number(item.quantity ?? 0);
-      if (!Number.isFinite(value) || value < 0 || value > ordered) {
-        throw new Error(`Invalid packed quantity for ${item.productName || "product"}`);
-      }
-      return {
-        productId: item.productId,
-        variantId: item.variantId || null,
-        packedQuantity: value,
-      };
-    });
-
     try {
+      const orderId = selectedOrder.id || selectedOrder._id;
+      const items = Array.isArray(selectedOrder.items) ? selectedOrder.items : [];
+      const packedItems = items.map((item: any, index: number) => {
+        const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
+        const value = Number(packedQuantities[key]);
+        const ordered = Number(item.quantity ?? 0);
+        if (!Number.isFinite(value) || value < 0 || value > ordered) {
+          throw new Error(`Invalid packed quantity for ${item.productName || "product"}`);
+        }
+        return {
+          productId: item.productId,
+          variantId: item.variantId || null,
+          packedQuantity: value,
+        };
+      });
+
       setSaving(true);
       const response = await api.post(`/orders/${orderId}/farmer-packing-finalize`, { items: packedItems });
       const result = response?.data || response;
@@ -158,6 +185,25 @@ export default function FarmerPackingPage() {
     }
   };
 
+  const markReadyForPickup = async (order: any) => {
+    const orderId = order?.id || order?._id;
+    if (!orderId) { toast.error("Order ID is missing"); return; }
+    if (!order?.packingComplete || !["packed", "dispatched"].includes(String(order?.fulfillmentStage || "").toLowerCase())) {
+      toast.error("Confirm Packed before requesting pickup.");
+      return;
+    }
+    try {
+      setPickupSubmittingOrderId(orderId);
+      const response = await api.post("/orders/" + orderId + "/farmer-fulfillment-ready-for-pickup");
+      const result = response?.data || response;
+      toast.success(result?.message || "Order marked Ready for Pickup. Warehouse collection is now available.");
+      await ordersQuery.refetch();
+    } catch (error: any) {
+      toast.error(error?.message || "Unable to mark this order Ready for Pickup");
+    } finally {
+      setPickupSubmittingOrderId(null);
+    }
+  };
   const cancelForShortage = async (order: any) => {
     const orderId = order?.id || order?._id;
     if (!orderId) return;
@@ -200,7 +246,7 @@ export default function FarmerPackingPage() {
               <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back to Orders
             </Link>
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Packing & Checking</h1>
-            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order, record actual packed quantities, and prepare parcels for delivery.</p>
+            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order → enter actual packed quantity → resolve shortages → Confirm Packed → print the label → Mark Ready for Pickup when warehouse collection is required.</p>
           </div>
           {allPacked && (
             <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
@@ -211,7 +257,23 @@ export default function FarmerPackingPage() {
           )}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-emerald-950">Packing is preparation only</p>
+            <p className="mt-1 text-xs text-emerald-800">
+              After Confirm Packed, the order becomes Ready for Delivery. Select orders, group physical stops, calculate distance, and choose Self Delivery or the delivery-partner route only in the Farmer Order Map.
+            </p>
+          </div>
+          <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+            <Link href="/farmer/order-map?delivery=required">
+              <Truck className="mr-2 h-4 w-4" /> Open Farmer Order Map
+            </Link>
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-4">
           <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Farmer Orders</p><p className="mt-1 text-2xl font-bold">{total}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-slate-500">To Pack</p><p className="mt-1 text-2xl font-bold text-amber-600">{toPack.length}</p></CardContent></Card>
           <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Packed</p><p className="mt-1 text-2xl font-bold text-emerald-600">{packed.length}</p></CardContent></Card>
@@ -305,7 +367,16 @@ export default function FarmerPackingPage() {
                       {isPackingCancelled(order) ? (
                         <span className="text-xs font-medium text-red-700">Order cancelled during packing</span>
                       ) : isPacked ? (
-                        <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button size="sm" variant="outline" onClick={() => void printLabel(order)}><Printer className="mr-1.5 h-4 w-4" /> Print Delivery Label</Button>
+                          {String(order?.warehouseCollectionStatus || "").toLowerCase() === "ready_for_pickup" || String(order?.orderStatus || "").toLowerCase() === "ready_for_pickup" ? (
+                            <Button size="sm" variant="outline" disabled><CheckCircle2 className="mr-1.5 h-4 w-4" /> Ready for Pickup</Button>
+                          ) : (
+                            <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" disabled={pickupSubmittingOrderId === orderId} onClick={() => void markReadyForPickup(order)}>
+                              <Truck className="mr-1.5 h-4 w-4" /> {pickupSubmittingOrderId === orderId ? "Preparing Pickup..." : "Mark Ready for Pickup"}
+                            </Button>
+                          )}
+                        </div>
                       ) : (
                         <div className="flex flex-wrap gap-2">
                           <Button size="sm" variant="outline" disabled={cancellingOrderId === orderId} onClick={() => void cancelForShortage(order)} className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800">
@@ -377,36 +448,53 @@ export default function FarmerPackingPage() {
                     return <div key={key} className="flex items-center justify-between gap-3 rounded-lg border p-3"><div><p className="text-xs font-semibold">{item.productName || "Product"}</p><p className="text-[11px] text-slate-500">Ordered: {item.quantity} {item.unit || "kg"}</p></div><input type="number" min="0" max={Number(item.quantity ?? 0)} step="0.01" value={packedQuantities[key] ?? String(item.quantity ?? 0)} onChange={(e) => setPackedQuantities((prev) => ({ ...prev, [key]: e.target.value }))} className="w-28 rounded-md border px-3 py-2 text-right text-sm" /></div>;
                   })}
                 </div>
-                <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> If actual quantity is lower than ordered, the backend shortage workflow recalculates the final payable amount.</div>
-                <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setSelectedOrder(null)}>Cancel</Button><Button disabled={saving} className="bg-emerald-600 hover:bg-emerald-700" onClick={finalizePacking}>{saving ? "Saving..." : "Confirm Packed"}</Button></div>
+                <div className="rounded-lg border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Shortage Check</p>
+                  {packingPreview.shortageLines > 0 ? (
+                    <div className="mt-2 space-y-1 text-xs text-amber-900">
+                      <p><span className="font-semibold">{packingPreview.shortageLines}</span> line(s) are short by the quantity you entered.</p>
+                      <p>Amount removed from unavailable stock: <span className="font-semibold">₹{packingPreview.shortageValue.toFixed(2)}</span></p>
+                      <p>The backend will release the missing quantity from inventory and recalculate the final amount before the order is marked Packed.</p>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-emerald-700">No shortage. The full ordered quantity will be confirmed as packed.</p>
+                  )}
+                  <div className="mt-3 flex items-center justify-between border-t pt-3 text-sm">
+                    <span className="font-medium text-slate-700">Final amount</span>
+                    <span className="font-bold text-slate-900">₹{packingPreview.finalAmount.toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setSelectedOrder(null)} disabled={saving}>Cancel</Button><Button disabled={saving} className="bg-emerald-600 hover:bg-emerald-700" onClick={finalizePacking}>{saving ? "Saving..." : "Confirm Packed"}</Button></div>
               </CardContent>
             </Card>
           </div>
         )}
 
         <div className="hidden print:block">
-          <div className="mx-auto max-w-md border-2 border-slate-900 p-5 text-black">
-            <div className="text-center"><p className="text-xl font-bold">AGRICONNECT</p><p className="text-xs">FARM DELIVERY</p></div>
-            <div className="my-3 border-t border-slate-900" />
-            <p className="text-xs font-bold">ORDER</p>
-            <p className="text-sm font-bold">{selectedOrder?.orderNumber || ""}</p>
-            <p className="mt-3 text-xs font-bold">CUSTOMER</p>
-            <p className="text-sm">{selectedOrder?.customerName || selectedOrder?.customer?.name || "Customer"}</p>
-            <p className="text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone || ""}</p>
-            <p className="mt-3 text-xs font-bold">DELIVER TO</p>
-            <p className="text-sm leading-5">{selectedOrder ? formatAddress(selectedOrder) : ""}</p>
-            <p className="mt-3 text-xs font-bold">PAYMENT</p>
-            <p className="text-sm">{String(selectedOrder?.paymentMethod || "").toUpperCase() === "COD" ? `COD ₹${Number(selectedOrder?.totalAmount ?? selectedOrder?.total ?? 0).toFixed(2)}` : "PAID ONLINE"}</p>
-            <p className="mt-3 text-xs font-bold">ITEMS</p>
-            {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <p key={index} className="text-sm">{item.productName || "Product"} — {item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</p>)}
-            <div className="mt-5 flex justify-center">
-              <QRCodeSVG
-                value={selectedOrder ? String(selectedOrder.orderNumber || selectedOrder.id || selectedOrder._id || "") : ""}
-                size={96}
-                level="M"
-              />
+          <div className="mx-auto w-full max-w-[384px] rounded border border-slate-300 px-[9px] pb-[7px] pt-2 text-black" style={{ fontFamily: "Arial, sans-serif" }}>
+            <div className="text-center"><p className="text-base font-extrabold tracking-[0.2px]">AGRICONNECT</p><p className="text-[7px] text-gray-600">FARM-TO-HOME · DELIVERY LABEL</p></div>
+            <div className="my-[9px] border-t border-gray-300" />
+            <p className="text-[7px] font-medium tracking-[0.25px] text-gray-500">ORDER NUMBER</p>
+            <p className="text-[11px] font-bold">{selectedOrder?.orderNumber || selectedOrder?.id || selectedOrder?._id || "Order number unavailable"}</p>
+            <p className="text-[7px] leading-[1.4] text-gray-600">Package / Label ID: PKG-{String(selectedOrder?.id || selectedOrder?._id || selectedOrder?.orderNumber || "").slice(-8)} · Printed: {new Date().toLocaleString()}</p>
+            <div className="mt-[5px] grid grid-cols-2 gap-[14px]">
+              {(selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name) && <div className="min-w-0"><p className="mb-1 mt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">SOURCE FARM</p><p className="break-words text-[9px] leading-[1.45]">{selectedOrder?.farmName || selectedOrder?.farmerName || selectedOrder?.farm?.name}</p></div>}
+              
             </div>
-            <p className="mt-2 text-center text-[10px]">Scan order ID: {selectedOrder?.orderNumber || ""}</p>
+            <p className="mb-1 mt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">DELIVER TO</p>
+            {(selectedOrder?.customerName || selectedOrder?.customer?.name) && <p className="break-words text-[9px] font-semibold leading-[1.45]">{selectedOrder?.customerName || selectedOrder?.customer?.name}</p>}
+            {(selectedOrder?.customerPhone || selectedOrder?.customer?.phone) && <p className="break-words text-xs">{selectedOrder?.customerPhone || selectedOrder?.customer?.phone}</p>}
+            {selectedOrder && formatAddress(selectedOrder) && <p className="break-words text-[9px] leading-[1.45]">{formatAddress(selectedOrder)}</p>}
+            <p className="mb-1 mt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">PACKED ITEMS · ACTUAL QUANTITY</p>
+            {(Array.isArray(selectedOrder?.items) ? selectedOrder.items : []).map((item: any, index: number) => <div key={index} className="flex justify-between gap-3 border-b border-gray-200 py-[7px] text-[9px]"><span className="break-words">{item.productName || item.name || "Product"}</span><b className="shrink-0">{item.packedQuantity ?? item.actualPackedQuantity ?? item.quantity} {item.unit || "kg"}</b></div>)}
+            <p className="mb-1 mt-[9px] border-t border-gray-200 pt-[9px] text-[7px] font-medium tracking-[0.25px] text-gray-500">PAYMENT</p>
+            {(() => { const rawMethod = String(selectedOrder?.paymentMethod || selectedOrder?.payment_method || selectedOrder?.paymentMode || selectedOrder?.paymentType || selectedOrder?.payment?.method || (selectedOrder?.cashOnDelivery ? "cash" : "")).trim().toLowerCase().replace(/[ -]+/g, "_"); const cod = ["cash", "cod", "cash_on_delivery", "cashondelivery", "pay_on_delivery", "pay_later"].includes(rawMethod); const online = ["online", "razorpay", "upi", "card", "netbanking", "wallet", "net_banking"].includes(rawMethod); const rawStatus = String(selectedOrder?.paymentStatus || selectedOrder?.payment_status || selectedOrder?.payment?.status || "").trim().toLowerCase().replace(/[ -]+/g, "_"); const paid = ["paid", "success", "successful", "captured", "completed"].includes(rawStatus); const amount = selectedOrder?.totalAmount ?? selectedOrder?.grandTotal ?? selectedOrder?.payableAmount ?? selectedOrder?.total; return <>{cod ? <><p className="text-[9px]">COD · Payable on delivery</p>{amount != null && <p className="text-[9px] font-semibold">₹{Number(amount).toFixed(2)}</p>}</> : online && paid ? <><p className="text-[9px]">ONLINE PAYMENT · PAID</p>{amount != null && <p className="text-[9px]">Order total: ₹{Number(amount).toFixed(2)}</p>}</> : <p className="text-[9px]">PAYMENT DETAILS UNCONFIRMED · Do not dispatch until verified</p>}</>; })()}
+            <div className="mt-[10px] flex justify-center border-t border-gray-300 pt-2">
+              <QRCodeSVG value={typeof window !== "undefined" && selectedOrder ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(selectedOrder.id || selectedOrder._id || selectedOrder.orderNumber || "")) : ""} size={40} level="M" />
+            </div>
+            <p className="text-center text-[6.5px] font-bold">DELIVERY PARTNER QR</p>
+            <p className="text-center text-[6.5px] leading-[1.4]">Scan to open the delivery workspace. Login and assignment management authorization are required to access delivery actions and POD.</p>
+            <p className="mt-2 text-center text-[6.5px] text-gray-600">Verify the order reference before handover.</p>
           </div>
         </div>
       </div>

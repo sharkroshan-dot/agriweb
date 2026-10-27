@@ -5,7 +5,7 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   return (
     <div
       className={cn(
-        "group overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 shadow-[0_4px_24px_rgba(15,23,42,0.045)] backdrop-blur-sm transition-all duration-200",
+        "group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow duration-150",
         className
       )}
       {...props}
@@ -20,7 +20,7 @@ export function CardHeader({
   return (
     <div
       className={cn(
-        "space-y-1.5 border-b border-slate-100/80 p-5 sm:p-6",
+        "space-y-1.5 border-b border-slate-100 p-4 sm:p-5",
         className
       )}
       {...props}
@@ -65,7 +65,7 @@ export function CardContent({
   return (
     <div
       className={cn(
-        "p-5 sm:p-6",
+        "p-4 sm:p-5",
         className
       )}
       {...props}
@@ -80,7 +80,7 @@ export function CardFooter({
   return (
     <div
       className={cn(
-        "border-t border-slate-100/80 p-5 sm:p-6",
+        "border-t border-slate-100 p-4 sm:p-5",
         className
       )}
       {...props}
