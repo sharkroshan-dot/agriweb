@@ -2689,7 +2689,9 @@ async def recommend_b2b_fulfillment_route(
         source_district_token = re.sub(r"[^a-z0-9]", "", source_district.lower())
         destination_district_token = re.sub(r"[^a-z0-9]", "", buyer_district.lower())
         tamil_nadu_district_tokens = {
-            "trichy", "tiruchirappalli", "thiruchirapalli", "perambalur", "ariyalur",
+            # Include common spellings used by older warehouse records.
+            "trichy", "trichirapalli", "tiruchirapalli", "tiruchirappalli",
+            "thiruchirapalli", "thiruchirappalli", "perambalur", "ariyalur",
             "karur", "pudukkottai", "thanjavur", "thiruvarur", "nagapattinam",
             "mayiladuthurai", "salem", "namakkal", "erode", "coimbatore", "tiruppur",
             "dindigul", "madurai", "theni", "virudhunagar", "sivaganga",
@@ -2712,9 +2714,24 @@ async def recommend_b2b_fulfillment_route(
                 geocoded_destination = await _geocode_indian_district(buyer_district)
                 if geocoded_source and geocoded_destination:
                     recovered_distance = await _road_distance_km_between(geocoded_source, geocoded_destination)
-                    if recovered_distance is not None and recovered_distance <= 1500:
+                    # District-centre routing is a recovery path for corrupted
+                    # warehouse coordinates, not a reason to accept another
+                    # implausible result. For Tamil Nadu districts, reject any
+                    # recovered distance that is still clearly outside the region.
+                    if recovered_distance is not None and 0 < recovered_distance <= 1500:
                         transfer_distance_km = recovered_distance
                         used_road_distance = True
+            # Never return a multi-thousand-kilometre distance for a known
+            # Tamil Nadu district pair. If coordinates cannot be recovered,
+            # fall back to an explicitly configured lead time or needs_review.
+            if inferred_tamil_nadu_route and transfer_distance_km is not None and transfer_distance_km > 1500:
+                logger.error(
+                    "B2B route remains implausible after district geocoding; suppressing distance: "
+                    "source_district=%s destination_district=%s distance_km=%s",
+                    source_district, buyer_district, transfer_distance_km,
+                )
+                transfer_distance_km = None
+                used_road_distance = False
 
     # Do not trust per-order lead times here: older orders may contain an ETA
     # persisted from malformed/swapped coordinates (for example, hundreds of
