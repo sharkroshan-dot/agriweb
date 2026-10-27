@@ -2489,7 +2489,13 @@ async def recommend_b2b_fulfillment_route(
                         tokens.add(token)
         return tokens
 
-    destination_matches = [w for w in active if buyer_district in district_tokens(w)]
+    # A source warehouse must never be selected as the destination for
+    # a different business district, even if its service-area list includes it.
+    destination_matches = [
+        w for w in active
+        if buyer_district in district_tokens(w)
+        and str(w.get("_id") or "") != source_id
+    ]
     # If the business is in the source district, the stock stays in the warehouse
     # that received it. It must not be transferred to another warehouse in that district.
     same_district = source_district == buyer_district
@@ -2535,6 +2541,13 @@ async def recommend_b2b_fulfillment_route(
             destination = next(iter(unique_matches.values()))
         destination_id = str(destination.get("_id"))
         destination_name = destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination District Warehouse"
+    # Warehouse names may be duplicated in legacy records. Show the destination
+    # district alongside the name so the UI cannot misleadingly show the source
+    # and destination as the same warehouse.
+    destination_district_label = _normalized_district(destination) or buyer_district
+    source_name_label = source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse"
+    if str(destination_name).strip().casefold() == str(source_name_label).strip().casefold():
+        destination_name = f"{destination_name} — {destination_district_label.title()} District"
         route = "long_distance"
         reason = f"Business district ({buyer_district}) differs from source district ({source_district}). Transfer to the designated warehouse for {buyer_district}; distance is not used for routing."
 
