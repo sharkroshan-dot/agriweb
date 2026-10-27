@@ -2015,14 +2015,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # that last handled the stock or the destination warehouse.
                 if current_warehouse_id in (source_id, destination_id):
                     scoped_orders.append(order)
-            elif current_warehouse_id == source_id or (
-                status == ORDER_READY_FOR_PICKUP and (
-                    current_warehouse_id == str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "")
-                    or not (order.get("sourceWarehouseId") or order.get("assignedWarehouseId") or order.get("warehouseId") or order.get("pickupWarehouseId"))
-                )
-            ):
-                # Unassigned ready-for-pickup orders must remain visible so a
-                # warehouse can claim them by assigning its own approved pickup team.
+            elif status == ORDER_READY_FOR_PICKUP and not str(order.get("pickupTeam") or "").strip():
+                # Any warehouse may see an unclaimed pickup order. The assigning
+                # warehouse becomes its source/pickup warehouse at claim time;
+                # _build_order may have prefilled a route suggestion that must
+                # not hide the order from the warehouse operator who can collect it.
+                scoped_orders.append(order)
+            elif current_warehouse_id == source_id:
                 scoped_orders.append(order)
         orders = scoped_orders
 
@@ -2675,12 +2674,16 @@ async def update_b2b_warehouse_fulfillment(
         pickup_partner_id = data.pickupTeam.strip()
         if not ObjectId.is_valid(pickup_partner_id):
             raise HTTPException(status_code=400, detail="Select a registered pickup partner from the approved team list.")
+        # Claim the unassigned pickup using the warehouse account performing
+        # the assignment. Route estimates may pre-populate sourceWarehouseId;
+        # they must not override the actual operational pickup warehouse.
+        acting_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
         pickup_warehouse_id = str(
-            order.get("assignedWarehouseId")
+            acting_warehouse_id
+            or order.get("assignedWarehouseId")
             or order.get("sourceWarehouseId")
             or order.get("warehouseId")
             or order.get("receivingWarehouseId")
-            or await _resolve_b2b_current_warehouse_id(current_user)
             or ""
         )
         if not ObjectId.is_valid(pickup_warehouse_id):
@@ -4715,7 +4718,11 @@ async def confirm_contract_delivery_stock(
                 "pickupWindowEnd": "23:59",
                 "transferDispatchDate": order.get("transferDispatchDate"),
                 "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
-                "deliveryDeadline": next_at,
+                # Use the occurrence the farmer actually confirmed, not the
+                # contract's potentially advanced nextDeliveryAt value. Store a
+                # date-only deadline; the route planner interprets it with the
+                # configured business delivery time slot.
+                "deliveryDeadline": datetime.combine(scheduled_day, datetime.min.time()),
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
