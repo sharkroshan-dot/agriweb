@@ -87,6 +87,16 @@ export default function FarmerB2bContractsPage() {
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
   const requiredQuantity = (c: Contract) => Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+  const plannedPickupDeadline = (c: Contract) => {
+    const explicit = c.pickupDeadline || c.plannedPickupAt || c.pickupDate;
+    if (explicit) return new Date(explicit);
+    if (!c.nextDeliveryAt) return null;
+    const deadline = new Date(c.nextDeliveryAt);
+    if (Number.isNaN(deadline.getTime())) return null;
+    deadline.setDate(deadline.getDate() - 1);
+    deadline.setHours(18, 0, 0, 0);
+    return deadline;
+  };
   const validateStock = (c: Contract, ready: boolean) => {
     const availableRaw = availableQty[c.id] ?? "";
     const packedRaw = packedQty[c.id] ?? "";
@@ -196,7 +206,8 @@ export default function FarmerB2bContractsPage() {
                     </p>
                     <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-slate-700">
                       <p><strong>Prepare and pack by:</strong> {c.farmerPrepareBy ? new Date(c.farmerPrepareBy).toLocaleString("en-IN") : "See delivery schedule"}</p>
-                      <p><strong>Planned pickup deadline:</strong> {c.pickupDeadline || c.plannedPickupAt || c.pickupDate ? new Date((c.pickupDeadline || c.plannedPickupAt || c.pickupDate) as string).toLocaleString("en-IN") : "Pending warehouse pickup assignment"}</p>
+                      <p><strong>Planned pickup deadline:</strong> {plannedPickupDeadline(c) ? plannedPickupDeadline(c)!.toLocaleString("en-IN") : "Pending delivery schedule"}</p>
+                      {!c.pickupDeadline && !c.plannedPickupAt && !c.pickupDate && c.nextDeliveryAt && <p className="mt-1 text-amber-700">Planning estimate: previous day at 6:00 PM. The assigned pickup task deadline takes priority if it differs.</p>}
                       <p><strong>Pickup window:</strong> {c.pickupWindowStart && c.pickupWindowEnd ? `${new Date(c.pickupWindowStart).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}–${new Date(c.pickupWindowEnd).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Use the deadline on the assigned pickup task"}</p>
                       <p className="mt-1">Only mark ready when the full required quantity is packed. If you cannot supply the full amount, report the actual quantities and wait for the business to approve a solution.</p>
                     </div>
