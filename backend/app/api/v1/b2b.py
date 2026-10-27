@@ -4666,6 +4666,24 @@ async def confirm_contract_delivery_stock(
                     detail=f"Contract {contract.get('contractNumber') or oid} is missing its original RFQ or accepted farmer quote; warehouse order could not be created.",
                 )
             order = await _build_order(rfq, offer, requested, None)
+            # Keep recurring occurrences grouped under the first B2B order number.
+            # First occurrence keeps its normal number (for example B2B-00011);
+            # the next is B2B-00011-1A, then -1B, etc.
+            prior_occurrences = await orders_collection.find({
+                "contractId": oid,
+                "deletedAt": None,
+                "scheduledDeliveryDate": {"$ne": schedule_key},
+            }).sort("createdAt", 1).to_list(length=500)
+            if prior_occurrences:
+                root_order = next(
+                    (row for row in prior_occurrences
+                     if not re.search(r"-1[A-Z]$", str(row.get("orderNumber") or ""))),
+                    prior_occurrences[0],
+                )
+                root_number = str(root_order.get("orderNumber") or order.get("orderNumber") or f"B2B-{str(root_order.get('_id'))[-6:]}")
+                occurrence_index = len(prior_occurrences) - 1
+                suffix = chr(ord("A") + (occurrence_index % 26))
+                order["orderNumber"] = f"{root_number}-1{suffix}"
             order.update({
                 "contractId": oid,
                 "contractNumber": contract.get("contractNumber"),
