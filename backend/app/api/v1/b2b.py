@@ -2172,11 +2172,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             if order.get(key) is not None:
                 order[key] = str(order[key])
 
-    # Warehouse managers should only see actionable stages for the warehouse
-    # they are signed into. Source warehouses handle farm receipt and dispatch;
-    # destination warehouses see a transfer only after it has been dispatched.
-    # Admins retain the global oversight queue.
+    # Warehouse queue ownership is stage-based. Farm pickup is district-scoped:
+    # only the warehouse in the farmer's registered district can claim it.
+    # Once a source warehouse owns the order, its ID controls processing; transfer
+    # arrival/receipt then moves responsibility to the destination warehouse.
     if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
+        warehouse_district = _district_from_doc(current_warehouse)
         scoped_orders = []
         for order in orders:
             source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or order.get("pickupWarehouseId") or "")
@@ -2189,24 +2191,22 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 if current_warehouse_id == destination_id:
                     scoped_orders.append(order)
             elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED):
-                # Keep completed/read-only tracking visible only to the warehouse
-                # that last handled the stock or the destination warehouse.
                 if current_warehouse_id in (source_id, destination_id):
                     scoped_orders.append(order)
             elif status == ORDER_READY_FOR_PICKUP and not str(order.get("pickupTeam") or "").strip():
-                # Any warehouse may see an unclaimed pickup order. The assigning
-                # warehouse becomes its source/pickup warehouse at claim time;
-                # _build_order may have prefilled a route suggestion that must
-                # not hide the order from the warehouse operator who can collect it.
-                scoped_orders.append(order)
+                farm_district = await _b2b_farm_district(order)
+                # If a source warehouse is already assigned, honour it only when
+                # its district matches the farm. Otherwise district matching
+                # determines which warehouse may claim the pickup.
+                if warehouse_district and farm_district and _district_key(warehouse_district) == _district_key(farm_district):
+                    if not source_id or source_id == current_warehouse_id:
+                        scoped_orders.append(order)
             elif current_warehouse_id == source_id:
                 scoped_orders.append(order)
         orders = scoped_orders
 
-    # Always hydrate the claimable farm-pickup queue independently of the
-    # general logistics query/scoping. The summary is database-wide by design,
-    # but a stale/legacy warehouse assignment must never make an unassigned
-    # ready_for_pickup order disappear from the actionable list.
+    # Hydrate legacy claimable pickups, but warehouse users must still pass
+    # the same farm-district ownership check below before they are appended.
     ready_pickup_orders = await order_repo.find_many({
         "$and": [
             {"deletedAt": None},
@@ -2230,6 +2230,17 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             if pickup_order.get(key) is not None:
                 pickup_order[key] = str(pickup_order[key])
         pickup_order["warehouseTransferSide"] = None
+        if role in ("warehouse", "warehouse_manager", "warehouse_staff"):
+            if not ObjectId.is_valid(current_warehouse_id):
+                continue
+            current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
+            warehouse_district = _district_from_doc(current_warehouse)
+            farm_district = await _b2b_farm_district(pickup_order)
+            if not warehouse_district or not farm_district or _district_key(warehouse_district) != _district_key(farm_district):
+                continue
+            assigned_source = str(pickup_order.get("sourceWarehouseId") or pickup_order.get("warehouseId") or pickup_order.get("pickupWarehouseId") or "")
+            if assigned_source and assigned_source != current_warehouse_id:
+                continue
         orders.append(pickup_order)
         existing_order_ids.add(pickup_id)
 
@@ -2973,6 +2984,54 @@ async def list_b2b_destination_warehouses(
     options.sort(key=lambda item: item["distanceToBusinessKm"])
     return {"success": True, "data": {"warehouses": options, "requiredCapacityKg": round(required_kg, 2)}}
 
+
+def _district_key(value: Any) -> str:
+    """Normalize district labels so spelling/case/spacing do not affect routing."""
+    return re.sub(r"[^a-z0-9]", "", str(value or "").strip().casefold())
+
+def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(doc, dict):
+        return ""
+    for key in ("district", "districtName", "farmDistrict", "warehouseDistrict", "deliveryDistrict"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for parent_key in ("address", "location", "farmAddress", "warehouseAddress", "profile", "farmLocation"):
+        parent = doc.get(parent_key)
+        if isinstance(parent, dict):
+            for key in ("district", "districtName", "district_name"):
+                value = parent.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return ""
+
+async def _b2b_farm_district(order: Dict[str, Any]) -> str:
+    """Resolve the farmer's registered district for farm-pickup ownership."""
+    farmer_id = order.get("farmerId") or order.get("farmerUserId")
+    farmer_doc = None
+    if farmer_id:
+        values: List[Any] = [str(farmer_id)]
+        if ObjectId.is_valid(str(farmer_id)):
+            values.append(ObjectId(str(farmer_id)))
+        farmer_doc = await farmer_repository.find_one({"$or": [
+            {"userId": {"$in": values}},
+            {"_id": {"$in": values}},
+        ]})
+    district = _district_from_doc(farmer_doc)
+    if district:
+        return district
+    # Some legacy order records snapshot the farm location at order creation.
+    for key in ("farmDistrict", "farmerDistrict", "sourceDistrict"):
+        value = order.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for parent_key in ("farmAddress", "farmerAddress", "farmLocation", "farmerInfo", "farmer"):
+        parent = order.get(parent_key)
+        if isinstance(parent, dict):
+            district = _district_from_doc(parent)
+            if district:
+                return district
+    return ""
 
 async def _resolve_b2b_current_warehouse_id(current_user: Dict[str, Any]) -> str:
     """Resolve the warehouse attached to the signed-in warehouse account."""
