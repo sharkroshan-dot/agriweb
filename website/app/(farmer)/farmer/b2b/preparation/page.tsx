@@ -40,6 +40,32 @@ export default function FarmerB2bPreparationPage() {
       });
   }, [query.data]);
 
+  const ordersQuery = useQuery({
+    queryKey: ["farmerB2bPreparationOrders"],
+    queryFn: () => api.get("/b2b/orders"),
+    refetchInterval: 30000,
+  });
+  const [orderPackedQty, setOrderPackedQty] = useState<Record<string, string>>({});
+  const orderPreparationMutation = useMutation({
+    mutationFn: ({ id, status, packedQuantityKg }: { id: string; status: string; packedQuantityKg?: number }) =>
+      api.put(`/b2b/orders/${encodeURIComponent(id)}/status`, { status, packedQuantityKg }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["farmerB2bPreparationOrders"] }),
+        qc.invalidateQueries({ queryKey: ["b2b", "orders"] }),
+      ]);
+      toast.success("B2B order preparation updated.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not update B2B order preparation"),
+  });
+  const oneTimeOrders = useMemo(() => {
+    const list = ordersQuery.data?.data?.orders || [];
+    return (Array.isArray(list) ? list : [])
+      .map((o: any) => ({ ...o, id: String(o.id || o._id || "") }))
+      .filter((o: any) => o.id && !o.contractId && ["confirmed", "preparing"].includes(o.status))
+      .sort((a: any, b: any) => new Date(a.deliveryDeadline || a.requiredDate || a.createdAt || 0).getTime() - new Date(b.deliveryDeadline || b.requiredDate || b.createdAt || 0).getTime());
+  }, [ordersQuery.data]);
+
   const stockMutation = useMutation({
     mutationFn: ({ id, available, packed, ready, note, scheduledDate }: { id: string; available: number; packed: number; ready: boolean; note: string; scheduledDate?: string }) =>
       api.post(`/b2b/contracts/${encodeURIComponent(id)}/delivery-confirmation`, {
@@ -109,6 +135,42 @@ export default function FarmerB2bPreparationPage() {
         <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Required quantity per listed delivery</p><p className="mt-1 text-2xl font-bold">{requiredTotal.toLocaleString("en-IN")} kg</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Preparation rule</p><p className="mt-1 text-sm font-semibold text-emerald-700">Pack the full required quantity before Ready for pickup</p></CardContent></Card>
       </div>
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">One-time B2B order preparation</h2>
+          <p className="text-sm text-slate-500">Accepted one-time orders appear here as well as recurring contract deliveries. Actual packed quantity is saved on the original B2B order.</p>
+        </div>
+        {ordersQuery.isLoading ? <Card><CardContent className="p-4 text-sm text-slate-500">Loading one-time B2B orders…</CardContent></Card> :
+          ordersQuery.isError ? <Card><CardContent className="p-4 text-sm text-red-700">Could not load one-time B2B orders. Refresh or check the B2B orders API.</CardContent></Card> :
+          oneTimeOrders.length === 0 ? <Card><CardContent className="p-4 text-sm text-slate-500">No one-time B2B orders currently need preparation.</CardContent></Card> :
+          <div className="space-y-3">{oneTimeOrders.map((o: any) => {
+            const packed = orderPackedQty[o.id] ?? String(o.packedQuantityKg ?? "");
+            const required = Number(o.quantityKg || 0);
+            return <Card key={o.id}><CardContent className="space-y-3 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div><h3 className="font-semibold">{o.orderNumber || `B2B-${o.id.slice(-6)}`} · {o.productName || "Produce"}</h3>
+                  <p className="text-sm text-slate-600">Required: {required} kg · Business: {o.businessInfo?.businessName || o.businessName || "Business buyer"}</p>
+                  <p className="text-sm text-slate-600">Delivery: {dateLabel(o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate)} · Prepare by: {dateLabel(o.farmerPrepareBy)}</p>
+                </div><Badge variant="outline">{String(o.status).replace(/_/g, " ")}</Badge>
+              </div>
+              {o.status === "confirmed" ? <Button disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: o.id, status: "preparing" })}>Start preparation</Button> :
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="min-w-[220px] flex-1 space-y-1"><label className="text-sm font-medium">Actual packed quantity (kg)</label>
+                    <Input type="number" min="0" max={required} step="0.1" value={packed} onChange={e => setOrderPackedQty(old => ({ ...old, [o.id]: e.target.value }))} placeholder={`Required: ${required} kg`} />
+                  </div>
+                  <Button disabled={orderPreparationMutation.isPending || !packed.trim() || !Number.isFinite(Number(packed)) || Number(packed) <= 0 || Number(packed) > required} onClick={() => {
+                    if (Number(packed) < required) {
+                      toast.error("This order has a shortage. Report it to the business before moving the order to quality check.");
+                      return;
+                    }
+                    orderPreparationMutation.mutate({ id: o.id, status: "quality_check", packedQuantityKg: Number(packed) });
+                  }}>Save packed quantity &amp; submit for quality check</Button>
+                </div>}
+              {o.status === "preparing" && <p className="text-xs text-slate-500">A shortage cannot be marked as full supply. Report shortages through the business order/contract workflow before pickup.</p>}
+            </CardContent></Card>;
+          })}</div>}
+      </section>
 
       {query.isLoading ? (
         <Card><CardContent className="flex items-center justify-center gap-2 p-12 text-slate-500"><Loader2 className="h-5 w-5 animate-spin" />Loading your B2B supply schedule…</CardContent></Card>
