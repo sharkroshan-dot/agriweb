@@ -2828,7 +2828,7 @@ async def update_b2b_warehouse_fulfillment(
             "assignedWarehouseId": pickup_warehouse_id,
             "pickupWarehouseId": pickup_warehouse_id,
             "pickupTeam": pickup_partner_id,
-            "pickupTeamName": data.pickupTeamName or membership.get("name") or membership.get("partnerName") or "Assigned pickup partner",
+            "pickupTeamName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or "Assigned pickup partner",
             "pickupVehicle": data.vehicle.strip(),
             "pickupAssignedAt": datetime.utcnow(),
             "pickupAssignedBy": str(current_user.get("_id")),
