@@ -4894,20 +4894,29 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
     # same existing Pickup Routes actions without requiring a separate transfer
     # leg to exist for this order.
     if not leg:
-        b2b_orders = MongoDB.get_collection("orders")
+        # B2B logistics orders are persisted in b2b_orders, not the retail
+        # orders collection. Match the same assignment fields as the transfer
+        # list endpoint so Start Transfer works for both user and partner IDs.
+        b2b_orders = MongoDB.get_collection("b2b_orders")
         user_id = str(current_user["_id"])
+        user_oid = ObjectId(user_id)
         profile = await MongoDB.get_collection("delivery_partners").find_one({
-            "$or": [{"userId": ObjectId(user_id)}, {"userId": user_id}, {"user_id": ObjectId(user_id)}, {"user_id": user_id}],
+            "$or": [{"userId": user_oid}, {"userId": user_id}, {"user_id": user_oid}, {"user_id": user_id}],
             "deletedAt": {"$in": [None, False, ""]},
         })
-        assigned_values = [user_id, ObjectId(user_id)]
+        assigned_values = [user_id, user_oid]
         if profile and ObjectId.is_valid(str(profile.get("_id") or "")):
-            assigned_values.extend([str(profile["_id"]), profile["_id"]])
+            profile_id = ObjectId(str(profile["_id"]))
+            assigned_values.extend([str(profile_id), profile_id])
         b2b = await b2b_orders.find_one({
             "_id": ObjectId(transfer_id),
             "status": "transfer_in_transit",
-            "transferTeam": {"$in": assigned_values},
-            "$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}],
+            "$or": [
+                {"transferTeam": {"$in": assigned_values}},
+                {"transferPartnerUserId": {"$in": assigned_values}},
+                {"assignedTransferPartnerId": {"$in": assigned_values}},
+            ],
+            "$and": [{"$or": [{"deletedAt": None}, {"deletedAt": {"$exists": False}}, {"deletedAt": ""}]}],
         })
         if not b2b:
             raise HTTPException(status_code=404, detail="Assigned warehouse transfer not found")
@@ -4935,7 +4944,12 @@ async def update_my_farmer_fulfillment_warehouse_transfer_status(
         )
         result = await b2b_orders.update_one(
             {"$and": [
-                {"_id": b2b["_id"], "status": "transfer_in_transit", "transferTeam": {"$in": assigned_values}},
+                {"_id": b2b["_id"], "status": "transfer_in_transit"},
+                {"$or": [
+                    {"transferTeam": {"$in": assigned_values}},
+                    {"transferPartnerUserId": {"$in": assigned_values}},
+                    {"assignedTransferPartnerId": {"$in": assigned_values}},
+                ]},
                 status_guard,
             ]},
             {"$set": {"transferPartnerStatus": next_status, time_field: now, "updatedAt": now}},
