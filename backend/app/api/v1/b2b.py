@@ -2640,19 +2640,16 @@ async def recommend_b2b_fulfillment_route(
         now_for_plan = datetime.utcnow()
         required_arrival = delivery_deadline
         planned_arrival = now_for_plan + timedelta(hours=estimated_transit_hours)
-        planned_dispatch_day = delivery_deadline.date() - timedelta(days=1)
-        if dispatch_cutoff and now_for_plan > dispatch_cutoff:
-            schedule_status = "at_risk"
-            schedule_reason = "The configured dispatch cutoff has passed. Alert the warehouse and business and agree on a new feasible delivery slot."
-        elif planned_arrival > required_arrival:
-            schedule_status = "at_risk"
-            schedule_reason = "Estimated transfer arrival is after the business morning delivery deadline. Do not promise the slot; agree on an earlier recovery plan or reschedule."
-        elif now_for_plan.date() > planned_dispatch_day:
-            schedule_status = "at_risk"
-            schedule_reason = "The planned one-day-before transfer dispatch date has passed. Confirm an explicitly approved recovery plan or reschedule before dispatch."
+        # Warehouse transfer timing is based on whether stock can reach the
+        # destination warehouse before the business deadline. A previous-day
+        # dispatch rule or farmer pickup window must not independently make a
+        # transfer urgent; the destination warehouse handles last-mile delivery.
+        if planned_arrival > required_arrival:
+            schedule_status = "urgent"
+            schedule_reason = "Estimated arrival at the destination warehouse is after the business delivery deadline. Mark this order urgent so the destination warehouse can coordinate recovery and final delivery."
         else:
             schedule_status = "feasible"
-            schedule_reason = "Configured transfer lead time fits before the morning delivery deadline. Dispatch on the previous day, or earlier if the cutoff requires it."
+            schedule_reason = "Estimated arrival at the destination warehouse is before the business delivery deadline. The destination warehouse has time to process the order and complete final delivery."
 
     return {"success": True, "data": {
         "available": True,
@@ -3105,20 +3102,16 @@ async def update_b2b_warehouse_fulfillment(
         if transit_hours is None or transit_hours <= 0:
             raise HTTPException(status_code=409, detail="Transfer lead time cannot be calculated because warehouse coordinates and configured lead time are missing. Add coordinates or configure estimatedTransferHours before dispatch.")
         now_for_transfer = datetime.utcnow()
-        if now_for_transfer + timedelta(hours=transit_hours) > delivery_deadline:
-            raise HTTPException(status_code=409, detail="Transfer lead time exceeds the business delivery deadline. Do not dispatch against an infeasible schedule; alert the business and warehouse and agree on a new delivery slot.")
-        if now_for_transfer.date() >= delivery_deadline.date():
-            raise HTTPException(status_code=409, detail="The planned previous-day transfer dispatch window has passed. Do not dispatch late without an approved recovery plan; agree on a new feasible delivery slot.")
-        cutoff_value = order.get("transferDispatchCutoff") or source_record.get("transferDispatchCutoff") or source_record.get("dispatchCutoff") or destination_record.get("transferDispatchCutoff") or destination_record.get("dispatchCutoff")
-        if isinstance(cutoff_value, str):
-            try:
-                cutoff_value = datetime.fromisoformat(cutoff_value.replace("Z", "+00:00"))
-                if cutoff_value.tzinfo is not None:
-                    cutoff_value = cutoff_value.astimezone(timezone.utc).replace(tzinfo=None)
-            except (TypeError, ValueError):
-                cutoff_value = None
-        if isinstance(cutoff_value, datetime) and now_for_transfer > cutoff_value:
-            raise HTTPException(status_code=409, detail="Transfer dispatch cutoff has passed. Alert the business and warehouse and agree on a new delivery slot before dispatch.")
+        estimated_destination_arrival = now_for_transfer + timedelta(hours=transit_hours)
+        if estimated_destination_arrival > delivery_deadline:
+            # Late arrival is an urgency signal, not a reason to strand stock at
+            # the source warehouse. Dispatch is allowed; destination operations
+            # must prioritize receipt, processing and final delivery recovery.
+            update["deliveryPriority"] = "urgent"
+            update["scheduleRisk"] = "destination_arrival_after_business_deadline"
+        else:
+            update["deliveryPriority"] = order.get("deliveryPriority") or "normal"
+            update["scheduleRisk"] = None
 
         if not data.transferTeam or not ObjectId.is_valid(str(data.transferTeam)):
             raise HTTPException(status_code=400, detail="Select a registered transfer team before dispatch")
