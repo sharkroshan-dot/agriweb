@@ -4727,8 +4727,9 @@ async def resolve_contract_delivery_shortage(
         available = float(confirmation.get("availableQuantityKg") or 0)
         if quantity <= 0 or quantity > available:
             raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the farmer's confirmed stock")
-        confirmation.update({"status": "partial_approved", "approvedQuantityKg": quantity, "resolution": "partial",
-                             "resolutionNotes": data.notes, "resolvedAt": now})
+        confirmation.update({"status": "partial_approved", "approvedQuantityKg": quantity,
+                             "readyForPickup": float(confirmation.get("packedQuantityKg") or 0) >= quantity,
+                             "resolution": "partial", "resolutionNotes": data.notes, "resolvedAt": now})
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
             "latestDeliveryStatus": "partial_approved", "latestDeliveryDate": schedule_key, "updatedAt": now})
@@ -4823,7 +4824,9 @@ async def resolve_contract_delivery_shortage(
         })
         inserted = await db["b2b_orders"].insert_one(replacement_order)
         confirmation.update({
-            "status": "replacement_assigned", "resolution": "replacement_supplier",
+            "status": "replacement_assigned", "approvedQuantityKg": original_approved,
+            "readyForPickup": original_approved > 0 and packed >= original_approved,
+            "resolution": "replacement_supplier",
             "resolutionNotes": data.notes, "replacementOfferId": str(replacement_offer_id),
             "replacementFarmerId": replacement_farmer_id, "replacementOrderId": str(inserted.inserted_id),
             "replacementQuantityKg": missing, "resolvedAt": now,
@@ -4901,7 +4904,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
         # for this delivery, and the business has approved any partial supply.
         confirmations = contract.get("deliveryConfirmations") or {}
         confirmation = confirmations.get(schedule_key) if isinstance(confirmations, dict) else None
-        if not confirmation or confirmation.get("status") not in ("confirmed", "partial_approved"):
+        if not confirmation or confirmation.get("status") not in ("confirmed", "partial_approved", "replacement_assigned"):
             continue
         confirmed_quantity = float(
             confirmation.get("approvedQuantityKg")
