@@ -2016,8 +2016,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 if current_warehouse_id in (source_id, destination_id):
                     scoped_orders.append(order)
             elif current_warehouse_id == source_id or (
-                status == ORDER_READY_FOR_PICKUP and current_warehouse_id == str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "")
+                status == ORDER_READY_FOR_PICKUP and (
+                    current_warehouse_id == str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "")
+                    or not (order.get("sourceWarehouseId") or order.get("assignedWarehouseId") or order.get("warehouseId") or order.get("pickupWarehouseId"))
+                )
             ):
+                # Unassigned ready-for-pickup orders must remain visible so a
+                # warehouse can claim them by assigning its own approved pickup team.
                 scoped_orders.append(order)
         orders = scoped_orders
 
@@ -2675,6 +2680,7 @@ async def update_b2b_warehouse_fulfillment(
             or order.get("sourceWarehouseId")
             or order.get("warehouseId")
             or order.get("receivingWarehouseId")
+            or await _resolve_b2b_current_warehouse_id(current_user)
             or ""
         )
         if not ObjectId.is_valid(pickup_warehouse_id):
@@ -2686,6 +2692,11 @@ async def update_b2b_warehouse_fulfillment(
         if not membership:
             raise HTTPException(status_code=403, detail="The selected delivery partner is not an approved pickup-team member of this order's source warehouse.")
         update.update({
+            # Claim an unassigned recurring pickup order for the warehouse that
+            # assigns the approved team; subsequent refreshes scope it correctly.
+            "sourceWarehouseId": pickup_warehouse_id,
+            "assignedWarehouseId": pickup_warehouse_id,
+            "pickupWarehouseId": pickup_warehouse_id,
             "pickupTeam": pickup_partner_id,
             "pickupTeamName": data.pickupTeamName or membership.get("name") or membership.get("partnerName") or "Assigned pickup partner",
             "pickupVehicle": data.vehicle.strip(),
@@ -4645,7 +4656,11 @@ async def confirm_contract_delivery_stock(
     # previously the farmer could confirm stock and the business page would update
     # while no warehouse-visible order existed until a separate generation action.
     created_order_id = None
-    if status == "confirmed" and scheduled_day == next_at.date():
+    # The farmer UI submits the actual delivery date. Do not silently skip order
+    # creation just because nextDeliveryAt was advanced or stored with a different
+    # date than the submitted occurrence; the scheduled-date validation above is
+    # the guard against invalid dates.
+    if status == "confirmed":
         db = MongoDB.db
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
@@ -4685,6 +4700,12 @@ async def confirm_contract_delivery_stock(
                 suffix = chr(ord("A") + (occurrence_index % 26))
                 order["orderNumber"] = f"{root_number}-1{suffix}"
             order.update({
+                # This recurring order is initially unassigned to a warehouse.
+                # The warehouse queue exposes unassigned pickup orders so a
+                # warehouse can claim one during pickup-team assignment.
+                "sourceWarehouseId": order.get("sourceWarehouseId"),
+                "assignedWarehouseId": order.get("assignedWarehouseId"),
+                "pickupWarehouseId": order.get("pickupWarehouseId"),
                 "contractId": oid,
                 "contractNumber": contract.get("contractNumber"),
                 "scheduledDeliveryDate": schedule_key,
