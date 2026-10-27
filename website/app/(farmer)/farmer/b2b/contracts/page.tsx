@@ -38,6 +38,12 @@ interface Contract {
   nextDeliveryAt?: string;
   status: "active" | "pending" | "paused" | "completed" | "cancelled";
   latestDeliveryStatus?: string;
+  farmerPrepareBy?: string;
+  pickupDate?: string;
+  pickupDeadline?: string;
+  plannedPickupAt?: string;
+  pickupWindowStart?: string;
+  pickupWindowEnd?: string;
 }
 
 export default function FarmerB2bContractsPage() {
@@ -69,8 +75,8 @@ export default function FarmerB2bContractsPage() {
   });
 
   const stockMutation = useMutation({
-    mutationFn: ({ id, quantity, packed, notes }: { id: string; quantity: number; packed: number; notes?: string }) =>
-      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, packedQuantityKg: packed, readyForPickup: packed >= quantity, notes }),
+    mutationFn: ({ id, quantity, packed, ready, notes }: { id: string; quantity: number; packed: number; ready: boolean; notes?: string }) =>
+      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, packedQuantityKg: packed, readyForPickup: ready, notes }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["farmerContracts"] });
       const status = res?.data?.data?.status || res?.data?.status;
@@ -80,6 +86,34 @@ export default function FarmerB2bContractsPage() {
   });
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
+  const requiredQuantity = (c: Contract) => Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+  const validateStock = (c: Contract, ready: boolean) => {
+    const availableRaw = availableQty[c.id] ?? "";
+    const packedRaw = packedQty[c.id] ?? "";
+    if (availableRaw.trim() === "" || packedRaw.trim() === "") {
+      toast.error(`Enter available and packed quantity for ${c.cropName}.`);
+      return;
+    }
+    const available = Number(availableRaw);
+    const packed = Number(packedRaw);
+    if (!Number.isFinite(available) || !Number.isFinite(packed) || available < 0 || packed < 0) {
+      toast.error("Quantities must be valid non-negative numbers.");
+      return;
+    }
+    if (packed > available) {
+      toast.error("Packed quantity cannot exceed available quantity.");
+      return;
+    }
+    if (ready && packed < requiredQuantity(c)) {
+      toast.error(`Cannot mark ready: pack the full required ${requiredQuantity(c)} kg or report the shortage.`);
+      return;
+    }
+    if (ready && packed <= 0) {
+      toast.error("Packed quantity must be greater than zero to mark ready.");
+      return;
+    }
+    stockMutation.mutate({ id: c.id, quantity: available, packed, ready, notes: stockNotes[c.id] });
+  };
   const activeCount = contracts.filter((c) => c.status === "active").length;
   const monthlyKg = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0), 0);
   const monthlyValue = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0) * Number(c.pricePerKg ?? 0), 0);
@@ -157,12 +191,14 @@ export default function FarmerB2bContractsPage() {
                       <PackageCheck className="h-4 w-4" /> Confirm stock for next delivery
                     </p>
                     <p className="mb-2 text-xs text-slate-600">
-                      Next business delivery: {c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toLocaleDateString("en-IN") : "date pending"}. Prepare the produce on the previous day. The normal farm pickup window is 6 PM–12 AM; long-distance routes may require an earlier pickup, shown on the generated pickup task.
+                      Product: <strong>{c.cropName}</strong> · Required for this delivery: <strong>{requiredQuantity(c)} kg</strong>.
+                      Delivery date: {c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toLocaleDateString("en-IN") : "date pending"}.
                     </p>
-                    <div className="mb-3 rounded-md bg-white p-3 text-xs text-slate-700">
-                      <p><strong>Preparation target:</strong> previous day by 4:00 PM (initial planning target)</p>
-                      <p><strong>Pickup target:</strong> previous day, 6:00 PM–11:59 PM when the route cutoff allows</p>
-                      <p><strong>Important:</strong> do not mark the order ready unless the quantity is packed and available. If short, report the actual quantity and wait for business approval.</p>
+                    <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-slate-700">
+                      <p><strong>Prepare and pack by:</strong> {c.farmerPrepareBy ? new Date(c.farmerPrepareBy).toLocaleString("en-IN") : "See delivery schedule"}</p>
+                      <p><strong>Planned pickup deadline:</strong> {c.pickupDeadline || c.plannedPickupAt || c.pickupDate ? new Date((c.pickupDeadline || c.plannedPickupAt || c.pickupDate) as string).toLocaleString("en-IN") : "Pending warehouse pickup assignment"}</p>
+                      <p><strong>Pickup window:</strong> {c.pickupWindowStart && c.pickupWindowEnd ? `${new Date(c.pickupWindowStart).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}–${new Date(c.pickupWindowEnd).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Use the deadline on the assigned pickup task"}</p>
+                      <p className="mt-1">Only mark ready when the full required quantity is packed. If you cannot supply the full amount, report the actual quantities and wait for the business to approve a solution.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <input
@@ -187,11 +223,20 @@ export default function FarmerB2bContractsPage() {
                       />
                       <Button
                         size="sm"
-                        disabled={stockMutation.isPending || availableQty[c.id] === undefined || availableQty[c.id].trim() === "" || packedQty[c.id] === undefined || packedQty[c.id].trim() === "" || Number(availableQty[c.id]) < 0 || Number(packedQty[c.id]) < 0}
-                        onClick={() => stockMutation.mutate({ id: c.id, quantity: Number(availableQty[c.id]), packed: Number(packedQty[c.id]), notes: stockNotes[c.id] })}
+                        variant="outline"
+                        disabled={stockMutation.isPending}
+                        onClick={() => validateStock(c, false)}
+                      >
+                        {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <AlertTriangle className="mr-1 h-4 w-4" />}
+                        Report shortage / stock
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={stockMutation.isPending}
+                        onClick={() => validateStock(c, true)}
                       >
                         {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-1 h-4 w-4" />}
-                        Confirm stock
+                        Ready for pickup
                       </Button>
                     </div>
                     {c.latestDeliveryStatus === "shortage" && (
