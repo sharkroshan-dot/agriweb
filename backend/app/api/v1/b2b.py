@@ -2667,7 +2667,12 @@ async def recommend_b2b_fulfillment_route(
         "destinationAvailableCapacityKg": round(available_capacity, 2),
         "schedulePlan": {
             "status": schedule_status,
+            "currentTime": now_for_plan.isoformat() if not same_district and isinstance(delivery_deadline, datetime) and estimated_transit_hours is not None else None,
+            "estimatedArrivalAt": planned_arrival.isoformat() if not same_district and isinstance(delivery_deadline, datetime) and estimated_transit_hours is not None else None,
             "deliveryDeadline": delivery_deadline.isoformat() if isinstance(delivery_deadline, datetime) else None,
+            "arrivalComparison": (
+                "after_deadline" if planned_arrival > delivery_deadline else "before_deadline"
+            ) if not same_district and isinstance(delivery_deadline, datetime) and estimated_transit_hours is not None else None,
             "transferDistanceKm": transfer_distance_km,
             "estimatedTransitHours": estimated_transit_hours,
             "transitEstimateBasis": transit_estimate_basis if not same_district else "not_required",
