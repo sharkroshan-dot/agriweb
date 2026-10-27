@@ -4655,6 +4655,38 @@ async def confirm_contract_delivery_stock(
     }
 
 
+@router.get("/contracts/{contract_id}/replacement-offers")
+async def list_contract_replacement_offers(contract_id: str, current_user: dict = Depends(get_current_user)):
+    """Return quotes from other farmers on the same RFQ that could cover a recurring shortage."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can source replacement farmers")
+    try:
+        oid = ObjectId(contract_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    contract = await contract_repo.find_one({"_id": oid, "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    if not contract.get("rfqId"):
+        return {"success": True, "data": {"offers": []}}
+    offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=200) or []
+    result = []
+    for offer in offers:
+        farmer_id = str(offer.get("farmerId") or "")
+        if not farmer_id or farmer_id == str(contract.get("farmerId")):
+            continue
+        qty = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
+        result.append({
+            "id": str(offer.get("_id")),
+            "farmerId": farmer_id,
+            "farmerName": offer.get("farmerName") or offer.get("farmName") or "Replacement farmer",
+            "availableQuantityKg": qty,
+            "pricePerKg": float(offer.get("pricePerKg") or 0),
+            "status": offer.get("status") or "submitted",
+        })
+    return {"success": True, "data": {"offers": result}}
+
+
 @router.post("/contracts/{contract_id}/delivery-resolution")
 async def resolve_contract_delivery_shortage(
     contract_id: str,
