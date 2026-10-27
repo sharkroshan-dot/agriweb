@@ -1836,6 +1836,11 @@ class B2BLogisticsAction(BaseModel):
     destinationWarehouseId: Optional[str] = None
     fulfillmentRoute: Optional[str] = None
     deliveryPartner: Optional[str] = None
+    estimatedTransferHours: Optional[float] = Field(None, gt=0)
+    transferDispatchCutoff: Optional[str] = None
+    newDeliveryDeadline: Optional[str] = None
+    newDeliveryTimeSlot: Optional[str] = None
+    rescheduleReason: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -2415,10 +2420,17 @@ async def recommend_b2b_fulfillment_route(
     )
     try:
         estimated_transit_hours = float(transit_hours_value) if transit_hours_value is not None else None
-        if estimated_transit_hours is not None and estimated_transit_hours < 0:
+        if estimated_transit_hours is not None and estimated_transit_hours <= 0:
             estimated_transit_hours = None
     except (TypeError, ValueError):
         estimated_transit_hours = None
+    transit_estimate_basis = "configured"
+    # If no operator has configured a lead time, use an explicit conservative
+    # planning estimate only when both warehouse coordinates are available.
+    # This is an estimate, not a live traffic ETA; dispatch still revalidates it.
+    if estimated_transit_hours is None and transfer_distance_km is not None:
+        estimated_transit_hours = round((transfer_distance_km / 35.0) + 2.0, 1)
+        transit_estimate_basis = "distance_estimate_35_kmh_plus_2h_handling_buffer"
 
     dispatch_cutoff = (
         order.get("transferDispatchCutoff")
@@ -2481,6 +2493,7 @@ async def recommend_b2b_fulfillment_route(
             "deliveryDeadline": delivery_deadline.isoformat() if isinstance(delivery_deadline, datetime) else None,
             "transferDistanceKm": transfer_distance_km,
             "estimatedTransitHours": estimated_transit_hours,
+            "transitEstimateBasis": transit_estimate_basis if not same_district else "not_required",
             "dispatchCutoff": dispatch_cutoff.isoformat() if isinstance(dispatch_cutoff, datetime) else None,
             "recommendedDispatchDate": (delivery_deadline.date() - timedelta(days=1)).isoformat() if isinstance(delivery_deadline, datetime) and not same_district else None,
             "reason": schedule_reason,
@@ -2825,6 +2838,20 @@ async def update_b2b_warehouse_fulfillment(
             update["destinationWarehouseId"] = str(data.destinationWarehouseId)
         else:
             update["destinationWarehouseId"] = str(order.get("sourceWarehouseId") or "")
+        # Persist the same schedule inputs used by the recommendation so that
+        # later dispatch validation evaluates the plan the operator confirmed.
+        if data.estimatedTransferHours is not None:
+            if data.estimatedTransferHours <= 0:
+                raise HTTPException(status_code=400, detail="Estimated transfer lead time must be greater than zero")
+            update["estimatedTransferHours"] = data.estimatedTransferHours
+        if data.transferDispatchCutoff:
+            try:
+                cutoff = datetime.fromisoformat(data.transferDispatchCutoff.replace("Z", "+00:00"))
+                if cutoff.tzinfo is not None:
+                    cutoff = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+                update["transferDispatchCutoff"] = cutoff
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Transfer dispatch cutoff must be a valid ISO date/time")
         update.update({
             "fulfillmentRoute": data.fulfillmentRoute,
             "fulfillmentRoutePlannedAt": datetime.utcnow(),
@@ -2868,8 +2895,16 @@ async def update_b2b_warehouse_fulfillment(
             transit_hours = float(transit_value) if transit_value is not None else None
         except (TypeError, ValueError):
             transit_hours = None
-        if transit_hours is None or transit_hours < 0:
-            raise HTTPException(status_code=409, detail="Transfer lead time is not configured. Set estimatedTransferHours or transferLeadTimeHours on the order/warehouse and recalculate the route before dispatch.")
+        if (transit_hours is None or transit_hours <= 0):
+            source_coords = _location_coords_from_doc(source_record)
+            destination_coords = _location_coords_from_doc(destination_record)
+            if source_coords and destination_coords:
+                distance_km = haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0])
+                transit_hours = round((distance_km / 35.0) + 2.0, 1)
+                update["estimatedTransferHours"] = transit_hours
+                update["transferEstimateBasis"] = "distance_estimate_35_kmh_plus_2h_handling_buffer"
+        if transit_hours is None or transit_hours <= 0:
+            raise HTTPException(status_code=409, detail="Transfer lead time cannot be calculated because warehouse coordinates and configured lead time are missing. Add coordinates or configure estimatedTransferHours before dispatch.")
         now_for_transfer = datetime.utcnow()
         if now_for_transfer + timedelta(hours=transit_hours) > delivery_deadline:
             raise HTTPException(status_code=409, detail="Transfer lead time exceeds the business delivery deadline. Do not dispatch against an infeasible schedule; alert the business and warehouse and agree on a new delivery slot.")
@@ -3015,6 +3050,55 @@ async def update_b2b_warehouse_fulfillment(
         if route == "long_distance" and current == ORDER_DESTINATION_RECEIVED and not order.get("destinationReceivedAt"):
             raise HTTPException(status_code=400, detail="Destination warehouse receipt must be recorded before final delivery")
         update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
+    elif action == "reschedule_delivery":
+        if role not in allowed_warehouse and role not in ("admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only warehouse staff can request a revised B2B delivery schedule")
+        if current in (ORDER_DELIVERED, ORDER_COMPLETED, "cancelled"):
+            raise HTTPException(status_code=409, detail="A delivered, completed or cancelled order cannot be rescheduled")
+        if not data.newDeliveryDeadline or not data.newDeliveryTimeSlot or not data.rescheduleReason or not data.rescheduleReason.strip():
+            raise HTTPException(status_code=400, detail="New delivery date, morning time slot and reason are required")
+        try:
+            proposed = datetime.fromisoformat(data.newDeliveryDeadline.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            try:
+                proposed = datetime.strptime(data.newDeliveryDeadline[:10], "%Y-%m-%d")
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Enter a valid new delivery date")
+        if proposed.tzinfo is not None:
+            proposed = proposed.astimezone(timezone.utc).replace(tzinfo=None)
+        if proposed <= datetime.utcnow():
+            raise HTTPException(status_code=400, detail="The new delivery date/time must be in the future")
+        old_deadline = _parse_b2b_delivery_deadline(order)
+        update.update({
+            "requiredDate": data.newDeliveryDeadline,
+            "deliveryDeadline": proposed,
+            "deliveryTimeSlot": data.newDeliveryTimeSlot.strip(),
+            "scheduleRecoveryStatus": "rescheduled",
+            "scheduleRecoveryReason": data.rescheduleReason.strip(),
+            "previousDeliveryDeadline": old_deadline,
+            "rescheduledAt": datetime.utcnow(),
+            "rescheduledBy": str(current_user.get("_id") or ""),
+        })
+        update["statusHistory"] = list(order.get("statusHistory") or []) + [{
+            "status": str(current or "updated"),
+            "previousStatus": current,
+            "action": "reschedule_delivery",
+            "actorRole": role,
+            "actorId": str(current_user.get("_id") or ""),
+            "details": data.rescheduleReason.strip(),
+            "timestamp": datetime.utcnow(),
+        }]
+        await order_repo.update({"_id": order["_id"]}, update)
+        business_id = str(order.get("businessUserId") or "")
+        if ObjectId.is_valid(business_id):
+            await NotificationService.create_in_app_notification(
+                business_id, NotificationType.ORDER,
+                "B2B delivery schedule revised",
+                f"Order {order.get('orderNumber') or order_id} was rescheduled to {data.newDeliveryDeadline} ({data.newDeliveryTimeSlot}). Reason: {data.rescheduleReason.strip()}",
+                {"orderId": order_id, "type": "b2b", "action": "reschedule_delivery"},
+                NotificationPriority.HIGH,
+            )
+        return {"success": True, "message": "Delivery schedule updated and business buyer notified", "status": current, "orderId": str(order["_id"])}
     elif action == "confirm_delivery":
         if role not in allowed_delivery:
             raise HTTPException(status_code=403, detail="Only delivery staff can confirm business delivery")
