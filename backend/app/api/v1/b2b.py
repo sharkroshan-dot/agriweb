@@ -4639,6 +4639,93 @@ async def confirm_contract_delivery_stock(
         "latestDeliveryDate": schedule_key,
         "updatedAt": datetime.utcnow(),
     })
+
+    # A full, packed confirmation must create the actual B2B order immediately.
+    # The warehouse queue reads b2b_orders, not contract deliveryConfirmations;
+    # previously the farmer could confirm stock and the business page would update
+    # while no warehouse-visible order existed until a separate generation action.
+    created_order_id = None
+    if status == "confirmed" and scheduled_day == next_at.date():
+        db = MongoDB.db
+        if db is None:
+            raise HTTPException(status_code=503, detail="Database is not ready")
+        orders_collection = db["b2b_orders"]
+        existing_order = await orders_collection.find_one({
+            "contractId": oid,
+            "scheduledDeliveryDate": schedule_key,
+            "deletedAt": None,
+        })
+        if existing_order:
+            created_order_id = str(existing_order.get("_id"))
+        else:
+            rfq = await rfq_repo.find_one({"_id": contract.get("rfqId"), "deletedAt": None}) if contract.get("rfqId") else None
+            offer = await offer_repo.find_one({"_id": contract.get("offerId"), "deletedAt": None}) if contract.get("offerId") else None
+            if not rfq or not offer:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Contract {contract.get('contractNumber') or oid} is missing its original RFQ or accepted farmer quote; warehouse order could not be created.",
+                )
+            order = await _build_order(rfq, offer, requested, None)
+            order.update({
+                "contractId": oid,
+                "contractNumber": contract.get("contractNumber"),
+                "scheduledDeliveryDate": schedule_key,
+                "farmerPrepareBy": order.get("farmerPrepareBy") or datetime.combine(scheduled_day - timedelta(days=1), datetime.min.time()).replace(hour=16),
+                "pickupDate": order.get("pickupDate") or (scheduled_day - timedelta(days=1)).isoformat(),
+                "pickupWindowStart": "18:00",
+                "pickupWindowEnd": "23:59",
+                "transferDispatchDate": order.get("transferDispatchDate"),
+                "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
+                "deliveryDeadline": next_at,
+                "businessUserId": contract["businessUserId"],
+                "farmerId": contract["farmerId"],
+                "rfqId": contract.get("rfqId"),
+                "offerId": contract.get("offerId"),
+                "productName": contract.get("cropName") or order.get("productName"),
+                "deliveryAddress": contract.get("deliveryAddress") or order.get("deliveryAddress") or {},
+                "deliveryCity": contract.get("deliveryCity") or order.get("deliveryCity"),
+                "deliveryState": contract.get("deliveryState") or order.get("deliveryState"),
+                "deliveryDistrict": contract.get("deliveryDistrict") or order.get("deliveryDistrict"),
+                "deliveryLocation": contract.get("deliveryLocation") or order.get("deliveryLocation"),
+                "deliveryTimeSlot": contract.get("deliveryTimeSlot") or order.get("deliveryTimeSlot"),
+                "quantityKg": requested,
+                "packedQuantityKg": packed,
+                "availableQuantityKg": available,
+                "pricePerKg": float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0),
+                "productSubtotal": round(requested * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
+                "totalAmount": round(requested * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
+                "status": ORDER_READY_FOR_PICKUP,
+                "paymentStatus": PAYMENT_PENDING,
+                "deliveryMethod": "dedicated_transport",
+                "startedAt": datetime.utcnow(),
+                "createdAt": datetime.utcnow(),
+                "updatedAt": datetime.utcnow(),
+                "deletedAt": None,
+            })
+            inserted = await orders_collection.insert_one(order)
+            created_order_id = str(inserted.inserted_id)
+
+        # Advance only after this occurrence is safely represented by a B2B order.
+        # Keep the schedule key as an idempotency guard for the legacy generator.
+        frequency = contract.get("frequency") or "monthly"
+        interval = int(contract.get("recurrenceInterval") or 1)
+        if schedule_key not in (contract.get("generatedScheduleKeys") or []):
+            if frequency == "daily":
+                next_at = next_at + timedelta(days=interval)
+            elif frequency == "weekly":
+                next_at = next_at + timedelta(weeks=interval)
+            else:
+                import calendar
+                month = next_at.month - 1 + interval
+                year = next_at.year + month // 12
+                month = month % 12 + 1
+                next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
+            await contract_repo.update({"_id": oid}, {
+                "nextDeliveryAt": next_at,
+                "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])),
+                "updatedAt": datetime.utcnow(),
+            })
+
     # Notify the business for both positive confirmations and shortages.
     try:
         shortage_kg = max(0, requested - min(available, packed))
