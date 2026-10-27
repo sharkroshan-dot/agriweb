@@ -47,8 +47,8 @@ export default function FarmerB2bPreparationPage() {
   });
   const [orderPackedQty, setOrderPackedQty] = useState<Record<string, string>>({});
   const orderPreparationMutation = useMutation({
-    mutationFn: ({ id, status, packedQuantityKg }: { id: string; status: string; packedQuantityKg?: number }) =>
-      api.put(`/b2b/orders/${encodeURIComponent(id)}/status`, { status, packedQuantityKg }),
+    mutationFn: ({ id, status, packedQuantityKg, qualityCheck, qualityNotes }: { id: string; status: string; packedQuantityKg?: number; qualityCheck?: string; qualityNotes?: string }) =>
+      api.put(`/b2b/orders/${encodeURIComponent(id)}/status`, { status, packedQuantityKg, qualityCheck, qualityNotes }),
     onSuccess: async () => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["farmerB2bPreparationOrders"] }),
@@ -62,7 +62,7 @@ export default function FarmerB2bPreparationPage() {
     const list = ordersQuery.data?.data?.orders || [];
     return (Array.isArray(list) ? list : [])
       .map((o: any) => ({ ...o, id: String(o.id || o._id || "") }))
-      .filter((o: any) => o.id && !o.contractId && ["confirmed", "preparing"].includes(o.status))
+      .filter((o: any) => o.id && !o.contractId && ["confirmed", "preparing", "quality_check"].includes(o.status))
       .sort((a: any, b: any) => new Date(a.deliveryDeadline || a.requiredDate || a.createdAt || 0).getTime() - new Date(b.deliveryDeadline || b.requiredDate || b.createdAt || 0).getTime());
   }, [ordersQuery.data]);
 
@@ -165,7 +165,7 @@ export default function FarmerB2bPreparationPage() {
                 </div><Badge variant="outline">{String(o.status).replace(/_/g, " ")}</Badge>
               </div>
               {o.status === "confirmed" ? <Button disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: o.id, status: "preparing" })}>Start preparation</Button> :
-                <div className="flex flex-wrap items-end gap-3">
+                o.status === "preparing" ? <div className="flex flex-wrap items-end gap-3">
                   <div className="min-w-[220px] flex-1 space-y-1"><label className="text-sm font-medium">Actual packed quantity (kg)</label>
                     <Input type="number" min="0" max={required} step="0.1" value={packed} onChange={e => setOrderPackedQty(old => ({ ...old, [o.id]: e.target.value }))} placeholder={`Required: ${required} kg`} />
                   </div>
@@ -176,6 +176,15 @@ export default function FarmerB2bPreparationPage() {
                     }
                     orderPreparationMutation.mutate({ id: o.id, status: "quality_check", packedQuantityKg: Number(packed) });
                   }}>Save packed quantity &amp; submit for quality check</Button>
+                </div> :
+                <div className="space-y-3 rounded-lg border bg-slate-50 p-3">
+                  <p className="text-sm text-slate-700">Packed: {Number(o.packedQuantityKg || 0)} kg · Required: {required} kg. Complete the farmer quality check before sending this order to the warehouse pickup queue.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button disabled={orderPreparationMutation.isPending || Number(o.packedQuantityKg || 0) < required} onClick={() => orderPreparationMutation.mutate({ id: o.id, status: "quality_check", qualityCheck: "passed", qualityNotes: "Farmer quality check passed" })}>Pass quality check</Button>
+                    <Button variant="outline" disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: o.id, status: "quality_check", qualityCheck: "failed", qualityNotes: "Farmer quality check failed; reinspection required" })}>Mark quality failed</Button>
+                    {o.qualityCheck === "passed" && <Button disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: o.id, status: "ready_for_pickup" })}>Confirm ready for farm pickup</Button>}
+                  </div>
+                  {o.qualityCheck === "failed" && <p className="text-sm text-amber-800">Quality failed. Resolve the issue and pass inspection before confirming pickup readiness.</p>}
                 </div>}
               {o.status === "preparing" && <p className="text-xs text-slate-500">A shortage cannot be marked as full supply. Report shortages through the business order/contract workflow before pickup.</p>}
             </CardContent></Card>;
