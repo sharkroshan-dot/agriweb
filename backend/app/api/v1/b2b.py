@@ -2913,8 +2913,8 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only warehouse staff can receive B2B stock")
         # Never let a stale collection record roll a delivered/completed order
         # back into warehouse_received. Completed orders belong in the archive.
-        if current in (ORDER_DELIVERED, ORDER_COMPLETED) or order.get("deliveredAt") or order.get("completedAt"):
-            raise HTTPException(status_code=409, detail="This B2B order is already delivered or completed and cannot be received into the warehouse again.")
+        if current in (ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED) or order.get("warehouseReceivedAt") or order.get("destinationReceivedAt") or order.get("deliveredAt") or order.get("completedAt"):
+            raise HTTPException(status_code=409, detail="Warehouse receipt has already been recorded for this B2B order. Continue with routing, transfer, destination receipt, or delivery; do not receive it again.")
         collection_stage = str(order.get("warehouseCollectionStatus") or order.get("warehouseFulfillmentStage") or "").strip().lower()
         if current != ORDER_PICKED_UP and collection_stage not in ("collected", "departed_farm", "arrived_warehouse", "warehouse_arrived", "collection_departed"):
             raise HTTPException(status_code=400, detail="Stock can be received only after the pickup partner has collected the order and returned to the warehouse")
