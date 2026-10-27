@@ -87,6 +87,59 @@ class BaseRepository(Generic[T]):
             logger.error(f"Error updating document: {str(e)}")
             return False
     
+    async def append_tracking_event(
+        self,
+        order_id: str,
+        event_type: str,
+        title: str,
+        description: Optional[str] = None,
+        actor_id: Optional[str] = None,
+        actor_role: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Append an operational tracking event to a document's status history.
+
+        Kept on BaseRepository because delivery workflows may track both normal
+        orders and B2B orders, each stored through a BaseRepository instance.
+        """
+        try:
+            document = await self.get_by_id(order_id)
+            if not document:
+                logger.warning(
+                    "Cannot append tracking event: %s document %s was not found",
+                    self.collection_name,
+                    order_id,
+                )
+                return False
+
+            event = {
+                "status": str(document.get("orderStatus") or document.get("status") or "pending"),
+                "eventType": event_type,
+                "title": title,
+                "description": description,
+                "changedBy": actor_id,
+                "actorRole": actor_role,
+                "timestamp": datetime.utcnow(),
+                "metadata": metadata or {},
+            }
+            result = await self.collection.update_one(
+                {"_id": document["_id"]},
+                {
+                    "$set": {"updatedAt": datetime.utcnow()},
+                    "$push": {"statusHistory": event},
+                },
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            logger.error(
+                "Error appending tracking event to %s document %s: %s",
+                self.collection_name,
+                order_id,
+                e,
+                exc_info=True,
+            )
+            return False
+
     async def delete(self, filter: Dict[str, Any]) -> bool:
         """Delete a document (soft delete)."""
         try:
