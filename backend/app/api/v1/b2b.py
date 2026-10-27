@@ -1863,17 +1863,21 @@ class B2BLogisticsAction(BaseModel):
 
 @router.get("/warehouse/fulfillment/completed")
 async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
-    """Read-only archive for B2B orders whose delivery workflow has finished."""
+    """Read-only archive only after the business buyer confirms receipt."""
     role = str(current_user.get("role") or "").lower()
     allowed = ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin")
     if role not in allowed:
         raise HTTPException(status_code=403, detail="Warehouse role required")
 
-    completed_statuses = [ORDER_DELIVERED, ORDER_COMPLETED]
+    # "Delivered" is not final completion: the business buyer must acknowledge
+    # receipt through the order-status endpoint, which changes status to
+    # ORDER_COMPLETED and records completedAt. Keep delivered orders active
+    # until that buyer acknowledgement arrives.
     archived = await order_repo.find_many({
         "$and": [
             {"deletedAt": None},
-            {"status": {"$in": completed_statuses}},
+            {"status": ORDER_COMPLETED},
+            {"completedAt": {"$ne": None}},
         ]
     }, sort=[("updatedAt", -1)], limit=1000)
 
