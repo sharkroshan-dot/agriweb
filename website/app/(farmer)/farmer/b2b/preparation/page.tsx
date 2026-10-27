@@ -112,7 +112,17 @@ export default function FarmerB2bPreparationPage() {
       toast.error("Explain the shortage so the business can decide how to proceed.");
       return;
     }
-    const scheduledDate = c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined;
+    // nextDeliveryAt is a calendar delivery date, not a UTC instant.
+    // Converting a naive midnight date with toISOString() in India (UTC+05:30)
+    // shifts it to the previous UTC day and creates yesterday's warehouse order.
+    const scheduledDate = c.nextDeliveryAt
+      ? (typeof c.nextDeliveryAt === "string"
+          ? c.nextDeliveryAt.slice(0, 10)
+          : (() => {
+              const date = new Date(c.nextDeliveryAt);
+              return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+            })())
+      : undefined;
     stockMutation.mutate({ id: c.id, available, packed, ready, note: notes[c.id] || "", scheduledDate });
   };
 
