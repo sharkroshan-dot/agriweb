@@ -99,7 +99,7 @@ export default function B2BFulfillmentPage() {
           <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{orderName}</h2><Badge>{label(o.status)}</Badge></div>
           <p className="mt-1 text-sm text-slate-700">{o.productName || "B2B produce"} · Ordered {o.quantityKg ?? "—"} kg · Packed {o.packedQuantityKg ?? "—"} kg · Received {o.receivedQuantityKg ?? o.destinationReceivedQuantityKg ?? "—"} kg</p>
           <div className="mt-2 grid gap-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 sm:grid-cols-2">
-            <p><strong>Business delivery:</strong> {o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate ? new Date(o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate).toLocaleString("en-IN") : "Confirm delivery date"}</p>
+            <p><strong>Business delivery:</strong> {o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate ? new Date(o.deliveryDeadline || o.requiredDate || o.scheduledDeliveryDate).toLocaleDateString("en-IN") : "Confirm delivery date"} · {o.deliveryTimeSlot || "Morning slot not specified"}</p>
             <p><strong>Farmer preparation:</strong> {o.farmerPrepareBy ? new Date(o.farmerPrepareBy).toLocaleString("en-IN") : "Set by delivery schedule"}</p>
             <p><strong>Pickup date:</strong> {o.pickupDate ? new Date(o.pickupDate).toLocaleDateString("en-IN") : "Awaiting pickup plan"}</p>
             <p><strong>Pickup window:</strong> {o.pickupWindowStart || "18:00"}–{o.pickupWindowEnd || "23:59"} (route cutoff may require earlier collection)</p>
