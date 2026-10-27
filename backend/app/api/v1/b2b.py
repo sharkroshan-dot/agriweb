@@ -190,13 +190,19 @@ def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, floa
     } or bool(district and doc.get("countryCode") == "IN")
 
     def normalize(lng: float, lat: float, is_geojson: bool = False) -> Tuple[float, float]:
-        # Legacy records sometimes store [latitude, longitude] in a field named
-        # coordinates. GeoJSON Point is always [longitude, latitude].
-        if is_india and not is_geojson:
+        # GeoJSON Point is always [longitude, latitude]. Legacy non-GeoJSON
+        # arrays are inconsistent across older records and may contain [lat, lng].
+        # Infer the swap from the coordinate ranges as well as metadata: warehouse
+        # documents often do not have country/state fields populated.
+        if not is_geojson:
             normal_in_india = 6 <= lat <= 38.5 and 67 <= lng <= 99
             swapped_in_india = 6 <= lng <= 38.5 and 67 <= lat <= 99
-            if not normal_in_india and swapped_in_india:
-                return lat, lng
+            if swapped_in_india and not normal_in_india:
+                lng, lat = lat, lng
+        # Reject invalid coordinates instead of letting a malformed pair generate
+        # a plausible-looking but wildly incorrect OSRM distance.
+        if not (-180 <= lng <= 180 and -90 <= lat <= 90):
+            raise ValueError("Coordinates are outside valid longitude/latitude ranges")
         return lng, lat
 
     for key in ("location", "farmLocation", "coordinates", "geoLocation"):
@@ -2635,27 +2641,41 @@ async def recommend_b2b_fulfillment_route(
                 haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
             )
 
-    transit_hours_value = (
-        order.get("estimatedTransferHours")
-        or order.get("transferLeadTimeHours")
-        or destination.get("estimatedTransferHours")
-        or destination.get("transferLeadTimeHours")
-        or source.get("estimatedTransferHours")
-        or source.get("transferLeadTimeHours")
-    )
-    try:
-        estimated_transit_hours = float(transit_hours_value) if transit_hours_value is not None else None
-        if estimated_transit_hours is not None and estimated_transit_hours <= 0:
-            estimated_transit_hours = None
-    except (TypeError, ValueError):
-        estimated_transit_hours = None
-    transit_estimate_basis = "configured"
-    # If no operator has configured a lead time, use an explicit conservative
-    # planning estimate only when both warehouse coordinates are available.
-    # This is an estimate, not a live traffic ETA; dispatch still revalidates it.
-    if estimated_transit_hours is None and transfer_distance_km is not None:
-        estimated_transit_hours = round((transfer_distance_km / 35.0) + 2.0, 1)
-        transit_estimate_basis = "distance_estimate_35_kmh_plus_2h_handling_buffer"
+    # Do not trust per-order lead times here: older orders may contain an ETA
+    # persisted from malformed/swapped coordinates (for example, hundreds of
+    # hours for a short regional transfer). Recalculate from the current validated
+    # warehouse-to-warehouse route every time the recommendation is requested.
+    # Prefer road distance; when OSRM is unavailable, the fallback is straight-line
+    # distance, so apply a road factor before estimating travel and handling time.
+    estimated_transit_hours = None
+    transit_estimate_basis = "needs_review"
+    if transfer_distance_km is not None and transfer_distance_km >= 0:
+        road_distance_for_eta = transfer_distance_km
+        if transfer_distance_km and transfer_distance_km == round(
+            haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
+        ):
+            road_distance_for_eta = transfer_distance_km * 1.25
+            transit_estimate_basis = "straight_line_fallback_road_factor_plus_2h_handling_buffer"
+        else:
+            transit_estimate_basis = "road_distance_plus_2h_handling_buffer"
+        estimated_transit_hours = round((road_distance_for_eta / 35.0) + 2.0, 1)
+    else:
+        # If valid coordinates are unavailable, only use an explicit warehouse
+        # operational lead time. Ignore stale order-level values.
+        for configured in (
+            source.get("estimatedTransferHours"),
+            source.get("transferLeadTimeHours"),
+            destination.get("estimatedTransferHours"),
+            destination.get("transferLeadTimeHours"),
+        ):
+            try:
+                parsed = float(configured) if configured is not None else None
+                if parsed is not None and 0 < parsed <= 168:
+                    estimated_transit_hours = parsed
+                    transit_estimate_basis = "warehouse_configured_lead_time_coordinates_unavailable"
+                    break
+            except (TypeError, ValueError):
+                continue
 
     dispatch_cutoff = (
         order.get("transferDispatchCutoff")
