@@ -224,14 +224,9 @@ cors_origins = list(dict.fromkeys([*configured_origins, *local_dev_origins]))
 cors_regex = settings.BACKEND_CORS_ORIGIN_REGEX
 if settings.DEBUG and not cors_regex:
     cors_regex = r"^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$"
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_origin_regex=cors_regex or None,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS is applied as an outer ASGI wrapper at the end of this module.
+# This ensures CORS headers are added even when Starlette's server-error
+# middleware turns an unhandled exception into a 500 response.
 
 # Exception handlers
 setup_exception_handlers(app)
@@ -349,3 +344,16 @@ if __name__ == "__main__":
 app.include_router(settlements.router, prefix="/api/v1/settlements", tags=["Settlements"])
 from app.api.v1 import local_hubs
 app.include_router(local_hubs.router, prefix="/api/v1", tags=["Local Hubs"])
+
+# Wrap the fully configured FastAPI app so CORS also covers unhandled 500
+# responses. Adding CORSMiddleware with add_middleware alone places it inside
+# Starlette's ServerErrorMiddleware, which can produce browser-visible
+# "No Access-Control-Allow-Origin" errors when an endpoint crashes.
+app = CORSMiddleware(
+    app,
+    allow_origins=cors_origins,
+    allow_origin_regex=cors_regex or None,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
