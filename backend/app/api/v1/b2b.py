@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
 import os
+import httpx
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -178,36 +179,77 @@ def _distance_km(farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]) -> Optio
 
 
 def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, float]]:
-    """Return (longitude, latitude) from supported GeoJSON-like location fields."""
+    """Return validated (longitude, latitude), correcting legacy India lat/lng arrays."""
+    country = str(doc.get("country") or doc.get("countryName") or "").strip().lower()
+    state = str(doc.get("state") or doc.get("stateName") or "").strip().lower()
+    district = str(doc.get("district") or doc.get("districtName") or "").strip().lower()
+    is_india = country in {"india", "in"} or state in {
+        "tamil nadu", "andhra pradesh", "telangana", "kerala", "karnataka",
+        "maharashtra", "gujarat", "rajasthan", "madhya pradesh", "uttar pradesh",
+        "bihar", "west bengal", "odisha", "punjab", "haryana", "assam",
+    } or bool(district and doc.get("countryCode") == "IN")
+
+    def normalize(lng: float, lat: float, is_geojson: bool = False) -> Tuple[float, float]:
+        # Legacy records sometimes store [latitude, longitude] in a field named
+        # coordinates. GeoJSON Point is always [longitude, latitude].
+        if is_india and not is_geojson:
+            normal_in_india = 6 <= lat <= 38.5 and 67 <= lng <= 99
+            swapped_in_india = 6 <= lng <= 38.5 and 67 <= lat <= 99
+            if not normal_in_india and swapped_in_india:
+                return lat, lng
+        return lng, lat
+
     for key in ("location", "farmLocation", "coordinates", "geoLocation"):
         value = doc.get(key)
         if isinstance(value, dict):
             coords = value.get("coordinates")
             if isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 try:
-                    return float(coords[0]), float(coords[1])
+                    is_geojson = str(value.get("type") or "").lower() == "point"
+                    return normalize(float(coords[0]), float(coords[1]), is_geojson)
                 except (TypeError, ValueError):
                     continue
             lat = value.get("latitude", value.get("lat"))
             lng = value.get("longitude", value.get("lng", value.get("lon")))
             if lat is not None and lng is not None:
                 try:
-                    return float(lng), float(lat)
+                    return normalize(float(lng), float(lat))
                 except (TypeError, ValueError):
                     continue
         if isinstance(value, (list, tuple)) and len(value) >= 2:
             try:
-                return float(value[0]), float(value[1])
+                return normalize(float(value[0]), float(value[1]))
             except (TypeError, ValueError):
                 continue
     lat = doc.get("latitude", doc.get("lat"))
     lng = doc.get("longitude", doc.get("lng", doc.get("lon")))
     if lat is not None and lng is not None:
         try:
-            return float(lng), float(lat)
+            return normalize(float(lng), float(lat))
         except (TypeError, ValueError):
             return None
     return None
+
+
+async def _road_distance_km_between(
+    start: Tuple[float, float], end: Tuple[float, float]
+) -> Optional[float]:
+    """Return actual driving-road distance from OSRM, or None when unavailable."""
+    try:
+        url = (
+            "https://router.project-osrm.org/route/v1/driving/"
+            f"{start[0]},{start[1]};{end[0]},{end[1]}"
+        )
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(url, params={"overview": "false"})
+            response.raise_for_status()
+            routes = response.json().get("routes") or []
+            if not routes or routes[0].get("distance") is None:
+                return None
+            return round(float(routes[0]["distance"]) / 1000.0, 1)
+    except Exception as exc:
+        logger.warning("B2B road distance lookup failed; using validated straight-line distance: %s", exc)
+        return None
 
 
 async def _warehouse_route_for_b2b(
@@ -2585,7 +2627,13 @@ async def recommend_b2b_fulfillment_route(
     destination_coords = _location_coords_from_doc(destination)
     transfer_distance_km = None
     if source_coords and destination_coords:
-        transfer_distance_km = round(haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1)
+        # Prefer real driving-road distance for dispatch planning. The straight-
+        # line fallback is only used when the road-routing service is unavailable.
+        transfer_distance_km = await _road_distance_km_between(source_coords, destination_coords)
+        if transfer_distance_km is None:
+            transfer_distance_km = round(
+                haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
+            )
 
     transit_hours_value = (
         order.get("estimatedTransferHours")
