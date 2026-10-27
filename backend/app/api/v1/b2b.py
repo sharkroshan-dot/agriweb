@@ -2027,6 +2027,36 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 scoped_orders.append(order)
         orders = scoped_orders
 
+    # Always hydrate the claimable farm-pickup queue independently of the
+    # general logistics query/scoping. The summary is database-wide by design,
+    # but a stale/legacy warehouse assignment must never make an unassigned
+    # ready_for_pickup order disappear from the actionable list.
+    ready_pickup_orders = await order_repo.find_many({
+        "$and": [
+            {"deletedAt": None},
+            {"status": ORDER_READY_FOR_PICKUP},
+            {"$or": [
+                {"pickupTeam": {"$exists": False}},
+                {"pickupTeam": None},
+                {"pickupTeam": ""},
+            ]},
+        ]
+    }, sort=[("updatedAt", -1)], limit=500)
+    existing_order_ids = {str(item.get("_id") or item.get("id") or "") for item in orders}
+    for pickup_order in ready_pickup_orders:
+        pickup_id = str(pickup_order.get("_id") or pickup_order.get("id") or "")
+        if not pickup_id or pickup_id in existing_order_ids:
+            continue
+        await _enrich_order(pickup_order)
+        pickup_order["id"] = pickup_id
+        pickup_order["b2bFarmerCount"] = 1
+        for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
+            if pickup_order.get(key) is not None:
+                pickup_order[key] = str(pickup_order[key])
+        pickup_order["warehouseTransferSide"] = None
+        orders.append(pickup_order)
+        existing_order_ids.add(pickup_id)
+
     # Counts are computed from persisted database queries, not the capped list
     # returned for rendering. Derived workflow stages use server-side predicates.
     base = {"deletedAt": None}
