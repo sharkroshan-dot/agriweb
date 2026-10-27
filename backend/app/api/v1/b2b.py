@@ -2447,9 +2447,12 @@ async def recommend_b2b_fulfillment_route(
         except (TypeError, ValueError):
             dispatch_cutoff = None
 
-    if same_district:
+    if same_district and not delivery_deadline:
+        schedule_status = "needs_review"
+        schedule_reason = "Local delivery cannot be scheduled until the business delivery date and morning time slot are confirmed."
+    elif same_district:
         schedule_status = "local_delivery"
-        schedule_reason = "No inter-warehouse transfer is required. Confirm the local delivery team's morning route and cutoff."
+        schedule_reason = "No inter-warehouse transfer is required. Assign a local delivery team and stage the order before the confirmed morning slot."
     elif not delivery_deadline:
         schedule_status = "needs_review"
         schedule_reason = "Delivery date/time is missing or invalid; confirm a business delivery date and morning time slot before dispatch."
@@ -2908,6 +2911,8 @@ async def update_b2b_warehouse_fulfillment(
         now_for_transfer = datetime.utcnow()
         if now_for_transfer + timedelta(hours=transit_hours) > delivery_deadline:
             raise HTTPException(status_code=409, detail="Transfer lead time exceeds the business delivery deadline. Do not dispatch against an infeasible schedule; alert the business and warehouse and agree on a new delivery slot.")
+        if now_for_transfer.date() >= delivery_deadline.date():
+            raise HTTPException(status_code=409, detail="The planned previous-day transfer dispatch window has passed. Do not dispatch late without an approved recovery plan; agree on a new feasible delivery slot.")
         cutoff_value = order.get("transferDispatchCutoff") or source_record.get("transferDispatchCutoff") or source_record.get("dispatchCutoff") or destination_record.get("transferDispatchCutoff") or destination_record.get("dispatchCutoff")
         if isinstance(cutoff_value, str):
             try:
@@ -3047,6 +3052,11 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=400, detail="The correct warehouse must receive and pass quality inspection before final delivery")
         if not data.deliveryPartner or not str(data.deliveryPartner).strip():
             raise HTTPException(status_code=400, detail="Select a registered delivery team before dispatch")
+        delivery_deadline = _parse_b2b_delivery_deadline(order)
+        if not isinstance(delivery_deadline, datetime):
+            raise HTTPException(status_code=409, detail="Business delivery date and morning time slot are required before final-mile dispatch")
+        if datetime.utcnow() >= delivery_deadline:
+            raise HTTPException(status_code=409, detail="The scheduled business delivery slot has passed. Agree on a new delivery schedule before dispatch")
         if route == "long_distance" and current == ORDER_DESTINATION_RECEIVED and not order.get("destinationReceivedAt"):
             raise HTTPException(status_code=400, detail="Destination warehouse receipt must be recorded before final delivery")
         update.update({"status": ORDER_IN_TRANSIT, "finalDeliveryPartner": data.deliveryPartner, "finalDeliveryAssignedAt": datetime.utcnow(), "finalDeliveryAssignedBy": str(current_user.get("_id")), "deliveryNotes": data.notes})
