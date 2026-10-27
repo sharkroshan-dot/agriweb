@@ -2338,6 +2338,80 @@ async def recommend_b2b_fulfillment_route(
     multi_farmer = len({str(p.get("farmerId") or p.get("farmerUserId") or (p.get("farmerInfo") or {}).get("id") or (p.get("farmer") or {}).get("id") or p.get("_id")) for p in portions}) > 1
     if same_district:
         route = "nearby_multi_farmer" if multi_farmer else "nearby_single_farmer"
+
+    # Delivery planning is separate from district routing. Calculate the
+    # source-to-destination distance when coordinates exist, then evaluate the
+    # deadline using only configured transit/cutoff values. If operational data
+    # is missing, show "needs_review" instead of falsely promising on-time delivery.
+    delivery_deadline = order.get("deliveryDeadline") or order.get("requiredDate") or order.get("scheduledDeliveryDate")
+    if isinstance(delivery_deadline, str):
+        try:
+            delivery_deadline = datetime.fromisoformat(delivery_deadline.replace("Z", "+00:00"))
+            if delivery_deadline.tzinfo is not None:
+                delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            delivery_deadline = None
+    elif isinstance(delivery_deadline, datetime) and delivery_deadline.tzinfo is not None:
+        delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+
+    source_coords = _location_coords_from_doc(source)
+    destination_coords = _location_coords_from_doc(destination)
+    transfer_distance_km = None
+    if source_coords and destination_coords:
+        transfer_distance_km = round(haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1)
+
+    transit_hours_value = (
+        order.get("estimatedTransferHours")
+        or order.get("transferLeadTimeHours")
+        or destination.get("estimatedTransferHours")
+        or destination.get("transferLeadTimeHours")
+        or source.get("estimatedTransferHours")
+        or source.get("transferLeadTimeHours")
+    )
+    try:
+        estimated_transit_hours = float(transit_hours_value) if transit_hours_value is not None else None
+        if estimated_transit_hours is not None and estimated_transit_hours < 0:
+            estimated_transit_hours = None
+    except (TypeError, ValueError):
+        estimated_transit_hours = None
+
+    dispatch_cutoff = (
+        order.get("transferDispatchCutoff")
+        or source.get("transferDispatchCutoff")
+        or source.get("dispatchCutoff")
+        or destination.get("transferDispatchCutoff")
+        or destination.get("dispatchCutoff")
+    )
+    if isinstance(dispatch_cutoff, str):
+        try:
+            dispatch_cutoff = datetime.fromisoformat(dispatch_cutoff.replace("Z", "+00:00"))
+            if dispatch_cutoff.tzinfo is not None:
+                dispatch_cutoff = dispatch_cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            dispatch_cutoff = None
+
+    if same_district:
+        schedule_status = "local_delivery"
+        schedule_reason = "No inter-warehouse transfer is required. Confirm the local delivery team's morning route and cutoff."
+    elif not delivery_deadline:
+        schedule_status = "needs_review"
+        schedule_reason = "Delivery deadline is missing or invalid; confirm a business delivery date/time before dispatch."
+    elif estimated_transit_hours is None:
+        schedule_status = "needs_review"
+        schedule_reason = "Transfer travel-time estimate is not configured. Set estimatedTransferHours/transferLeadTimeHours before confirming on-time feasibility."
+    else:
+        required_arrival = delivery_deadline
+        planned_arrival = datetime.utcnow() + timedelta(hours=estimated_transit_hours)
+        if dispatch_cutoff and datetime.utcnow() > dispatch_cutoff:
+            schedule_status = "at_risk"
+            schedule_reason = "The configured dispatch cutoff has passed. Alert the warehouse and business and agree on an earlier/next feasible delivery slot."
+        elif planned_arrival > required_arrival:
+            schedule_status = "at_risk"
+            schedule_reason = "Estimated transfer arrival is after the business delivery deadline. Do not promise the scheduled morning slot; alert the warehouse and business to reschedule or approve an earlier recovery plan."
+        else:
+            schedule_status = "feasible"
+            schedule_reason = "Configured transfer lead time fits before the delivery deadline. Dispatch one day before delivery, or earlier if the cutoff requires it."
+
     return {"success": True, "data": {
         "available": True,
         "fulfillmentRoute": route,
@@ -2352,6 +2426,15 @@ async def recommend_b2b_fulfillment_route(
         "farmerCount": len({str(p.get("farmerId") or p.get("farmerUserId") or (p.get("farmerInfo") or {}).get("id") or (p.get("farmer") or {}).get("id") or p.get("_id")) for p in portions}) or 1,
         "portionCount": max(1, len(portions)),
         "destinationAvailableCapacityKg": round(available_capacity, 2),
+        "schedulePlan": {
+            "status": schedule_status,
+            "deliveryDeadline": delivery_deadline.isoformat() if isinstance(delivery_deadline, datetime) else None,
+            "transferDistanceKm": transfer_distance_km,
+            "estimatedTransitHours": estimated_transit_hours,
+            "dispatchCutoff": dispatch_cutoff.isoformat() if isinstance(dispatch_cutoff, datetime) else None,
+            "recommendedDispatchDate": (delivery_deadline.date() - timedelta(days=1)).isoformat() if isinstance(delivery_deadline, datetime) and not same_district else None,
+            "reason": schedule_reason,
+        },
         "reason": reason,
     }}
 
