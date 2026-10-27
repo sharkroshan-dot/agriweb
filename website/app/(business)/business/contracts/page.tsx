@@ -39,6 +39,19 @@ interface Contract {
   status: "active" | "pending" | "paused" | "completed" | "cancelled";
   latestDeliveryStatus?: string;
   latestDeliveryDate?: string;
+  deliveryHistory?: Array<{
+    scheduledDate: string;
+    requestedQuantityKg?: number;
+    availableQuantityKg?: number;
+    packedQuantityKg?: number;
+    status?: string;
+    readyForPickup?: boolean;
+    notes?: string | null;
+    resolution?: string;
+    resolutionNotes?: string;
+    resolvedAt?: string;
+    confirmedAt?: string;
+  }>;
 }
 
 export default function BusinessContractsPage() {
@@ -160,6 +173,44 @@ export default function BusinessContractsPage() {
                   <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"}{Number(c.recurrenceInterval || 1) > 1 ? ` · every ${c.recurrenceInterval}` : ""}</span>
                   {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
+                {c.deliveryHistory && c.deliveryHistory.length > 0 && (
+                  <div className="mt-3 w-full rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-semibold text-slate-900">Daily supply updates</p>
+                        <p className="text-xs text-slate-500">Each scheduled delivery is tracked separately. Availability confirmation is not the same as warehouse receipt or business delivery.</p>
+                      </div>
+                      <Badge variant="outline">{c.deliveryHistory.length} recorded update{c.deliveryHistory.length === 1 ? "" : "s"}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      {c.deliveryHistory.map((delivery, index) => {
+                        const required = Number(delivery.requestedQuantityKg || c.quantityPerDeliveryKg || 0);
+                        const available = Number(delivery.availableQuantityKg || 0);
+                        const packed = Number(delivery.packedQuantityKg || 0);
+                        const shortage = Math.max(0, required - Math.min(available, packed));
+                        const state = String(delivery.status || "awaiting_confirmation").replace(/_/g, " ");
+                        const isShort = ["shortage", "backup required", "at risk", "rescheduled"].includes(String(delivery.status || "").toLowerCase());
+                        return (
+                          <div key={delivery.scheduledDate || index} className="rounded-md border border-slate-200 bg-white p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-medium text-slate-800">{delivery.scheduledDate ? new Date(delivery.scheduledDate + "T00:00:00").toLocaleDateString("en-IN", { dateStyle: "medium" }) : "Scheduled delivery"}</p>
+                              <Badge variant={isShort ? "destructive" : delivery.status === "confirmed" ? "success" : "secondary"}>{state}</Badge>
+                            </div>
+                            <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
+                              <p><span className="text-slate-500">Required:</span> {required} kg</p>
+                              <p><span className="text-slate-500">Available:</span> {available} kg</p>
+                              <p><span className="text-slate-500">Packed:</span> {packed} kg</p>
+                            </div>
+                            {shortage > 0 && <p className="mt-2 text-sm font-medium text-red-700">Shortage: {shortage} kg</p>}
+                            {delivery.notes && <p className="mt-1 text-sm text-slate-600">Farmer note: {delivery.notes}</p>}
+                            {delivery.resolution && <p className="mt-1 text-sm text-blue-700">Business resolution: {delivery.resolution.replace(/_/g, " ")}{delivery.resolutionNotes ? " — " + delivery.resolutionNotes : ""}</p>}
+                            {delivery.confirmedAt && <p className="mt-1 text-xs text-slate-400">Updated {new Date(delivery.confirmedAt).toLocaleString("en-IN")}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {c.latestDeliveryStatus === "shortage" && (
                   <div className="mt-3 w-full rounded-lg border border-amber-300 bg-amber-50 p-3">
                     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
