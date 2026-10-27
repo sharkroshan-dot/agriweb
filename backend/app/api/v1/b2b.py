@@ -4371,6 +4371,24 @@ def _contract_public(row: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("businessUserId", "farmerId", "rfqId", "offerId"):
         if result.get(key) is not None:
             result[key] = str(result[key])
+    # Expose each scheduled delivery as a JSON-safe, date-sorted history.
+    confirmations = result.get("deliveryConfirmations") or {}
+    history = []
+    if isinstance(confirmations, dict):
+        for schedule_key, raw in confirmations.items():
+            if not isinstance(raw, dict):
+                continue
+            item = dict(raw)
+            item.setdefault("scheduledDate", schedule_key)
+            for date_key in ("confirmedAt", "updatedAt", "resolvedAt", "rescheduledTo"):
+                value = item.get(date_key)
+                if isinstance(value, datetime):
+                    item[date_key] = value.isoformat()
+            if item.get("confirmedBy") is not None:
+                item["confirmedBy"] = str(item["confirmedBy"])
+            history.append(item)
+    result["deliveryHistory"] = sorted(history, key=lambda item: str(item.get("scheduledDate") or ""), reverse=True)
+    result.pop("deliveryConfirmations", None)
     return result
 
 
@@ -4597,6 +4615,25 @@ async def confirm_contract_delivery_stock(
         "latestDeliveryDate": schedule_key,
         "updatedAt": datetime.utcnow(),
     })
+    # Notify the business for both positive confirmations and shortages.
+    try:
+        shortage_kg = max(0, requested - min(available, packed))
+        if status == "confirmed":
+            title = "Recurring supply update: full supply confirmed"
+            message = f"{contract.get('farmerName') or 'Your farmer'} confirmed {packed:g} kg of {contract.get('cropName') or 'produce'} for {schedule_key} (required {requested:g} kg)."
+        else:
+            title = "Recurring supply update: shortage reported"
+            message = f"{contract.get('farmerName') or 'Your farmer'} reports {shortage_kg:g} kg shortage for {contract.get('cropName') or 'produce'} on {schedule_key}. Available: {available:g} kg; packed: {packed:g} kg. Please review the contract."
+        await NotificationService.create_in_app_notification(
+            str(contract.get("businessUserId")),
+            NotificationType.PROMOTION,
+            title,
+            message,
+            {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": status},
+            NotificationPriority.HIGH if status == "shortage" else NotificationPriority.MEDIUM,
+        )
+    except Exception as exc:
+        logger.warning("Recurring supply business notification failed for contract %s: %s", oid, exc)
     return {
         "success": True,
         "data": {"contractId": str(oid), "scheduledDeliveryDate": schedule_key,
@@ -4650,6 +4687,16 @@ async def resolve_contract_delivery_shortage(
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
             "latestDeliveryStatus": "partial_approved", "updatedAt": now})
+        try:
+            await NotificationService.create_in_app_notification(
+                str(contract.get("farmerId")), NotificationType.PROMOTION,
+                "Business approved partial recurring supply",
+                f"The business approved {quantity:g} kg for {schedule_key}. Review the updated pickup quantity.",
+                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "partial_approved"},
+                NotificationPriority.HIGH,
+            )
+        except Exception as exc:
+            logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
         return {"success": True, "data": {"status": "partial_approved", "scheduledDeliveryDate": schedule_key,
             "approvedQuantityKg": quantity}, "message": "Partial delivery approved; order generation will use the approved quantity."}
     if action == "reschedule":
@@ -4664,6 +4711,16 @@ async def resolve_contract_delivery_shortage(
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
             "nextDeliveryAt": new_date, "latestDeliveryStatus": "rescheduled", "updatedAt": now})
+        try:
+            await NotificationService.create_in_app_notification(
+                str(contract.get("farmerId")), NotificationType.PROMOTION,
+                "Recurring supply delivery rescheduled",
+                f"The business rescheduled the delivery originally planned for {schedule_key} to {new_date:%Y-%m-%d}.",
+                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "rescheduled"},
+                NotificationPriority.HIGH,
+            )
+        except Exception as exc:
+            logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
         return {"success": True, "data": {"status": "rescheduled", "nextDeliveryAt": new_date.isoformat()},
                 "message": "Delivery rescheduled with business approval; the contract remains active."}
     if action == "backup_required":
@@ -4672,6 +4729,16 @@ async def resolve_contract_delivery_shortage(
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
             "latestDeliveryStatus": "backup_required", "updatedAt": now})
+        try:
+            await NotificationService.create_in_app_notification(
+                str(contract.get("farmerId")), NotificationType.PROMOTION,
+                "Business requested replacement sourcing",
+                f"The business requested backup sourcing for the recurring delivery on {schedule_key}. Do not treat the original quantity as fulfilled.",
+                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "backup_required"},
+                NotificationPriority.HIGH,
+            )
+        except Exception as exc:
+            logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
         return {"success": True, "data": {"status": "backup_required", "scheduledDeliveryDate": schedule_key},
                 "message": "Backup sourcing required. The delivery is blocked until an approved replacement supplier is assigned."}
     raise HTTPException(status_code=400, detail="action must be partial, reschedule, or backup_required")
