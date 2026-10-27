@@ -89,7 +89,7 @@ export default function B2BFulfillmentPage() {
       <Button variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")}>Active fulfillment ({orders.length})</Button>
       <Button variant={view === "completed" ? "default" : "outline"} onClick={() => setView("completed")}>Completed orders ({completedOrders.length})</Button>
     </div>
-    {view === "completed" && <p className="text-sm text-slate-600">Read-only archive of B2B orders marked delivered or completed. These orders are kept separate from active pickup and fulfillment tasks.</p>}
+    {view === "completed" && <p className="text-sm text-slate-600">Read-only archive of B2B orders that have reached the configured terminal workflow stage. Archived orders have no pickup, receipt, routing, transfer, or dispatch actions.</p>}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
       { label: "Ready for Farm Pickup", key: "readyForFarmPickup" },
       { label: "Pickup Assigned", key: "pickupAssigned" },
@@ -124,6 +124,13 @@ export default function B2BFulfillmentPage() {
           {o.status === "transfer_in_transit" && <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950"><p className="font-semibold">{o.warehouseTransferSide === "source_outgoing" ? "Outgoing transfer · Source warehouse" : o.warehouseTransferSide === "destination_incoming" ? "Incoming transfer · Destination warehouse" : "Warehouse-to-warehouse transfer in transit"}</p><p className="mt-1">From: {o.sourceWarehouseName || o.sourceWarehouseId || "Source warehouse not recorded"}</p><p>To: {o.destinationWarehouseName || o.destinationWarehouseId || "Destination warehouse not recorded"}</p><p className="mt-1 text-xs">Original B2B order ID: {o.id} · Transfer dispatched: {o.transferDispatchedAt ? new Date(o.transferDispatchedAt).toLocaleString() : "Timestamp unavailable"}</p>{o.warehouseTransferSide === "destination_incoming" && <p className="mt-2 font-medium">This order is awaiting physical receipt and quality inspection at this destination warehouse.</p>}{o.warehouseTransferSide === "source_outgoing" && <p className="mt-2 font-medium">This order is outgoing from this source warehouse and awaiting destination receipt.</p>}</div>}
         </div><p className="font-semibold text-emerald-700">₹{Number(o.totalAmount || 0).toFixed(2)}</p></div>
 
+        {view === "completed" ? <section className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <h3 className="font-semibold"><CheckCircle2 className="mr-2 inline h-4 w-4"/>Completed workflow — read only</h3>
+          <p>This order is archived and cannot be processed again from this page.</p>
+          {o.destinationReceivedAt && <p>Destination warehouse receipt: {new Date(o.destinationReceivedAt).toLocaleString("en-IN")} · Quality: {label(o.destinationQualityCheck || "unknown")} · Received: {o.destinationReceivedQuantityKg ?? "—"} kg</p>}
+          {o.deliveredAt && <p>Business delivery recorded: {new Date(o.deliveredAt).toLocaleString("en-IN")}</p>}
+          {o.completedAt && <p>Completion recorded: {new Date(o.completedAt).toLocaleString("en-IN")}</p>}
+        </section> : <>
         {o.status === "ready_for_pickup" && <section className="space-y-3 rounded-xl border bg-slate-50 p-4">
           <h3 className="font-medium"><Truck className="mr-2 inline h-4 w-4"/>Farm pickup assignment</h3>
           <p className="text-sm text-slate-600">Select a registered approved pickup team. Vehicle details come from the team record; do not type team IDs or vehicle numbers.</p>
@@ -193,6 +200,7 @@ export default function B2BFulfillmentPage() {
 
         {["at_risk", "needs_review"].includes(routeRecommendations[o.id]?.schedulePlan?.status) && !["delivered", "completed", "cancelled"].includes(o.status) && <section className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4"><h3 className="font-semibold text-amber-950">Delivery deadline recovery</h3><p className="text-sm text-amber-900">This order needs an operational decision before dispatch. Confirm a new feasible business delivery date and morning time slot with the buyer, then record the agreed change here. Saving notifies the business buyer.</p><div className="grid gap-3 sm:grid-cols-2"><div><label className="mb-1 block text-sm font-medium">New delivery date</label><Input type="date" min={new Date().toISOString().slice(0, 10)} value={f.newDeliveryDeadline || ""} onChange={e => setForm(o.id, { newDeliveryDeadline: e.target.value })}/></div><div><label className="mb-1 block text-sm font-medium">New morning time slot</label><select className="h-10 w-full rounded-md border bg-white px-3 text-sm" value={f.newDeliveryTimeSlot || ""} onChange={e => setForm(o.id, { newDeliveryTimeSlot: e.target.value })}><option value="">Select agreed slot</option><option value="06:00-08:00">6:00–8:00 AM</option><option value="07:00-09:00">7:00–9:00 AM</option><option value="08:00-10:00">8:00–10:00 AM</option><option value="09:00-11:00">9:00–11:00 AM</option></select></div></div><div><label className="mb-1 block text-sm font-medium">Reason agreed with business</label><Input value={f.rescheduleReason || ""} onChange={e => setForm(o.id, { rescheduleReason: e.target.value })} placeholder="Explain the cutoff, transfer, or capacity issue"/></div><Button disabled={mutation.isPending || !f.newDeliveryDeadline || !f.newDeliveryTimeSlot || !String(f.rescheduleReason || "").trim()} onClick={() => act(o.id, { action: "reschedule_delivery", newDeliveryDeadline: f.newDeliveryDeadline, newDeliveryTimeSlot: f.newDeliveryTimeSlot, rescheduleReason: f.rescheduleReason })}>Save agreed schedule &amp; notify business</Button></section>}
          {["delivered", "completed"].includes(o.status) && <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">Business delivery recorded. Final status: {label(o.status)}.</p>}
+        </>}
       </CardContent></Card>;
     })}</div>}
   </div>;
