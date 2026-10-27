@@ -2134,7 +2134,7 @@ def _parse_b2b_delivery_deadline(order: Dict[str, Any]) -> Optional[datetime]:
     # and "06:00-09:00". A missing AM/PM on the first time inherits the slot's
     # final AM/PM marker (e.g. 6–9 AM).
     if date_only and slot:
-        matches = list(re.finditer(r"(?<!\\d)(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)?", slot, re.IGNORECASE))
+        matches = list(re.finditer(r"(?<!\d)(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?", slot, re.IGNORECASE))
         if matches:
             first = matches[0]
             meridiem = first.group(3) or next(
