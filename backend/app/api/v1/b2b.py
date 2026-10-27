@@ -2733,6 +2733,32 @@ async def recommend_b2b_fulfillment_route(
                 transfer_distance_km = None
                 used_road_distance = False
 
+    # If warehouse coordinates are missing (not just corrupted), recover a
+    # useful regional estimate from the source and business district centres.
+    # This is explicitly a district-to-district planning estimate, not a claim
+    # that the exact warehouse pins were located. It prevents the UI getting
+    # stuck at NEEDS REVIEW solely because older warehouse records lack GPS.
+    if transfer_distance_km is None and inferred_tamil_nadu_route:
+        geocoded_source = await _geocode_indian_district(source_district)
+        geocoded_destination = await _geocode_indian_district(buyer_district)
+        if geocoded_source and geocoded_destination:
+            recovered_distance = await _road_distance_km_between(geocoded_source, geocoded_destination)
+            if recovered_distance is not None and 0 < recovered_distance <= 1500:
+                transfer_distance_km = recovered_distance
+                used_road_distance = True
+                transit_estimate_basis = "district_centre_road_estimate_plus_2h_handling_buffer"
+            else:
+                # If the road router is unavailable, use the geocoded district
+                # centres' straight-line distance with a road detour factor.
+                straight_line_km = haversine_km(
+                    geocoded_source[1], geocoded_source[0],
+                    geocoded_destination[1], geocoded_destination[0],
+                )
+                if 0 < straight_line_km <= 1200:
+                    transfer_distance_km = round(straight_line_km, 1)
+                    used_road_distance = False
+                    transit_estimate_basis = "district_centre_straight_line_fallback_plus_road_factor_and_2h_buffer"
+
     # Do not trust per-order lead times here: older orders may contain an ETA
     # persisted from malformed/swapped coordinates (for example, hundreds of
     # hours for a short regional transfer). Recalculate from the current validated
