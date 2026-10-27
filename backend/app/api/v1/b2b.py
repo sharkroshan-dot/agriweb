@@ -262,6 +262,23 @@ async def _road_distance_km_between(
         logger.warning("B2B road distance lookup failed; using validated straight-line distance: %s", exc)
         return None
 
+# Approximate district/city-centre coordinates used only when registered warehouse
+# GPS and the external geocoder are unavailable. Tuple format is (longitude, latitude).
+# These are planning fallbacks, not exact warehouse pins.
+_TN_DISTRICT_CENTRE_COORDS: Dict[str, Tuple[float, float]] = {
+    "trichy": (78.7047, 10.7905),
+    "trichirapalli": (78.7047, 10.7905),
+    "tiruchirapalli": (78.7047, 10.7905),
+    "tiruchirappalli": (78.7047, 10.7905),
+    "thiruchirapalli": (78.7047, 10.7905),
+    "thiruchirappalli": (78.7047, 10.7905),
+    "perambalur": (78.8801, 11.2342),
+}
+
+def _fallback_tamil_nadu_district_coords(district: str) -> Optional[Tuple[float, float]]:
+    token = re.sub(r"[^a-z0-9]", "", (district or "").lower())
+    return _TN_DISTRICT_CENTRE_COORDS.get(token)
+
 async def _geocode_indian_district(district: str) -> Optional[Tuple[float, float]]:
     """Resolve a Tamil Nadu district to (longitude, latitude) as a recovery path."""
     if not district or not district.strip():
@@ -2739,8 +2756,8 @@ async def recommend_b2b_fulfillment_route(
     # that the exact warehouse pins were located. It prevents the UI getting
     # stuck at NEEDS REVIEW solely because older warehouse records lack GPS.
     if transfer_distance_km is None and inferred_tamil_nadu_route:
-        geocoded_source = await _geocode_indian_district(source_district)
-        geocoded_destination = await _geocode_indian_district(buyer_district)
+        geocoded_source = await _geocode_indian_district(source_district) or _fallback_tamil_nadu_district_coords(source_district)
+        geocoded_destination = await _geocode_indian_district(buyer_district) or _fallback_tamil_nadu_district_coords(buyer_district)
         if geocoded_source and geocoded_destination:
             recovered_distance = await _road_distance_km_between(geocoded_source, geocoded_destination)
             if recovered_distance is not None and 0 < recovered_distance <= 1500:
@@ -2748,8 +2765,8 @@ async def recommend_b2b_fulfillment_route(
                 used_road_distance = True
                 transit_estimate_basis = "district_centre_road_estimate_plus_2h_handling_buffer"
             else:
-                # If the road router is unavailable, use the geocoded district
-                # centres' straight-line distance with a road detour factor.
+                # If the road router is unavailable, use the district-centre
+                # straight-line distance with a road detour factor.
                 straight_line_km = haversine_km(
                     geocoded_source[1], geocoded_source[0],
                     geocoded_destination[1], geocoded_destination[0],
