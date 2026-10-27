@@ -2506,11 +2506,31 @@ async def recommend_b2b_fulfillment_route(
         if not unique_matches:
             return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "sourceWarehouseId": source_id, "sourceWarehouseName": source.get("name") or source.get("warehouseName") or "Source Warehouse", "sourceDistrict": source_district, "businessDistrict": buyer_district, "reason": f"No active designated warehouse is configured for business district '{buyer_district}'. Configure that district's warehouse before dispatch."}}
         if len(unique_matches) > 1:
-            designated = [w for w in unique_matches.values() if w.get("isDistrictPrimary") is True or w.get("isPrimaryForDistrict") is True or w.get("districtWarehouse") is True]
-            if len(designated) == 1:
-                destination = designated[0]
-            else:
-                return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "sourceWarehouseId": source_id, "sourceWarehouseName": source.get("name") or source.get("warehouseName") or "Source Warehouse", "sourceDistrict": source_district, "businessDistrict": buyer_district, "reason": f"More than one active warehouse matches district '{buyer_district}'. Configure exactly one designated district warehouse."}}
+            # Legacy data can contain multiple active warehouse records for a
+            # district. Prefer an explicitly designated district warehouse.
+            # If none is configured, select deterministically rather than
+            # blocking fulfillment; prefer capacity sufficient for this order.
+            designated = [
+                w for w in unique_matches.values()
+                if w.get("isDistrictPrimary") is True
+                or w.get("isPrimaryForDistrict") is True
+                or w.get("districtWarehouse") is True
+            ]
+            candidates = designated or list(unique_matches.values())
+            required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
+
+            def destination_rank(warehouse: Dict[str, Any]) -> Tuple[int, int, str]:
+                try:
+                    total = float(warehouse.get("totalCapacity", warehouse.get("capacity")))
+                    used = float(warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0)) or 0)
+                    has_capacity = int(total - used >= required_kg)
+                except (TypeError, ValueError):
+                    has_capacity = 0
+                explicit_district = re.sub(r"[^a-z0-9]", "", str(warehouse.get("district") or warehouse.get("districtName") or "").lower())
+                exact_district = int(explicit_district == buyer_district)
+                return (-has_capacity, -exact_district, str(warehouse.get("_id") or ""))
+
+            destination = sorted(candidates, key=destination_rank)[0]
         else:
             destination = next(iter(unique_matches.values()))
         destination_id = str(destination.get("_id"))
