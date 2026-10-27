@@ -46,6 +46,7 @@ export default function FarmerB2bPreparationPage() {
         availableQuantityKg: available,
         packedQuantityKg: packed,
         readyForPickup: ready,
+        scheduledDate: c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined,
         notes: note || undefined,
       }),
     onSuccess: async (res: any) => {
