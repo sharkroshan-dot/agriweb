@@ -437,6 +437,27 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
     tax_amount = round(product_subtotal * tax_rate / 100, 2)
     other_charges = max(0.0, float(offer.get("otherCharges", rfq.get("otherCharges", 0)) or 0))
     total = round(product_subtotal + delivery_charge + tax_amount + other_charges, 2)
+    # RFQ requiredDate is a string in the public API schema, while older RFQs
+    # may store a datetime. Normalize both forms before building the delivery plan.
+    delivery_deadline = rfq.get("requiredDate")
+    if isinstance(delivery_deadline, str):
+        try:
+            delivery_deadline = datetime.fromisoformat(delivery_deadline.replace("Z", "+00:00"))
+            if delivery_deadline.tzinfo is not None:
+                delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            delivery_deadline = None
+    elif isinstance(delivery_deadline, datetime) and delivery_deadline.tzinfo is not None:
+        delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+    if isinstance(delivery_deadline, datetime):
+        preparation_deadline = (delivery_deadline - timedelta(days=1)).replace(hour=16, minute=0, second=0, microsecond=0)
+        planned_pickup_deadline = (delivery_deadline - timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
+        planned_transfer_dispatch = (delivery_deadline - timedelta(days=1)).date().isoformat()
+    else:
+        preparation_deadline = None
+        planned_pickup_deadline = None
+        planned_transfer_dispatch = None
+    cross_district_transfer = str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
     order = {
         "orderNumber": await _next_number("B2B", order_repo),
         "rfqId": rfq["_id"],
@@ -471,37 +492,25 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "totalAmount": total,
         "recurring": bool(rfq.get("recurring")),
         "deliveryMethod": (accept.deliveryMethod if accept and accept.deliveryMethod else (offer.get("deliveryMethod") or DELIVERY_METHODS[0])),
-        "requiredDate": rfq.get("requiredDate"),
+        "requiredDate": delivery_deadline,
         "deliveryTimeSlot": rfq.get("deliveryTimeSlot"),
-        "deliveryDeadline": rfq.get("requiredDate"),
+        "deliveryDeadline": delivery_deadline,
         # Plan farmer preparation and pickup before the business delivery. For
         # long-distance district transfers, dispatch is planned for the previous
         # calendar day; warehouse staff must bring pickup earlier if route cutoff
         # or estimated transit time requires it.
-        "farmerPrepareBy": (
-            (rfq.get("requiredDate").replace(tzinfo=None) - timedelta(days=1)).replace(hour=16, minute=0, second=0, microsecond=0)
-            if isinstance(rfq.get("requiredDate"), datetime)
-            else None
-        ),
-        "pickupDate": (
-            (rfq.get("requiredDate").replace(tzinfo=None) - timedelta(days=1)).date().isoformat()
-            if isinstance(rfq.get("requiredDate"), datetime)
-            else None
-        ),
+        "farmerPrepareBy": preparation_deadline,
+        "pickupDate": planned_transfer_dispatch,
+        "pickupDeadline": planned_pickup_deadline,
         "pickupWindowStart": "18:00",
         "pickupWindowEnd": "23:59",
-        "transferDispatchDate": (
-            (rfq.get("requiredDate").replace(tzinfo=None) - timedelta(days=1)).date().isoformat()
-            if isinstance(rfq.get("requiredDate"), datetime)
-            and str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
-            else None
-        ),
+        "transferDispatchDate": planned_transfer_dispatch if cross_district_transfer else None,
         "transferTimingRule": (
-            "Dispatch one day before delivery; calculate earlier pickup when transit or warehouse cutoff requires it."
-            if isinstance(rfq.get("requiredDate"), datetime)
-            and str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
-            else "Local warehouse delivery; follow assigned pickup deadline."
+            "Dispatch one day before delivery; warehouse must calculate travel time and move pickup earlier when transit or cutoff requires it."
+            if cross_district_transfer and delivery_deadline
+            else "Local warehouse delivery; follow the assigned pickup deadline."
         ),
+        "schedulePlanningStatus": "pending_route_feasibility" if cross_district_transfer and delivery_deadline else ("scheduled" if delivery_deadline else "delivery_date_missing"),
         "deliveryCity": rfq.get("deliveryCity"),
         "deliveryState": rfq.get("deliveryState"),
         "deliveryAddress": rfq.get("deliveryAddress"),
