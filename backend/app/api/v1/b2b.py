@@ -4750,8 +4750,11 @@ async def confirm_contract_delivery_stock(
         "data": {"contractId": str(oid), "scheduledDeliveryDate": schedule_key,
                  "requestedQuantityKg": requested, "availableQuantityKg": available,
                  "packedQuantityKg": packed, "readyForPickup": bool(data.readyForPickup and packed >= requested),
-                 "status": status, "shortageKg": max(0, round(requested - min(available, packed), 2))},
-        "message": ("Stock and packing confirmed. The scheduled pickup task is ready."
+                 "status": status, "warehouseOrderId": created_order_id,
+                 "shortageKg": max(0, round(requested - min(available, packed), 2))},
+        "message": (f"Stock confirmed for {schedule_key}. B2B warehouse order {created_order_id} is ready for farm pickup."
+                    if status == "confirmed" and created_order_id else
+                    "Stock and packing confirmed. The warehouse order will be available after the scheduled delivery enters the planning window."
                     if status == "confirmed" else
                     "A stock or packing shortage was recorded. No full-quantity pickup will be scheduled until the business approves a resolution."),
     }
