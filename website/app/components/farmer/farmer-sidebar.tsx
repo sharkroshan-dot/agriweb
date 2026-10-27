@@ -114,6 +114,7 @@ const navGroups = [
       { name: "Bulk RFQ", href: "/farmer/purchase-requests", icon: FileText },
       { name: "Business RFQs", href: "/farmer/b2b/rfqs", icon: Briefcase },
       { name: "Business Contracts", href: "/farmer/b2b/contracts", icon: FileSignature },
+      { name: "Supply Preparation", href: "/farmer/b2b/preparation", icon: PackageCheck },
       { name: "Bulk & B2B Orders", href: "/farmer/bulk-orders", icon: Truck },
     ],
   },
