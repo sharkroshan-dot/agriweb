@@ -2546,10 +2546,13 @@ async def recommend_b2b_fulfillment_route(
     # and destination as the same warehouse.
     destination_district_label = _normalized_district(destination) or buyer_district
     source_name_label = source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse"
-    if str(destination_name).strip().casefold() == str(source_name_label).strip().casefold():
-        destination_name = f"{destination_name} — {destination_district_label.title()} District"
+    if not same_district:
+        # Every cross-district order must be routed to the destination district
+        # warehouse regardless of whether warehouse names happen to match.
         route = "long_distance"
         reason = f"Business district ({buyer_district}) differs from source district ({source_district}). Transfer to the designated warehouse for {buyer_district}; distance is not used for routing."
+        if str(destination_name).strip().casefold() == str(source_name_label).strip().casefold():
+            destination_name = f"{destination_name} — {destination_district_label.title()} District"
 
     required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
     try:
