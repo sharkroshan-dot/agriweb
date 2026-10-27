@@ -231,7 +231,34 @@ export default function BusinessContractsPage() {
                         if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) { toast.error("Use date format YYYY-MM-DD."); return; }
                         resolveShortageMutation.mutate({ id: c.id, payload: { action: "reschedule", newDeliveryDate: raw + "T09:00:00", notes: "Business approved rescheduling" } });
                       }}>Reschedule delivery</Button>
-                      <Button size="sm" disabled={resolveShortageMutation.isPending} onClick={() => resolveShortageMutation.mutate({ id: c.id, payload: { action: "backup_required", notes: "Business requests backup farmer sourcing" } })}>Request backup farmer</Button>
+                      <Button size="sm" disabled={resolveShortageMutation.isPending} onClick={async () => {
+                        try {
+                          const response: any = await api.get(`/b2b/contracts/${c.id}/replacement-offers`);
+                          const offers = response?.data?.data?.offers || response?.data?.offers || [];
+                          if (!offers.length) {
+                            toast.error("No eligible replacement quotes were found for this RFQ. Invite another farmer to quote first.");
+                            return;
+                          }
+                          const menu = offers.map((offer: any, index: number) => `${index + 1}. ${offer.farmerName} — ${offer.availableQuantityKg} kg available at ₹${offer.pricePerKg}/kg`).join("\\n");
+                          const choice = window.prompt("Choose a replacement farmer by number:\\n" + menu);
+                          if (choice === null) return;
+                          const index = Number(choice) - 1;
+                          if (!Number.isInteger(index) || index < 0 || index >= offers.length) {
+                            toast.error("Choose a valid replacement farmer number.");
+                            return;
+                          }
+                          resolveShortageMutation.mutate({
+                            id: c.id,
+                            payload: {
+                              action: "assign_replacement",
+                              replacementOfferId: offers[index].id,
+                              notes: "Business approved replacement supplier for this scheduled shortage",
+                            },
+                          });
+                        } catch (error: any) {
+                          toast.error(error?.message || "Could not load replacement farmers");
+                        }
+                      }}>Find & assign replacement farmer</Button>
                     </div>
                   </div>
                 )}
