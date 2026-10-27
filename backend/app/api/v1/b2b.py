@@ -2800,6 +2800,49 @@ async def update_b2b_warehouse_fulfillment(
         destination_record = await warehouse_repo.find_one({"_id": ObjectId(destination_id), "deletedAt": None})
         if not source_record or not destination_record:
             raise HTTPException(status_code=400, detail="Source or destination warehouse record could not be found. Refresh warehouse records before dispatch.")
+
+        # Enforce schedule feasibility on the server as well as in the UI. A
+        # client-side disabled button alone is not a safe deadline control.
+        delivery_deadline = order.get("deliveryDeadline") or order.get("requiredDate") or order.get("scheduledDeliveryDate")
+        if isinstance(delivery_deadline, str):
+            try:
+                delivery_deadline = datetime.fromisoformat(delivery_deadline.replace("Z", "+00:00"))
+                if delivery_deadline.tzinfo is not None:
+                    delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+            except (TypeError, ValueError):
+                delivery_deadline = None
+        elif isinstance(delivery_deadline, datetime) and delivery_deadline.tzinfo is not None:
+            delivery_deadline = delivery_deadline.astimezone(timezone.utc).replace(tzinfo=None)
+        if not isinstance(delivery_deadline, datetime):
+            raise HTTPException(status_code=409, detail="Delivery deadline is missing or invalid. Confirm a feasible business delivery date/time before dispatch.")
+        transit_value = (
+            order.get("estimatedTransferHours")
+            or order.get("transferLeadTimeHours")
+            or destination_record.get("estimatedTransferHours")
+            or destination_record.get("transferLeadTimeHours")
+            or source_record.get("estimatedTransferHours")
+            or source_record.get("transferLeadTimeHours")
+        )
+        try:
+            transit_hours = float(transit_value) if transit_value is not None else None
+        except (TypeError, ValueError):
+            transit_hours = None
+        if transit_hours is None or transit_hours < 0:
+            raise HTTPException(status_code=409, detail="Transfer lead time is not configured. Set estimatedTransferHours or transferLeadTimeHours on the order/warehouse and recalculate the route before dispatch.")
+        now_for_transfer = datetime.utcnow()
+        if now_for_transfer + timedelta(hours=transit_hours) > delivery_deadline:
+            raise HTTPException(status_code=409, detail="Transfer lead time exceeds the business delivery deadline. Do not dispatch against an infeasible schedule; alert the business and warehouse and agree on a new delivery slot.")
+        cutoff_value = order.get("transferDispatchCutoff") or source_record.get("transferDispatchCutoff") or source_record.get("dispatchCutoff") or destination_record.get("transferDispatchCutoff") or destination_record.get("dispatchCutoff")
+        if isinstance(cutoff_value, str):
+            try:
+                cutoff_value = datetime.fromisoformat(cutoff_value.replace("Z", "+00:00"))
+                if cutoff_value.tzinfo is not None:
+                    cutoff_value = cutoff_value.astimezone(timezone.utc).replace(tzinfo=None)
+            except (TypeError, ValueError):
+                cutoff_value = None
+        if isinstance(cutoff_value, datetime) and now_for_transfer > cutoff_value:
+            raise HTTPException(status_code=409, detail="Transfer dispatch cutoff has passed. Alert the business and warehouse and agree on a new delivery slot before dispatch.")
+
         if not data.transferTeam or not ObjectId.is_valid(str(data.transferTeam)):
             raise HTTPException(status_code=400, detail="Select a registered transfer team before dispatch")
         if not data.transferVehicle or not str(data.transferVehicle).strip():
