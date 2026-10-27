@@ -15,10 +15,19 @@ export default function B2BFulfillmentPage() {
   const qc = useQueryClient();
   const [forms, setForms] = useState<Record<string, any>>({});
   const [destinationOrderId, setDestinationOrderId] = useState<string>("");
+  const [view, setView] = useState<"active" | "completed">("active");
   const [routingMode, setRoutingMode] = useState<Record<string, "automatic" | "manual">>({});
   const query = useQuery({ queryKey: ["b2b", "warehouse-fulfillment"], queryFn: () => api.get("/b2b/warehouse/fulfillment"), refetchInterval: 10000 });
   const teamsQuery = useQuery({ queryKey: ["b2b", "approved-pickup-teams"], queryFn: () => api.get("/warehouse/me/pickup-team/members"), refetchInterval: 30000 });
   const orders = (query.data?.data?.orders || query.data?.orders || []).map((o: any) => ({ ...o, id: String(o.id || o._id || "") }));
+  const completedQuery = useQuery({
+    queryKey: ["b2b", "warehouse-fulfillment-completed"],
+    queryFn: () => api.get("/b2b/warehouse/fulfillment/completed"),
+    enabled: view === "completed",
+    refetchInterval: view === "completed" ? 30000 : false,
+  });
+  const completedOrders = (completedQuery.data?.data?.orders || completedQuery.data?.orders || []).map((o: any) => ({ ...o, id: String(o.id || o._id || "") }));
+  const displayedOrders = view === "completed" ? completedOrders : orders;
   const destinationQuery = useQuery({ queryKey: ["b2b", "destination-warehouses", destinationOrderId], queryFn: () => api.get(`/b2b/warehouse/fulfillment/destination-warehouses?orderId=${encodeURIComponent(destinationOrderId)}`), enabled: Boolean(destinationOrderId), retry: false });
   const destinationWarehouses = destinationQuery.data?.data?.warehouses || [];
   const routableOrders = orders.filter((o: any) => o.status === "warehouse_received" && o.warehouseQualityCheck === "passed");
@@ -76,6 +85,11 @@ export default function B2BFulfillmentPage() {
       <div><h1 className="text-2xl font-bold text-slate-900">B2B Pickup &amp; Fulfillment</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">The dedicated control center for business orders: farm pickup, warehouse receipt, transfer, delivery and business handoff. All actions update the original B2B order.</p></div>
       <Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
     </div>
+    <div className="flex flex-wrap gap-2">
+      <Button variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")}>Active fulfillment ({orders.length})</Button>
+      <Button variant={view === "completed" ? "default" : "outline"} onClick={() => setView("completed")}>Completed orders ({completedOrders.length})</Button>
+    </div>
+    {view === "completed" && <p className="text-sm text-slate-600">Read-only archive of B2B orders marked delivered or completed. These orders are kept separate from active pickup and fulfillment tasks.</p>}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
       { label: "Ready for Farm Pickup", key: "readyForFarmPickup" },
       { label: "Pickup Assigned", key: "pickupAssigned" },
@@ -88,7 +102,7 @@ export default function B2BFulfillmentPage() {
       { label: "Direct Delivery in Transit", key: "directDeliveryInTransit" },
       { label: "Delivered to Business", key: "deliveredToBusiness" },
     ].map((s: any) => <Card key={s.key}><CardContent className="p-4"><p className="text-sm text-slate-500">{s.label}</p><p className="mt-1 text-2xl font-bold">{Number(query.data?.data?.summary?.[s.key] ?? 0)}</p></CardContent></Card>)}</div>
-    {query.isLoading ? <p className="py-12 text-center text-slate-500">Loading B2B orders…</p> : query.isError ? <Card><CardContent className="p-6 text-sm text-red-700">Could not load B2B orders. Check the API response and warehouse permissions, then refresh.</CardContent></Card> : !orders.length ? <Card><CardContent className="p-10 text-center text-slate-500">No B2B orders are currently in the pickup or fulfillment workflow.</CardContent></Card> : <div className="space-y-4">{orders.map((o: any) => {
+    {(view === "active" ? query.isLoading : completedQuery.isLoading) ? <p className="py-12 text-center text-slate-500">Loading B2B orders…</p> : (view === "active" ? query.isError : completedQuery.isError) ? <Card><CardContent className="p-6 text-sm text-red-700">Could not load {view === "completed" ? "completed" : "active"} B2B orders. Check the API response and warehouse permissions, then refresh.</CardContent></Card> : !displayedOrders.length ? <Card><CardContent className="p-10 text-center text-slate-500">{view === "completed" ? "No completed B2B orders are archived for this warehouse yet." : "No B2B orders are currently in the pickup or fulfillment workflow."}</CardContent></Card> : <div className="space-y-4">{displayedOrders.map((o: any) => {
       const f = form(o.id);
       const teamId = String(f.pickupTeam || o.pickupTeam || "");
       const team = teams.find((t: any) => String(t.deliveryPartnerId || t.userId || t.id || t._id) === teamId);
