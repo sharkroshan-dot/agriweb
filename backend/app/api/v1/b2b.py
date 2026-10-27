@@ -442,15 +442,20 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
     # pickup and transfer deadlines; treating the date as midnight can reject
     # valid deliveries or incorrectly report them as feasible.
     delivery_deadline = _parse_b2b_delivery_deadline(rfq)
+    cross_district_transfer = str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
     if isinstance(delivery_deadline, datetime):
-        preparation_deadline = (delivery_deadline - timedelta(days=1)).replace(hour=16, minute=0, second=0, microsecond=0)
-        planned_pickup_deadline = (delivery_deadline - timedelta(days=1)).replace(hour=18, minute=0, second=0, microsecond=0)
-        planned_transfer_dispatch = (delivery_deadline - timedelta(days=1)).date().isoformat()
+        # Cross-district orders need a two-day lead: farm pickup on D-2,
+        # source receiving/processing and transfer on D-1, business delivery on D.
+        # Same-district orders can be prepared and collected on D-1.
+        preparation_days_before = 2 if cross_district_transfer else 1
+        preparation_day = (delivery_deadline - timedelta(days=preparation_days_before)).date()
+        preparation_deadline = datetime.combine(preparation_day, datetime.min.time()).replace(hour=16)
+        planned_pickup_deadline = datetime.combine(preparation_day, datetime.min.time()).replace(hour=18)
+        planned_transfer_dispatch = (delivery_deadline - timedelta(days=1)).date().isoformat() if cross_district_transfer else None
     else:
         preparation_deadline = None
         planned_pickup_deadline = None
         planned_transfer_dispatch = None
-    cross_district_transfer = str(route.get("sourceWarehouseId")) != str(route.get("destinationWarehouseId"))
     order = {
         "orderNumber": await _next_number("B2B", order_repo),
         "rfqId": rfq["_id"],
@@ -4947,15 +4952,14 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "contractId": contract["_id"],
                 "contractNumber": contract.get("contractNumber"),
                 "scheduledDeliveryDate": schedule_key,
-                # Farmer preparation and collection are planned for the evening
-                # before the business delivery. The warehouse must override this
-                # when the calculated transfer cutoff requires an earlier pickup.
-                "farmerPrepareBy": datetime.combine(next_at.date() - timedelta(days=1), datetime.min.time()).replace(hour=16),
-                "pickupDate": (next_at.date() - timedelta(days=1)).isoformat(),
+                # Keep the route-aware backward plan from _build_order. For
+                # cross-district deliveries this means pickup D-2 and transfer D-1.
+                "farmerPrepareBy": order.get("farmerPrepareBy") or datetime.combine(next_at.date() - timedelta(days=1), datetime.min.time()).replace(hour=16),
+                "pickupDate": order.get("pickupDate") or (next_at.date() - timedelta(days=1)).isoformat(),
                 "pickupWindowStart": "18:00",
                 "pickupWindowEnd": "23:59",
-                "transferDispatchDate": (next_at.date() - timedelta(days=1)).isoformat(),
-                "transferTimingRule": "Cross-district transfers must depart one day before business delivery; dispatch earlier when route duration or warehouse cutoff requires it.",
+                "transferDispatchDate": order.get("transferDispatchDate"),
+                "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
                 "deliveryDeadline": next_at,
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
