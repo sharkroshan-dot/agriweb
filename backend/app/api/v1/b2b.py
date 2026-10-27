@@ -1861,6 +1861,31 @@ class B2BLogisticsAction(BaseModel):
     notes: Optional[str] = None
 
 
+def _b2b_warehouse_workflow_is_complete(order: Dict[str, Any]) -> bool:
+    """Whether this order has reached its terminal warehouse-workflow stage.
+
+    Long-distance orders finish the warehouse workflow when the destination
+    warehouse has received and passed inspection. Direct orders finish only
+    after delivery and business receipt confirmation.
+    """
+    route = str(order.get("fulfillmentRoute") or "").strip().lower()
+    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+    destination_id = str(order.get("destinationWarehouseId") or "")
+    different_warehouse = bool(source_id and destination_id and source_id != destination_id)
+    long_distance = route in ("long_distance", "inter_warehouse", "transfer") or different_warehouse
+    if long_distance:
+        return bool(
+            order.get("destinationReceivedAt")
+            and str(order.get("destinationQualityCheck") or "").strip().lower() == "passed"
+            and order.get("destinationReceivedQuantityKg") is not None
+        )
+    return bool(
+        order.get("status") == ORDER_COMPLETED
+        and order.get("deliveredAt")
+        and order.get("completedAt")
+    )
+
+
 @router.get("/warehouse/fulfillment/completed")
 async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
     """Read-only archive only after the business buyer confirms receipt."""
@@ -1869,17 +1894,19 @@ async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(
     if role not in allowed:
         raise HTTPException(status_code=403, detail="Warehouse role required")
 
-    # "Delivered" is not final completion: the business buyer must acknowledge
-    # receipt through the order-status endpoint, which changes status to
-    # ORDER_COMPLETED and records completedAt. Keep delivered orders active
-    # until that buyer acknowledgement arrives.
-    archived = await order_repo.find_many({
+    # Include legacy rows with stale status values, then decide completion from
+    # terminal workflow evidence rather than status alone.
+    candidates = await order_repo.find_many({
         "$and": [
             {"deletedAt": None},
-            {"status": ORDER_COMPLETED},
-            {"completedAt": {"$ne": None}},
+            {"$or": [
+                {"status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED]}},
+                {"destinationReceivedAt": {"$ne": None}},
+                {"completedAt": {"$ne": None}},
+            ]},
         ]
-    }, sort=[("updatedAt", -1)], limit=1000)
+    }, sort=[("updatedAt", -1)], limit=1500)
+    archived = [order for order in candidates if _b2b_warehouse_workflow_is_complete(order)]
 
     warehouse_id = await _resolve_b2b_current_warehouse_id(current_user) if role not in ("admin", "super_admin") else ""
     if role not in ("admin", "super_admin"):
@@ -2103,6 +2130,11 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         pickup_order["warehouseTransferSide"] = None
         orders.append(pickup_order)
         existing_order_ids.add(pickup_id)
+
+    # Terminal workflow records belong only in the archive. This also hides
+    # legacy orders whose status was accidentally reset to warehouse_received
+    # after destination receipt or business-confirmed delivery.
+    orders = [order for order in orders if not _b2b_warehouse_workflow_is_complete(order)]
 
     # Counts are computed from persisted database queries, not the capped list
     # returned for rendering. Derived workflow stages use server-side predicates.
@@ -2748,6 +2780,11 @@ async def update_b2b_warehouse_fulfillment(
     current = order.get("status")
     update: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
     action = data.action
+
+    # Once the warehouse workflow reaches its terminal stage, reject every
+    # repeated logistics action even if a stale status field was later changed.
+    if _b2b_warehouse_workflow_is_complete(order):
+        raise HTTPException(status_code=409, detail="This B2B order has completed its warehouse workflow and cannot be processed again.")
 
     if action == "assign_pickup":
         if role not in allowed_warehouse:
