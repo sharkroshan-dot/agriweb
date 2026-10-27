@@ -32,6 +32,12 @@ export default function BusinessDashboard() {
     queryFn: () => api.get("/b2b/orders"),
   });
 
+  const { data: contractsData } = useQuery({
+    queryKey: ["businessContracts"],
+    queryFn: () => api.get("/b2b/contracts"),
+    retry: 1,
+  });
+
   const { data: analyticsData } = useQuery({
     queryKey: ["b2b", "analytics"],
     queryFn: () => api.get("/b2b/analytics/me"),
@@ -59,6 +65,14 @@ export default function BusinessDashboard() {
   const profile = profileData?.data ?? {};
   const rfqs = rfqData?.data?.rfqs || [];
   const orders = ordersData?.data?.orders || [];
+  const contracts = contractsData?.data?.contracts || [];
+  const deliveryUpdates = contracts.flatMap((contract: any) =>
+    (Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : []).map((delivery: any) => ({ ...delivery, contractNumber: contract.contractNumber, cropName: contract.cropName, farmerName: contract.farmerName }))
+  );
+  const todayKey = new Date().toLocaleDateString("en-CA");
+  const todayDeliveries = deliveryUpdates.filter((delivery: any) => delivery.scheduledDate === todayKey);
+  const shortageDeliveries = deliveryUpdates.filter((delivery: any) => ["shortage", "backup_required", "at_risk", "rescheduled"].includes(String(delivery.status || "").toLowerCase()));
+  const awaitingConfirmations = contracts.filter((contract: any) => contract.status === "active" && !todayDeliveries.some((delivery: any) => delivery.contractNumber === contract.contractNumber));
   const analytics = analyticsData?.data ?? {};
   const priceRec = priceRecMutation.data?.data;
   const demandItems = demandData?.data?.items || [];
@@ -90,6 +104,22 @@ export default function BusinessDashboard() {
 
       {hasProfile && (
         <>
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Recurring supply updates</h2>
+            <p className="text-sm text-slate-500">Daily farmer confirmations and shortages from your supply contracts.</p>
+          </div>
+          <Link href="/business/contracts"><Button variant="outline" size="sm">View supply contracts <ArrowRight className="ml-2 h-4 w-4" /></Button></Link>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Today's updates</p><p className="mt-1 text-2xl font-bold">{todayDeliveries.length}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Full supply confirmed</p><p className="mt-1 text-2xl font-bold text-emerald-700">{todayDeliveries.filter((delivery: any) => delivery.status === "confirmed").length}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Shortage / at risk</p><p className="mt-1 text-2xl font-bold text-red-700">{shortageDeliveries.length}</p></CardContent></Card>
+          <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Active contracts awaiting today's update</p><p className="mt-1 text-2xl font-bold text-amber-700">{awaitingConfirmations.length}</p></CardContent></Card>
+        </div>
+        {shortageDeliveries.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><ShieldAlert className="mr-2 inline h-4 w-4" /> {shortageDeliveries.length} recurring delivery update(s) need review. Open Supply Contracts to review the farmer's quantities and choose a resolution.</div>}
+      </section>
       <div className="flex flex-col gap-1">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">{profile.businessName}</h1>
