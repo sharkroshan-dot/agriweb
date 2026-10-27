@@ -223,13 +223,13 @@ export default function BusinessContractsPage() {
                         if (raw === null) return;
                         const qty = Number(raw);
                         if (!Number.isFinite(qty) || qty <= 0) { toast.error("Enter a valid quantity greater than zero."); return; }
-                        resolveShortageMutation.mutate({ id: c.id, payload: { action: "partial", approvedQuantityKg: qty, notes: "Business approved partial supply" } });
+                        resolveShortageMutation.mutate({ id: c.id, payload: { action: "partial", scheduledDate: c.latestDeliveryDate || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined), approvedQuantityKg: qty, notes: "Business approved partial supply" } });
                       }}>Approve partial supply</Button>
                       <Button size="sm" variant="outline" disabled={resolveShortageMutation.isPending} onClick={() => {
                         const raw = window.prompt("Enter the new delivery date (YYYY-MM-DD):");
                         if (!raw) return;
                         if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) { toast.error("Use date format YYYY-MM-DD."); return; }
-                        resolveShortageMutation.mutate({ id: c.id, payload: { action: "reschedule", newDeliveryDate: raw + "T09:00:00", notes: "Business approved rescheduling" } });
+                        resolveShortageMutation.mutate({ id: c.id, payload: { action: "reschedule", scheduledDate: c.latestDeliveryDate || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined), newDeliveryDate: raw + "T09:00:00", notes: "Business approved rescheduling" } });
                       }}>Reschedule delivery</Button>
                       <Button size="sm" disabled={resolveShortageMutation.isPending} onClick={async () => {
                         try {
@@ -251,6 +251,7 @@ export default function BusinessContractsPage() {
                             id: c.id,
                             payload: {
                               action: "assign_replacement",
+                              scheduledDate: c.latestDeliveryDate || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined),
                               replacementOfferId: offers[index].id,
                               notes: "Business approved replacement supplier for this scheduled shortage",
                             },
