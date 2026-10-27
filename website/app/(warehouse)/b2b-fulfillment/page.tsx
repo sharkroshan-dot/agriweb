@@ -176,7 +176,7 @@ export default function B2BFulfillmentPage() {
                         <p>{routeRecommendations[o.id].schedulePlan.reason}</p>
                       </div>}
                     </div>}
-                     <Button disabled={mutation.isPending || !routeRecommendations[o.id]?.available} onClick={() => act(o.id, { action: "set_fulfillment_route", fulfillmentRoute: routeRecommendations[o.id]?.fulfillmentRoute, destinationWarehouseId: routeRecommendations[o.id]?.destinationWarehouseId, estimatedTransferHours: f.estimatedTransferHours ? Number(f.estimatedTransferHours) : undefined, transferDispatchCutoff: f.transferDispatchCutoff ? new Date(f.transferDispatchCutoff).toISOString() : undefined, notes: "Automatic district-based route confirmed for B2B business order." })}>Confirm District Route</Button>
+                     <Button disabled={mutation.isPending || !routeRecommendations[o.id]?.available} onClick={() => act(o.id, { action: "set_fulfillment_route", fulfillmentRoute: routeRecommendations[o.id]?.fulfillmentRoute, destinationWarehouseId: routeRecommendations[o.id]?.destinationWarehouseId, estimatedTransferHours: f.estimatedTransferHours ? Number(f.estimatedTransferHours) : (routeRecommendations[o.id]?.schedulePlan?.estimatedTransitHours != null ? Number(routeRecommendations[o.id].schedulePlan.estimatedTransitHours) : undefined), transferDispatchCutoff: f.transferDispatchCutoff ? new Date(f.transferDispatchCutoff).toISOString() : undefined, notes: "Automatic district-based route confirmed for B2B business order." })}>Confirm District Route</Button>
                   </div>
                 ) : (
                   <div className="space-y-3 rounded-lg border bg-white p-3">
