@@ -2172,43 +2172,36 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             if order.get(key) is not None:
                 order[key] = str(order[key])
 
-    # Strict warehouse ownership: pickup belongs to the farm's assigned
-    # source warehouse; outbound transfers belong to the source until arrival;
-    # destination fulfillment starts only after destination receipt is recorded.
-    # Never fall back to a global actionable queue for an unresolved warehouse login.
-    if role in ("warehouse", "warehouse_manager", "warehouse_staff"):
-        if not ObjectId.is_valid(current_warehouse_id):
-            logger.error("Cannot resolve warehouse for user %s; returning no actionable B2B orders", current_user.get("_id"))
-            orders = []
-        else:
-            scoped_orders = []
-            for order in orders:
-                source_id = str(order.get("sourceWarehouseId") or order.get("pickupWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or "")
-                destination_id = str(order.get("destinationWarehouseId") or "")
-                status = str(order.get("status") or "")
-                if status == ORDER_TRANSFER_IN_TRANSIT:
-                    # While moving, only source sees the transfer. Once the
-                    # assigned driver records physical arrival, expose it to
-                    # the destination warehouse for receipt confirmation.
-                    if current_warehouse_id == source_id or (
-                        current_warehouse_id == destination_id
-                        and str(order.get("transferPartnerStatus") or "") == "arrived_at_destination"
-                    ):
-                        scoped_orders.append(order)
-                elif status == ORDER_DESTINATION_RECEIVED:
-                    if current_warehouse_id == destination_id:
-                        scoped_orders.append(order)
-                elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED):
-                    if current_warehouse_id in (source_id, destination_id):
-                        scoped_orders.append(order)
-                elif status == ORDER_READY_FOR_PICKUP:
-                    # Pickup is shown only to the warehouse explicitly assigned
-                    # to the farm/source location; never broadcast it globally.
-                    if current_warehouse_id == source_id and not str(order.get("pickupTeam") or "").strip():
-                        scoped_orders.append(order)
-                elif current_warehouse_id == source_id:
+    # Warehouse managers should only see actionable stages for the warehouse
+    # they are signed into. Source warehouses handle farm receipt and dispatch;
+    # destination warehouses see a transfer only after it has been dispatched.
+    # Admins retain the global oversight queue.
+    if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        scoped_orders = []
+        for order in orders:
+            source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or order.get("pickupWarehouseId") or "")
+            destination_id = str(order.get("destinationWarehouseId") or "")
+            status = str(order.get("status") or "")
+            if status == ORDER_TRANSFER_IN_TRANSIT:
+                if current_warehouse_id in (source_id, destination_id):
                     scoped_orders.append(order)
-            orders = scoped_orders
+            elif status == ORDER_DESTINATION_RECEIVED:
+                if current_warehouse_id == destination_id:
+                    scoped_orders.append(order)
+            elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED):
+                # Keep completed/read-only tracking visible only to the warehouse
+                # that last handled the stock or the destination warehouse.
+                if current_warehouse_id in (source_id, destination_id):
+                    scoped_orders.append(order)
+            elif status == ORDER_READY_FOR_PICKUP and not str(order.get("pickupTeam") or "").strip():
+                # Any warehouse may see an unclaimed pickup order. The assigning
+                # warehouse becomes its source/pickup warehouse at claim time;
+                # _build_order may have prefilled a route suggestion that must
+                # not hide the order from the warehouse operator who can collect it.
+                scoped_orders.append(order)
+            elif current_warehouse_id == source_id:
+                scoped_orders.append(order)
+        orders = scoped_orders
 
     # Always hydrate the claimable farm-pickup queue independently of the
     # general logistics query/scoping. The summary is database-wide by design,
@@ -2254,39 +2247,33 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             criteria.update(extra)
         return await order_repo.count(criteria)
 
-    # Apply the same strict per-warehouse ownership after queue reconciliation.
-    # Destination warehouse must not see or act on a transfer until receipt.
-    if role in ("warehouse", "warehouse_manager", "warehouse_staff"):
-        if not ObjectId.is_valid(current_warehouse_id):
-            orders = []
-        else:
-            scoped_orders = []
-            for item in orders:
-                status = str(item.get("status") or "")
-                source_id = str(item.get("sourceWarehouseId") or item.get("pickupWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
-                destination_id = str(item.get("destinationWarehouseId") or "")
-                if status == ORDER_DESTINATION_RECEIVED:
-                    if destination_id == current_warehouse_id:
-                        scoped_orders.append(item)
-                    continue
-                if status == ORDER_TRANSFER_IN_TRANSIT:
-                    if source_id == current_warehouse_id or (
-                        destination_id == current_warehouse_id
-                        and str(item.get("transferPartnerStatus") or "") == "arrived_at_destination"
-                    ):
-                        scoped_orders.append(item)
-                    continue
-                if status == ORDER_READY_FOR_PICKUP:
-                    if source_id == current_warehouse_id and not str(item.get("pickupTeam") or "").strip():
-                        scoped_orders.append(item)
-                    continue
-                if source_id and source_id != current_warehouse_id:
-                    continue
-                # If source ownership is missing, do not expose the order to every warehouse.
-                if not source_id:
-                    continue
+    # Keep source and destination warehouse actions separated. A transfer in
+    # transit may be visible to both ends; once received, only the destination
+    # warehouse should own the remaining fulfillment actions.
+    if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        scoped_orders = []
+        for item in orders:
+            status = str(item.get("status") or "")
+            source_id = str(item.get("sourceWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
+            destination_id = str(item.get("destinationWarehouseId") or "")
+            if status == ORDER_DESTINATION_RECEIVED:
+                if destination_id == current_warehouse_id:
+                    scoped_orders.append(item)
+                continue
+            if status == ORDER_TRANSFER_IN_TRANSIT:
+                if source_id == current_warehouse_id or destination_id == current_warehouse_id:
+                    scoped_orders.append(item)
+                continue
+            # A ready-for-pickup order is a claimable work item until a
+            # warehouse assigns its approved pickup team. Do not hide it just
+            # because an order template contains a suggested/stale source ID.
+            if status == ORDER_READY_FOR_PICKUP and not str(item.get("pickupTeam") or "").strip():
                 scoped_orders.append(item)
-            orders = scoped_orders
+                continue
+            if source_id and source_id != current_warehouse_id:
+                continue
+            scoped_orders.append(item)
+        orders = scoped_orders
 
     summary = {
         "readyForFarmPickup": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$in": [None, ""]}}),
