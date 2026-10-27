@@ -223,7 +223,7 @@ local_dev_origins = [
 cors_origins = list(dict.fromkeys([*configured_origins, *local_dev_origins]))
 cors_regex = settings.BACKEND_CORS_ORIGIN_REGEX
 if settings.DEBUG and not cors_regex:
-    cors_regex = r"^https?://(localhost|127\\.0\\.0\\.1)(:\\d+)?$"
+    cors_regex = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 # CORS is applied as an outer ASGI wrapper at the end of this module.
 # This ensures CORS headers are added even when Starlette's server-error
 # middleware turns an unhandled exception into a 500 response.
