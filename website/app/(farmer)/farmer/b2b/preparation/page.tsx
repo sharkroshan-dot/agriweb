@@ -41,12 +41,12 @@ export default function FarmerB2bPreparationPage() {
   }, [query.data]);
 
   const stockMutation = useMutation({
-    mutationFn: ({ id, available, packed, ready, note }: { id: string; available: number; packed: number; ready: boolean; note: string }) =>
+    mutationFn: ({ id, available, packed, ready, note, scheduledDate }: { id: string; available: number; packed: number; ready: boolean; note: string; scheduledDate?: string }) =>
       api.post(`/b2b/contracts/${encodeURIComponent(id)}/delivery-confirmation`, {
         availableQuantityKg: available,
         packedQuantityKg: packed,
         readyForPickup: ready,
-        scheduledDate: c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined,
+        scheduledDate,
         notes: note || undefined,
       }),
     onSuccess: async (res: any) => {
@@ -86,7 +86,8 @@ export default function FarmerB2bPreparationPage() {
       toast.error("Explain the shortage so the business can decide how to proceed.");
       return;
     }
-    stockMutation.mutate({ id: c.id, available, packed, ready, note: notes[c.id] || "" });
+    const scheduledDate = c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined;
+    stockMutation.mutate({ id: c.id, available, packed, ready, note: notes[c.id] || "", scheduledDate });
   };
 
   const requiredTotal = contracts.reduce((sum: number, c: any) => sum + Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0), 0);
