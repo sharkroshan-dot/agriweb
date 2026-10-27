@@ -4555,13 +4555,16 @@ class DeliveryStockConfirmation(BaseModel):
     availableQuantityKg: float = Field(..., ge=0)
     packedQuantityKg: Optional[float] = Field(None, ge=0)
     readyForPickup: bool = True
+    scheduledDate: Optional[str] = None
     notes: Optional[str] = None
 
 
 class DeliveryShortageResolution(BaseModel):
     action: str
+    scheduledDate: Optional[str] = None
     newDeliveryDate: Optional[datetime] = None
     approvedQuantityKg: Optional[float] = Field(None, gt=0)
+    replacementOfferId: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -4591,7 +4594,13 @@ async def confirm_contract_delivery_stock(
             raise HTTPException(status_code=409, detail="Contract has an invalid next delivery date")
     if not isinstance(next_at, datetime):
         raise HTTPException(status_code=409, detail="Contract has no valid next delivery date")
-    schedule_key = next_at.strftime("%Y-%m-%d")
+    schedule_key = (data.scheduledDate or next_at.strftime("%Y-%m-%d")).strip()
+    try:
+        scheduled_day = datetime.strptime(schedule_key, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
+    if scheduled_day < next_at.date() and schedule_key not in (contract.get("deliveryConfirmations") or {}):
+        raise HTTPException(status_code=409, detail="This date is not an open scheduled delivery for the contract")
     requested = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
     available = float(data.availableQuantityKg)
     packed = float(data.packedQuantityKg if data.packedQuantityKg is not None else available)
@@ -4670,11 +4679,15 @@ async def resolve_contract_delivery_shortage(
             raise HTTPException(status_code=409, detail="Contract has an invalid next delivery date")
     if not isinstance(next_at, datetime):
         raise HTTPException(status_code=409, detail="Contract has no valid next delivery date")
-    schedule_key = next_at.strftime("%Y-%m-%d")
+    schedule_key = (data.scheduledDate or next_at.strftime("%Y-%m-%d")).strip()
+    try:
+        datetime.strptime(schedule_key, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
     confirmations = dict(contract.get("deliveryConfirmations") or {})
     confirmation = confirmations.get(schedule_key)
-    if not confirmation or confirmation.get("status") != "shortage":
-        raise HTTPException(status_code=409, detail="There is no reported shortage for the next scheduled delivery")
+    if not confirmation or confirmation.get("status") not in ("shortage", "backup_required", "partial_approved"):
+        raise HTTPException(status_code=409, detail=f"No unresolved shortage exists for scheduled delivery {schedule_key}")
     action = data.action.strip().lower()
     now = datetime.utcnow()
     if action == "partial":
@@ -4682,11 +4695,11 @@ async def resolve_contract_delivery_shortage(
         available = float(confirmation.get("availableQuantityKg") or 0)
         if quantity <= 0 or quantity > available:
             raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the farmer's confirmed stock")
-        confirmation.update({"status": "confirmed", "requestedQuantityKg": quantity, "resolution": "partial",
+        confirmation.update({"status": "partial_approved", "approvedQuantityKg": quantity, "resolution": "partial",
                              "resolutionNotes": data.notes, "resolvedAt": now})
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
-            "latestDeliveryStatus": "partial_approved", "updatedAt": now})
+            "latestDeliveryStatus": "partial_approved", "latestDeliveryDate": schedule_key, "updatedAt": now})
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("farmerId")), NotificationType.PROMOTION,
@@ -4709,8 +4722,9 @@ async def resolve_contract_delivery_shortage(
         confirmation.update({"status": "rescheduled", "resolution": "reschedule",
                              "resolutionNotes": data.notes, "resolvedAt": now, "rescheduledTo": new_date})
         confirmations[schedule_key] = confirmation
+        # Rescheduling one occurrence must not shift every future occurrence of the recurring contract.
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
-            "nextDeliveryAt": new_date, "latestDeliveryStatus": "rescheduled", "updatedAt": now})
+            "latestDeliveryStatus": "rescheduled", "latestDeliveryDate": schedule_key, "updatedAt": now})
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("farmerId")), NotificationType.PROMOTION,
@@ -4728,7 +4742,7 @@ async def resolve_contract_delivery_shortage(
                              "resolutionNotes": data.notes, "resolvedAt": now})
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
-            "latestDeliveryStatus": "backup_required", "updatedAt": now})
+            "latestDeliveryStatus": "backup_required", "latestDeliveryDate": schedule_key, "updatedAt": now})
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("farmerId")), NotificationType.PROMOTION,
@@ -4778,9 +4792,13 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
         # for this delivery, and the business has approved any partial supply.
         confirmations = contract.get("deliveryConfirmations") or {}
         confirmation = confirmations.get(schedule_key) if isinstance(confirmations, dict) else None
-        if not confirmation or confirmation.get("status") != "confirmed":
+        if not confirmation or confirmation.get("status") not in ("confirmed", "partial_approved"):
             continue
-        confirmed_quantity = float(confirmation.get("requestedQuantityKg") or 0)
+        confirmed_quantity = float(
+            confirmation.get("approvedQuantityKg")
+            or confirmation.get("requestedQuantityKg")
+            or 0
+        )
         available_quantity = float(confirmation.get("availableQuantityKg") or 0)
         packed_quantity = float(confirmation.get("packedQuantityKg", available_quantity) or 0)
         if (
