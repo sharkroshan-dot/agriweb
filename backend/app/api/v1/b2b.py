@@ -1953,23 +1953,12 @@ class B2BLogisticsAction(BaseModel):
 
 
 def _b2b_warehouse_workflow_is_complete(order: Dict[str, Any]) -> bool:
-    """Whether this order has reached its terminal warehouse-workflow stage.
+    """Archive only after final delivery to the business is recorded.
 
-    Long-distance orders finish the warehouse workflow when the destination
-    warehouse has received and passed inspection. Direct orders finish only
-    after delivery and business receipt confirmation.
+    Destination warehouse receipt and quality inspection are intermediate
+    steps: the destination warehouse must still assign a delivery team and
+    deliver the order to the business. Those orders belong in the active queue.
     """
-    route = str(order.get("fulfillmentRoute") or "").strip().lower()
-    source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or "")
-    destination_id = str(order.get("destinationWarehouseId") or "")
-    different_warehouse = bool(source_id and destination_id and source_id != destination_id)
-    long_distance = route in ("long_distance", "inter_warehouse", "transfer") or different_warehouse
-    if long_distance:
-        return bool(
-            order.get("destinationReceivedAt")
-            and str(order.get("destinationQualityCheck") or "").strip().lower() == "passed"
-            and order.get("destinationReceivedQuantityKg") is not None
-        )
     return bool(
         order.get("status") == ORDER_COMPLETED
         and order.get("deliveredAt")
