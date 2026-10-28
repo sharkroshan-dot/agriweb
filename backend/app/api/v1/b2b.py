@@ -1713,8 +1713,9 @@ async def update_order_status(
                 contract_oid = None
             if contract_oid:
                 contract = await contract_repo.find_one({"_id": contract_oid, "deletedAt": None})
+                reopened = False
+                schedule_key = str(order.get("scheduledDeliveryDate"))[:10]
                 if contract:
-                    schedule_key = str(order.get("scheduledDeliveryDate"))[:10]
                     confirmations = dict(contract.get("deliveryConfirmations") or {})
                     confirmation = confirmations.get(schedule_key)
                     if (
@@ -1738,15 +1739,18 @@ async def update_order_status(
                             "latestDeliveryDate": schedule_key,
                             "updatedAt": event_time,
                         })
+                        reopened = True
+                # Only reopen a quote if this order was the active replacement
+                # attached to the current contract occurrence.
                 offer_id = order.get("offerId")
-                if offer_id:
+                if reopened and offer_id:
                     try:
                         await offer_repo.collection.update_one(
                             {
                                 "_id": ObjectId(str(offer_id)),
                                 "status": OFFER_ACCEPTED,
                                 "replacementForContractId": contract_oid,
-                                "replacementScheduledDate": str(order.get("scheduledDeliveryDate"))[:10],
+                                "replacementScheduledDate": schedule_key,
                             },
                             {
                                 "$set": {"status": OFFER_PENDING, "updatedAt": event_time},
