@@ -5776,7 +5776,7 @@ async def resolve_contract_delivery_shortage(
         except Exception as exc:
             logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
         return {"success": True, "data": {"status": "partial_approved", "scheduledDeliveryDate": schedule_key,
-            "approvedQuantityKg": quantity}, "message": "Partial delivery approved; order generation will use the approved quantity."}
+            "approvedQuantityKg": quantity}, "message": "Partial delivery approved. The farmer must confirm that the approved quantity is packed and ready before the B2B order is created."}
     if action == "reschedule":
         new_date = data.newDeliveryDate
         if not new_date:
