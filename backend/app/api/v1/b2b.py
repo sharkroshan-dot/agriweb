@@ -2177,7 +2177,14 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         warehouse_district = _district_from_doc(current_warehouse)
         scoped_orders = []
         for order in orders:
-            source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or order.get("pickupWarehouseId") or "")
+            # Before pickup is assigned, pickupWarehouseId is the authoritative
+            # owner. Older records can contain a stale suggested sourceWarehouseId;
+            # it must not hide a farm-ready order from its actual pickup warehouse.
+            status_for_scope = str(order.get("status") or "")
+            if status_for_scope == ORDER_READY_FOR_PICKUP and not str(order.get("pickupTeam") or "").strip():
+                source_id = str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or order.get("sourceWarehouseId") or order.get("warehouseId") or "")
+            else:
+                source_id = str(order.get("sourceWarehouseId") or order.get("receivedAtWarehouseId") or order.get("warehouseId") or order.get("pickupWarehouseId") or "")
             destination_id = str(order.get("destinationWarehouseId") or "")
             status = str(order.get("status") or "")
             if status == ORDER_TRANSFER_IN_TRANSIT:
@@ -2245,7 +2252,10 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
             warehouse_district = _district_from_doc(current_warehouse)
             farm_district = await _b2b_farm_district(pickup_order)
-            assigned_source_id = str(pickup_order.get("sourceWarehouseId") or pickup_order.get("warehouseId") or pickup_order.get("pickupWarehouseId") or "")
+            # For unassigned farm pickups, the explicit pickup warehouse wins
+            # over legacy source suggestions. Once pickup is assigned, later
+            # stages use the actual source/receiving warehouse.
+            assigned_source_id = str(pickup_order.get("pickupWarehouseId") or pickup_order.get("assignedWarehouseId") or pickup_order.get("sourceWarehouseId") or pickup_order.get("warehouseId") or "")
             district_matches = bool(
                 warehouse_district and farm_district
                 and _district_key(warehouse_district) == _district_key(farm_district)
@@ -2274,7 +2284,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         scoped_orders = []
         for item in orders:
             status = str(item.get("status") or "")
-            source_id = str(item.get("sourceWarehouseId") or item.get("pickupWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
+            # Pickup ownership is distinct from the later fulfillment source:
+            # honor pickupWarehouseId for farm-ready orders so stale source
+            # suggestions cannot filter out the order from its assigned warehouse.
+            if status == ORDER_READY_FOR_PICKUP and not str(item.get("pickupTeam") or "").strip():
+                source_id = str(item.get("pickupWarehouseId") or item.get("assignedWarehouseId") or item.get("sourceWarehouseId") or item.get("warehouseId") or "")
+            else:
+                source_id = str(item.get("sourceWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or item.get("pickupWarehouseId") or "")
             destination_id = str(item.get("destinationWarehouseId") or "")
             if status == ORDER_DESTINATION_RECEIVED:
                 if destination_id == current_warehouse_id:
