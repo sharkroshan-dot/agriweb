@@ -293,9 +293,17 @@ export default function BusinessContractsPage() {
                         const required = Number(delivery.requestedQuantityKg || c.quantityPerDeliveryKg || 0);
                         const available = Number(delivery.availableQuantityKg || 0);
                         const packed = Number(delivery.packedQuantityKg || 0);
-                        const shortage = Math.max(0, required - Math.min(available, packed));
-                        const state = String(delivery.status || "awaiting_confirmation").replace(/_/g, " ");
-                        const isShort = ["shortage", "backup required", "at risk", "rescheduled"].includes(String(delivery.status || "").toLowerCase());
+                        const deliveryStatus = String(delivery.status || "awaiting_confirmation").toLowerCase();
+                        const resolution = String(delivery.resolution || "").toLowerCase();
+                        const hasApprovedSplit = delivery.approvedQuantityKg != null && ["partial", "replacement_supplier"].includes(resolution);
+                        const originalContribution = hasApprovedSplit
+                          ? Math.min(available, packed, Number(delivery.approvedQuantityKg || 0))
+                          : Math.min(available, packed);
+                        const shortage = ["shortage", "partial_approved", "backup_required", "replacement_assigned"].includes(deliveryStatus)
+                          ? Math.max(0, required - originalContribution)
+                          : 0;
+                        const state = deliveryStatus.replace(/_/g, " ");
+                        const isShort = ["shortage", "backup_required", "at risk", "rescheduled", "partial_approved"].includes(deliveryStatus);
                         return (
                           <div key={delivery.scheduledDate || index} className="rounded-md border border-slate-200 bg-white p-3">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -307,7 +315,7 @@ export default function BusinessContractsPage() {
                               <p><span className="text-slate-500">Available:</span> {available} kg</p>
                               <p><span className="text-slate-500">Packed:</span> {packed} kg</p>
                             </div>
-                            {shortage > 0 && <p className="mt-2 text-sm font-medium text-red-700">Shortage: {shortage} kg</p>}
+                            {shortage > 0 && <p className="mt-2 text-sm font-medium text-red-700">{deliveryStatus === "replacement_assigned" ? "Original farmer shortfall (replacement assigned)" : "Shortage"}: {shortage} kg</p>}
                             {delivery.notes && <p className="mt-1 text-sm text-slate-600">Farmer note: {delivery.notes}</p>}
                             {delivery.resolution && <p className="mt-1 text-sm text-blue-700">Business resolution: {delivery.resolution.replace(/_/g, " ")}{delivery.resolutionNotes ? " — " + delivery.resolutionNotes : ""}</p>}
                             {delivery.replacementOrderId && (
@@ -405,7 +413,10 @@ export default function BusinessContractsPage() {
                         <Loader2 className="h-4 w-4 animate-spin" /> Checking current farmer inventory…
                       </div>
                     ) : rankedReplacementOffers.length === 0 ? (
-                      <p className="py-6 text-sm text-slate-600">No pending quotes were found for other farmers on this RFQ. Ask another farmer to submit a quote, then refresh.</p>
+                      <div className="py-5 text-sm text-slate-600">
+                        <p>No pending replacement quotes were found for other farmers on this RFQ. Ask additional farmers to quote, then refresh to recheck current stock.</p>
+                        <Button className="mt-3" size="sm" variant="outline" onClick={() => window.location.assign("/business/rfqs")}>Open RFQs to request more quotes</Button>
+                      </div>
                     ) : (
                       <div className="mt-3 space-y-3">
                         {rankedReplacementOffers.map((offer, index) => (
