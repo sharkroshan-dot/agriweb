@@ -5992,6 +5992,17 @@ async def resolve_contract_delivery_shortage(
             )
         except Exception as exc:
             logger.warning("Replacement supplier business notification failed for contract %s: %s", oid, exc)
+        try:
+            await NotificationService.create_in_app_notification(
+                replacement_farmer_id,
+                NotificationType.ORDER,
+                "Replacement B2B supply assigned to you",
+                f"You were selected to supply {missing:g} kg of {contract.get('cropName') or 'produce'} for delivery on {schedule_key}. Open your B2B orders to prepare, pack, and complete quality checks before pickup.",
+                {"type": "b2b", "orderId": str(inserted.inserted_id), "contractId": str(oid), "scheduledDeliveryDate": schedule_key, "status": ORDER_CONFIRMED},
+                NotificationPriority.HIGH,
+            )
+        except Exception as exc:
+            logger.warning("Replacement farmer notification failed for order %s: %s", inserted.inserted_id, exc)
         return {"success": True, "data": {"status": "replacement_assigned", "scheduledDeliveryDate": schedule_key,
             "replacementOrderId": str(inserted.inserted_id), "replacementQuantityKg": missing},
             "message": f"Replacement order created for {missing:g} kg. It will follow the existing B2B warehouse fulfillment workflow."}
