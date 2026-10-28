@@ -97,8 +97,15 @@ export default function FarmerB2bContractsPage() {
   });
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
-  const targetScheduleDate = (c: Contract) => c.pendingRescheduledDeliveryDate
-    || (c.nextDeliveryAt ? String(c.nextDeliveryAt).slice(0, 10) : "");
+  const targetScheduleDate = (c: Contract) => {
+    const regularDate = c.nextDeliveryAt ? String(c.nextDeliveryAt).slice(0, 10) : "";
+    const rescheduledDate = c.pendingRescheduledDeliveryDate || "";
+    // A rescheduled occurrence must not hide an earlier regular occurrence
+    // in a recurring daily/weekly contract. Confirm the earliest actionable
+    // date first, then the next occurrence becomes the target after refresh.
+    if (regularDate && rescheduledDate) return regularDate <= rescheduledDate ? regularDate : rescheduledDate;
+    return rescheduledDate || regularDate;
+  };
   const confirmationForTargetDate = (c: Contract) =>
     c.deliveryHistory?.find((delivery) => delivery.scheduledDate === targetScheduleDate(c));
   const requiredQuantity = (c: Contract) => {
