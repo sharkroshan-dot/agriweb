@@ -36,6 +36,17 @@ interface Contract {
   startDate: string;
   endDate?: string;
   nextDeliveryAt?: string;
+  pendingRescheduledDeliveryDate?: string;
+  deliveryHistory?: Array<{
+    scheduledDate: string;
+    requestedQuantityKg?: number;
+    approvedQuantityKg?: number;
+    availableQuantityKg?: number;
+    packedQuantityKg?: number;
+    status?: string;
+    resolution?: string;
+    isRescheduledOccurrence?: boolean;
+  }>;
   status: "active" | "pending" | "paused" | "completed" | "cancelled";
   latestDeliveryStatus?: string;
   farmerPrepareBy?: string;
@@ -75,8 +86,8 @@ export default function FarmerB2bContractsPage() {
   });
 
   const stockMutation = useMutation({
-    mutationFn: ({ id, quantity, packed, ready, notes }: { id: string; quantity: number; packed: number; ready: boolean; notes?: string }) =>
-      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, packedQuantityKg: packed, readyForPickup: ready, notes }),
+    mutationFn: ({ id, quantity, packed, ready, notes, scheduledDate }: { id: string; quantity: number; packed: number; ready: boolean; notes?: string; scheduledDate: string }) =>
+      api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, packedQuantityKg: packed, readyForPickup: ready, notes, scheduledDate }),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["farmerContracts"] });
       const status = res?.data?.data?.status || res?.data?.status;
@@ -86,18 +97,35 @@ export default function FarmerB2bContractsPage() {
   });
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
-  const requiredQuantity = (c: Contract) => Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+  const targetScheduleDate = (c: Contract) => c.pendingRescheduledDeliveryDate
+    || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : "");
+  const confirmationForTargetDate = (c: Contract) =>
+    c.deliveryHistory?.find((delivery) => delivery.scheduledDate === targetScheduleDate(c));
+  const requiredQuantity = (c: Contract) => {
+    const confirmation = confirmationForTargetDate(c);
+    if (confirmation?.approvedQuantityKg != null && String(confirmation.resolution || "").toLowerCase() === "partial") {
+      return Number(confirmation.approvedQuantityKg);
+    }
+    return Number(confirmation?.requestedQuantityKg ?? c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+  };
   const plannedPickupDeadline = (c: Contract) => {
     const explicit = c.pickupDeadline || c.plannedPickupAt || c.pickupDate;
     if (explicit) return new Date(explicit);
-    if (!c.nextDeliveryAt) return null;
-    const deadline = new Date(c.nextDeliveryAt);
+    const scheduleDate = targetScheduleDate(c);
+    if (!scheduleDate) return null;
+    const deadline = new Date(scheduleDate + "T00:00:00");
     if (Number.isNaN(deadline.getTime())) return null;
     deadline.setDate(deadline.getDate() - 1);
     deadline.setHours(18, 0, 0, 0);
     return deadline;
   };
   const validateStock = (c: Contract, ready: boolean) => {
+    const scheduledDate = targetScheduleDate(c);
+    if (!scheduledDate) {
+      toast.error("No scheduled delivery date is available for this contract.");
+      return;
+    }
+    const targetQuantity = requiredQuantity(c);
     const availableRaw = availableQty[c.id] ?? "";
     const packedRaw = packedQty[c.id] ?? "";
     if (availableRaw.trim() === "" || packedRaw.trim() === "") {
@@ -114,23 +142,27 @@ export default function FarmerB2bContractsPage() {
       toast.error("Packed quantity cannot exceed available quantity.");
       return;
     }
-    if (ready && packed < requiredQuantity(c)) {
-      toast.error(`Cannot mark ready: pack the full required ${requiredQuantity(c)} kg or report the shortage.`);
+    if (ready && packed < targetQuantity) {
+      toast.error(`Cannot mark ready: pack the approved required ${targetQuantity} kg or report the shortage.`);
+      return;
+    }
+    if (ready && available < targetQuantity) {
+      toast.error(`Available stock must cover the approved ${targetQuantity} kg before marking ready.`);
       return;
     }
     if (ready && packed <= 0) {
       toast.error("Packed quantity must be greater than zero to mark ready.");
       return;
     }
-    if (!ready && available >= requiredQuantity(c) && packed >= requiredQuantity(c)) {
-      toast.error("The full required quantity is available and packed. Use Ready for pickup instead.");
+    if (!ready && available >= targetQuantity && packed >= targetQuantity) {
+      toast.error("The approved quantity is available and packed. Use Ready for pickup instead.");
       return;
     }
     if (!ready && !stockNotes[c.id]?.trim()) {
       toast.error("Add a note explaining the shortage so the business can decide how to proceed.");
       return;
     }
-    stockMutation.mutate({ id: c.id, quantity: available, packed, ready, notes: stockNotes[c.id] });
+    stockMutation.mutate({ id: c.id, quantity: available, packed, ready, notes: stockNotes[c.id], scheduledDate });
   };
   const activeCount = contracts.filter((c) => c.status === "active").length;
   const monthlyKg = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0), 0);
@@ -210,14 +242,15 @@ export default function FarmerB2bContractsPage() {
                     </p>
                     <p className="mb-2 text-xs text-slate-600">
                       Product: <strong>{c.cropName}</strong> · Required for this delivery: <strong>{requiredQuantity(c)} kg</strong>.
-                      Delivery date: {c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toLocaleDateString("en-IN") : "date pending"}.
+                      Delivery date: {targetScheduleDate(c) ? new Date(targetScheduleDate(c) + "T00:00:00").toLocaleDateString("en-IN") : "date pending"}.
+                      {c.pendingRescheduledDeliveryDate ? " (rescheduled occurrence — confirm stock for this date)" : ""}
                     </p>
                     <div className="mb-3 rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-slate-700">
                       <p><strong>Prepare and pack by:</strong> {c.farmerPrepareBy ? new Date(c.farmerPrepareBy).toLocaleString("en-IN") : "See delivery schedule"}</p>
                       <p><strong>Planned pickup deadline:</strong> {plannedPickupDeadline(c) ? plannedPickupDeadline(c)!.toLocaleString("en-IN") : "Pending delivery schedule"}</p>
                       {!c.pickupDeadline && !c.plannedPickupAt && !c.pickupDate && c.nextDeliveryAt && <p className="mt-1 text-amber-700">Planning estimate: previous day at 6:00 PM. The assigned pickup task deadline takes priority if it differs.</p>}
                       <p><strong>Pickup window:</strong> {c.pickupWindowStart && c.pickupWindowEnd ? `${new Date(c.pickupWindowStart).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}–${new Date(c.pickupWindowEnd).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Use the deadline on the assigned pickup task"}</p>
-                      <p className="mt-1">Only mark ready when the full required quantity is packed. If you cannot supply the full amount, report the actual quantities and wait for the business to approve a solution.</p>
+                      <p className="mt-1">Only mark ready when the required quantity shown above is available and packed. If the business approved partial supply, use that approved quantity. If you cannot supply the required amount, report the actual quantities and wait for the business to decide.</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <input
