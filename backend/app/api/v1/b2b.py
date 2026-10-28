@@ -5811,8 +5811,34 @@ async def resolve_contract_delivery_shortage(
                 year = next_at.year + month // 12
                 month = month % 12 + 1
                 resume_next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
-        if resume_next_at.date() == new_date.date():
-            raise HTTPException(status_code=409, detail="The selected date conflicts with the next regular delivery. Choose another date.")
+        # Delivery confirmations are keyed by calendar date, so a rescheduled
+        # occurrence cannot collide with any future occurrence in the recurring
+        # series (not just the immediately following date).
+        regular_candidate = resume_next_at
+        recurrence_frequency = str(contract.get("frequency") or "monthly").lower()
+        recurrence_interval = max(1, int(contract.get("recurrenceInterval") or 1))
+        for _ in range(5000):
+            if regular_candidate.date() == new_date.date():
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected date is already part of the regular recurring schedule. Choose a different date.",
+                )
+            if regular_candidate.date() > new_date.date():
+                break
+            if recurrence_frequency == "daily":
+                regular_candidate = regular_candidate + timedelta(days=recurrence_interval)
+            elif recurrence_frequency == "weekly":
+                regular_candidate = regular_candidate + timedelta(weeks=recurrence_interval)
+            else:
+                import calendar
+                month = regular_candidate.month - 1 + recurrence_interval
+                year = regular_candidate.year + month // 12
+                month = month % 12 + 1
+                regular_candidate = regular_candidate.replace(
+                    year=year,
+                    month=month,
+                    day=min(regular_candidate.day, calendar.monthrange(year, month)[1]),
+                )
 
         confirmations[new_schedule_key] = {
             "scheduledDate": new_schedule_key,
