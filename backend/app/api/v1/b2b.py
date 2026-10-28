@@ -2220,7 +2220,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # Keep those unowned pickups visible so a warehouse can claim
                 # them; once claimed, the explicit warehouse ID scopes them.
                 unowned_legacy_pickup = not farm_district and not str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "").strip()
-                if district_matches or assigned_pickup_warehouse_id == current_warehouse_id or unowned_legacy_pickup:
+                if district_matches or (not farm_district and assigned_pickup_warehouse_id == current_warehouse_id):
                     scoped_orders.append(order)
             elif current_warehouse_id == source_id:
                 scoped_orders.append(order)
@@ -2273,7 +2273,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             # silently hiding it from every warehouse. Assignment will establish
             # ownership for all subsequent stages.
             unowned_legacy_pickup = not farm_district and not str(pickup_order.get("pickupWarehouseId") or pickup_order.get("assignedWarehouseId") or "").strip()
-            if not district_matches and not explicitly_assigned_here and not unowned_legacy_pickup:
+            if (farm_district and not district_matches) or (not farm_district and not explicitly_assigned_here):
                 continue
             # Initial pickup ownership is determined by farm district.
             # Do not let a stale prefilled warehouse ID hide a valid pickup.
@@ -2330,7 +2330,7 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # Expose it as claimable; assigning a pickup team establishes the
                 # warehouse owner and prevents it from appearing in other queues.
                 unowned_legacy_pickup = not farm_district and not str(item.get("pickupWarehouseId") or item.get("assignedWarehouseId") or "").strip()
-                if district_matches or explicitly_assigned_here or unowned_legacy_pickup:
+                if district_matches or (not farm_district and explicitly_assigned_here):
                     scoped_orders.append(item)
                 continue
             if source_id and source_id != current_warehouse_id:
@@ -3156,31 +3156,49 @@ def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
     return ""
 
 async def _b2b_farm_district(order: Dict[str, Any]) -> str:
-    """Resolve the farmer's registered district for farm-pickup ownership."""
-    farmer_id = order.get("farmerId") or order.get("farmerUserId")
+    """Resolve the farm's actual district, not its town/taluk, for pickup ownership."""
+    farmer_id = order.get("farmerId") or order.get("farmerUserId") or order.get("farmer_id")
     farmer_doc = None
     if farmer_id:
         values: List[Any] = [str(farmer_id)]
         if ObjectId.is_valid(str(farmer_id)):
             values.append(ObjectId(str(farmer_id)))
+        # Farmer profiles may store the user reference in camelCase or snake_case.
         farmer_doc = await farmer_repository.find_one({"$or": [
             {"userId": {"$in": values}},
+            {"user_id": {"$in": values}},
+            {"farmerUserId": {"$in": values}},
             {"_id": {"$in": values}},
         ]})
     district = _district_from_doc(farmer_doc)
     if district:
-        return district
-    # Some legacy order records snapshot the farm location at order creation.
-    for key in ("farmDistrict", "farmerDistrict", "sourceDistrict"):
+        return _canonical_district_label(district)
+
+    # Explicit district snapshots first; normalize known locality aliases such
+    # as Manachanallur -> Tiruchirappalli at the routing boundary.
+    for key in ("farmDistrict", "farmerDistrict", "sourceDistrict", "district", "districtName"):
         value = order.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
-    for parent_key in ("farmAddress", "farmerAddress", "farmLocation", "farmerInfo", "farmer"):
+            return _canonical_district_label(value)
+
+    for parent_key in (
+        "farmAddress", "farmerAddress", "farmLocation", "farmerInfo", "farmer",
+        "farmerProfile", "farm", "pickupAddress", "pickupLocation", "sourceLocation",
+    ):
         parent = order.get(parent_key)
         if isinstance(parent, dict):
             district = _district_from_doc(parent)
             if district:
+                return _canonical_district_label(district)
+        elif isinstance(parent, str) and parent.strip():
+            district = _canonical_district_label(parent)
+            if _district_key(district) in {_district_token(v) for v in _DISTRICT_ALIASES.values()}:
                 return district
+
+    for key in ("farmLocality", "farmTown", "farmCity", "farmerCity", "pickupCity", "pickupTown"):
+        value = order.get(key)
+        if isinstance(value, str) and _district_token(value) in _DISTRICT_ALIASES:
+            return _DISTRICT_ALIASES[_district_token(value)]
     return ""
 
 async def _resolve_b2b_current_warehouse_id(current_user: Dict[str, Any]) -> str:
@@ -3289,7 +3307,7 @@ async def update_b2b_warehouse_fulfillment(
             # Legacy orders may have missing/inconsistent farmer district fields.
             # An explicit source assignment is sufficient ownership evidence;
             # otherwise the farm and warehouse districts must match.
-            if not district_matches and not explicit_source_matches:
+            if (farm_district and not district_matches) or (not farm_district and not explicit_source_matches):
                 raise HTTPException(
                     status_code=403,
                     detail=f"Farm pickup can only be assigned by the farm's district warehouse or its explicitly assigned source warehouse. Farm district: {farm_district or 'unknown'}; selected warehouse district: {warehouse_district or 'unknown'}.",
