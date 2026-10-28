@@ -2231,7 +2231,15 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
             warehouse_district = _district_from_doc(current_warehouse)
             farm_district = await _b2b_farm_district(pickup_order)
-            if not warehouse_district or not farm_district or _district_key(warehouse_district) != _district_key(farm_district):
+            assigned_source_id = str(pickup_order.get("sourceWarehouseId") or pickup_order.get("warehouseId") or pickup_order.get("pickupWarehouseId") or "")
+            district_matches = bool(
+                warehouse_district and farm_district
+                and _district_key(warehouse_district) == _district_key(farm_district)
+            )
+            # Older farmer profiles may not have a usable district. In that
+            # case only, honor the order's explicit source warehouse assignment.
+            legacy_source_matches = not farm_district and assigned_source_id == current_warehouse_id
+            if not district_matches and not legacy_source_matches:
                 continue
             # Initial pickup ownership is determined by farm district.
             # Do not let a stale prefilled warehouse ID hide a valid pickup.
@@ -2281,7 +2289,14 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # Ignore stale suggested source IDs until the matching district
                 # warehouse claims the pickup and becomes the real source.
                 farm_district = await _b2b_farm_district(item)
-                if warehouse_district and farm_district and _district_key(warehouse_district) == _district_key(farm_district):
+                if (
+                    warehouse_district and farm_district
+                    and _district_key(warehouse_district) == _district_key(farm_district)
+                ) or (
+                    not farm_district and source_id == current_warehouse_id
+                ):
+                    # Missing legacy district: only the assigned source warehouse
+                    # can see this pickup, preventing cross-district pickup claims.
                     scoped_orders.append(item)
                 continue
             if source_id and source_id != current_warehouse_id:
@@ -2292,8 +2307,18 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         orders = scoped_orders
 
     summary = {
-        "readyForFarmPickup": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$in": [None, ""]}}),
-        "pickupAssigned": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$nin": [None, ""]}}),
+        # Use the same warehouse-scoped orders as the actionable list so the
+        # dashboard cannot advertise pickups that this warehouse cannot process.
+        "readyForFarmPickup": sum(
+            1 for order in orders
+            if order.get("status") == ORDER_READY_FOR_PICKUP
+            and not str(order.get("pickupTeam") or "").strip()
+        ),
+        "pickupAssigned": sum(
+            1 for order in orders
+            if order.get("status") == ORDER_READY_FOR_PICKUP
+            and str(order.get("pickupTeam") or "").strip()
+        ),
         "collectedFromFarm": await count_status(ORDER_PICKED_UP),
         "warehouseReceived": await count_status(ORDER_WAREHOUSE_RECEIVED),
         "routingRequired": await order_repo.count({**base, "status": ORDER_WAREHOUSE_RECEIVED, "$or": [{"fulfillmentRoute": {"$exists": False}}, {"fulfillmentRoute": None}, {"fulfillmentRoute": ""}]}),
