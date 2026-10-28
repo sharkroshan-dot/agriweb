@@ -391,6 +391,15 @@ export default function BusinessContractsPage() {
                       <span className="text-xs text-slate-500">Eligible farmers appear first in every mode.</span>
                     </div>
 
+                    {!replacementLoading && rankedReplacementOffers.length > 0 && !rankedReplacementOffers.some((offer) => offer.eligible) && (
+                      <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        None of the existing quotes currently covers the full {replacementMeta?.shortageKg ?? 0} kg shortage using both quoted quantity and live stock. Invite more farmers to submit quotes for this RFQ, then refresh live stock.
+                        <div className="mt-2">
+                          <Button size="sm" variant="outline" onClick={() => window.location.assign("/business/rfqs")}>Open RFQs to request more quotes</Button>
+                        </div>
+                      </div>
+                    )}
+
                     {replacementLoading ? (
                       <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
                         <Loader2 className="h-4 w-4 animate-spin" /> Checking current farmer inventory…
