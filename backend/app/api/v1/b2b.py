@@ -5539,7 +5539,10 @@ async def confirm_contract_delivery_stock(
     # Notify the business with the actual resolution state; an approved partial
     # contribution must not be described as a fresh unresolved shortage.
     try:
-        shortage_kg = max(0, requested - min(available, packed))
+        shortage_kg = max(
+            0,
+            requested - (order_quantity if has_partial_approval else min(available, packed)),
+        )
         farmer_name = contract.get("farmerName") or "Your farmer"
         product_name = contract.get("cropName") or "produce"
         if status == "confirmed":
@@ -5575,7 +5578,7 @@ async def confirm_contract_delivery_stock(
                  "packedQuantityKg": packed, "readyForPickup": ready_for_order,
                  "status": status, "warehouseOrderId": created_order_id,
                  "approvedQuantityKg": order_quantity if has_partial_approval else None,
-                 "shortageKg": max(0, round(requested - min(available, packed), 2))},
+                 "shortageKg": max(0, round(requested - (order_quantity if has_partial_approval else min(available, packed)), 2))},
         "message": (
             f"Stock confirmed for {schedule_key}. B2B warehouse order {created_order_id} is ready for farm pickup."
             if ready_for_order and created_order_id and status in ("confirmed", "partial_approved", "replacement_assigned") else
@@ -5752,7 +5755,12 @@ async def resolve_contract_delivery_shortage(
         if quantity <= 0 or quantity > available or quantity > requested_quantity:
             raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the reported available stock or contracted quantity")
         confirmation.update({"status": "partial_approved", "approvedQuantityKg": quantity,
-                             "readyForPickup": float(confirmation.get("packedQuantityKg") or 0) >= quantity,
+                             # A business approval is not itself a farmer pickup-ready confirmation.
+                             "readyForPickup": bool(
+                                 confirmation.get("readyForPickup")
+                                 and float(confirmation.get("availableQuantityKg") or 0) >= quantity
+                                 and float(confirmation.get("packedQuantityKg") or 0) >= quantity
+                             ),
                              "resolution": "partial", "resolutionNotes": data.notes, "resolvedAt": now})
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
@@ -5937,7 +5945,15 @@ async def resolve_contract_delivery_shortage(
             )
         confirmation.update({
             "status": "replacement_assigned", "approvedQuantityKg": original_approved,
-            "readyForPickup": original_approved > 0 and packed >= original_approved,
+            # The original farmer must explicitly confirm ready after the split
+            # is accepted; the replacement order does not implicitly ready the
+            # original farmer's separate order.
+            "readyForPickup": bool(
+                confirmation.get("readyForPickup")
+                and original_approved > 0
+                and available >= original_approved
+                and packed >= original_approved
+            ),
             "resolution": "replacement_supplier",
             "resolutionNotes": data.notes, "replacementOfferId": str(replacement_offer_id),
             "replacementFarmerId": replacement_farmer_id, "replacementOrderId": str(inserted.inserted_id),
