@@ -5086,14 +5086,26 @@ def _contract_public(row: Dict[str, Any]) -> Dict[str, Any]:
                 item["confirmedBy"] = str(item["confirmedBy"])
             history.append(item)
     result["deliveryHistory"] = sorted(history, key=lambda item: str(item.get("scheduledDate") or ""), reverse=True)
-    pending_reschedules = [
+    pending_farmer_actions = [
         str(item.get("scheduledDate") or "")
         for item in history
-        if item.get("isRescheduledOccurrence")
-        and str(item.get("status") or "").lower() in ("awaiting_confirmation", "shortage", "partial_approved", "backup_required")
-        and item.get("scheduledDate")
+        if item.get("scheduledDate")
+        and (
+            (
+                item.get("isRescheduledOccurrence")
+                and str(item.get("status") or "").lower() in ("awaiting_confirmation", "shortage", "partial_approved", "backup_required")
+            )
+            or (
+                str(item.get("status") or "").lower() == "replacement_assigned"
+                and float(item.get("approvedQuantityKg") or 0) > 0
+                and not item.get("originalOrderId")
+            )
+        )
     ]
-    result["pendingRescheduledDeliveryDate"] = min(pending_reschedules) if pending_reschedules else None
+    result["pendingFarmerDeliveryDate"] = min(pending_farmer_actions) if pending_farmer_actions else None
+    # Keep the explicit name for older clients while the general field also
+    # covers an original farmer contribution waiting beside a replacement order.
+    result["pendingRescheduledDeliveryDate"] = result["pendingFarmerDeliveryDate"]
     result.pop("deliveryConfirmations", None)
     return result
 
@@ -5353,17 +5365,18 @@ async def confirm_contract_delivery_stock(
     if packed > available:
         raise HTTPException(status_code=400, detail="Packed quantity cannot exceed the reported available quantity")
     approved_qty_raw = existing_confirmation.get("approvedQuantityKg")
-    has_partial_approval = (
-        approved_qty_raw is not None
-        and str(existing_confirmation.get("resolution") or "").lower() == "partial"
-    )
+    confirmation_resolution = str(existing_confirmation.get("resolution") or "").lower()
+    has_partial_approval = approved_qty_raw is not None and confirmation_resolution in ("partial", "replacement_supplier")
     approved_qty = float(approved_qty_raw) if has_partial_approval else None
 
     if has_partial_approval:
-        # A farmer's follow-up stock update must preserve the business decision.
-        # The order is created only after the approved amount is actually packed
-        # and the farmer explicitly marks the occurrence ready.
-        status = "partial_approved" if available >= approved_qty and packed >= approved_qty else "shortage"
+        # A follow-up stock update must preserve the approved split. When a
+        # replacement is already assigned, keep that resolution visible while
+        # the original farmer confirms the separately packed portion.
+        if available >= approved_qty and packed >= approved_qty:
+            status = "replacement_assigned" if confirmation_resolution == "replacement_supplier" else "partial_approved"
+        else:
+            status = "shortage"
         order_quantity = approved_qty
     else:
         status = "confirmed" if available >= requested and packed >= requested and data.readyForPickup else "shortage"
@@ -5400,7 +5413,7 @@ async def confirm_contract_delivery_stock(
     # creation just because nextDeliveryAt was advanced or stored with a different
     # date than the submitted occurrence; the scheduled-date validation above is
     # the guard against invalid dates.
-    if status in ("confirmed", "partial_approved") and ready_for_order:
+    if status in ("confirmed", "partial_approved", "replacement_assigned") and order_quantity > 0 and ready_for_order:
         db = MongoDB.db
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
@@ -5408,6 +5421,8 @@ async def confirm_contract_delivery_stock(
         existing_order = await orders_collection.find_one({
             "contractId": oid,
             "scheduledDeliveryDate": schedule_key,
+            "farmerId": contract.get("farmerId"),
+            "isReplacementSupply": {"$ne": True},
             "deletedAt": None,
         })
         if existing_order:
@@ -5584,11 +5599,12 @@ async def list_contract_replacement_offers(
     requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
     available_original = float(confirmation.get("availableQuantityKg") or 0)
     packed_original = float(confirmation.get("packedQuantityKg") or 0)
-    approved_original = (
+    approved_ceiling = (
         float(confirmation.get("approvedQuantityKg"))
         if confirmation.get("approvedQuantityKg") is not None
         else min(available_original, packed_original)
     )
+    approved_original = min(approved_ceiling, available_original, packed_original)
     shortage_kg = round(max(0.0, requested - approved_original), 2)
     if shortage_kg <= 0:
         raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
@@ -5814,7 +5830,12 @@ async def resolve_contract_delivery_shortage(
         requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
         packed = float(confirmation.get("packedQuantityKg") or 0)
-        original_approved = float(confirmation.get("approvedQuantityKg") or min(available, packed))
+        approved_ceiling = (
+            float(confirmation.get("approvedQuantityKg"))
+            if confirmation.get("approvedQuantityKg") is not None
+            else min(available, packed)
+        )
+        original_approved = min(approved_ceiling, available, packed)
         missing = max(0.0, requested - original_approved)
         if missing <= 0:
             raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
@@ -5893,10 +5914,28 @@ async def resolve_contract_delivery_shortage(
             "replacementQuantityKg": missing, "resolvedAt": now,
         })
         confirmations[schedule_key] = confirmation
-        await contract_repo.update({"_id": oid}, {
-            "deliveryConfirmations": confirmations, "latestDeliveryStatus": "replacement_assigned",
-            "latestDeliveryDate": schedule_key, "updatedAt": now,
-        })
+        contract_update = {
+            "deliveryConfirmations": confirmations,
+            "latestDeliveryStatus": "replacement_assigned",
+            "latestDeliveryDate": schedule_key,
+            "updatedAt": now,
+        }
+        if original_approved <= 0 and isinstance(next_at, datetime) and next_at.strftime("%Y-%m-%d") == schedule_key:
+            frequency = str(contract.get("frequency") or "monthly").lower()
+            interval = max(1, int(contract.get("recurrenceInterval") or 1))
+            if frequency == "daily":
+                next_at = next_at + timedelta(days=interval)
+            elif frequency == "weekly":
+                next_at = next_at + timedelta(weeks=interval)
+            else:
+                import calendar
+                month = next_at.month - 1 + interval
+                year = next_at.year + month // 12
+                month = month % 12 + 1
+                next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
+            contract_update["nextDeliveryAt"] = next_at
+            contract_update["generatedScheduleKeys"] = list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key]))
+        await contract_repo.update({"_id": oid}, contract_update)
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("businessUserId")), NotificationType.PROMOTION,
@@ -5989,9 +6028,15 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
         orders_collection = db["b2b_orders"]
-        exists = await orders_collection.find_one({"contractId": contract["_id"], "scheduledDeliveryDate": schedule_key, "deletedAt": None})
+        exists = await orders_collection.find_one({
+            "contractId": contract["_id"],
+            "scheduledDeliveryDate": schedule_key,
+            "farmerId": contract.get("farmerId"),
+            "isReplacementSupply": {"$ne": True},
+            "deletedAt": None,
+        })
         if exists:
-            pass
+            original_order_id = str(exists.get("_id"))
         else:
             # Build scheduled orders through the same warehouse-route calculation as
             # one-off orders. A recurring order without a source warehouse cannot
@@ -6041,7 +6086,9 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "deletedAt": None,
             })
             result = await orders_collection.insert_one(order)
-            generated.append({"orderId": str(result.inserted_id), "contractId": str(contract["_id"]), "scheduledDeliveryDate": schedule_key})
+            original_order_id = str(result.inserted_id)
+            generated.append({"orderId": original_order_id, "contractId": str(contract["_id"]), "scheduledDeliveryDate": schedule_key})
+        confirmations[schedule_key]["originalOrderId"] = original_order_id
         frequency = contract.get("frequency") or "monthly"
         interval = int(contract.get("recurrenceInterval") or 1)
         if frequency == "daily":
@@ -6055,5 +6102,10 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             month = month % 12 + 1
             import calendar
             next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
-        await contract_repo.update({"_id": contract["_id"]}, {"nextDeliveryAt": next_at, "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])), "updatedAt": now})
+        await contract_repo.update({"_id": contract["_id"]}, {
+            "nextDeliveryAt": next_at,
+            "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])),
+            "deliveryConfirmations": confirmations,
+            "updatedAt": now,
+        })
     return {"success": True, "data": {"generated": generated, "count": len(generated)}}
