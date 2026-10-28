@@ -6085,11 +6085,159 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
     # Generate up to 48 hours ahead. This is essential for night pickup and
     # cross-district transfers that must depart one day before morning delivery.
     planning_horizon = now + timedelta(days=2)
-    query = {"status": "active", "nextDeliveryAt": {"$lte": planning_horizon}, "deletedAt": None}
+    # Include active contracts with stored delivery confirmations so separately
+    # rescheduled occurrences can be processed even when the regular nextDeliveryAt
+    # is later than the planning horizon. The regular schedule is still guarded below.
+    query = {
+        "status": "active",
+        "deletedAt": None,
+        "$or": [
+            {"nextDeliveryAt": {"$lte": planning_horizon}},
+            {"deliveryConfirmations": {"$exists": True}},
+        ],
+    }
     if current_user.get("role") == "business":
         query["businessUserId"] = ObjectId(current_user["_id"])
     contracts = await contract_repo.find_many(query, limit=500) or []
     generated = []
+
+    # Rescheduled occurrences have their own confirmation key and must not depend
+    # on the contract's regular nextDeliveryAt cursor. Process only confirmed,
+    # ready-to-pick-up occurrences inside the same 48-hour planning window.
+    db = MongoDB.db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not ready")
+    orders_collection = db["b2b_orders"]
+    for contract in contracts:
+        confirmations = dict(contract.get("deliveryConfirmations") or {})
+        confirmations_changed = False
+        for occurrence_key, occurrence_confirmation in list(confirmations.items()):
+            if not isinstance(occurrence_confirmation, dict) or occurrence_confirmation.get("isRescheduledOccurrence") is not True:
+                continue
+            try:
+                occurrence_day = datetime.strptime(str(occurrence_key), "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning("Ignoring invalid rescheduled delivery date %s on contract %s", occurrence_key, contract.get("_id"))
+                continue
+            if datetime.combine(occurrence_day, datetime.min.time()) > planning_horizon:
+                continue
+            occurrence_status = str(occurrence_confirmation.get("status") or "").lower()
+            if occurrence_status not in ("confirmed", "partial_approved", "replacement_assigned"):
+                continue
+
+            quantity = float(
+                occurrence_confirmation.get("approvedQuantityKg")
+                or occurrence_confirmation.get("requestedQuantityKg")
+                or 0
+            )
+            available = float(occurrence_confirmation.get("availableQuantityKg") or 0)
+            packed = float(occurrence_confirmation.get("packedQuantityKg") or 0)
+            if (
+                quantity <= 0
+                or available < quantity
+                or packed < quantity
+                or occurrence_confirmation.get("readyForPickup") is not True
+            ):
+                # Do not generate a warehouse order for an unready occurrence.
+                continue
+
+            existing_order = await orders_collection.find_one({
+                "contractId": contract["_id"],
+                "scheduledDeliveryDate": str(occurrence_key),
+                "farmerId": contract.get("farmerId"),
+                "isReplacementSupply": {"$ne": True},
+                "deletedAt": None,
+            })
+            if existing_order:
+                order_id = str(existing_order.get("_id"))
+            else:
+                rfq = await rfq_repo.find_one({"_id": contract.get("rfqId"), "deletedAt": None}) if contract.get("rfqId") else None
+                offer = await offer_repo.find_one({"_id": contract.get("offerId"), "deletedAt": None}) if contract.get("offerId") else None
+                if not rfq or not offer:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Contract {contract.get('contractNumber') or contract['_id']} is missing its original RFQ or accepted farmer quote; rescheduled order was not created.",
+                    )
+                occurrence_rfq = dict(rfq)
+                occurrence_rfq.update({
+                    "requiredDate": str(occurrence_key),
+                    "deliveryDeadline": str(occurrence_key),
+                    "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+                })
+                order = await _build_order(occurrence_rfq, offer, quantity, None)
+                prior_occurrences = await orders_collection.find({
+                    "contractId": contract["_id"],
+                    "farmerId": contract.get("farmerId"),
+                    "isReplacementSupply": {"$ne": True},
+                    "deletedAt": None,
+                    "scheduledDeliveryDate": {"$ne": str(occurrence_key)},
+                }).sort("createdAt", 1).to_list(length=500)
+                if prior_occurrences:
+                    root_order = next(
+                        (row for row in prior_occurrences
+                         if not re.search(r"-1[A-Z]$", str(row.get("orderNumber") or ""))),
+                        prior_occurrences[0],
+                    )
+                    root_number = str(root_order.get("orderNumber") or order.get("orderNumber") or f"B2B-{str(root_order.get('_id'))[-6:]}")
+                    occurrence_index = len(prior_occurrences) - 1
+                    suffix = chr(ord("A") + (occurrence_index % 26))
+                    order["orderNumber"] = f"{root_number}-1{suffix}"
+                order.update({
+                    "contractId": contract["_id"],
+                    "contractNumber": contract.get("contractNumber"),
+                    "scheduledDeliveryDate": str(occurrence_key),
+                    "isRescheduledOccurrence": True,
+                    "rescheduledFromDate": occurrence_confirmation.get("rescheduledFromDate"),
+                    "businessUserId": contract["businessUserId"],
+                    "farmerId": contract["farmerId"],
+                    "rfqId": contract.get("rfqId"),
+                    "offerId": contract.get("offerId"),
+                    "productName": contract.get("cropName") or order.get("productName"),
+                    "deliveryAddress": contract.get("deliveryAddress") or order.get("deliveryAddress") or {},
+                    "deliveryCity": contract.get("deliveryCity") or order.get("deliveryCity"),
+                    "deliveryState": contract.get("deliveryState") or order.get("deliveryState"),
+                    "deliveryDistrict": contract.get("deliveryDistrict") or order.get("deliveryDistrict"),
+                    "deliveryLocation": contract.get("deliveryLocation") or order.get("deliveryLocation"),
+                    "deliveryTimeSlot": contract.get("deliveryTimeSlot") or order.get("deliveryTimeSlot"),
+                    "quantityKg": quantity,
+                    "availableQuantityKg": available,
+                    "packedQuantityKg": packed,
+                    "pricePerKg": float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0),
+                    "productSubtotal": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
+                    "totalAmount": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
+                    "status": ORDER_READY_FOR_PICKUP,
+                    "paymentStatus": PAYMENT_PENDING,
+                    "deliveryMethod": "dedicated_transport",
+                    "farmerPrepareBy": order.get("farmerPrepareBy") or datetime.combine(occurrence_day - timedelta(days=1), datetime.min.time()).replace(hour=16),
+                    "pickupDate": order.get("pickupDate") or (occurrence_day - timedelta(days=1)).isoformat(),
+                    "pickupWindowStart": "18:00",
+                    "pickupWindowEnd": "23:59",
+                    "transferDispatchDate": order.get("transferDispatchDate"),
+                    "startedAt": now,
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "deletedAt": None,
+                })
+                inserted = await orders_collection.insert_one(order)
+                order_id = str(inserted.inserted_id)
+                generated.append({
+                    "orderId": order_id,
+                    "contractId": str(contract["_id"]),
+                    "scheduledDeliveryDate": str(occurrence_key),
+                    "rescheduled": True,
+                })
+
+            occurrence_confirmation["originalOrderId"] = order_id
+            occurrence_confirmation["orderGeneratedAt"] = occurrence_confirmation.get("orderGeneratedAt") or now
+            confirmations[str(occurrence_key)] = occurrence_confirmation
+            confirmations_changed = True
+
+        if confirmations_changed:
+            await contract_repo.update(
+                {"_id": contract["_id"]},
+                {"deliveryConfirmations": confirmations, "updatedAt": now},
+            )
+
     for contract in contracts:
         next_at = contract.get("nextDeliveryAt")
         if isinstance(next_at, str):
@@ -6098,6 +6246,10 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             except Exception:
                 continue
         if not isinstance(next_at, datetime):
+            continue
+        # This query also includes contracts fetched only for rescheduled
+        # occurrences. Do not accidentally process their future regular delivery.
+        if next_at > planning_horizon:
             continue
         schedule_key = next_at.strftime("%Y-%m-%d")
         if schedule_key in (contract.get("generatedScheduleKeys") or []):
