@@ -5536,21 +5536,34 @@ async def confirm_contract_delivery_stock(
             contract_update["generatedScheduleKeys"] = list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key]))
         await contract_repo.update({"_id": oid}, contract_update)
 
-    # Notify the business for both positive confirmations and shortages.
+    # Notify the business with the actual resolution state; an approved partial
+    # contribution must not be described as a fresh unresolved shortage.
     try:
         shortage_kg = max(0, requested - min(available, packed))
+        farmer_name = contract.get("farmerName") or "Your farmer"
+        product_name = contract.get("cropName") or "produce"
         if status == "confirmed":
             title = "Recurring supply update: full supply confirmed"
-            message = f"{contract.get('farmerName') or 'Your farmer'} confirmed {packed:g} kg of {contract.get('cropName') or 'produce'} for {schedule_key} (required {requested:g} kg)."
+            message = f"{farmer_name} confirmed {packed:g} kg of {product_name} for {schedule_key} (required {requested:g} kg)."
+        elif status == "partial_approved":
+            title = "Recurring supply update: approved partial quantity confirmed" if ready_for_order else "Recurring supply update: approved partial supply awaiting readiness"
+            message = f"{farmer_name} reports {available:g} kg available and {packed:g} kg packed for {schedule_key}. The approved original contribution is {order_quantity:g} kg; {shortage_kg:g} kg remains outside this original farmer order."
+            if created_order_id:
+                message += f" Original order {created_order_id} is ready for farm pickup."
+        elif status == "replacement_assigned":
+            title = "Recurring supply update: original contribution confirmed" if ready_for_order else "Recurring supply update: original contribution awaiting readiness"
+            message = f"{farmer_name} reports {available:g} kg available and {packed:g} kg packed for {schedule_key}. The original farmer contribution is {order_quantity:g} kg; the contract tracks the remaining {shortage_kg:g} kg in a separate replacement order."
+            if created_order_id:
+                message += f" Original order {created_order_id} is ready for farm pickup."
         else:
             title = "Recurring supply update: shortage reported"
-            message = f"{contract.get('farmerName') or 'Your farmer'} reports {shortage_kg:g} kg shortage for {contract.get('cropName') or 'produce'} on {schedule_key}. Available: {available:g} kg; packed: {packed:g} kg. Please review the contract."
+            message = f"{farmer_name} reports {shortage_kg:g} kg shortage for {product_name} on {schedule_key}. Available: {available:g} kg; packed: {packed:g} kg. Please review the contract."
         await NotificationService.create_in_app_notification(
             str(contract.get("businessUserId")),
             NotificationType.PROMOTION,
             title,
             message,
-            {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": status},
+            {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": status, "warehouseOrderId": created_order_id},
             NotificationPriority.HIGH if status == "shortage" else NotificationPriority.MEDIUM,
         )
     except Exception as exc:
@@ -5559,14 +5572,19 @@ async def confirm_contract_delivery_stock(
         "success": True,
         "data": {"contractId": str(oid), "scheduledDeliveryDate": schedule_key,
                  "requestedQuantityKg": requested, "availableQuantityKg": available,
-                 "packedQuantityKg": packed, "readyForPickup": bool(data.readyForPickup and packed >= requested),
+                 "packedQuantityKg": packed, "readyForPickup": ready_for_order,
                  "status": status, "warehouseOrderId": created_order_id,
+                 "approvedQuantityKg": order_quantity if has_partial_approval else None,
                  "shortageKg": max(0, round(requested - min(available, packed), 2))},
-        "message": (f"Stock confirmed for {schedule_key}. B2B warehouse order {created_order_id} is ready for farm pickup."
-                    if status == "confirmed" and created_order_id else
-                    "Stock and packing confirmed. The warehouse order will be available after the scheduled delivery enters the planning window."
-                    if status == "confirmed" else
-                    "A stock or packing shortage was recorded. No full-quantity pickup will be scheduled until the business approves a resolution."),
+        "message": (
+            f"Stock confirmed for {schedule_key}. B2B warehouse order {created_order_id} is ready for farm pickup."
+            if ready_for_order and created_order_id and status in ("confirmed", "partial_approved", "replacement_assigned") else
+            f"The approved quantity ({order_quantity:g} kg) is recorded for {schedule_key}. Mark it ready once the approved amount is packed; the normal warehouse order has not been created yet."
+            if has_partial_approval and status in ("partial_approved", "replacement_assigned") else
+            "Stock and packing confirmed. The warehouse order will be available after the scheduled delivery enters the planning window."
+            if status == "confirmed" else
+            "A stock or packing shortage was recorded. No full-quantity pickup will be scheduled until the business approves a resolution."
+        ),
     }
 
 
