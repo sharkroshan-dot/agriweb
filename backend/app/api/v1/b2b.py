@@ -1701,6 +1701,66 @@ async def update_order_status(
         update["cancelledAt"] = event_time
         add_status_history(update, details="Order cancelled")
         await order_repo.update({"_id": order["_id"]}, update)
+
+        # If a replacement order is cancelled before preparation begins, reopen
+        # the contract shortage so the business cannot mistake the missing
+        # quantity for secured supply and can choose another pending RFQ quote.
+        if order.get("isReplacementSupply") and order.get("contractId") and order.get("scheduledDeliveryDate"):
+            contract_id = order.get("contractId")
+            try:
+                contract_oid = ObjectId(str(contract_id))
+            except Exception:
+                contract_oid = None
+            if contract_oid:
+                contract = await contract_repo.find_one({"_id": contract_oid, "deletedAt": None})
+                if contract:
+                    schedule_key = str(order.get("scheduledDeliveryDate"))[:10]
+                    confirmations = dict(contract.get("deliveryConfirmations") or {})
+                    confirmation = confirmations.get(schedule_key)
+                    if (
+                        isinstance(confirmation, dict)
+                        and str(confirmation.get("replacementOrderId") or "") == str(order["_id"])
+                        and confirmation.get("status") == "replacement_assigned"
+                    ):
+                        notes = str(confirmation.get("resolutionNotes") or "").strip()
+                        cancellation_note = f"Replacement order {order.get('orderNumber') or order['_id']} was cancelled before preparation."
+                        confirmation.update({
+                            "status": "backup_required",
+                            "resolution": "replacement_cancelled",
+                            "resolutionNotes": f"{notes} {cancellation_note}".strip(),
+                            "replacementCancelledAt": event_time,
+                            "updatedAt": event_time,
+                        })
+                        confirmations[schedule_key] = confirmation
+                        await contract_repo.update({"_id": contract_oid}, {
+                            "deliveryConfirmations": confirmations,
+                            "latestDeliveryStatus": "backup_required",
+                            "latestDeliveryDate": schedule_key,
+                            "updatedAt": event_time,
+                        })
+                offer_id = order.get("offerId")
+                if offer_id:
+                    try:
+                        await offer_repo.collection.update_one(
+                            {
+                                "_id": ObjectId(str(offer_id)),
+                                "status": OFFER_ACCEPTED,
+                                "replacementForContractId": contract_oid,
+                                "replacementScheduledDate": str(order.get("scheduledDeliveryDate"))[:10],
+                            },
+                            {
+                                "$set": {"status": OFFER_PENDING, "updatedAt": event_time},
+                                "$unset": {
+                                    "acceptedQuantityKg": "",
+                                    "acceptedAt": "",
+                                    "replacementForContractId": "",
+                                    "replacementScheduledDate": "",
+                                },
+                            },
+                        )
+                    except Exception as exc:
+                        logger.warning("Could not reopen quote after replacement order cancellation %s: %s", order.get("orderNumber"), exc)
+
         other = str(order.get("businessUserId")) if role == "farmer" else str(order.get("farmerId"))
         await NotificationService.create_in_app_notification(
             other, NotificationType.ORDER, "B2B order cancelled",
@@ -5784,7 +5844,9 @@ async def resolve_contract_delivery_shortage(
             raise HTTPException(status_code=503, detail="Database is not ready")
         existing_replacement = await db["b2b_orders"].find_one({
             "contractId": oid, "scheduledDeliveryDate": schedule_key,
-            "replacementForFarmerId": contract.get("farmerId"), "deletedAt": None,
+            "replacementForFarmerId": contract.get("farmerId"),
+            "status": {"$ne": ORDER_CANCELLED},
+            "deletedAt": None,
         })
         if existing_replacement:
             raise HTTPException(status_code=409, detail="A replacement order already exists for this scheduled delivery")
