@@ -5451,6 +5451,8 @@ async def confirm_contract_delivery_stock(
             # the next is B2B-00011-1A, then -1B, etc.
             prior_occurrences = await orders_collection.find({
                 "contractId": oid,
+                "farmerId": contract.get("farmerId"),
+                "isReplacementSupply": {"$ne": True},
                 "deletedAt": None,
                 "scheduledDeliveryDate": {"$ne": schedule_key},
             }).sort("createdAt", 1).to_list(length=500)
