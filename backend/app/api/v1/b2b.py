@@ -5688,6 +5688,25 @@ async def resolve_contract_delivery_shortage(
             "createdAt": now, "updatedAt": now, "deletedAt": None,
         })
         inserted = await db["b2b_orders"].insert_one(replacement_order)
+        # Claim this quote so it cannot also be accepted as a second purchase
+        # after its stock has been committed to the replacement order.
+        quote_claim = await offer_repo.collection.update_one(
+            {"_id": replacement_offer_id, "status": {"$in": [OFFER_PENDING, "submitted"]}, "deletedAt": None},
+            {"$set": {
+                "status": OFFER_ACCEPTED,
+                "acceptedQuantityKg": missing,
+                "acceptedAt": now,
+                "updatedAt": now,
+                "replacementForContractId": oid,
+                "replacementScheduledDate": schedule_key,
+            }},
+        )
+        if quote_claim.modified_count != 1:
+            await db["b2b_orders"].delete_one({"_id": inserted.inserted_id})
+            raise HTTPException(
+                status_code=409,
+                detail="This replacement quote was accepted or changed by another request. Refresh the live stock and quote list.",
+            )
         confirmation.update({
             "status": "replacement_assigned", "approvedQuantityKg": original_approved,
             "readyForPickup": original_approved > 0 and packed >= original_approved,
