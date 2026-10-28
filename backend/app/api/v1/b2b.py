@@ -6063,7 +6063,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             confirmed_quantity <= 0
             or available_quantity < confirmed_quantity
             or packed_quantity < confirmed_quantity
-            or confirmation.get("readyForPickup", True) is not True
+            or confirmation.get("readyForPickup", confirmation.get("status") == "confirmed") is not True
         ):
             continue
         end_at = contract.get("endDate")
