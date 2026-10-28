@@ -111,7 +111,7 @@ export default function BusinessContractsPage() {
   const loadReplacementOffers = async (contract: Contract) => {
     const scheduledDate = contract.latestDeliveryDate
       || contract.deliveryHistory?.find((delivery) => ["shortage", "backup_required", "partial_approved"].includes(String(delivery.status || "").toLowerCase()))?.scheduledDate
-      || (contract.nextDeliveryAt ? new Date(contract.nextDeliveryAt).toISOString().slice(0, 10) : "");
+      || (contract.nextDeliveryAt ? String(contract.nextDeliveryAt).slice(0, 10) : "");
     if (!scheduledDate) {
       toast.error("Scheduled delivery date is unavailable. Refresh the contract and try again.");
       return;
