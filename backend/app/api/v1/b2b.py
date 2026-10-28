@@ -5026,6 +5026,14 @@ def _contract_public(row: Dict[str, Any]) -> Dict[str, Any]:
                 item["confirmedBy"] = str(item["confirmedBy"])
             history.append(item)
     result["deliveryHistory"] = sorted(history, key=lambda item: str(item.get("scheduledDate") or ""), reverse=True)
+    pending_reschedules = [
+        str(item.get("scheduledDate") or "")
+        for item in history
+        if item.get("isRescheduledOccurrence")
+        and str(item.get("status") or "").lower() in ("awaiting_confirmation", "shortage", "partial_approved", "backup_required")
+        and item.get("scheduledDate")
+    ]
+    result["pendingRescheduledDeliveryDate"] = min(pending_reschedules) if pending_reschedules else None
     result.pop("deliveryConfirmations", None)
     return result
 
@@ -5239,23 +5247,48 @@ async def confirm_contract_delivery_stock(
         raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
     if scheduled_day < next_at.date() and schedule_key not in (contract.get("deliveryConfirmations") or {}):
         raise HTTPException(status_code=409, detail="This date is not an open scheduled delivery for the contract")
-    requested = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+    confirmations = dict(contract.get("deliveryConfirmations") or {})
+    existing_confirmation = dict(confirmations.get(schedule_key) or {})
+    requested = float(
+        existing_confirmation.get("requestedQuantityKg")
+        or contract.get("quantityPerDeliveryKg")
+        or contract.get("quantityPerMonthKg")
+        or 0
+    )
     available = float(data.availableQuantityKg)
     packed = float(data.packedQuantityKg if data.packedQuantityKg is not None else available)
-    status = "confirmed" if available >= requested and packed >= requested and data.readyForPickup else "shortage"
-    confirmations = dict(contract.get("deliveryConfirmations") or {})
-    confirmations[schedule_key] = {
+    approved_qty_raw = existing_confirmation.get("approvedQuantityKg")
+    has_partial_approval = (
+        approved_qty_raw is not None
+        and str(existing_confirmation.get("resolution") or "").lower() == "partial"
+    )
+    approved_qty = float(approved_qty_raw) if has_partial_approval else None
+
+    if has_partial_approval:
+        # A farmer's follow-up stock update must preserve the business decision.
+        # The order is created only after the approved amount is actually packed
+        # and the farmer explicitly marks the occurrence ready.
+        status = "partial_approved" if available >= approved_qty and packed >= approved_qty else "shortage"
+        order_quantity = approved_qty
+    else:
+        status = "confirmed" if available >= requested and packed >= requested and data.readyForPickup else "shortage"
+        order_quantity = requested
+
+    ready_for_order = bool(data.readyForPickup and packed >= order_quantity and available >= order_quantity)
+    record = dict(existing_confirmation)
+    record.update({
         "scheduledDate": schedule_key,
         "requestedQuantityKg": requested,
         "availableQuantityKg": available,
         "packedQuantityKg": packed,
-        "readyForPickup": bool(data.readyForPickup and packed >= requested),
+        "readyForPickup": ready_for_order,
         "status": status,
-        "notes": (data.notes or "").strip() or None,
+        "notes": (data.notes or "").strip() or existing_confirmation.get("notes"),
         "confirmedBy": ObjectId(current_user["_id"]),
         "confirmedAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
-    }
+    })
+    confirmations[schedule_key] = record
     await contract_repo.update({"_id": oid}, {
         "deliveryConfirmations": confirmations,
         "latestDeliveryStatus": status,
@@ -5272,7 +5305,7 @@ async def confirm_contract_delivery_stock(
     # creation just because nextDeliveryAt was advanced or stored with a different
     # date than the submitted occurrence; the scheduled-date validation above is
     # the guard against invalid dates.
-    if status == "confirmed":
+    if status in ("confirmed", "partial_approved") and ready_for_order:
         db = MongoDB.db
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
@@ -5292,7 +5325,7 @@ async def confirm_contract_delivery_stock(
                     status_code=409,
                     detail=f"Contract {contract.get('contractNumber') or oid} is missing its original RFQ or accepted farmer quote; warehouse order could not be created.",
                 )
-            order = await _build_order(rfq, offer, requested, None)
+            order = await _build_order(rfq, offer, order_quantity, None)
             # Keep recurring occurrences grouped under the first B2B order number.
             # First occurrence keeps its normal number (for example B2B-00011);
             # the next is B2B-00011-1A, then -1B, etc.
@@ -5343,12 +5376,12 @@ async def confirm_contract_delivery_stock(
                 "deliveryDistrict": contract.get("deliveryDistrict") or order.get("deliveryDistrict"),
                 "deliveryLocation": contract.get("deliveryLocation") or order.get("deliveryLocation"),
                 "deliveryTimeSlot": contract.get("deliveryTimeSlot") or order.get("deliveryTimeSlot"),
-                "quantityKg": requested,
+                "quantityKg": order_quantity,
                 "packedQuantityKg": packed,
                 "availableQuantityKg": available,
                 "pricePerKg": float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0),
-                "productSubtotal": round(requested * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
-                "totalAmount": round(requested * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
+                "productSubtotal": round(order_quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
+                "totalAmount": round(order_quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
                 "status": ORDER_READY_FOR_PICKUP,
                 "paymentStatus": PAYMENT_PENDING,
                 "deliveryMethod": "dedicated_transport",
@@ -5364,7 +5397,7 @@ async def confirm_contract_delivery_stock(
         # Keep the schedule key as an idempotency guard for the legacy generator.
         frequency = contract.get("frequency") or "monthly"
         interval = int(contract.get("recurrenceInterval") or 1)
-        if schedule_key not in (contract.get("generatedScheduleKeys") or []):
+        if not record.get("isRescheduledOccurrence") and schedule_key not in (contract.get("generatedScheduleKeys") or []):
             if frequency == "daily":
                 next_at = next_at + timedelta(days=interval)
             elif frequency == "weekly":
@@ -5574,8 +5607,9 @@ async def resolve_contract_delivery_shortage(
     if action == "partial":
         quantity = float(data.approvedQuantityKg or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
-        if quantity <= 0 or quantity > available:
-            raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the farmer's confirmed stock")
+        requested_quantity = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
+        if quantity <= 0 or quantity > available or quantity > requested_quantity:
+            raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the reported available stock or contracted quantity")
         confirmation.update({"status": "partial_approved", "approvedQuantityKg": quantity,
                              "readyForPickup": float(confirmation.get("packedQuantityKg") or 0) >= quantity,
                              "resolution": "partial", "resolutionNotes": data.notes, "resolvedAt": now})
@@ -5601,24 +5635,69 @@ async def resolve_contract_delivery_shortage(
         new_date = new_date.replace(tzinfo=None)
         if new_date.date() <= datetime.utcnow().date():
             raise HTTPException(status_code=400, detail="Choose a future delivery date")
+        new_schedule_key = new_date.strftime("%Y-%m-%d")
+        if new_schedule_key == schedule_key:
+            raise HTTPException(status_code=400, detail="Choose a different date for the rescheduled delivery")
+        existing_target = confirmations.get(new_schedule_key)
+        if existing_target:
+            raise HTTPException(status_code=409, detail=f"A delivery occurrence is already recorded for {new_schedule_key}. Choose another date.")
+
+        requested_quantity = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
         confirmation.update({"status": "rescheduled", "resolution": "reschedule",
                              "resolutionNotes": data.notes, "resolvedAt": now, "rescheduledTo": new_date})
         confirmations[schedule_key] = confirmation
-        # Rescheduling one occurrence must not shift every future occurrence of the recurring contract.
-        await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
-            "latestDeliveryStatus": "rescheduled", "latestDeliveryDate": schedule_key, "updatedAt": now})
+        # Preserve the recurring series: mark this occurrence rescheduled and advance
+        # its regular cursor once. The rescheduled occurrence is stored separately.
+        resume_next_at = next_at
+        if next_at.strftime("%Y-%m-%d") == schedule_key:
+            frequency = str(contract.get("frequency") or "monthly").lower()
+            interval = max(1, int(contract.get("recurrenceInterval") or 1))
+            if frequency == "daily":
+                resume_next_at = next_at + timedelta(days=interval)
+            elif frequency == "weekly":
+                resume_next_at = next_at + timedelta(weeks=interval)
+            else:
+                import calendar
+                month = next_at.month - 1 + interval
+                year = next_at.year + month // 12
+                month = month % 12 + 1
+                resume_next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
+        if resume_next_at.date() == new_date.date():
+            raise HTTPException(status_code=409, detail="The selected date conflicts with the next regular delivery. Choose another date.")
+
+        confirmations[new_schedule_key] = {
+            "scheduledDate": new_schedule_key,
+            "requestedQuantityKg": requested_quantity,
+            "availableQuantityKg": 0.0,
+            "packedQuantityKg": 0.0,
+            "readyForPickup": False,
+            "status": "awaiting_confirmation",
+            "notes": None,
+            "isRescheduledOccurrence": True,
+            "rescheduledFromDate": schedule_key,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        await contract_repo.update({"_id": oid}, {
+            "deliveryConfirmations": confirmations,
+            "nextDeliveryAt": resume_next_at,
+            "latestDeliveryStatus": "rescheduled",
+            "latestDeliveryDate": schedule_key,
+            "updatedAt": now,
+        })
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("farmerId")), NotificationType.PROMOTION,
                 "Recurring supply delivery rescheduled",
-                f"The business rescheduled the delivery originally planned for {schedule_key} to {new_date:%Y-%m-%d}.",
-                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "rescheduled"},
+                f"The business rescheduled the delivery originally planned for {schedule_key} to {new_schedule_key}. Confirm stock and packing for the new date in your supply contracts.",
+                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": new_schedule_key, "originalScheduledDate": schedule_key, "status": "awaiting_confirmation"},
                 NotificationPriority.HIGH,
             )
         except Exception as exc:
             logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
-        return {"success": True, "data": {"status": "rescheduled", "nextDeliveryAt": new_date.isoformat()},
-                "message": "Delivery rescheduled with business approval; the contract remains active."}
+        return {"success": True, "data": {"status": "rescheduled", "rescheduledDeliveryDate": new_schedule_key,
+            "nextDeliveryAt": resume_next_at.isoformat()},
+            "message": f"Delivery moved to {new_schedule_key}. The farmer must confirm stock and packing for that occurrence."}
     if action == "assign_replacement":
         if not data.replacementOfferId:
             raise HTTPException(status_code=400, detail="Choose an eligible replacement farmer quote")
@@ -5680,7 +5759,8 @@ async def resolve_contract_delivery_shortage(
             "replacementForShortageKg": missing, "isReplacementSupply": True,
             "farmerId": replacement_offer.get("farmerId"), "businessUserId": contract.get("businessUserId"),
             "productName": contract.get("cropName") or replacement_order.get("productName"),
-            "quantityKg": missing, "status": ORDER_READY_FOR_PICKUP,
+            "quantityKg": missing, "status": ORDER_CONFIRMED,
+            "packedQuantityKg": 0, "qualityCheck": "pending",
             "farmerPrepareBy": datetime.strptime(schedule_key, "%Y-%m-%d") - timedelta(days=1) + timedelta(hours=16),
             "pickupDate": (datetime.strptime(schedule_key, "%Y-%m-%d").date() - timedelta(days=1)).isoformat(),
             "pickupWindowStart": "18:00", "pickupWindowEnd": "23:59",
