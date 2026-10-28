@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileSignature,
@@ -51,7 +51,39 @@ interface Contract {
     resolutionNotes?: string;
     resolvedAt?: string;
     confirmedAt?: string;
+    approvedQuantityKg?: number;
+    isRescheduledOccurrence?: boolean;
+    rescheduledFromDate?: string;
+    rescheduledTo?: string;
+    replacementOrderId?: string;
+    replacementQuantityKg?: number;
   }>;
+}
+
+interface ReplacementOffer {
+  id: string;
+  farmerId: string;
+  farmerName: string;
+  productName?: string;
+  quotedQuantityKg: number;
+  availableQuantityKg: number;
+  liveAvailableQuantityKg?: number;
+  assignableQuantityKg: number;
+  shortageQuantityKg: number;
+  eligible: boolean;
+  ineligibleReason?: string | null;
+  pricePerKg: number;
+  status: string;
+  stockCheckedAt?: string;
+}
+
+interface ReplacementMeta {
+  scheduledDate: string;
+  requestedQuantityKg: number;
+  shortageKg: number;
+  benchmarkPricePerKg: number;
+  benchmarkQuantityKg: number;
+  stockCheckedAt?: string;
 }
 
 export default function BusinessContractsPage() {
@@ -66,6 +98,76 @@ export default function BusinessContractsPage() {
     const list = contractsData?.data?.contracts || contractsData?.data || [];
     return Array.isArray(list) ? list : [];
   }, [contractsData]);
+
+  const [replacementPanelContractId, setReplacementPanelContractId] = useState<string | null>(null);
+  const [replacementOffers, setReplacementOffers] = useState<ReplacementOffer[]>([]);
+  const [replacementMeta, setReplacementMeta] = useState<ReplacementMeta | null>(null);
+  const [replacementLoading, setReplacementLoading] = useState(false);
+  const [replacementRankingMode, setReplacementRankingMode] = useState<"rate" | "quantity" | "combined">("combined");
+
+  const loadReplacementOffers = async (contract: Contract) => {
+    const scheduledDate = contract.latestDeliveryDate
+      || contract.deliveryHistory?.find((delivery) => ["shortage", "backup_required", "partial_approved"].includes(String(delivery.status || "").toLowerCase()))?.scheduledDate
+      || (contract.nextDeliveryAt ? new Date(contract.nextDeliveryAt).toISOString().slice(0, 10) : "");
+    if (!scheduledDate) {
+      toast.error("Scheduled delivery date is unavailable. Refresh the contract and try again.");
+      return;
+    }
+    setReplacementPanelContractId(contract.id);
+    setReplacementLoading(true);
+    setReplacementOffers([]);
+    setReplacementMeta(null);
+    try {
+      const response = await api.get(`/b2b/contracts/${contract.id}/replacement-offers?scheduledDate=${encodeURIComponent(scheduledDate)}`);
+      const result = response?.data || {};
+      setReplacementOffers(Array.isArray(result.offers) ? result.offers : []);
+      setReplacementMeta({
+        scheduledDate: String(result.scheduledDate || scheduledDate),
+        requestedQuantityKg: Number(result.requestedQuantityKg || 0),
+        shortageKg: Number(result.shortageKg || 0),
+        benchmarkPricePerKg: Number(result.benchmarkPricePerKg || 0),
+        benchmarkQuantityKg: Number(result.benchmarkQuantityKg || 0),
+        stockCheckedAt: result.stockCheckedAt,
+      });
+    } catch (error: any) {
+      setReplacementPanelContractId(null);
+      toast.error(error?.message || "Could not load replacement quotes. Refresh and try again.");
+    } finally {
+      setReplacementLoading(false);
+    }
+  };
+
+  const compareLabel = (value: number, benchmark: number, label: string) => {
+    if (value < benchmark) return `${label} is below the original accepted quote`;
+    if (value > benchmark) return `${label} is above the original accepted quote`;
+    return `${label} matches the original accepted quote`;
+  };
+
+  const rateTier = (offer: ReplacementOffer) => {
+    const benchmark = Number(replacementMeta?.benchmarkPricePerKg || 0);
+    return offer.pricePerKg < benchmark ? 0 : offer.pricePerKg === benchmark ? 1 : 2;
+  };
+
+  const rankedReplacementOffers = useMemo(() => {
+    return [...replacementOffers].sort((a, b) => {
+      if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
+      if (replacementRankingMode === "quantity") {
+        return b.availableQuantityKg - a.availableQuantityKg
+          || a.pricePerKg - b.pricePerKg
+          || a.farmerName.localeCompare(b.farmerName);
+      }
+      if (replacementRankingMode === "rate") {
+        return rateTier(a) - rateTier(b)
+          || a.pricePerKg - b.pricePerKg
+          || b.assignableQuantityKg - a.assignableQuantityKg
+          || a.farmerName.localeCompare(b.farmerName);
+      }
+      return rateTier(a) - rateTier(b)
+        || b.assignableQuantityKg - a.assignableQuantityKg
+        || a.pricePerKg - b.pricePerKg
+        || a.farmerName.localeCompare(b.farmerName);
+    });
+  }, [replacementOffers, replacementRankingMode, replacementMeta?.benchmarkPricePerKg]);
 
   const generateDueMutation = useMutation({
     mutationFn: () => api.post("/b2b/contracts/generate-due-orders", {}),
@@ -214,7 +316,7 @@ export default function BusinessContractsPage() {
                     </div>
                   </div>
                 )}
-                {c.latestDeliveryStatus === "shortage" && (
+                {["shortage", "backup_required", "partial_approved"].includes(String(c.latestDeliveryStatus || "").toLowerCase()) && (
                   <div className="mt-3 w-full rounded-lg border border-amber-300 bg-amber-50 p-3">
                     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
                       <AlertTriangle className="h-4 w-4" /> Delivery shortage — choose how to proceed
@@ -231,7 +333,7 @@ export default function BusinessContractsPage() {
                       <Button size="sm" variant="outline" disabled={resolveShortageMutation.isPending} onClick={() => {
                         const raw = window.prompt("Enter the new delivery date (YYYY-MM-DD):");
                         if (!raw) return;
-                        if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) { toast.error("Use date format YYYY-MM-DD."); return; }
+                        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) { toast.error("Use date format YYYY-MM-DD."); return; }
                         resolveShortageMutation.mutate({ id: c.id, payload: { action: "reschedule", scheduledDate: c.latestDeliveryDate || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined), newDeliveryDate: raw + "T09:00:00", notes: "Business approved rescheduling" } });
                       }}>Reschedule delivery</Button>
                       <Button
