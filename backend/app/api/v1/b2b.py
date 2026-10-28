@@ -2262,15 +2262,6 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
     # after destination receipt or business-confirmed delivery.
     orders = [order for order in orders if not _b2b_warehouse_workflow_is_complete(order)]
 
-    # Counts are computed from persisted database queries, not the capped list
-    # returned for rendering. Derived workflow stages use server-side predicates.
-    base = {"deletedAt": None}
-    async def count_status(status: str, extra: Optional[Dict[str, Any]] = None) -> int:
-        criteria: Dict[str, Any] = {**base, "status": status}
-        if extra:
-            criteria.update(extra)
-        return await order_repo.count(criteria)
-
     # Final stage ownership filter: pickup is strictly farm-district based;
     # all later processing belongs to the assigned source until transfer arrival,
     # then the destination warehouse owns receipt and final delivery.
@@ -2317,27 +2308,57 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             scoped_orders.append(item)
         orders = scoped_orders
 
+    # Dashboard counters must use the exact same warehouse-scoped actionable
+    # queue returned to the UI. Global database counts make every warehouse see
+    # other warehouses' stages (for example "2 ready for pickup" with no cards).
+    def has_value(value: Any) -> bool:
+        return value is not None and str(value).strip() != ""
+
     summary = {
-        # Use the same warehouse-scoped orders as the actionable list so the
-        # dashboard cannot advertise pickups that this warehouse cannot process.
         "readyForFarmPickup": sum(
             1 for order in orders
             if order.get("status") == ORDER_READY_FOR_PICKUP
-            and not str(order.get("pickupTeam") or "").strip()
+            and not has_value(order.get("pickupTeam"))
         ),
         "pickupAssigned": sum(
             1 for order in orders
             if order.get("status") == ORDER_READY_FOR_PICKUP
-            and str(order.get("pickupTeam") or "").strip()
+            and has_value(order.get("pickupTeam"))
         ),
-        "collectedFromFarm": await count_status(ORDER_PICKED_UP),
-        "warehouseReceived": await count_status(ORDER_WAREHOUSE_RECEIVED),
-        "routingRequired": await order_repo.count({**base, "status": ORDER_WAREHOUSE_RECEIVED, "$or": [{"fulfillmentRoute": {"$exists": False}}, {"fulfillmentRoute": None}, {"fulfillmentRoute": ""}]}),
-        "awaitingConsolidation": await order_repo.count({**base, "fulfillmentRoute": "nearby_multi_farmer", "status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED]}, "consolidationCompletedAt": {"$in": [None, ""]}}),
-        "warehouseTransferInTransit": await count_status(ORDER_TRANSFER_IN_TRANSIT),
-        "readyForDirectDelivery": await order_repo.count({**base, "$or": [{"status": ORDER_WAREHOUSE_RECEIVED, "warehouseQualityCheck": "passed", "fulfillmentRoute": "nearby_single_farmer"}, {"status": ORDER_WAREHOUSE_RECEIVED, "warehouseQualityCheck": "passed", "fulfillmentRoute": "nearby_multi_farmer", "consolidationCompletedAt": {"$nin": [None, ""]}}, {"status": ORDER_DESTINATION_RECEIVED, "destinationQualityCheck": "passed", "fulfillmentRoute": "long_distance"}]}),
-        "directDeliveryInTransit": await count_status(ORDER_IN_TRANSIT),
-        "deliveredToBusiness": await order_repo.count({**base, "status": {"$in": [ORDER_DELIVERED, ORDER_COMPLETED]}}),
+        "collectedFromFarm": sum(1 for order in orders if order.get("status") == ORDER_PICKED_UP),
+        "warehouseReceived": sum(1 for order in orders if order.get("status") == ORDER_WAREHOUSE_RECEIVED),
+        "routingRequired": sum(
+            1 for order in orders
+            if order.get("status") == ORDER_WAREHOUSE_RECEIVED
+            and not has_value(order.get("fulfillmentRoute"))
+        ),
+        "awaitingConsolidation": sum(
+            1 for order in orders
+            if order.get("fulfillmentRoute") == "nearby_multi_farmer"
+            and order.get("status") in (ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED)
+            and not has_value(order.get("consolidationCompletedAt"))
+        ),
+        "warehouseTransferInTransit": sum(1 for order in orders if order.get("status") == ORDER_TRANSFER_IN_TRANSIT),
+        "readyForDirectDelivery": sum(
+            1 for order in orders
+            if (
+                order.get("status") == ORDER_WAREHOUSE_RECEIVED
+                and order.get("warehouseQualityCheck") == "passed"
+                and (
+                    order.get("fulfillmentRoute") == "nearby_single_farmer"
+                    or (
+                        order.get("fulfillmentRoute") == "nearby_multi_farmer"
+                        and has_value(order.get("consolidationCompletedAt"))
+                    )
+                )
+            ) or (
+                order.get("status") == ORDER_DESTINATION_RECEIVED
+                and order.get("destinationQualityCheck") == "passed"
+                and order.get("fulfillmentRoute") == "long_distance"
+            )
+        ),
+        "directDeliveryInTransit": sum(1 for order in orders if order.get("status") == ORDER_IN_TRANSIT),
+        "deliveredToBusiness": sum(1 for order in orders if order.get("status") in (ORDER_DELIVERED, ORDER_COMPLETED)),
     }
     return {"success": True, "data": {"orders": orders, "count": len(orders), "summary": summary}}
 
@@ -3169,10 +3190,21 @@ async def update_b2b_warehouse_fulfillment(
         if role in ("warehouse", "warehouse_manager", "warehouse_staff") and acting_warehouse_id:
             warehouse_district = _district_from_doc(pickup_warehouse)
             farm_district = await _b2b_farm_district(order)
-            if not warehouse_district or not farm_district or _district_key(warehouse_district) != _district_key(farm_district):
+            explicit_source_matches = str(
+                order.get("pickupWarehouseId") or order.get("assignedWarehouseId")
+                or order.get("sourceWarehouseId") or order.get("warehouseId") or ""
+            ) == pickup_warehouse_id
+            district_matches = bool(
+                warehouse_district and farm_district
+                and _district_key(warehouse_district) == _district_key(farm_district)
+            )
+            # Legacy orders may have missing/inconsistent farmer district fields.
+            # An explicit source assignment is sufficient ownership evidence;
+            # otherwise the farm and warehouse districts must match.
+            if not district_matches and not explicit_source_matches:
                 raise HTTPException(
                     status_code=403,
-                    detail=f"Farm pickup can only be assigned by a warehouse in the farm's district. Farm district: {farm_district or 'unknown'}; selected warehouse district: {warehouse_district or 'unknown'}.",
+                    detail=f"Farm pickup can only be assigned by the farm's district warehouse or its explicitly assigned source warehouse. Farm district: {farm_district or 'unknown'}; selected warehouse district: {warehouse_district or 'unknown'}.",
                 )
         membership = await warehouse_pickup_team_repository.get_membership(pickup_warehouse_id, pickup_partner_id)
         if not membership:
