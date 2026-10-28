@@ -426,6 +426,48 @@ async def _farmer_can_supply(farmer_user_id: str, product_name: str) -> Dict[str
 
 
 
+async def _live_offer_available_quantity(offer: Dict[str, Any], product_name: str) -> float:
+    """Return the live available stock behind a quote, not its stale quoted quantity.
+
+    Normal offers carry supplyAllocations with product IDs. Read inventory for
+    each allocated product so reserved/sold stock is respected. Legacy offers
+    without allocations fall back to the farmer's current product inventory.
+    """
+    allocations = offer.get("supplyAllocations")
+    if isinstance(allocations, list) and allocations:
+        total = 0.0
+        seen = set()
+        for allocation in allocations:
+            if not isinstance(allocation, dict):
+                continue
+            farmer_id = str(allocation.get("farmerId") or offer.get("farmerId") or "").strip()
+            product_id = str(allocation.get("productId") or "").strip()
+            key = (farmer_id, product_id)
+            if not product_id or key in seen or not ObjectId.is_valid(product_id):
+                continue
+            seen.add(key)
+            product = await product_repository.find_one({
+                "_id": ObjectId(product_id),
+                "deletedAt": None,
+                "isActive": {"$ne": False},
+            })
+            if not product:
+                continue
+            # Never count another farmer's product merely because a legacy
+            # allocation contains its product ID.
+            if farmer_id and str(product.get("farmerId") or "") != farmer_id:
+                continue
+            current_stock = await InventoryService.get_available_stock(product_id)
+            total += max(0.0, float(current_stock or 0))
+        return round(total, 2)
+
+    farmer_id = str(offer.get("farmerId") or "").strip()
+    if not farmer_id:
+        return 0.0
+    supply = await _farmer_can_supply(farmer_id, product_name)
+    return round(max(0.0, float(supply.get("availableKg") or 0)), 2)
+
+
 async def _cooperative_context(user_id: str) -> Optional[Dict[str, Any]]:
     coop_repo = BaseRepository("cooperatives")
     member_repo = BaseRepository("cooperative_members")
@@ -5374,8 +5416,12 @@ async def confirm_contract_delivery_stock(
 
 
 @router.get("/contracts/{contract_id}/replacement-offers")
-async def list_contract_replacement_offers(contract_id: str, current_user: dict = Depends(get_current_user)):
-    """Return quotes from other farmers on the same RFQ that could cover a recurring shortage."""
+async def list_contract_replacement_offers(
+    contract_id: str,
+    scheduledDate: Optional[str] = Query(None),
+    current_user: dict = Depends(get_current_user),
+):
+    """List same-RFQ replacement quotes with live stock and shortage eligibility."""
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only the business buyer can source replacement farmers")
     try:
@@ -5385,24 +5431,96 @@ async def list_contract_replacement_offers(contract_id: str, current_user: dict 
     contract = await contract_repo.find_one({"_id": oid, "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None})
     if not contract:
         raise HTTPException(status_code=404, detail="Supply contract not found")
+
+    next_at = contract.get("nextDeliveryAt")
+    if isinstance(next_at, str):
+        try:
+            next_at = datetime.fromisoformat(next_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            next_at = None
+    schedule_key = (scheduledDate or contract.get("latestDeliveryDate") or (
+        next_at.strftime("%Y-%m-%d") if isinstance(next_at, datetime) else ""
+    )).strip()
+    if not schedule_key:
+        raise HTTPException(status_code=409, detail="No scheduled delivery date is available for this shortage")
+    try:
+        datetime.strptime(schedule_key, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
+
+    confirmations = contract.get("deliveryConfirmations") or {}
+    confirmation = confirmations.get(schedule_key) if isinstance(confirmations, dict) else None
+    if not confirmation or confirmation.get("status") not in ("shortage", "backup_required", "partial_approved"):
+        raise HTTPException(status_code=409, detail=f"No unresolved stock shortage exists for scheduled delivery {schedule_key}")
+
+    requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+    available_original = float(confirmation.get("availableQuantityKg") or 0)
+    packed_original = float(confirmation.get("packedQuantityKg") or 0)
+    approved_original = (
+        float(confirmation.get("approvedQuantityKg"))
+        if confirmation.get("approvedQuantityKg") is not None
+        else min(available_original, packed_original)
+    )
+    shortage_kg = round(max(0.0, requested - approved_original), 2)
+    if shortage_kg <= 0:
+        raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
+
+    accepted_offer = None
+    accepted_offer_id = contract.get("offerId")
+    if accepted_offer_id:
+        accepted_offer = await offer_repo.find_one({"_id": accepted_offer_id, "deletedAt": None})
+    benchmark_rate = float((accepted_offer or {}).get("pricePerKg") or contract.get("pricePerKg") or 0)
+    benchmark_quantity = float(
+        (accepted_offer or {}).get("availableQuantityKg")
+        or (accepted_offer or {}).get("minOrderKg")
+        or requested
+    )
     if not contract.get("rfqId"):
-        return {"success": True, "data": {"offers": []}}
-    offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=200) or []
+        return {"success": True, "data": {
+            "offers": [], "scheduledDate": schedule_key, "requestedQuantityKg": requested,
+            "shortageKg": shortage_kg, "benchmarkPricePerKg": benchmark_rate,
+            "benchmarkQuantityKg": benchmark_quantity,
+        }}
+
+    offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=500) or []
     result = []
     for offer in offers:
         farmer_id = str(offer.get("farmerId") or "")
+        offer_status = str(offer.get("status") or "submitted").strip().lower()
         if not farmer_id or farmer_id == str(contract.get("farmerId")):
             continue
-        qty = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
+        if offer_status not in (OFFER_PENDING, "submitted"):
+            continue
+        live_available = await _live_offer_available_quantity(offer, str(contract.get("cropName") or offer.get("productName") or ""))
+        quoted_quantity = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
+        enough_stock = live_available + 1e-6 >= shortage_kg
         result.append({
             "id": str(offer.get("_id")),
             "farmerId": farmer_id,
             "farmerName": offer.get("farmerName") or offer.get("farmName") or "Replacement farmer",
-            "availableQuantityKg": qty,
+            "productName": offer.get("productName") or contract.get("cropName"),
+            "quotedQuantityKg": quoted_quantity,
+            "availableQuantityKg": live_available,
+            "liveAvailableQuantityKg": live_available,
+            "shortageQuantityKg": shortage_kg,
+            "eligible": enough_stock,
+            "ineligibleReason": None if enough_stock else f"Current stock is {live_available:g} kg; {shortage_kg:g} kg is required.",
             "pricePerKg": float(offer.get("pricePerKg") or 0),
-            "status": offer.get("status") or "submitted",
+            "status": offer_status,
+            "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
         })
-    return {"success": True, "data": {"offers": result}}
+    # Eligible suppliers appear first irrespective of sort mode; the UI ranks
+    # eligible candidates against the accepted quote's price and quantity.
+    result.sort(key=lambda row: (not row["eligible"], row["pricePerKg"], -row["availableQuantityKg"], row["farmerName"].casefold()))
+    return {"success": True, "data": {
+        "offers": result,
+        "scheduledDate": schedule_key,
+        "requestedQuantityKg": requested,
+        "shortageKg": shortage_kg,
+        "benchmarkPricePerKg": benchmark_rate,
+        "benchmarkQuantityKg": benchmark_quantity,
+        "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
+    }}
 
 
 @router.post("/contracts/{contract_id}/delivery-resolution")
@@ -5504,6 +5622,8 @@ async def resolve_contract_delivery_shortage(
         replacement_farmer_id = str(replacement_offer.get("farmerId") or "")
         if not replacement_farmer_id or replacement_farmer_id == str(contract.get("farmerId")):
             raise HTTPException(status_code=400, detail="Replacement must be a different registered farmer")
+        if str(replacement_offer.get("status") or "submitted").strip().lower() not in (OFFER_PENDING, "submitted"):
+            raise HTTPException(status_code=409, detail="This replacement quote is no longer pending. Refresh the quote list.")
         requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
         packed = float(confirmation.get("packedQuantityKg") or 0)
@@ -5511,9 +5631,17 @@ async def resolve_contract_delivery_shortage(
         missing = max(0.0, requested - original_approved)
         if missing <= 0:
             raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
-        replacement_available = float(replacement_offer.get("availableQuantityKg") or replacement_offer.get("minOrderKg") or 0)
-        if replacement_available < missing:
-            raise HTTPException(status_code=409, detail=f"Replacement farmer has only {replacement_available:g} kg available; {missing:g} kg is required")
+        # Recheck stock at assignment time. Quote quantities are snapshots and
+        # may have changed since the business opened the replacement list.
+        replacement_available = await _live_offer_available_quantity(
+            replacement_offer,
+            str(contract.get("cropName") or replacement_offer.get("productName") or ""),
+        )
+        if replacement_available + 1e-6 < missing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Live stock changed: {replacement_offer.get('farmerName') or 'Replacement farmer'} now has {replacement_available:g} kg available; {missing:g} kg is required. Refresh the list and choose another eligible quote.",
+            )
         rfq = await rfq_repo.find_one({"_id": rfq_id, "deletedAt": None})
         if not rfq:
             raise HTTPException(status_code=409, detail="Original recurring RFQ is unavailable")
