@@ -5045,7 +5045,40 @@ async def list_business_supply_contracts(current_user: dict = Depends(get_curren
     rows = await contract_repo.find_many({
         "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None
     }, sort=[("createdAt", -1)], limit=500) or []
-    return {"success": True, "data": {"contracts": [_contract_public(row) for row in rows]}}
+    public_rows = [_contract_public(row) for row in rows]
+
+    # Hydrate replacement references so the business can see the real order
+    # number and current fulfillment status without conflating it with the
+    # original farmer's order or the contract's shortage-resolution status.
+    db = MongoDB.db
+    replacement_order_ids = set()
+    for row in rows:
+        confirmations = row.get("deliveryConfirmations") or {}
+        if not isinstance(confirmations, dict):
+            continue
+        for confirmation in confirmations.values():
+            if not isinstance(confirmation, dict):
+                continue
+            order_id = str(confirmation.get("replacementOrderId") or "")
+            if ObjectId.is_valid(order_id):
+                replacement_order_ids.add(order_id)
+    order_lookup = {}
+    if db is not None and replacement_order_ids:
+        cursor = db["b2b_orders"].find({
+            "_id": {"$in": [ObjectId(value) for value in replacement_order_ids]},
+            "deletedAt": None,
+        })
+        for order in await cursor.to_list(length=500):
+            order_lookup[str(order.get("_id"))] = order
+    for public_contract in public_rows:
+        for delivery in public_contract.get("deliveryHistory") or []:
+            order_id = str(delivery.get("replacementOrderId") or "")
+            replacement_order = order_lookup.get(order_id)
+            if replacement_order:
+                delivery["replacementOrderNumber"] = replacement_order.get("orderNumber")
+                delivery["replacementOrderStatus"] = replacement_order.get("status")
+                delivery["replacementQuantityKg"] = replacement_order.get("quantityKg", delivery.get("replacementQuantityKg"))
+    return {"success": True, "data": {"contracts": public_rows}}
 
 
 @router.get("/contracts/me")
@@ -5257,6 +5290,8 @@ async def confirm_contract_delivery_stock(
     )
     available = float(data.availableQuantityKg)
     packed = float(data.packedQuantityKg if data.packedQuantityKg is not None else available)
+    if packed > available:
+        raise HTTPException(status_code=400, detail="Packed quantity cannot exceed the reported available quantity")
     approved_qty_raw = existing_confirmation.get("approvedQuantityKg")
     has_partial_approval = (
         approved_qty_raw is not None
