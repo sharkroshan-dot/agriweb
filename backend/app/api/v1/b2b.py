@@ -2215,7 +2215,12 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # If the order already has an explicit pickup/source warehouse,
                 # that assignment is actionable for that warehouse even when
                 # legacy district metadata is incomplete or inconsistent.
-                if district_matches or assigned_pickup_warehouse_id == current_warehouse_id:
+                # Legacy farmer records sometimes have no district and
+                # the order has not yet been claimed by any pickup warehouse.
+                # Keep those unowned pickups visible so a warehouse can claim
+                # them; once claimed, the explicit warehouse ID scopes them.
+                unowned_legacy_pickup = not farm_district and not assigned_pickup_warehouse_id
+                if district_matches or assigned_pickup_warehouse_id == current_warehouse_id or unowned_legacy_pickup:
                     scoped_orders.append(order)
             elif current_warehouse_id == source_id:
                 scoped_orders.append(order)
@@ -2263,7 +2268,12 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             # Older farmer profiles may not have a usable district. In that
             # case only, honor the order's explicit source warehouse assignment.
             explicitly_assigned_here = assigned_source_id == current_warehouse_id
-            if not district_matches and not explicitly_assigned_here:
+            # If both farmer district and warehouse assignment are missing,
+            # this is an unowned legacy pickup. Keep it claimable instead of
+            # silently hiding it from every warehouse. Assignment will establish
+            # ownership for all subsequent stages.
+            unowned_legacy_pickup = not farm_district and not assigned_source_id
+            if not district_matches and not explicitly_assigned_here and not unowned_legacy_pickup:
                 continue
             # Initial pickup ownership is determined by farm district.
             # Do not let a stale prefilled warehouse ID hide a valid pickup.
@@ -2315,9 +2325,12 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                     and _district_key(warehouse_district) == _district_key(farm_district)
                 )
                 explicitly_assigned_here = source_id == current_warehouse_id
-                if district_matches or explicitly_assigned_here:
-                    # District is authoritative unless the order explicitly
-                    # assigns this warehouse as its pickup/source owner.
+                # Missing farm district + missing warehouse assignment
+                # means no warehouse can otherwise discover this legacy pickup.
+                # Expose it as claimable; assigning a pickup team establishes the
+                # warehouse owner and prevents it from appearing in other queues.
+                unowned_legacy_pickup = not farm_district and not source_id
+                if district_matches or explicitly_assigned_here or unowned_legacy_pickup:
                     scoped_orders.append(item)
                 continue
             if source_id and source_id != current_warehouse_id:
