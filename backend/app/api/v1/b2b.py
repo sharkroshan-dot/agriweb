@@ -6088,12 +6088,20 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
     # Include active contracts with stored delivery confirmations so separately
     # rescheduled occurrences can be processed even when the regular nextDeliveryAt
     # is later than the planning horizon. The regular schedule is still guarded below.
+    rescheduled_date_queries = []
+    candidate_day = now.date()
+    while candidate_day <= planning_horizon.date():
+        date_key = candidate_day.strftime("%Y-%m-%d")
+        rescheduled_date_queries.append({
+            f"deliveryConfirmations.{date_key}.isRescheduledOccurrence": True,
+        })
+        candidate_day += timedelta(days=1)
     query = {
         "status": "active",
         "deletedAt": None,
         "$or": [
             {"nextDeliveryAt": {"$lte": planning_horizon}},
-            {"deliveryConfirmations": {"$exists": True}},
+            *rescheduled_date_queries,
         ],
     }
     if current_user.get("role") == "business":
