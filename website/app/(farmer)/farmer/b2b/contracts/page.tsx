@@ -98,7 +98,7 @@ export default function FarmerB2bContractsPage() {
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
   const targetScheduleDate = (c: Contract) => c.pendingRescheduledDeliveryDate
-    || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : "");
+    || (c.nextDeliveryAt ? String(c.nextDeliveryAt).slice(0, 10) : "");
   const confirmationForTargetDate = (c: Contract) =>
     c.deliveryHistory?.find((delivery) => delivery.scheduledDate === targetScheduleDate(c));
   const requiredQuantity = (c: Contract) => {
