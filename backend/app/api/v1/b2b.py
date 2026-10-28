@@ -2028,8 +2028,11 @@ async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(
 async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
     """Warehouse-facing queue for B2B orders ready for pickup through final delivery."""
     role = str(current_user.get("role") or "").lower()
-    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
-        raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
+    # This is the warehouse control-center queue. Delivery partners must use
+    # their assigned pickup/transfer/final-delivery queues, not a global list
+    # of every business order.
+    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Warehouse staff access required")
     statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
     orders = await order_repo.find_many({
         "$and": [
@@ -3291,10 +3294,20 @@ async def update_b2b_warehouse_fulfillment(
             })
             await warehouse_pickup_route_repository.create_route(route_payload)
     elif action == "confirm_pickup":
-        if role not in ("pickup_team", "pickup", "warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Only the assigned pickup team or warehouse can confirm collection")
+        if role not in ("pickup_team", "pickup", "admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only the assigned pickup partner can confirm farm collection")
         if current != ORDER_READY_FOR_PICKUP or not order.get("pickupTeam") or not order.get("pickupVehicle"):
             raise HTTPException(status_code=400, detail="Assign a pickup team and vehicle before confirming collection")
+        assigned_pickup_partner = str(order.get("pickupTeam") or "")
+        acting_partner_ids = {
+            str(current_user.get("_id") or ""),
+            str(current_user.get("id") or ""),
+            str(current_user.get("userId") or ""),
+            str(current_user.get("user_id") or ""),
+        }
+        acting_partner_ids.discard("")
+        if role not in ("admin", "super_admin") and assigned_pickup_partner not in acting_partner_ids:
+            raise HTTPException(status_code=403, detail="Only the pickup partner assigned to this B2B order can confirm farm collection")
         update.update({"status": ORDER_PICKED_UP, "pickedUpAt": datetime.utcnow(), "pickupNotes": data.notes})
     elif action == "receive_stock":
         if role not in allowed_warehouse:
@@ -3663,9 +3676,17 @@ async def update_b2b_warehouse_fulfillment(
         if not data.notes or not data.notes.strip():
             raise HTTPException(status_code=400, detail="Delivery proof / handoff notes are required")
         assigned_partner = str(order.get("finalDeliveryPartner") or "")
-        current_user_id = str(current_user.get("_id") or "")
-        if role not in ("admin", "super_admin") and assigned_partner and assigned_partner != current_user_id:
-            raise HTTPException(status_code=403, detail="Only the assigned delivery team member can confirm this delivery")
+        current_user_id = str(current_user.get("_id") or current_user.get("id") or "")
+        acting_delivery_ids = {
+            current_user_id,
+            str(current_user.get("userId") or ""),
+            str(current_user.get("user_id") or ""),
+        }
+        acting_delivery_ids.discard("")
+        if role not in ("admin", "super_admin") and not assigned_partner:
+            raise HTTPException(status_code=409, detail="Assign a final delivery partner before confirming business delivery")
+        if role not in ("admin", "super_admin") and assigned_partner not in acting_delivery_ids:
+            raise HTTPException(status_code=403, detail="Only the delivery partner assigned to this order can confirm delivery")
         update.update({"status": ORDER_DELIVERED, "deliveredAt": datetime.utcnow(), "deliveredBy": current_user_id, "deliveryProof": data.notes.strip(), "deliveryNotes": data.notes.strip()})
     else:
         raise HTTPException(status_code=400, detail="Unknown B2B logistics action")
