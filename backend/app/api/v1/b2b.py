@@ -2219,7 +2219,6 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # the order has not yet been claimed by any pickup warehouse.
                 # Keep those unowned pickups visible so a warehouse can claim
                 # them; once claimed, the explicit warehouse ID scopes them.
-                unowned_legacy_pickup = not farm_district and not str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "").strip()
                 if district_matches or (not farm_district and assigned_pickup_warehouse_id == current_warehouse_id):
                     scoped_orders.append(order)
             elif current_warehouse_id == source_id:
@@ -2272,7 +2271,6 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             # this is an unowned legacy pickup. Keep it claimable instead of
             # silently hiding it from every warehouse. Assignment will establish
             # ownership for all subsequent stages.
-            unowned_legacy_pickup = not farm_district and not str(pickup_order.get("pickupWarehouseId") or pickup_order.get("assignedWarehouseId") or "").strip()
             if (farm_district and not district_matches) or (not farm_district and not explicitly_assigned_here):
                 continue
             # Initial pickup ownership is determined by farm district.
@@ -2329,7 +2327,6 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # means no warehouse can otherwise discover this legacy pickup.
                 # Expose it as claimable; assigning a pickup team establishes the
                 # warehouse owner and prevents it from appearing in other queues.
-                unowned_legacy_pickup = not farm_district and not str(item.get("pickupWarehouseId") or item.get("assignedWarehouseId") or "").strip()
                 if district_matches or (not farm_district and explicitly_assigned_here):
                     scoped_orders.append(item)
                 continue
