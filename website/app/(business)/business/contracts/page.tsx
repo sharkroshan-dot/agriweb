@@ -57,6 +57,9 @@ interface Contract {
     rescheduledTo?: string;
     replacementOrderId?: string;
     replacementQuantityKg?: number;
+    replacementOrderId?: string;
+    replacementOrderNumber?: string;
+    replacementOrderStatus?: string;
   }>;
 }
 
@@ -143,12 +146,10 @@ export default function BusinessContractsPage() {
     return `${label} matches the original accepted quote`;
   };
 
-  const rateTier = (offer: ReplacementOffer) => {
-    const benchmark = Number(replacementMeta?.benchmarkPricePerKg || 0);
-    return offer.pricePerKg < benchmark ? 0 : offer.pricePerKg === benchmark ? 1 : 2;
-  };
-
   const rankedReplacementOffers = useMemo(() => {
+    const benchmark = Number(replacementMeta?.benchmarkPricePerKg || 0);
+    const rateTier = (offer: ReplacementOffer) =>
+      offer.pricePerKg < benchmark ? 0 : offer.pricePerKg === benchmark ? 1 : 2;
     return [...replacementOffers].sort((a, b) => {
       if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
       if (replacementRankingMode === "quantity") {
@@ -309,6 +310,13 @@ export default function BusinessContractsPage() {
                             {shortage > 0 && <p className="mt-2 text-sm font-medium text-red-700">Shortage: {shortage} kg</p>}
                             {delivery.notes && <p className="mt-1 text-sm text-slate-600">Farmer note: {delivery.notes}</p>}
                             {delivery.resolution && <p className="mt-1 text-sm text-blue-700">Business resolution: {delivery.resolution.replace(/_/g, " ")}{delivery.resolutionNotes ? " — " + delivery.resolutionNotes : ""}</p>}
+                            {delivery.replacementOrderId && (
+                              <p className="mt-1 text-sm font-medium text-indigo-700">
+                                Replacement order: {delivery.replacementOrderNumber || delivery.replacementOrderId}
+                                {delivery.replacementQuantityKg != null ? ` · ${delivery.replacementQuantityKg} kg` : ""}
+                                {delivery.replacementOrderStatus ? ` · Status: ${delivery.replacementOrderStatus.replace(/_/g, " ")}` : " · Status unavailable"}
+                              </p>
+                            )}
                             {delivery.confirmedAt && <p className="mt-1 text-xs text-slate-400">Updated {new Date(delivery.confirmedAt).toLocaleString("en-IN")}</p>}
                           </div>
                         );
