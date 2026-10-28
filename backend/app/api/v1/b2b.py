@@ -3079,24 +3079,80 @@ async def list_b2b_destination_warehouses(
     return {"success": True, "data": {"warehouses": options, "requiredCapacityKg": round(required_kg, 2)}}
 
 
-def _district_key(value: Any) -> str:
-    """Normalize district labels so spelling/case/spacing do not affect routing."""
+def _district_token(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(value or "").strip().casefold())
+
+
+# Localities/taluks are not districts. Normalize known legacy locality values
+# at the routing boundary without rewriting the original profile data.
+_DISTRICT_ALIASES = {
+    "trichy": "Tiruchirappalli",
+    "trichirappalli": "Tiruchirappalli",
+    "tiruchirapalli": "Tiruchirappalli",
+    "manachanallur": "Tiruchirappalli",
+    "manachanallurtaluk": "Tiruchirappalli",
+    "chettikulam": "Perambalur",
+}
+
+
+def _canonical_district_label(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    token = _district_token(raw)
+    if token in _DISTRICT_ALIASES:
+        return _DISTRICT_ALIASES[token]
+    # Address fields may be stored as "locality, district, state".
+    for part in reversed([part.strip() for part in raw.split(",") if part.strip()]):
+        part_token = _district_token(part)
+        if part_token in _DISTRICT_ALIASES:
+            return _DISTRICT_ALIASES[part_token]
+    return raw
+
+
+def _district_key(value: Any) -> str:
+    """Normalize district labels and known locality aliases for routing."""
+    return _district_token(_canonical_district_label(value))
+
 
 def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
     if not isinstance(doc, dict):
         return ""
-    for key in ("district", "districtName", "farmDistrict", "warehouseDistrict", "deliveryDistrict"):
+    district_keys = ("district", "districtName", "district_name", "farmDistrict", "warehouseDistrict", "deliveryDistrict")
+    for key in district_keys:
         value = doc.get(key)
         if isinstance(value, str) and value.strip():
-            return value.strip()
-    for parent_key in ("address", "location", "farmAddress", "warehouseAddress", "profile", "farmLocation"):
+            return _canonical_district_label(value)
+    for parent_key in ("address", "location", "farmAddress", "warehouseAddress", "profile", "farmLocation", "farmerInfo"):
         parent = doc.get(parent_key)
         if isinstance(parent, dict):
-            for key in ("district", "districtName", "district_name"):
+            for key in district_keys:
                 value = parent.get(key)
                 if isinstance(value, str) and value.strip():
-                    return value.strip()
+                    return _canonical_district_label(value)
+    # Some older farmer profiles store only a town/taluk/locality and no
+    # district. Resolve only known aliases; never treat an arbitrary city as a
+    # district or silently assign an order to an unrelated warehouse.
+    locality_keys = ("locality", "town", "taluk", "city", "village", "farmTown", "farmLocality")
+    for key in locality_keys:
+        value = doc.get(key)
+        if isinstance(value, str) and _district_token(value) in _DISTRICT_ALIASES:
+            return _DISTRICT_ALIASES[_district_token(value)]
+    for parent_key in ("address", "location", "farmAddress", "farmLocation", "farmerInfo"):
+        parent = doc.get(parent_key)
+        if isinstance(parent, dict):
+            for key in locality_keys:
+                value = parent.get(key)
+                if isinstance(value, str) and _district_token(value) in _DISTRICT_ALIASES:
+                    return _DISTRICT_ALIASES[_district_token(value)]
+    # Last-resort matching for legacy free-text addresses; only known aliases
+    # are recognized.
+    for key in ("farmAddress", "farmerAddress", "address", "location", "fullAddress"):
+        value = doc.get(key)
+        if isinstance(value, str):
+            resolved = _canonical_district_label(value)
+            if _district_token(resolved) in {_district_token(v) for v in _DISTRICT_ALIASES.values()}:
+                return resolved
     return ""
 
 async def _b2b_farm_district(order: Dict[str, Any]) -> str:
