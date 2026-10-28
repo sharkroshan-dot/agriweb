@@ -103,7 +103,11 @@ export default function FarmerB2bContractsPage() {
     c.deliveryHistory?.find((delivery) => delivery.scheduledDate === targetScheduleDate(c));
   const requiredQuantity = (c: Contract) => {
     const confirmation = confirmationForTargetDate(c);
-    if (confirmation?.approvedQuantityKg != null && String(confirmation.resolution || "").toLowerCase() === "partial") {
+    if (
+      confirmation?.approvedQuantityKg != null
+      && ["partial", "replacement_supplier"].includes(String(confirmation.resolution || "").toLowerCase())
+      && Number(confirmation.approvedQuantityKg) > 0
+    ) {
       return Number(confirmation.approvedQuantityKg);
     }
     return Number(confirmation?.requestedQuantityKg ?? c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
