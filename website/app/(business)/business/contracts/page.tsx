@@ -231,36 +231,108 @@ export default function BusinessContractsPage() {
                         if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) { toast.error("Use date format YYYY-MM-DD."); return; }
                         resolveShortageMutation.mutate({ id: c.id, payload: { action: "reschedule", scheduledDate: c.latestDeliveryDate || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined), newDeliveryDate: raw + "T09:00:00", notes: "Business approved rescheduling" } });
                       }}>Reschedule delivery</Button>
-                      <Button size="sm" disabled={resolveShortageMutation.isPending} onClick={async () => {
-                        try {
-                          const response: any = await api.get(`/b2b/contracts/${c.id}/replacement-offers`);
-                          const offers = response?.data?.data?.offers || response?.data?.offers || [];
-                          if (!offers.length) {
-                            toast.error("No eligible replacement quotes were found for this RFQ. Invite another farmer to quote first.");
-                            return;
-                          }
-                          const menu = offers.map((offer: any, index: number) => `${index + 1}. ${offer.farmerName} — ${offer.availableQuantityKg} kg available at ₹${offer.pricePerKg}/kg`).join("\\n");
-                          const choice = window.prompt("Choose a replacement farmer by number:\\n" + menu);
-                          if (choice === null) return;
-                          const index = Number(choice) - 1;
-                          if (!Number.isInteger(index) || index < 0 || index >= offers.length) {
-                            toast.error("Choose a valid replacement farmer number.");
-                            return;
-                          }
-                          resolveShortageMutation.mutate({
-                            id: c.id,
-                            payload: {
-                              action: "assign_replacement",
-                              scheduledDate: c.latestDeliveryDate || (c.nextDeliveryAt ? new Date(c.nextDeliveryAt).toISOString().slice(0, 10) : undefined),
-                              replacementOfferId: offers[index].id,
-                              notes: "Business approved replacement supplier for this scheduled shortage",
-                            },
-                          });
-                        } catch (error: any) {
-                          toast.error(error?.message || "Could not load replacement farmers");
-                        }
-                      }}>Find & assign replacement farmer</Button>
+                      <Button
+                        size="sm"
+                        disabled={replacementLoading || resolveShortageMutation.isPending}
+                        onClick={() => replacementPanelContractId === c.id
+                          ? setReplacementPanelContractId(null)
+                          : loadReplacementOffers(c)}
+                      >
+                        {replacementLoading && replacementPanelContractId === c.id
+                          ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                          : <Users className="mr-1 h-4 w-4" />}
+                        {replacementPanelContractId === c.id ? "Close replacement quotes" : "Find & assign replacement farmer"}
+                      </Button>
                     </div>
+                  </div>
+                )}
+                {replacementPanelContractId === c.id && (
+                  <div className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-900">Replacement Farmer Selection</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Live stock is checked from the farmer inventory. A quote is selectable only when both its quoted quantity and current stock cover the shortage.
+                        </p>
+                      </div>
+                      <Button size="sm" variant="outline" disabled={replacementLoading} onClick={() => loadReplacementOffers(c)}>
+                        {replacementLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                        Refresh live stock
+                      </Button>
+                    </div>
+
+                    {replacementMeta && (
+                      <div className="mt-3 grid gap-2 rounded-md bg-slate-50 p-3 text-sm sm:grid-cols-4">
+                        <p><span className="text-slate-500">Scheduled date:</span> {replacementMeta.scheduledDate || "Not available"}</p>
+                        <p><span className="text-slate-500">Original rate:</span> ₹{replacementMeta.benchmarkPricePerKg}/kg</p>
+                        <p><span className="text-slate-500">Original quoted quantity:</span> {replacementMeta.benchmarkQuantityKg} kg</p>
+                        <p className="font-semibold text-red-700"><span className="font-normal text-slate-500">Remaining shortage:</span> {replacementMeta.shortageKg} kg</p>
+                      </div>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-medium text-slate-700">Rank quotes by:</span>
+                      <Button size="sm" variant={replacementRankingMode === "rate" ? "default" : "outline"} onClick={() => setReplacementRankingMode("rate")}>Rate</Button>
+                      <Button size="sm" variant={replacementRankingMode === "quantity" ? "default" : "outline"} onClick={() => setReplacementRankingMode("quantity")}>Quantity</Button>
+                      <Button size="sm" variant={replacementRankingMode === "combined" ? "default" : "outline"} onClick={() => setReplacementRankingMode("combined")}>Rate + Quantity</Button>
+                      <span className="text-xs text-slate-500">Eligible farmers appear first in every mode.</span>
+                    </div>
+
+                    {replacementLoading ? (
+                      <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Checking current farmer inventory…
+                      </div>
+                    ) : rankedReplacementOffers.length === 0 ? (
+                      <p className="py-6 text-sm text-slate-600">No pending quotes were found for other farmers on this RFQ. Ask another farmer to submit a quote, then refresh.</p>
+                    ) : (
+                      <div className="mt-3 space-y-3">
+                        {rankedReplacementOffers.map((offer, index) => (
+                          <div key={offer.id} className={`rounded-md border p-3 ${offer.eligible ? "border-emerald-200 bg-emerald-50/40" : "border-slate-200 bg-slate-50"}`}>
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs font-semibold text-slate-500">#{index + 1}</span>
+                                  <p className="font-semibold text-slate-900">{offer.farmerName}</p>
+                                  <Badge variant={offer.eligible ? "success" : "secondary"}>{offer.eligible ? "Eligible now" : "Not eligible"}</Badge>
+                                </div>
+                                <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
+                                  <p><span className="text-slate-500">Quoted rate:</span> ₹{offer.pricePerKg}/kg</p>
+                                  <p><span className="text-slate-500">Quantity in quote:</span> {offer.quotedQuantityKg} kg</p>
+                                  <p><span className="font-medium text-emerald-700">Live available stock:</span> {offer.availableQuantityKg} kg</p>
+                                  <p><span className="text-slate-500">Currently assignable:</span> {offer.assignableQuantityKg} kg</p>
+                                  <p className="text-xs text-slate-500">{compareLabel(offer.pricePerKg, Number(replacementMeta?.benchmarkPricePerKg || 0), "Rate")}</p>
+                                  <p className="text-xs text-slate-500">{compareLabel(offer.availableQuantityKg, Number(replacementMeta?.benchmarkQuantityKg || 0), "Live stock")}</p>
+                                </div>
+                                {offer.ineligibleReason && <p className="mt-2 text-sm text-amber-800">{offer.ineligibleReason}</p>}
+                                {offer.stockCheckedAt && <p className="mt-1 text-xs text-slate-400">Stock checked: {new Date(offer.stockCheckedAt).toLocaleString("en-IN")}</p>}
+                              </div>
+                              <Button
+                                size="sm"
+                                disabled={!offer.eligible || resolveShortageMutation.isPending}
+                                onClick={() => {
+                                  if (!replacementMeta?.scheduledDate) {
+                                    toast.error("Scheduled delivery date is unavailable. Refresh the contract and try again.");
+                                    return;
+                                  }
+                                  resolveShortageMutation.mutate({
+                                    id: c.id,
+                                    payload: {
+                                      action: "assign_replacement",
+                                      scheduledDate: replacementMeta.scheduledDate,
+                                      replacementOfferId: offer.id,
+                                      notes: "Business selected a replacement using live stock and quote ranking",
+                                    },
+                                  });
+                                }}
+                              >
+                                {resolveShortageMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1 h-4 w-4" />}
+                                Assign farmer
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </CardContent>
