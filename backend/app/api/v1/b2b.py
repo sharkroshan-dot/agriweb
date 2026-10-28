@@ -5439,7 +5439,13 @@ async def confirm_contract_delivery_stock(
                     status_code=409,
                     detail=f"Contract {contract.get('contractNumber') or oid} is missing its original RFQ or accepted farmer quote; warehouse order could not be created.",
                 )
-            order = await _build_order(rfq, offer, order_quantity, None)
+            occurrence_rfq = dict(rfq)
+            occurrence_rfq.update({
+                "requiredDate": schedule_key,
+                "deliveryDeadline": schedule_key,
+                "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+            })
+            order = await _build_order(occurrence_rfq, offer, order_quantity, None)
             # Keep recurring occurrences grouped under the first B2B order number.
             # First occurrence keeps its normal number (for example B2B-00011);
             # the next is B2B-00011-1A, then -1B, etc.
@@ -5474,11 +5480,10 @@ async def confirm_contract_delivery_stock(
                 "pickupWindowEnd": "23:59",
                 "transferDispatchDate": order.get("transferDispatchDate"),
                 "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
-                # Use the occurrence the farmer actually confirmed, not the
-                # contract's potentially advanced nextDeliveryAt value. Store a
-                # date-only deadline; the route planner interprets it with the
-                # configured business delivery time slot.
-                "deliveryDeadline": datetime.combine(scheduled_day, datetime.min.time()),
+                # _build_order received the exact scheduled occurrence and
+                # already resolved its delivery time slot in India time. Keep
+                # that timestamp instead of replacing it with the RFQ's first
+                # delivery date or midnight.
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
@@ -5923,7 +5928,13 @@ async def resolve_contract_delivery_shortage(
         rfq = await rfq_repo.find_one({"_id": rfq_id, "deletedAt": None})
         if not rfq:
             raise HTTPException(status_code=409, detail="Original recurring RFQ is unavailable")
-        replacement_order = await _build_order(rfq, replacement_offer, missing, None)
+        occurrence_rfq = dict(rfq)
+        occurrence_rfq.update({
+            "requiredDate": schedule_key,
+            "deliveryDeadline": schedule_key,
+            "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+        })
+        replacement_order = await _build_order(occurrence_rfq, replacement_offer, missing, None)
         db = MongoDB.db
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
@@ -5943,10 +5954,16 @@ async def resolve_contract_delivery_shortage(
             "productName": contract.get("cropName") or replacement_order.get("productName"),
             "quantityKg": missing, "status": ORDER_CONFIRMED,
             "packedQuantityKg": 0, "qualityCheck": "pending",
-            "farmerPrepareBy": datetime.strptime(schedule_key, "%Y-%m-%d") - timedelta(days=1) + timedelta(hours=16),
-            "pickupDate": (datetime.strptime(schedule_key, "%Y-%m-%d").date() - timedelta(days=1)).isoformat(),
-            "pickupWindowStart": "18:00", "pickupWindowEnd": "23:59",
-            "deliveryDeadline": datetime.strptime(schedule_key, "%Y-%m-%d"),
+            "requiredDate": replacement_order.get("requiredDate"),
+            # Preserve route-derived preparation/pickup/transfer dates and the
+            # slot-adjusted delivery deadline from _build_order for this date.
+            "farmerPrepareBy": replacement_order.get("farmerPrepareBy"),
+            "pickupDate": replacement_order.get("pickupDate"),
+            "transferDispatchDate": replacement_order.get("transferDispatchDate"),
+            "deliveryDeadline": replacement_order.get("deliveryDeadline"),
+            "deliveryTimeSlot": contract.get("deliveryTimeSlot") or replacement_order.get("deliveryTimeSlot"),
+            "pickupWindowStart": replacement_order.get("pickupWindowStart") or "18:00",
+            "pickupWindowEnd": replacement_order.get("pickupWindowEnd") or "23:59",
             "createdAt": now, "updatedAt": now, "deletedAt": None,
         })
         inserted = await db["b2b_orders"].insert_one(replacement_order)
@@ -6131,7 +6148,13 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             quantity = confirmed_quantity
             if quantity <= 0:
                 raise HTTPException(status_code=409, detail=f"Contract {contract.get('contractNumber') or contract['_id']} has no valid scheduled delivery quantity.")
-            order = await _build_order(rfq, offer, quantity, None)
+            occurrence_rfq = dict(rfq)
+            occurrence_rfq.update({
+                "requiredDate": schedule_key,
+                "deliveryDeadline": schedule_key,
+                "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+            })
+            order = await _build_order(occurrence_rfq, offer, quantity, None)
             order.update({
                 "contractId": contract["_id"],
                 "contractNumber": contract.get("contractNumber"),
@@ -6144,7 +6167,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "pickupWindowEnd": "23:59",
                 "transferDispatchDate": order.get("transferDispatchDate"),
                 "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
-                "deliveryDeadline": next_at,
+                "deliveryDeadline": order.get("deliveryDeadline") or next_at,
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
