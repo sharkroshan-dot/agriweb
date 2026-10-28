@@ -5100,7 +5100,7 @@ def _contract_public(row: Dict[str, Any]) -> Dict[str, Any]:
                 and str(item.get("status") or "").lower() in ("awaiting_confirmation", "shortage", "partial_approved", "backup_required")
             )
             or (
-                str(item.get("status") or "").lower() == "replacement_assigned"
+                str(item.get("status") or "").lower() in ("partial_approved", "replacement_assigned")
                 and float(item.get("approvedQuantityKg") or 0) > 0
                 and not item.get("originalOrderId")
             )
