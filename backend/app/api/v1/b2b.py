@@ -5503,10 +5503,20 @@ async def confirm_contract_delivery_stock(
             inserted = await orders_collection.insert_one(order)
             created_order_id = str(inserted.inserted_id)
 
+        # Link this farmer's original order to the occurrence so the business
+        # can see that the original contribution and replacement are tracked
+        # separately, and the farmer's rescheduled/shortage action clears.
+        record["originalOrderId"] = created_order_id
+        confirmations[schedule_key] = record
+
         # Advance only after this occurrence is safely represented by a B2B order.
         # Keep the schedule key as an idempotency guard for the legacy generator.
         frequency = contract.get("frequency") or "monthly"
         interval = int(contract.get("recurrenceInterval") or 1)
+        contract_update = {
+            "deliveryConfirmations": confirmations,
+            "updatedAt": datetime.utcnow(),
+        }
         if not record.get("isRescheduledOccurrence") and schedule_key not in (contract.get("generatedScheduleKeys") or []):
             if frequency == "daily":
                 next_at = next_at + timedelta(days=interval)
@@ -5518,11 +5528,9 @@ async def confirm_contract_delivery_stock(
                 year = next_at.year + month // 12
                 month = month % 12 + 1
                 next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
-            await contract_repo.update({"_id": oid}, {
-                "nextDeliveryAt": next_at,
-                "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])),
-                "updatedAt": datetime.utcnow(),
-            })
+            contract_update["nextDeliveryAt"] = next_at
+            contract_update["generatedScheduleKeys"] = list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key]))
+        await contract_repo.update({"_id": oid}, contract_update)
 
     # Notify the business for both positive confirmations and shortages.
     try:
