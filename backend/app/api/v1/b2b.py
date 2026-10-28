@@ -1959,10 +1959,14 @@ def _b2b_warehouse_workflow_is_complete(order: Dict[str, Any]) -> bool:
     steps: the destination warehouse must still assign a delivery team and
     deliver the order to the business. Those orders belong in the active queue.
     """
+    # A business delivery is terminal for the warehouse workflow once
+    # delivery is recorded. Older records may use "delivered" without a
+    # separate completedAt timestamp; keep them out of Active Fulfillments.
+    status = str(order.get("status") or "").lower()
+    delivered_at = order.get("deliveredAt") or order.get("businessDeliveredAt") or order.get("finalDeliveredAt")
     return bool(
-        order.get("status") == ORDER_COMPLETED
-        and order.get("deliveredAt")
-        and order.get("completedAt")
+        delivered_at
+        and status in (ORDER_DELIVERED, ORDER_COMPLETED, "delivered_to_business", "business_delivered")
     )
 
 
@@ -2229,9 +2233,8 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             farm_district = await _b2b_farm_district(pickup_order)
             if not warehouse_district or not farm_district or _district_key(warehouse_district) != _district_key(farm_district):
                 continue
-            assigned_source = str(pickup_order.get("sourceWarehouseId") or pickup_order.get("warehouseId") or pickup_order.get("pickupWarehouseId") or "")
-            if assigned_source and assigned_source != current_warehouse_id:
-                continue
+            # Initial pickup ownership is determined by farm district.
+            # Do not let a stale prefilled warehouse ID hide a valid pickup.
         orders.append(pickup_order)
         existing_order_ids.add(pickup_id)
 
@@ -2274,6 +2277,9 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                     scoped_orders.append(item)
                 continue
             if status == ORDER_READY_FOR_PICKUP and not str(item.get("pickupTeam") or "").strip():
+                # Farm district is the source of truth for pickup assignment.
+                # Ignore stale suggested source IDs until the matching district
+                # warehouse claims the pickup and becomes the real source.
                 farm_district = await _b2b_farm_district(item)
                 if warehouse_district and farm_district and _district_key(warehouse_district) == _district_key(farm_district):
                     scoped_orders.append(item)
