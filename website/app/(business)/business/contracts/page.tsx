@@ -82,6 +82,9 @@ export default function BusinessContractsPage() {
       api.post(`/b2b/contracts/${id}/delivery-resolution`, payload),
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
+      setReplacementPanelContractId(null);
+      setReplacementOffers([]);
+      setReplacementMeta(null);
       toast.success(res?.data?.message || "Delivery shortage resolution saved.");
     },
     onError: (err: any) => toast.error(err?.message || "Could not resolve delivery shortage"),
