@@ -5494,17 +5494,30 @@ async def list_contract_replacement_offers(
         live_available = await _live_offer_available_quantity(offer, str(contract.get("cropName") or offer.get("productName") or ""))
         quoted_quantity = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
         enough_stock = live_available + 1e-6 >= shortage_kg
+        quote_covers_shortage = quoted_quantity + 1e-6 >= shortage_kg
+        eligible = enough_stock and quote_covers_shortage
+        farmer_doc = await farmer_repository.find_one({"userId": farmer_id})
+        if not farmer_doc and ObjectId.is_valid(farmer_id):
+            farmer_doc = await farmer_repository.find_one({"userId": ObjectId(farmer_id)})
+        assignable_quantity = min(quoted_quantity, live_available)
+        if not enough_stock:
+            reason = f"Live stock is {live_available:g} kg; {shortage_kg:g} kg is required."
+        elif not quote_covers_shortage:
+            reason = f"This quote covers only {quoted_quantity:g} kg; a new or updated quote is needed for {shortage_kg:g} kg."
+        else:
+            reason = None
         result.append({
             "id": str(offer.get("_id")),
             "farmerId": farmer_id,
-            "farmerName": offer.get("farmerName") or offer.get("farmName") or "Replacement farmer",
+            "farmerName": offer.get("farmerName") or offer.get("farmName") or (farmer_doc or {}).get("farmName") or (farmer_doc or {}).get("name") or "Replacement farmer",
             "productName": offer.get("productName") or contract.get("cropName"),
             "quotedQuantityKg": quoted_quantity,
             "availableQuantityKg": live_available,
             "liveAvailableQuantityKg": live_available,
+            "assignableQuantityKg": round(max(0.0, assignable_quantity), 2),
             "shortageQuantityKg": shortage_kg,
-            "eligible": enough_stock,
-            "ineligibleReason": None if enough_stock else f"Current stock is {live_available:g} kg; {shortage_kg:g} kg is required.",
+            "eligible": eligible,
+            "ineligibleReason": reason,
             "pricePerKg": float(offer.get("pricePerKg") or 0),
             "status": offer_status,
             "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
@@ -5633,6 +5646,12 @@ async def resolve_contract_delivery_shortage(
             raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
         # Recheck stock at assignment time. Quote quantities are snapshots and
         # may have changed since the business opened the replacement list.
+        quoted_available = float(replacement_offer.get("availableQuantityKg") or replacement_offer.get("minOrderKg") or 0)
+        if quoted_available + 1e-6 < missing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"The selected quote covers only {quoted_available:g} kg; {missing:g} kg is required. Choose a larger quote.",
+            )
         replacement_available = await _live_offer_available_quantity(
             replacement_offer,
             str(contract.get("cropName") or replacement_offer.get("productName") or ""),
