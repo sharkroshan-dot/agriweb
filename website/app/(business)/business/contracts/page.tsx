@@ -57,7 +57,6 @@ interface Contract {
     rescheduledTo?: string;
     replacementOrderId?: string;
     replacementQuantityKg?: number;
-    replacementOrderId?: string;
     replacementOrderNumber?: string;
     replacementOrderStatus?: string;
   }>;
@@ -103,13 +102,15 @@ export default function BusinessContractsPage() {
   }, [contractsData]);
 
   const [replacementPanelContractId, setReplacementPanelContractId] = useState<string | null>(null);
+  const [replacementPanelDate, setReplacementPanelDate] = useState<string | null>(null);
   const [replacementOffers, setReplacementOffers] = useState<ReplacementOffer[]>([]);
   const [replacementMeta, setReplacementMeta] = useState<ReplacementMeta | null>(null);
   const [replacementLoading, setReplacementLoading] = useState(false);
   const [replacementRankingMode, setReplacementRankingMode] = useState<"rate" | "quantity" | "combined">("combined");
 
-  const loadReplacementOffers = async (contract: Contract) => {
-    const scheduledDate = contract.latestDeliveryDate
+  const loadReplacementOffers = async (contract: Contract, requestedScheduleDate?: string) => {
+    const scheduledDate = requestedScheduleDate
+      || contract.latestDeliveryDate
       || contract.deliveryHistory?.find((delivery) => ["shortage", "backup_required", "partial_approved"].includes(String(delivery.status || "").toLowerCase()))?.scheduledDate
       || (contract.nextDeliveryAt ? String(contract.nextDeliveryAt).slice(0, 10) : "");
     if (!scheduledDate) {
@@ -117,6 +118,7 @@ export default function BusinessContractsPage() {
       return;
     }
     setReplacementPanelContractId(contract.id);
+    setReplacementPanelDate(scheduledDate);
     setReplacementLoading(true);
     setReplacementOffers([]);
     setReplacementMeta(null);
@@ -134,6 +136,7 @@ export default function BusinessContractsPage() {
       });
     } catch (error: any) {
       setReplacementPanelContractId(null);
+      setReplacementPanelDate(null);
       toast.error(error?.message || "Could not load replacement quotes. Refresh and try again.");
     } finally {
       setReplacementLoading(false);
@@ -186,6 +189,7 @@ export default function BusinessContractsPage() {
     onSuccess: (res: any) => {
       queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
       setReplacementPanelContractId(null);
+      setReplacementPanelDate(null);
       setReplacementOffers([]);
       setReplacementMeta(null);
       toast.success(res?.data?.message || "Delivery shortage resolution saved.");
@@ -325,6 +329,58 @@ export default function BusinessContractsPage() {
                                 {delivery.replacementOrderStatus ? ` · Status: ${delivery.replacementOrderStatus.replace(/_/g, " ")}` : " · Status unavailable"}
                               </p>
                             )}
+                            {["shortage", "backup_required", "partial_approved"].includes(deliveryStatus) && (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                <Button size="sm" variant="outline" disabled={resolveShortageMutation.isPending} onClick={() => {
+                                  const raw = window.prompt(`How many kg should be approved for the delivery on ${delivery.scheduledDate}?`);
+                                  if (raw === null) return;
+                                  const quantity = Number(raw);
+                                  if (!Number.isFinite(quantity) || quantity <= 0) {
+                                    toast.error("Enter a valid quantity greater than zero.");
+                                    return;
+                                  }
+                                  resolveShortageMutation.mutate({
+                                    id: c.id,
+                                    payload: {
+                                      action: "partial",
+                                      scheduledDate: delivery.scheduledDate,
+                                      approvedQuantityKg: quantity,
+                                      notes: "Business approved partial supply",
+                                    },
+                                  });
+                                }}>Approve partial supply</Button>
+                                <Button size="sm" variant="outline" disabled={resolveShortageMutation.isPending} onClick={() => {
+                                  const raw = window.prompt("Enter the new delivery date (YYYY-MM-DD):");
+                                  if (!raw) return;
+                                  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(raw))) {
+                                    toast.error("Use date format YYYY-MM-DD.");
+                                    return;
+                                  }
+                                  resolveShortageMutation.mutate({
+                                    id: c.id,
+                                    payload: {
+                                      action: "reschedule",
+                                      scheduledDate: delivery.scheduledDate,
+                                      newDeliveryDate: raw + "T09:00:00",
+                                      notes: "Business approved rescheduling",
+                                    },
+                                  });
+                                }}>Reschedule delivery</Button>
+                                <Button size="sm" disabled={replacementLoading || resolveShortageMutation.isPending} onClick={() => {
+                                  if (replacementPanelContractId === c.id && replacementPanelDate === delivery.scheduledDate) {
+                                    setReplacementPanelContractId(null);
+                                    setReplacementPanelDate(null);
+                                    setReplacementOffers([]);
+                                    setReplacementMeta(null);
+                                  } else {
+                                    loadReplacementOffers(c, delivery.scheduledDate);
+                                  }
+                                }}>
+                                  {replacementLoading && replacementPanelDate === delivery.scheduledDate ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Users className="mr-1 h-4 w-4" />}
+                                  {replacementPanelContractId === c.id && replacementPanelDate === delivery.scheduledDate ? "Close replacement quotes" : "Find replacement farmer"}
+                                </Button>
+                              </div>
+                            )}
                             {delivery.confirmedAt && <p className="mt-1 text-xs text-slate-400">Updated {new Date(delivery.confirmedAt).toLocaleString("en-IN")}</p>}
                           </div>
                         );
@@ -355,9 +411,9 @@ export default function BusinessContractsPage() {
                       <Button
                         size="sm"
                         disabled={replacementLoading || resolveShortageMutation.isPending}
-                        onClick={() => replacementPanelContractId === c.id
-                          ? setReplacementPanelContractId(null)
-                          : loadReplacementOffers(c)}
+                        onClick={() => replacementPanelContractId === c.id && replacementPanelDate === (c.latestDeliveryDate || c.deliveryHistory?.find((delivery) => ["shortage", "backup_required", "partial_approved"].includes(String(delivery.status || "").toLowerCase()))?.scheduledDate)
+                          ? (setReplacementPanelContractId(null), setReplacementPanelDate(null), setReplacementOffers([]), setReplacementMeta(null))
+                          : loadReplacementOffers(c, c.latestDeliveryDate || c.deliveryHistory?.find((delivery) => ["shortage", "backup_required", "partial_approved"].includes(String(delivery.status || "").toLowerCase()))?.scheduledDate)}
                       >
                         {replacementLoading && replacementPanelContractId === c.id
                           ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
@@ -367,7 +423,7 @@ export default function BusinessContractsPage() {
                     </div>
                   </div>
                 )}
-                {replacementPanelContractId === c.id && (
+                {replacementPanelContractId === c.id && replacementPanelDate && (
                   <div className="mt-3 w-full rounded-lg border border-slate-200 bg-white p-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
