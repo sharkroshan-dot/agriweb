@@ -2194,7 +2194,18 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # Farm district is authoritative for initial pickup. A
                 # stale/pre-filled sourceWarehouseId must not expose this pickup
                 # to another district or hide it from the matching district.
-                if warehouse_district and farm_district and _district_key(warehouse_district) == _district_key(farm_district):
+                assigned_pickup_warehouse_id = str(
+                    order.get("pickupWarehouseId") or order.get("assignedWarehouseId")
+                    or order.get("sourceWarehouseId") or order.get("warehouseId") or ""
+                )
+                district_matches = bool(
+                    warehouse_district and farm_district
+                    and _district_key(warehouse_district) == _district_key(farm_district)
+                )
+                # If the order already has an explicit pickup/source warehouse,
+                # that assignment is actionable for that warehouse even when
+                # legacy district metadata is incomplete or inconsistent.
+                if district_matches or assigned_pickup_warehouse_id == current_warehouse_id:
                     scoped_orders.append(order)
             elif current_warehouse_id == source_id:
                 scoped_orders.append(order)
@@ -2238,8 +2249,8 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             )
             # Older farmer profiles may not have a usable district. In that
             # case only, honor the order's explicit source warehouse assignment.
-            legacy_source_matches = not farm_district and assigned_source_id == current_warehouse_id
-            if not district_matches and not legacy_source_matches:
+            explicitly_assigned_here = assigned_source_id == current_warehouse_id
+            if not district_matches and not explicitly_assigned_here:
                 continue
             # Initial pickup ownership is determined by farm district.
             # Do not let a stale prefilled warehouse ID hide a valid pickup.
@@ -2289,14 +2300,14 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # Ignore stale suggested source IDs until the matching district
                 # warehouse claims the pickup and becomes the real source.
                 farm_district = await _b2b_farm_district(item)
-                if (
+                district_matches = bool(
                     warehouse_district and farm_district
                     and _district_key(warehouse_district) == _district_key(farm_district)
-                ) or (
-                    not farm_district and source_id == current_warehouse_id
-                ):
-                    # Missing legacy district: only the assigned source warehouse
-                    # can see this pickup, preventing cross-district pickup claims.
+                )
+                explicitly_assigned_here = source_id == current_warehouse_id
+                if district_matches or explicitly_assigned_here:
+                    # District is authoritative unless the order explicitly
+                    # assigns this warehouse as its pickup/source owner.
                     scoped_orders.append(item)
                 continue
             if source_id and source_id != current_warehouse_id:
