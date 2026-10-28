@@ -1065,7 +1065,7 @@ export default function CheckoutPage() {
                                   type="button"
                                   className="w-full"
                                   size="lg"
-                                  onClick={handlePlaceOrder}
+                                  onClick={() => handlePlaceOrder()}
                                   disabled={isPlacing}
                                 >
                                   {isPlacing ? (
