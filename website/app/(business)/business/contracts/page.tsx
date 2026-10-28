@@ -388,7 +388,10 @@ export default function BusinessContractsPage() {
                     </div>
                   </div>
                 )}
-                {["shortage", "backup_required", "partial_approved"].includes(String(c.latestDeliveryStatus || "").toLowerCase()) && (
+                {["shortage", "backup_required", "partial_approved"].includes(String(c.latestDeliveryStatus || "").toLowerCase())
+                  && !c.deliveryHistory?.some((delivery) => delivery.scheduledDate === c.latestDeliveryDate
+                    && ["shortage", "backup_required", "partial_approved"].includes(String(delivery.status || "").toLowerCase()))
+                  && (
                   <div className="mt-3 w-full rounded-lg border border-amber-300 bg-amber-50 p-3">
                     <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-900">
                       <AlertTriangle className="h-4 w-4" /> Delivery shortage — choose how to proceed
