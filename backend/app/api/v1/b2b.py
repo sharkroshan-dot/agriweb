@@ -2187,9 +2187,11 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
                 # If a source warehouse is already assigned, honour it only when
                 # its district matches the farm. Otherwise district matching
                 # determines which warehouse may claim the pickup.
+                # Farm district is authoritative for initial pickup. A
+                # stale/pre-filled sourceWarehouseId must not expose this pickup
+                # to another district or hide it from the matching district.
                 if warehouse_district and farm_district and _district_key(warehouse_district) == _district_key(farm_district):
-                    if not source_id or source_id == current_warehouse_id:
-                        scoped_orders.append(order)
+                    scoped_orders.append(order)
             elif current_warehouse_id == source_id:
                 scoped_orders.append(order)
         orders = scoped_orders
@@ -2247,30 +2249,38 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             criteria.update(extra)
         return await order_repo.count(criteria)
 
-    # Keep source and destination warehouse actions separated. A transfer in
-    # transit may be visible to both ends; once received, only the destination
-    # warehouse should own the remaining fulfillment actions.
+    # Final stage ownership filter: pickup is strictly farm-district based;
+    # all later processing belongs to the assigned source until transfer arrival,
+    # then the destination warehouse owns receipt and final delivery.
     if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
+        warehouse_district = _district_from_doc(current_warehouse)
         scoped_orders = []
         for item in orders:
             status = str(item.get("status") or "")
-            source_id = str(item.get("sourceWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
+            source_id = str(item.get("sourceWarehouseId") or item.get("pickupWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
             destination_id = str(item.get("destinationWarehouseId") or "")
             if status == ORDER_DESTINATION_RECEIVED:
                 if destination_id == current_warehouse_id:
                     scoped_orders.append(item)
                 continue
             if status == ORDER_TRANSFER_IN_TRANSIT:
-                if source_id == current_warehouse_id or destination_id == current_warehouse_id:
+                # Source manages the outbound transfer. Destination gets the
+                # receipt action only after partner confirms physical arrival.
+                if source_id == current_warehouse_id or (
+                    destination_id == current_warehouse_id
+                    and str(item.get("transferPartnerStatus") or "") == "arrived_at_destination"
+                ):
                     scoped_orders.append(item)
                 continue
-            # A ready-for-pickup order is a claimable work item until a
-            # warehouse assigns its approved pickup team. Do not hide it just
-            # because an order template contains a suggested/stale source ID.
             if status == ORDER_READY_FOR_PICKUP and not str(item.get("pickupTeam") or "").strip():
-                scoped_orders.append(item)
+                farm_district = await _b2b_farm_district(item)
+                if warehouse_district and farm_district and _district_key(warehouse_district) == _district_key(farm_district):
+                    scoped_orders.append(item)
                 continue
             if source_id and source_id != current_warehouse_id:
+                continue
+            if not source_id:
                 continue
             scoped_orders.append(item)
         orders = scoped_orders
@@ -3111,6 +3121,17 @@ async def update_b2b_warehouse_fulfillment(
         pickup_warehouse = await warehouse_repo.find_one({"_id": ObjectId(pickup_warehouse_id), "deletedAt": None})
         if not pickup_warehouse:
             raise HTTPException(status_code=409, detail="The source warehouse assigned to this B2B order is not registered.")
+        # Enforce farm-to-warehouse district matching at the API boundary too;
+        # hiding a card in the UI is not sufficient authorization.
+        acting_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
+        if role in ("warehouse", "warehouse_manager", "warehouse_staff") and acting_warehouse_id:
+            warehouse_district = _district_from_doc(pickup_warehouse)
+            farm_district = await _b2b_farm_district(order)
+            if not warehouse_district or not farm_district or _district_key(warehouse_district) != _district_key(farm_district):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Farm pickup can only be assigned by a warehouse in the farm's district. Farm district: {farm_district or 'unknown'}; selected warehouse district: {warehouse_district or 'unknown'}.",
+                )
         membership = await warehouse_pickup_team_repository.get_membership(pickup_warehouse_id, pickup_partner_id)
         if not membership:
             raise HTTPException(status_code=403, detail="The selected delivery partner is not an approved pickup-team member of this order's source warehouse.")
