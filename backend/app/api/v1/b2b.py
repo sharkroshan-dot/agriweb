@@ -306,11 +306,11 @@ def _b2b_location_district_candidates(doc: Optional[Dict[str, Any]]) -> List[str
     if not isinstance(doc, dict):
         return []
     values: List[str] = []
-    for key in ("district", "districtName", "city", "town", "village", "taluk", "addressLine", "address", "formattedAddress"):
+    for key in ("district", "districtName", "city", "town", "village", "taluk", "addressLine", "address", "formattedAddress", "farmAddress", "farmerAddress", "businessAddress"):
         value = doc.get(key)
         if isinstance(value, str) and value.strip():
             values.append(value.strip())
-    for key in ("location", "farmLocation", "deliveryLocation", "businessAddress", "addressDetails", "businessInfo"):
+    for key in ("location", "farmLocation", "farmerLocation", "farmAddress", "farmerAddress", "deliveryLocation", "businessAddress", "addressDetails", "businessInfo", "profile", "farm", "farmDetails"):
         value = doc.get(key)
         if isinstance(value, dict):
             values.extend(_b2b_location_district_candidates(value))
