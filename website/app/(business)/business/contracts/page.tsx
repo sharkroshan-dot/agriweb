@@ -557,6 +557,7 @@ export default function BusinessContractsPage() {
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="text-xs font-semibold text-slate-500">#{index + 1}</span>
                                   <p className="font-semibold text-slate-900">{offer.farmerName}</p>
+                                   {offer.quoteType === "previously_submitted" && <Badge variant="outline">Previously quoted</Badge>}
                                   <Badge variant={offer.eligible ? "success" : "secondary"}>{offer.eligible ? "Eligible now" : "Not eligible"}</Badge>
                                 </div>
                                 <div className="mt-2 grid gap-2 text-sm sm:grid-cols-3">
