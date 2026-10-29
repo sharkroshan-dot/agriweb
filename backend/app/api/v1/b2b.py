@@ -5697,6 +5697,7 @@ async def confirm_contract_delivery_stock(
 async def list_contract_replacement_offers(
     contract_id: str,
     scheduledDate: Optional[str] = Query(None),
+    replacementMode: Optional[str] = Query("shortage"),
     current_user: dict = Depends(get_current_user),
 ):
     """List same-RFQ replacement quotes with live stock and shortage eligibility."""
@@ -5740,7 +5741,10 @@ async def list_contract_replacement_offers(
         else min(available_original, packed_original)
     )
     approved_original = min(approved_ceiling, available_original, packed_original)
-    shortage_kg = round(max(0.0, requested - approved_original), 2)
+    mode = str(replacementMode or "shortage").strip().lower()
+    if mode not in ("shortage", "full"):
+        raise HTTPException(status_code=400, detail="replacementMode must be 'shortage' or 'full'")
+    shortage_kg = round(requested if mode == "full" else max(0.0, requested - approved_original), 2)
     if shortage_kg <= 0:
         raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
 
@@ -5757,7 +5761,7 @@ async def list_contract_replacement_offers(
     if not contract.get("rfqId"):
         return {"success": True, "data": {
             "offers": [], "scheduledDate": schedule_key, "requestedQuantityKg": requested,
-            "shortageKg": shortage_kg, "benchmarkPricePerKg": benchmark_rate,
+            "shortageKg": shortage_kg, "replacementMode": mode, "benchmarkPricePerKg": benchmark_rate,
             "benchmarkQuantityKg": benchmark_quantity,
         }}
 
@@ -5826,6 +5830,7 @@ async def list_contract_replacement_offers(
         "scheduledDate": schedule_key,
         "requestedQuantityKg": requested,
         "shortageKg": shortage_kg,
+        "replacementMode": mode,
         "benchmarkPricePerKg": benchmark_rate,
         "benchmarkQuantityKg": benchmark_quantity,
         "rfqId": str(source_rfq["_id"]),
