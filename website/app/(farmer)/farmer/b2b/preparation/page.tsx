@@ -224,6 +224,16 @@ export default function FarmerB2bPreparationPage() {
             const targetQuantity = delivery.targetQuantity;
             const available = availableQty[c.id] ?? "";
             const packed = packedQty[c.id] ?? "";
+            const availableNumber = Number(available);
+            const packedNumber = Number(packed);
+            const pickupQuantitiesReady = targetQuantity > 0
+              && available.trim() !== ""
+              && packed.trim() !== ""
+              && Number.isFinite(availableNumber)
+              && Number.isFinite(packedNumber)
+              && availableNumber >= targetQuantity
+              && packedNumber >= targetQuantity
+              && packedNumber <= availableNumber;
             const shortage = available !== "" && packed !== "" && Number(packed) < targetQuantity;
             return (
               <Card key={c.id} className="overflow-hidden">
@@ -250,7 +260,7 @@ export default function FarmerB2bPreparationPage() {
                     : `Short by ${Math.max(0, required - Number(packed)).toLocaleString("en-IN")} kg. You cannot mark this delivery ready until the full required quantity is packed. Report a shortage below if you cannot fulfil it.`}</span></div>}
                   <div className="space-y-1"><label className="text-sm font-medium">Preparation note / shortage reason</label><Input value={notes[c.id] || ""} onChange={(e) => setNotes(old => ({ ...old, [c.id]: e.target.value }))} placeholder="Optional note, or explain why the required quantity is unavailable" /></div>
                   <div className="flex flex-wrap gap-2">
-                    <Button disabled={stockMutation.isPending} onClick={() => prepare(c, true)}><PackageCheck className="mr-2 h-4 w-4" />{stockMutation.isPending ? "Saving…" : delivery.isApprovedPartial ? `Confirm ${targetQuantity} kg packed & ready for pickup` : "Confirm packed & ready for pickup"}</Button>
+                    <Button disabled={stockMutation.isPending || !pickupQuantitiesReady} onClick={() => prepare(c, true)}><PackageCheck className="mr-2 h-4 w-4" />{stockMutation.isPending ? "Saving…" : delivery.isApprovedPartial ? `Confirm ${targetQuantity} kg packed & ready for pickup` : "Confirm packed & ready for pickup"}</Button>
                     <Button variant="outline" disabled={stockMutation.isPending} onClick={() => prepare(c, false)}><AlertTriangle className="mr-2 h-4 w-4" />Report shortage</Button>
                   </div>
                   <p className="text-xs text-slate-500">The quantities and readiness are sent to the backend. This page does not create a mock preview or pretend an unsaved change was saved.</p>
