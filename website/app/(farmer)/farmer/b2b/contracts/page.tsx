@@ -168,13 +168,19 @@ export default function FarmerB2bContractsPage() {
     c.deliveryHistory?.find((delivery) => delivery.scheduledDate === targetScheduleDate(c));
   const requiredQuantity = (c: Contract) => {
     const confirmation = confirmationForTargetDate(c);
-    if (
-      confirmation?.approvedQuantityKg != null
-      && ["partial", "replacement_supplier"].includes(String(confirmation.resolution || "").toLowerCase())
-      && Number(confirmation.approvedQuantityKg) > 0
-    ) {
-      return Number(confirmation.approvedQuantityKg);
-    }
+    const resolution = String(confirmation?.resolution || "").toLowerCase();
+    const status = String(confirmation?.status || "").toLowerCase();
+    const approvedQuantity = Number(confirmation?.approvedQuantityKg || 0);
+    // The business API persists resolution="partial" with status
+    // "partial_approved". Keep the approved amount as the pickup target for
+    // both legacy and current status shapes.
+    const isBusinessApprovedPartial =
+      approvedQuantity > 0
+      && (
+        ["partial", "replacement_supplier"].includes(resolution)
+        || ["partial_approved", "replacement_assigned"].includes(status)
+      );
+    if (isBusinessApprovedPartial) return approvedQuantity;
     return Number(confirmation?.requestedQuantityKg ?? c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
   };
   const plannedPickupDeadline = (c: Contract) => {
@@ -392,7 +398,36 @@ export default function FarmerB2bContractsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {contracts.map((c) => (
+          {contracts.map((c) => {
+            const targetQuantity = requiredQuantity(c);
+            const availableRaw = availableQty[c.id] ?? "";
+            const packedRaw = packedQty[c.id] ?? "";
+            const available = Number(availableRaw);
+            const packed = Number(packedRaw);
+            const hasEnteredQuantities = availableRaw.trim() !== "" && packedRaw.trim() !== "";
+            const validQuantities =
+              hasEnteredQuantities
+              && Number.isFinite(available)
+              && Number.isFinite(packed)
+              && available >= 0
+              && packed >= 0
+              && packed <= available
+              && targetQuantity > 0;
+            const isShortOnRequiredQuantity =
+              validQuantities && (available < targetQuantity || packed < targetQuantity);
+            const isReadyForPickup =
+              validQuantities
+              && available >= targetQuantity
+              && packed >= targetQuantity
+              && packed > 0;
+            const confirmation = confirmationForTargetDate(c);
+            const hasApprovedPartial =
+              Number(confirmation?.approvedQuantityKg || 0) > 0
+              && (
+                ["partial", "replacement_supplier"].includes(String(confirmation?.resolution || "").toLowerCase())
+                || ["partial_approved", "replacement_assigned"].includes(String(confirmation?.status || "").toLowerCase())
+              );
+            return (
             <Card key={c.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
                 <div className="flex min-w-0 items-center gap-3">
@@ -424,7 +459,8 @@ export default function FarmerB2bContractsPage() {
                       <PackageCheck className="h-4 w-4" /> Confirm stock for next delivery
                     </p>
                     <p className="mb-2 text-xs text-slate-600">
-                      Product: <strong>{c.cropName}</strong> · Required for this delivery: <strong>{requiredQuantity(c)} kg</strong>.
+                      Product: <strong>{c.cropName}</strong> · {hasApprovedPartial ? "Business-approved pickup quantity" : "Required for this delivery"}: <strong>{targetQuantity} kg</strong>.
+                      {hasApprovedPartial && <span> Original scheduled quantity: {Number(confirmation?.requestedQuantityKg ?? c.quantityPerDeliveryKg ?? 0)} kg.</span>}
                       Delivery date: {targetScheduleDate(c) ? new Date(targetScheduleDate(c) + "T00:00:00").toLocaleDateString("en-IN") : "date pending"}.
                       {c.pendingRescheduledDeliveryDate ? " (rescheduled occurrence — confirm stock for this date)" : ""}
                     </p>
@@ -452,14 +488,14 @@ export default function FarmerB2bContractsPage() {
                       />
                       <input
                         className="min-w-40 flex-1 rounded-md border bg-white px-3 py-2 text-sm"
-                        placeholder="Optional note"
+                        placeholder="Shortage reason (required when short)"
                         value={stockNotes[c.id] ?? ""}
                         onChange={(e) => setStockNotes((prev) => ({ ...prev, [c.id]: e.target.value }))}
                       />
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={stockMutation.isPending}
+                        disabled={stockMutation.isPending || !isShortOnRequiredQuantity}
                         onClick={() => validateStock(c, false)}
                       >
                         {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <AlertTriangle className="mr-1 h-4 w-4" />}
@@ -467,7 +503,7 @@ export default function FarmerB2bContractsPage() {
                       </Button>
                       <Button
                         size="sm"
-                        disabled={stockMutation.isPending}
+                        disabled={stockMutation.isPending || !isReadyForPickup}
                         onClick={() => validateStock(c, true)}
                       >
                         {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-1 h-4 w-4" />}
@@ -496,7 +532,8 @@ export default function FarmerB2bContractsPage() {
                 )}
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
       </section>
