@@ -334,6 +334,7 @@ export default function FarmerB2bRfqsPage() {
               <p className="text-lg font-semibold">{r.productName}</p>
               {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
               {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
+              {r.replacementSourcingOpen ? <Badge variant="success">Replacement quote requested</Badge> : null}
             </div>
             <p className="mt-1 text-sm text-gray-700">
               {r.recurring
@@ -380,9 +381,15 @@ export default function FarmerB2bRfqsPage() {
                     <p className="text-sm text-slate-700">{r.cancellationTerms}</p>
                   </div>
                 ) : null}
-                <p className="mt-3 text-xs leading-5 text-emerald-800">
-                  This is a repeating supply request, not a single order. If the business accepts your quote, the contract still needs your acceptance before scheduled deliveries can be generated.
-                </p>
+                {r.replacementSourcingOpen ? (
+                  <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                    This recurring RFQ has already been awarded. The business is requesting a replacement quote for a specific delivery; submitting or updating your quote does not create a normal second contract. The business will compare your quote and current stock before selecting a replacement supplier.
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs leading-5 text-emerald-800">
+                    This is a repeating supply request, not a single order. If the business accepts your quote, the contract still needs your acceptance before scheduled deliveries can be generated.
+                  </p>
+                )}
               </div>
             ) : null}
             <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-500">
