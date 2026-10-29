@@ -5919,8 +5919,14 @@ async def request_replacement_sourcing(
         if not farmer_user_id or farmer_user_id == str(contract.get("farmerId")):
             continue
         farmer_doc = await farmer_repository.get_by_user_id(farmer_user_id)
-        distance = _distance_km(farmer_doc, source_rfq) if farmer_doc else None
-        if not _visibility_match(source_rfq, farmer_doc, distance):
+        if not farmer_doc and ObjectId.is_valid(farmer_user_id):
+            farmer_doc = await farmer_repository.find_one({"userId": ObjectId(farmer_user_id)})
+        # Missing profile/location fields should not crash the whole sourcing
+        # request; the visibility helper is deliberately permissive when location
+        # data cannot prove that a farmer is outside the RFQ's target area.
+        farmer_context = farmer_doc or {}
+        distance = _distance_km(farmer_context, source_rfq)
+        if not _visibility_match(source_rfq, farmer_context, distance):
             continue
         try:
             await NotificationService.create_in_app_notification(
