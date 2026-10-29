@@ -459,7 +459,12 @@ async def _live_offer_available_quantity(offer: Dict[str, Any], product_name: st
                 continue
             current_stock = await InventoryService.get_available_stock(product_id)
             total += max(0.0, float(current_stock or 0))
-        return round(total, 2)
+        # Some older quotes contain stale or incomplete allocation product IDs.
+        # If none of those allocations resolve to usable stock, fall through to
+        # the farmer's current active products for the same crop instead of
+        # incorrectly reporting zero merely because the quote allocation is stale.
+        if total > 0:
+            return round(total, 2)
 
     farmer_id = str(offer.get("farmerId") or "").strip()
     if not farmer_id:
