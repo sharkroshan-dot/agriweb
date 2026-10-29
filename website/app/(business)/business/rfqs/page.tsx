@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock } from "lucide-react";
 import { api } from "../../../lib/api/client";
@@ -55,10 +54,18 @@ export default function BusinessRfqsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
-  const searchParams = useSearchParams();
-  const requestedRfqId = searchParams.get("rfqId");
-  const replacementContractId = searchParams.get("replacementContractId");
-  const replacementScheduledDate = searchParams.get("scheduledDate");
+  const [replacementRoute, setReplacementRoute] = useState<{ rfqId: string; contractId: string; scheduledDate: string } | null>(null);
+  useEffect(() => {
+    // Parse replacement deep links on the client after hydration.
+    const params = new URLSearchParams(window.location.search);
+    const rfqId = params.get("rfqId");
+    const contractId = params.get("replacementContractId");
+    const scheduledDate = params.get("scheduledDate");
+    if (rfqId && contractId && scheduledDate) setReplacementRoute({ rfqId, contractId, scheduledDate });
+  }, []);
+  const requestedRfqId = replacementRoute?.rfqId ?? null;
+  const replacementContractId = replacementRoute?.contractId ?? null;
+  const replacementScheduledDate = replacementRoute?.scheduledDate ?? null;
   const replacementContextActive = Boolean(requestedRfqId && replacementContractId && replacementScheduledDate);
 
   const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
