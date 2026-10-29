@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck } from "lucide-react";
+import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -239,6 +239,34 @@ export default function BusinessOrdersPage() {
     refetchOnWindowFocus: true,
   });
 
+  const { data: contractsData } = useQuery({
+    queryKey: ["businessContracts"],
+    queryFn: () => api.get("/b2b/contracts"),
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    retry: 1,
+  });
+
+  const shortageReports = (contractsData?.data?.contracts || contractsData?.data || [])
+    .flatMap((contract: any) => {
+      const contractId = String(contract.id || contract._id || "");
+      const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
+      return history
+        .filter((delivery: any) => ["shortage", "backup_required"].includes(String(delivery.status || "").toLowerCase()))
+        .map((delivery: any) => ({
+          contractId,
+          contractNumber: contract.contractNumber || contractId,
+          farmerName: contract.farmerName || "Contract farmer",
+          cropName: contract.cropName || "Produce",
+          scheduledDate: String(delivery.scheduledDate || ""),
+          requestedQuantityKg: Number(delivery.requestedQuantityKg || contract.quantityPerDeliveryKg || 0),
+          availableQuantityKg: Number(delivery.availableQuantityKg || 0),
+          packedQuantityKg: Number(delivery.packedQuantityKg || 0),
+          notes: delivery.notes || delivery.shortageReason || "",
+        }));
+    })
+    .sort((a: any, b: any) => a.scheduledDate.localeCompare(b.scheduledDate));
+
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/orders/${id}/status`, payload),
     onSuccess: (res: any) => {
@@ -285,6 +313,38 @@ export default function BusinessOrdersPage() {
           ))}
         </div>
       </div>
+
+      {shortageReports.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/60">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div>
+                <h2 className="font-semibold text-amber-950">Recurring delivery shortage reports ({shortageReports.length})</h2>
+                <p className="text-sm text-amber-900">A farmer has reported that a scheduled contract delivery may be short. Review the affected date and arrange a resolution.</p>
+              </div>
+            </div>
+            {shortageReports.map((report: any) => (
+              <div key={report.contractId + ":" + report.scheduledDate} className="rounded-lg border border-amber-200 bg-white p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{report.cropName} · {report.contractNumber}</p>
+                      <Badge variant="warning">Shortage needs decision</Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">Farmer: {report.farmerName} · Delivery date: {report.scheduledDate || "Not specified"}</p>
+                    <p className="text-sm text-slate-700">Required: {report.requestedQuantityKg} kg · Available: {report.availableQuantityKg} kg · Packed: {report.packedQuantityKg} kg · Potential shortage: {Math.max(0, report.requestedQuantityKg - Math.min(report.availableQuantityKg, report.packedQuantityKg))} kg</p>
+                    {report.notes ? <p className="mt-1 text-sm text-slate-600">Farmer note: {report.notes}</p> : null}
+                  </div>
+                  <Button size="sm" onClick={() => window.location.assign("/business/contracts?replacementContractId=" + encodeURIComponent(report.contractId) + "&scheduledDate=" + encodeURIComponent(report.scheduledDate))}>
+                    Review &amp; resolve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {orders.length === 0 ? (
         <Card>
