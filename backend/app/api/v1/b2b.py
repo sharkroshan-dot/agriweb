@@ -301,14 +301,53 @@ async def _geocode_indian_district(district: str) -> Optional[Tuple[float, float
         logger.warning("B2B district geocoding failed for %s: %s", district, exc)
         return None
 
+def _b2b_location_district_candidates(doc: Optional[Dict[str, Any]]) -> List[str]:
+    """Collect district/city labels from legacy farmer and RFQ address shapes."""
+    if not isinstance(doc, dict):
+        return []
+    values: List[str] = []
+    for key in ("district", "districtName", "city", "town", "village", "taluk", "addressLine", "address", "formattedAddress"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    for key in ("location", "farmLocation", "deliveryLocation", "businessAddress", "addressDetails", "businessInfo"):
+        value = doc.get(key)
+        if isinstance(value, dict):
+            values.extend(_b2b_location_district_candidates(value))
+        elif isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    return values
+
+
+async def _recover_b2b_location_coords(doc: Optional[Dict[str, Any]]) -> Optional[Tuple[float, float]]:
+    """Use a district/city-centre fallback only when precise GPS is absent."""
+    coords = _location_coords_from_doc(doc or {})
+    if coords:
+        return coords
+    for label in _b2b_location_district_candidates(doc):
+        # Prefer a known Tamil Nadu district-centre mapping, then a validated
+        # geocoder result. Never fabricate coordinates from an arbitrary address.
+        coords = _fallback_tamil_nadu_district_coords(label)
+        if not coords:
+            coords = await _geocode_indian_district(label)
+        if coords:
+            return coords
+    return None
+
+
 async def _warehouse_route_for_b2b(
     farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Select nearest active source/destination warehouses and price each route leg."""
-    farm_coords = _location_coords_from_doc(farmer or {})
-    buyer_coords = _location_coords_from_doc({"location": rfq.get("deliveryLocation")}) or _location_coords_from_doc(rfq)
+    farm_coords = await _recover_b2b_location_coords(farmer or {})
+    buyer_doc = dict(rfq)
+    if isinstance(rfq.get("deliveryLocation"), dict):
+        buyer_doc["location"] = rfq.get("deliveryLocation")
+    farm_coords = farm_coords or await _recover_b2b_location_coords(farmer or {})
+    buyer_coords = await _recover_b2b_location_coords(buyer_doc)
     if not farm_coords or not buyer_coords:
-        return {"available": False, "reason": "Farm or business delivery coordinates are missing."}
+        missing = "farm" if not farm_coords else "business"
+        return {"available": False, "reason": f"{missing.capitalize()} coordinates and a recognized district/city fallback are missing."}
 
     warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
     candidates = []
