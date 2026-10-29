@@ -77,6 +77,7 @@ interface ReplacementOffer {
   ineligibleReason?: string | null;
   pricePerKg: number;
   status: string;
+  quoteType?: "current" | "previously_submitted";
   stockCheckedAt?: string;
 }
 
