@@ -69,6 +69,11 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
 
+  // The RFQ form now stores product names in productLines, not form.productName.
+  // Use the first entered product for the shared AI price/budget recommendation.
+  const priceCheckProductName =
+    productLines.find((line) => line.productName.trim())?.productName.trim() || "";
+
   const geocodeManualAddress = async () => {
     const query = form.deliveryAddress.trim();
     if (!query) {
@@ -362,14 +367,21 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <Input value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Quality requirements, packaging, etc." />
         </div>
 
-        {form.productName.trim() && (
+        {priceCheckProductName && (
           <div className="sm:col-span-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
               disabled={aiMutation.isPending}
-              onClick={() => aiMutation.mutate({ productName: form.productName.trim(), city: form.deliveryCity.trim() || undefined, qualityGrade: form.qualityGrade || undefined })}
+              onClick={() => {
+                setAiRec(null);
+                aiMutation.mutate({
+                  productName: priceCheckProductName,
+                  city: form.deliveryCity.trim() || form.deliveryDistrict.trim() || undefined,
+                  qualityGrade: form.qualityGrade || undefined,
+                });
+              }}
             >
               {aiMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Bot className="mr-1.5 h-4 w-4" />}
               AI price check
