@@ -5409,6 +5409,7 @@ class DeliveryShortageResolution(BaseModel):
     newDeliveryDate: Optional[datetime] = None
     approvedQuantityKg: Optional[float] = Field(None, gt=0)
     replacementOfferId: Optional[str] = None
+    replacementMode: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -5447,6 +5448,11 @@ async def confirm_contract_delivery_stock(
         raise HTTPException(status_code=409, detail="This date is not an open scheduled delivery for the contract")
     confirmations = dict(contract.get("deliveryConfirmations") or {})
     existing_confirmation = dict(confirmations.get(schedule_key) or {})
+    if str(existing_confirmation.get("resolution") or "").lower() == "replacement_supplier_full":
+        raise HTTPException(
+            status_code=409,
+            detail="This scheduled delivery was reassigned to another farmer. You must not pack or deliver it.",
+        )
     requested = float(
         existing_confirmation.get("requestedQuantityKg")
         or contract.get("quantityPerDeliveryKg")
@@ -6154,13 +6160,16 @@ async def resolve_contract_delivery_shortage(
         requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
         packed = float(confirmation.get("packedQuantityKg") or 0)
+        replacement_mode = str(data.replacementMode or "shortage").strip().lower()
+        if replacement_mode not in ("shortage", "full"):
+            raise HTTPException(status_code=400, detail="replacementMode must be 'shortage' or 'full'")
         approved_ceiling = (
             float(confirmation.get("approvedQuantityKg"))
             if confirmation.get("approvedQuantityKg") is not None
             else min(available, packed)
         )
-        original_approved = min(approved_ceiling, available, packed)
-        missing = max(0.0, requested - original_approved)
+        original_approved = 0.0 if replacement_mode == "full" else min(approved_ceiling, available, packed)
+        missing = requested if replacement_mode == "full" else max(0.0, requested - original_approved)
         if missing <= 0:
             raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
         # Recheck stock at assignment time. Quote quantities are snapshots and
@@ -6241,18 +6250,70 @@ async def resolve_contract_delivery_shortage(
                 status_code=409,
                 detail="This replacement quote was accepted or changed by another request. Refresh the live stock and quote list.",
             )
+        cancelled_original_order_id = None
+        if replacement_mode == "full":
+            # Full replacement means the original farmer must not also deliver
+            # the same occurrence. Cancel any original order already created and
+            # remove its unassigned pickup route from the claimable queue.
+            original_order = await db["b2b_orders"].find_one({
+                "contractId": oid,
+                "scheduledDeliveryDate": schedule_key,
+                "farmerId": contract.get("farmerId"),
+                "isReplacementSupply": {"$ne": True},
+                "deletedAt": None,
+                "status": {"$ne": ORDER_CANCELLED},
+            })
+            if original_order:
+                cancelled_original_order_id = str(original_order.get("_id"))
+                history = list(original_order.get("statusHistory") or [])
+                history.append({
+                    "status": ORDER_CANCELLED,
+                    "previousStatus": original_order.get("status"),
+                    "actorRole": "business",
+                    "actorId": str(current_user["_id"]),
+                    "details": f"Reassigned in full to replacement farmer for scheduled delivery {schedule_key}; do not deliver.",
+                    "timestamp": now,
+                })
+                await db["b2b_orders"].update_one(
+                    {"_id": original_order["_id"]},
+                    {"$set": {
+                        "status": ORDER_CANCELLED,
+                        "cancelledAt": now,
+                        "cancelReason": "Full replacement farmer assignment",
+                        "replacementFulfilledByOther": True,
+                        "replacementOrderId": str(inserted.inserted_id),
+                        "updatedAt": now,
+                        "statusHistory": history,
+                    }},
+                )
+                try:
+                    await db["warehouse_pickup_routes"].update_many(
+                        {"b2bOrderId": str(original_order["_id"]), "deletedAt": None},
+                        {"$set": {"status": "cancelled", "updatedAt": now, "cancelReason": "Order fully reassigned to replacement farmer"}},
+                    )
+                except Exception as exc:
+                    logger.warning("Could not close original pickup route %s after full replacement: %s", original_order.get("orderNumber"), exc)
+            confirmation.update({
+                "status": "replacement_assigned",
+                "approvedQuantityKg": 0.0,
+                "readyForPickup": False,
+                "resolution": "replacement_supplier_full",
+                "originalOrderCancelledId": cancelled_original_order_id,
+            })
+        else:
+            confirmation.update({
+                "status": "replacement_assigned", "approvedQuantityKg": original_approved,
+                # For a shortage-only replacement, the original farmer keeps
+                # their approved share and can prepare it independently.
+                "readyForPickup": bool(
+                    confirmation.get("readyForPickup")
+                    and original_approved > 0
+                    and available >= original_approved
+                    and packed >= original_approved
+                ),
+                "resolution": "replacement_supplier",
+            })
         confirmation.update({
-            "status": "replacement_assigned", "approvedQuantityKg": original_approved,
-            # The original farmer must explicitly confirm ready after the split
-            # is accepted; the replacement order does not implicitly ready the
-            # original farmer's separate order.
-            "readyForPickup": bool(
-                confirmation.get("readyForPickup")
-                and original_approved > 0
-                and available >= original_approved
-                and packed >= original_approved
-            ),
-            "resolution": "replacement_supplier",
             "resolutionNotes": data.notes, "replacementOfferId": str(replacement_offer_id),
             "replacementFarmerId": replacement_farmer_id, "replacementOrderId": str(inserted.inserted_id),
             "replacementQuantityKg": missing, "resolvedAt": now,
@@ -6308,9 +6369,26 @@ async def resolve_contract_delivery_shortage(
             )
         except Exception as exc:
             logger.warning("Replacement farmer notification failed for order %s: %s", inserted.inserted_id, exc)
-        return {"success": True, "data": {"status": "replacement_assigned", "scheduledDeliveryDate": schedule_key,
-            "replacementOrderId": str(inserted.inserted_id), "replacementQuantityKg": missing},
-            "message": f"Replacement order created for {missing:g} kg. It will follow the existing B2B warehouse fulfillment workflow."}
+        if replacement_mode == "full":
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(contract.get("farmerId")),
+                    NotificationType.ORDER,
+                    "Do not deliver — this occurrence was reassigned",
+                    f"The business assigned the full {requested:g} kg of {contract.get('cropName') or 'produce'} for {schedule_key} to another farmer. Do not pack, hand over, or deliver this scheduled occurrence. Your original order was cancelled if it had already been created. This change applies only to this delivery date; future contract deliveries remain unchanged.",
+                    {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "replacement_assigned_full", "replacementOrderId": str(inserted.inserted_id)},
+                    NotificationPriority.HIGH,
+                )
+            except Exception as exc:
+                logger.warning("Original farmer full-replacement notification failed for contract %s: %s", oid, exc)
+        return {"success": True, "data": {"status": "replacement_assigned", "mode": replacement_mode, "scheduledDeliveryDate": schedule_key,
+            "replacementOrderId": str(inserted.inserted_id), "replacementQuantityKg": missing,
+            "originalFarmerQuantityKg": original_approved, "originalOrderCancelledId": cancelled_original_order_id},
+            "message": (
+                f"Full replacement assigned for {missing:g} kg. The original farmer was notified not to deliver this occurrence."
+                if replacement_mode == "full" else
+                f"Replacement order created for the {missing:g} kg shortage. The original farmer can still deliver the approved {original_approved:g} kg share."
+            )}
     if action == "backup_required":
         confirmation.update({"status": "backup_required", "resolution": "backup_required",
                              "resolutionNotes": data.notes, "resolvedAt": now})
