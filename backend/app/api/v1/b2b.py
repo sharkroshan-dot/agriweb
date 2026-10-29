@@ -653,6 +653,36 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         except Exception:
             farmer_user = None
 
+        # Repository helpers can filter out legacy records (for example, records
+        # without deletedAt) or use a different ID type. Query the underlying
+        # collections directly as a final location-only recovery path.
+        db = MongoDB.db
+        if db is not None:
+            direct_queries: List[Dict[str, Any]] = []
+            if ObjectId.is_valid(farmer_id):
+                farmer_oid = ObjectId(farmer_id)
+                direct_queries.extend([
+                    {"userId": farmer_oid}, {"userId": farmer_id},
+                    {"user_id": farmer_oid}, {"user_id": farmer_id},
+                    {"_id": farmer_oid},
+                ])
+            else:
+                direct_queries.extend([{"userId": farmer_id}, {"user_id": farmer_id}])
+            for collection_name in ("farmer_profiles", "farmers"):
+                try:
+                    collection = db[collection_name]
+                    for query in direct_queries:
+                        direct_record = await collection.find_one(query)
+                        if direct_record:
+                            if collection_name == "farmer_profiles" and farmer_profile is None:
+                                farmer_profile = direct_record
+                            elif collection_name == "farmers" and farmer is None:
+                                farmer = direct_record
+                            # Stop searching a collection after finding the matching farmer.
+                            break
+                except Exception as exc:
+                    logger.warning("Direct B2B farmer location lookup failed in %s: %s", collection_name, exc)
+
     # Merge all available registered location sources; the order still belongs
     # to the selected quote farmer. Preserve non-empty values from each source.
     farmer_location: Dict[str, Any] = {}
@@ -664,7 +694,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
                 ):
                     farmer_location[key] = value
     # Flatten common legacy nested address objects for the coordinate resolver.
-    for nested_key in ("profile", "user", "addressDetails", "farm", "farmDetails", "farmAddress", "farmerAddress", "location", "farmLocation"):
+    for nested_key in ("profile", "user", "addressDetails", "farm", "farmDetails", "farmAddress", "farmerAddress", "location", "farmLocation", "address", "contactInfo", "personalInfo"):
         nested = farmer_location.get(nested_key)
         if isinstance(nested, dict):
             for key, value in nested.items():
@@ -672,6 +702,18 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
                     key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
                 ):
                     farmer_location[key] = value
+    # Some farmer profiles store the address as a list of structured address
+    # records rather than a single object.
+    for list_key in ("addresses", "farmAddresses"):
+        entries = farmer_location.get(list_key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    for key, value in entry.items():
+                        if value not in (None, "", {}, []) and (
+                            key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
+                        ):
+                            farmer_location[key] = value
 
     # Some RFQ quote snapshots already carry the farmer's address/location.
     for key in ("farmLocation", "farmerLocation", "farmerAddress", "farmAddress", "location", "address", "district", "districtName", "city", "town", "village", "taluk", "coordinates", "latitude", "longitude", "lat", "lng"):
