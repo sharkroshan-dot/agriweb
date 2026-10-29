@@ -614,32 +614,64 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
     # some older quotes store a farmer document id while newer ones store userId.
     farmer_id = str(offer.get("farmerId") or "")
     farmer = None
+    farmer_profile = None
+    farmer_user = None
     if farmer_id:
-        farmer = await farmer_repository.find_one({"userId": farmer_id})
-        if not farmer and ObjectId.is_valid(farmer_id):
-            farmer = await farmer_repository.find_one({"userId": ObjectId(farmer_id)})
-        if not farmer and ObjectId.is_valid(farmer_id):
-            farmer = await farmer_repository.find_one({"_id": ObjectId(farmer_id)})
-        if not farmer:
-            farmer = await farmer_profile_repo.find_one({"userId": farmer_id})
-        if not farmer and ObjectId.is_valid(farmer_id):
-            farmer = await farmer_profile_repo.find_one({"userId": ObjectId(farmer_id)})
-        if not farmer and ObjectId.is_valid(farmer_id):
-            farmer = await farmer_profile_repo.find_one({"_id": ObjectId(farmer_id)})
+        id_variants: List[Any] = [farmer_id]
+        if ObjectId.is_valid(farmer_id):
+            id_variants.append(ObjectId(farmer_id))
+        # Older RFQs are inconsistent about whether farmerId is a user id or
+        # a farmer-profile document id. Try both collections and both id shapes.
+        for query in (
+            {"userId": {"$in": id_variants}},
+            {"user_id": {"$in": id_variants}},
+            {"_id": ObjectId(farmer_id)} if ObjectId.is_valid(farmer_id) else {"_id": None},
+        ):
+            if farmer is None:
+                farmer = await farmer_repository.find_one(query)
+            if farmer_profile is None:
+                farmer_profile = await farmer_profile_repo.find_one(query)
+        if farmer is None and hasattr(farmer_repository, "get_by_user_id"):
+            try:
+                farmer = await farmer_repository.get_by_user_id(farmer_id)
+            except Exception:
+                farmer = None
+        if farmer_profile is None:
+            # Last-resort matching covers legacy records whose user id is stored
+            # as a nested object or under a differently named field.
+            try:
+                profiles = await farmer_profile_repo.find_many({"deletedAt": None}, limit=1000) or []
+                farmer_profile = next((
+                    item for item in profiles
+                    if str(item.get("userId") or item.get("user_id") or item.get("user") or "") == farmer_id
+                    or str((item.get("user") or {}).get("_id") or "") == farmer_id
+                ), None)
+            except Exception as exc:
+                logger.warning("Could not scan legacy farmer profiles for route location: %s", exc)
+        try:
+            farmer_user = await user_repository.get_by_id(farmer_id)
+        except Exception:
+            farmer_user = None
 
-    # Merge location-bearing profile data instead of letting an incomplete farmer
-    # record hide the registered farm address. The source documents are only used
-    # for routing; the actual order still belongs to the selected offer farmer.
-    farmer_location = dict(farmer or {})
-    for profile_repo_candidate in (farmer_profile_repo,):
-        if farmer_id:
-            profile = await profile_repo_candidate.find_one({"userId": farmer_id})
-            if not profile and ObjectId.is_valid(farmer_id):
-                profile = await profile_repo_candidate.find_one({"userId": ObjectId(farmer_id)})
-            if profile:
-                for key, value in profile.items():
-                    if key not in farmer_location or farmer_location.get(key) in (None, "", {}, []):
-                        farmer_location[key] = value
+    # Merge all available registered location sources; the order still belongs
+    # to the selected quote farmer. Preserve non-empty values from each source.
+    farmer_location: Dict[str, Any] = {}
+    for source in (farmer_user, farmer_profile, farmer):
+        if isinstance(source, dict):
+            for key, value in source.items():
+                if value not in (None, "", {}, []) and (
+                    key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
+                ):
+                    farmer_location[key] = value
+    # Flatten common legacy nested address objects for the coordinate resolver.
+    for nested_key in ("profile", "user", "addressDetails", "farm", "farmDetails", "farmAddress", "farmerAddress", "location", "farmLocation"):
+        nested = farmer_location.get(nested_key)
+        if isinstance(nested, dict):
+            for key, value in nested.items():
+                if value not in (None, "", {}, []) and (
+                    key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
+                ):
+                    farmer_location[key] = value
 
     # Some RFQ quote snapshots already carry the farmer's address/location.
     for key in ("farmLocation", "farmerLocation", "farmerAddress", "farmAddress", "location", "address", "district", "districtName", "city", "town", "village", "taluk", "coordinates", "latitude", "longitude", "lat", "lng"):
