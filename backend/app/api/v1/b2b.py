@@ -5758,12 +5758,11 @@ async def list_contract_replacement_offers(
     if not source_rfq:
         raise HTTPException(status_code=404, detail="The originating RFQ for this contract could not be found")
 
-    # Recurring RFQ award automatically declines the losing bids. They remain
-    # valid historical quotes and are replacement candidates while still not
-    # accepted as another purchase.
-    can_reuse_award_declined_quotes = bool(
-        source_rfq.get("recurring")
-        and str(source_rfq.get("status") or "").lower() == str(RFQ_AWARDED).lower()
+    # Awarding an RFQ commonly marks losing bids as declined. Those quotes
+    # remain valid historical offers for replacement sourcing on the SAME RFQ,
+    # for one-off and recurring procurement. Never reuse accepted quotes.
+    can_reuse_award_declined_quotes = (
+        str(source_rfq.get("status") or "").lower() == str(RFQ_AWARDED).lower()
     )
     offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=500) or []
     result = []
