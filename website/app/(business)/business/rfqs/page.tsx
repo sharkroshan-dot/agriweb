@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Loader2, Plus, RefreshCw, CheckCircle, Star, ShieldCheck, AlertTriangle, CalendarDays, MapPin, Truck, Bot, ShoppingBag, PackageSearch, Clock } from "lucide-react";
 import { api } from "../../../lib/api/client";
@@ -54,6 +55,11 @@ export default function BusinessRfqsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"one-off" | "recurring">("one-off");
+  const searchParams = useSearchParams();
+  const requestedRfqId = searchParams.get("rfqId");
+  const replacementContractId = searchParams.get("replacementContractId");
+  const replacementScheduledDate = searchParams.get("scheduledDate");
+  const replacementContextActive = Boolean(requestedRfqId && replacementContractId && replacementScheduledDate);
 
   const { data: rfqData, isLoading, isError, error, refetch } = useQuery({
     // Load the complete RFQ list once; status tabs filter it locally so each
@@ -67,6 +73,28 @@ export default function BusinessRfqsPage() {
     queryFn: () => api.get(`/b2b/rfqs/${expandedRfq}/offers`),
     enabled: Boolean(expandedRfq),
   });
+
+  const rawRfqs = rfqData?.data?.rfqs ?? rfqData?.rfqs ?? rfqData?.data?.data?.rfqs ?? [];
+  const allRfqs = Array.isArray(rawRfqs) ? rawRfqs : [];
+  const requestedReplacementRfq = allRfqs.find((rfq: any) => String(rfq.id) === String(requestedRfqId));
+
+  useEffect(() => {
+    if (!requestedRfqId || isLoading || allRfqs.length === 0) return;
+    const target = allRfqs.find((rfq: any) => String(rfq.id) === String(requestedRfqId));
+    if (!target) {
+      toast.error("The requested RFQ was not found in your business RFQ list. Return to the supply contract and refresh.");
+      return;
+    }
+    setStatusFilter("");
+    setSearch("");
+    setView(target.recurring ? "recurring" : "one-off");
+    setExpandedRfq(String(target.id));
+  }, [requestedRfqId, isLoading, allRfqs]);
+
+  const isReplacementSourcingRfq = (rfq: any) =>
+    replacementContextActive
+    && String(rfq.id) === String(requestedRfqId)
+    && Boolean(rfq.replacementSourcingOpen);
 
   if (isLoading) {
     return (
@@ -92,8 +120,6 @@ export default function BusinessRfqsPage() {
     );
   }
 
-  const rawRfqs = rfqData?.data?.rfqs ?? rfqData?.rfqs ?? rfqData?.data?.data?.rfqs ?? [];
-  const allRfqs = Array.isArray(rawRfqs) ? rawRfqs : [];
   const rfqs = allRfqs.filter((r: any) => {
     const matchesStatus =
       !statusFilter || String(r.status || "").toLowerCase() === statusFilter.toLowerCase();
@@ -149,6 +175,22 @@ export default function BusinessRfqsPage() {
           {showForm ? "Cancel" : "New RFQ"}
         </Button>
       </div>
+
+      {replacementContextActive && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="flex flex-wrap items-start justify-between gap-3 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-amber-950">Replacement sourcing · {requestedReplacementRfq?.rfqNumber || requestedRfqId}</p>
+              <p className="mt-1 text-sm text-amber-900">
+                Contract {replacementContractId} · scheduled delivery {replacementScheduledDate}. This awarded recurring RFQ is open only for replacement quote collection; do not accept quotes as a normal RFQ award. Review newly submitted and previously declined quotes, then return to the shortage panel to compare live stock and assign the missing quantity.
+              </p>
+            </div>
+            <Button size="sm" onClick={() => window.location.assign(`/business/contracts?replacementContractId=${encodeURIComponent(replacementContractId || "")}&scheduledDate=${encodeURIComponent(replacementScheduledDate || "")}`)}>
+              Return to shortage &amp; assign
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && <CreateRfqForm onDone={() => setShowForm(false)} />}
 
@@ -243,6 +285,7 @@ export default function BusinessRfqsPage() {
                     <Badge variant={statusVariant[String(r.status || "").toLowerCase()] || "secondary"}>
                       {({ open: "Open for quotes", awarded: "Awarded", closed: "Closed", cancelled: "Cancelled" } as Record<string, string>)[String(r.status || "").toLowerCase()] || String(r.status || "Unknown")}
                     </Badge>
+                    {isReplacementSourcingRfq(r) && <Badge variant="success">Replacement sourcing open</Badge>}
                   </div>
 
                   <div className="grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -317,7 +360,7 @@ export default function BusinessRfqsPage() {
                       <p className="py-4 text-center text-sm text-gray-400">No quotes yet — share the RFQ with your farmers.</p>
                     ) : (
                       <>
-                        {(() => {
+                        {!isReplacementSourcingRfq(r) && (() => {
                           const pendingOffers = rankOffers(r, offersData?.data?.offers || []).filter((offer: any) => String(offer.status).toLowerCase() === "pending");
                           const selected = pendingOffers.filter((offer: any) => Number(selectedQuantities[offer.id] || 0) > 0);
                           const required = Number(r.quantityKg ?? r.quantityPerWeekKg ?? 0);
@@ -488,8 +531,12 @@ export default function BusinessRfqsPage() {
                                 {o.message ? <p className="mt-1 text-xs text-gray-500">{o.message}</p> : null}
                               </div>
                               <div className="flex flex-col items-end gap-2">
-                                <Badge variant={o.status === "accepted" ? "success" : "secondary"}>{o.status}</Badge>
-                                {o.status === "pending" && (
+                                <Badge variant={o.status === "accepted" ? "success" : "secondary"}>
+                                   {isReplacementSourcingRfq(r) && String(o.status).toLowerCase() === "declined"
+                                     ? "Previously submitted · available for replacement review"
+                                     : o.status}
+                                 </Badge>
+                                {o.status === "pending" && !isReplacementSourcingRfq(r) && (
                                   <div className="flex flex-wrap items-center justify-end gap-2">
                                     <label className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-emerald-800">
                                       <input
