@@ -5868,6 +5868,24 @@ async def request_replacement_sourcing(
     if existing_replacement:
         raise HTTPException(status_code=409, detail="A replacement order already exists for this delivery; refresh the contract status")
 
+    already_open = bool(source_rfq.get("replacementSourcingOpen"))
+    open_contract_id = str(source_rfq.get("replacementSourcingContractId") or "")
+    open_schedule_date = str(source_rfq.get("replacementSourcingScheduledDate") or "")
+    if already_open and (open_contract_id != str(contract_id_obj) or open_schedule_date != schedule_key):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Replacement sourcing is already open for {open_schedule_date or 'another delivery'} on this RFQ. Resolve that request before opening another.",
+        )
+    if already_open and open_contract_id == str(contract_id_obj) and open_schedule_date == schedule_key:
+        return {"success": True, "data": {
+            "rfqId": str(rfq_id),
+            "rfqNumber": source_rfq.get("rfqNumber"),
+            "scheduledDate": schedule_key,
+            "notifiedFarmers": 0,
+            "replacementSourcingOpen": True,
+            "alreadyOpen": True,
+        }, "message": "Replacement sourcing is already open for this delivery. Use the same RFQ to review new and previously submitted quotes."}
+
     now = datetime.utcnow()
     await rfq_repo.update({"_id": rfq_id}, {
         "replacementSourcingOpen": True,
