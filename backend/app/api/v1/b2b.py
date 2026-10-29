@@ -530,6 +530,12 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
     rfq["businessUserId"] = str(rfq.get("businessUserId"))
     if rfq.get("businessProfileId"):
         rfq["businessProfileId"] = str(rfq["businessProfileId"])
+    # These linkage fields are stored as ObjectIds by replacement sourcing but
+    # are exposed to the farmer quote page as JSON-safe identifiers.
+    if rfq.get("replacementSourcingContractId"):
+        rfq["replacementSourcingContractId"] = str(rfq["replacementSourcingContractId"])
+    if rfq.get("replacementSourcingRequestedBy"):
+        rfq["replacementSourcingRequestedBy"] = str(rfq["replacementSourcingRequestedBy"])
     await _enrich_business_info(rfq)
     offer_count_filter = {"rfqId": rfq["_id"], "deletedAt": None}
     if not (rfq.get("recurring") and rfq.get("replacementSourcingOpen")):
