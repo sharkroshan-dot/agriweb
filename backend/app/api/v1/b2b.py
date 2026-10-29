@@ -531,11 +531,10 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
     if rfq.get("businessProfileId"):
         rfq["businessProfileId"] = str(rfq["businessProfileId"])
     await _enrich_business_info(rfq)
-    rfq["offerCount"] = await offer_repo.count({
-        "rfqId": rfq["_id"],
-        "status": {"$ne": OFFER_DECLINED},
-        "deletedAt": None,
-    })
+    offer_count_filter = {"rfqId": rfq["_id"], "deletedAt": None}
+    if not (rfq.get("recurring") and rfq.get("replacementSourcingOpen")):
+        offer_count_filter["status"] = {"$ne": OFFER_DECLINED}
+    rfq["offerCount"] = await offer_repo.count(offer_count_filter)
     rfq["remainingQuantityKg"] = round(max(0.0, _rfq_quantity(rfq) - float(rfq.get("acceptedQuantityKg") or 0)), 2)
     rfq["closingIn"] = _closing_in(rfq.get("deadline"))
     if rfq.get("rfqNumber") is None:
@@ -929,7 +928,10 @@ async def list_rfqs(
         # Match open status case-insensitively in MongoDB so legacy values like
         # "Open" / "OPEN" are included without fetching closed RFQs first.
         match = {
-            "status": {"$regex": f"^{RFQ_OPEN}$", "$options": "i"},
+            "$or": [
+                {"status": {"$regex": f"^{RFQ_OPEN}$", "$options": "i"}},
+                {"status": RFQ_AWARDED, "recurring": True, "replacementSourcingOpen": True},
+            ],
             "deletedAt": None,
         }
     else:
@@ -948,8 +950,15 @@ async def list_rfqs(
         if role == "farmer":
             # Farmers should only bid on open requests, but compare normalized
             # values so legacy records with OPEN/Open status remain visible.
-            if str(r.get("status") or "").strip().lower() != str(RFQ_OPEN).strip().lower():
+            rfq_status = str(r.get("status") or "").strip().lower()
+            is_replacement_sourcing = bool(
+                r.get("recurring")
+                and r.get("replacementSourcingOpen")
+                and rfq_status == str(RFQ_AWARDED).strip().lower()
+            )
+            if rfq_status != str(RFQ_OPEN).strip().lower() and not is_replacement_sourcing:
                 continue
+            r["replacementSourcingOpen"] = is_replacement_sourcing
             if farmer:
                 distance = _distance_km(farmer, r)
                 if not _visibility_match(r, farmer, distance):
@@ -958,9 +967,12 @@ async def list_rfqs(
                 supply = await _farmer_can_supply(str(current_user["_id"]), r.get("productName"))
                 r["canSupply"] = supply["canSupply"]
                 r["availableKg"] = supply["availableKg"]
+            # During replacement sourcing a declined original quote can be updated
+            # and resubmitted, so only an active quote should suppress the form.
             my = await offer_repo.find_one({
                 "rfqId": r["_id"],
                 "farmerId": ObjectId(current_user["_id"]),
+                "status": {"$ne": OFFER_DECLINED},
                 "deletedAt": None,
             })
             r["myOfferId"] = str(my["_id"]) if my else None
@@ -1030,8 +1042,33 @@ async def submit_offer(
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
     await _maybe_close_rfq(rfq)
-    if rfq.get("status") != RFQ_OPEN:
-        raise HTTPException(status_code=400, detail="RFQ is no longer open (deadline passed or already awarded)")
+    rfq_status = str(rfq.get("status") or "").strip().lower()
+    replacement_sourcing_open = bool(
+        rfq.get("recurring")
+        and rfq.get("replacementSourcingOpen")
+        and rfq_status == str(RFQ_AWARDED).strip().lower()
+    )
+    if rfq_status != str(RFQ_OPEN).strip().lower() and not replacement_sourcing_open:
+        raise HTTPException(status_code=400, detail="RFQ is no longer open for quotes")
+    if replacement_sourcing_open:
+        source_contract_id = rfq.get("replacementSourcingContractId")
+        source_date = str(rfq.get("replacementSourcingScheduledDate") or "")
+        source_contract = await contract_repo.find_one({
+            "_id": ObjectId(source_contract_id) if source_contract_id and ObjectId.is_valid(str(source_contract_id)) else None,
+            "rfqId": rfq["_id"],
+            "deletedAt": None,
+        }) if source_contract_id else None
+        source_confirmation = (
+            (source_contract or {}).get("deliveryConfirmations") or {}
+        ).get(source_date) if source_contract else None
+        if (
+            not source_contract
+            or source_contract.get("status") != "active"
+            or str(source_contract.get("farmerId")) == str(current_user["_id"])
+            or not source_confirmation
+            or str(source_confirmation.get("status") or "").lower() not in ("shortage", "backup_required", "partial_approved")
+        ):
+            raise HTTPException(status_code=409, detail="This replacement request has been resolved or is no longer available")
 
     if data.deliveryMethod and data.deliveryMethod not in DELIVERY_METHODS:
         raise HTTPException(status_code=400, detail="Invalid delivery method")
@@ -1044,6 +1081,14 @@ async def submit_offer(
     })
     if existing:
         raise HTTPException(status_code=400, detail="You already have an offer on this RFQ")
+    previously_declined = None
+    if replacement_sourcing_open:
+        previously_declined = await offer_repo.find_one({
+            "rfqId": ObjectId(rfq_id),
+            "farmerId": ObjectId(current_user["_id"]),
+            "status": OFFER_DECLINED,
+            "deletedAt": None,
+        })
 
     qty = data.availableQuantityKg or data.minOrderKg or _rfq_quantity(rfq)
     ceiling = rfq.get("priceCeilingPerKg") or rfq.get("budgetMaxPerKg")
@@ -1079,10 +1124,33 @@ async def submit_offer(
         "status": OFFER_PENDING,
         "createdAt": datetime.utcnow(),
     }
-    offer_id = await offer_repo.create(offer)
-    if not offer_id:
-        raise HTTPException(status_code=400, detail="Failed to submit offer")
-    offer["_id"] = ObjectId(offer_id)
+    if replacement_sourcing_open:
+        offer.update({
+            "replacementResubmission": True,
+            "replacementRequestContractId": rfq.get("replacementSourcingContractId"),
+            "replacementScheduledDate": rfq.get("replacementSourcingScheduledDate"),
+        })
+    if previously_declined:
+        history = list(previously_declined.get("replacementQuoteHistory") or [])
+        history.append({
+            "pricePerKg": previously_declined.get("pricePerKg"),
+            "availableQuantityKg": previously_declined.get("availableQuantityKg"),
+            "minOrderKg": previously_declined.get("minOrderKg"),
+            "deliveryCharge": previously_declined.get("deliveryCharge"),
+            "deliveryMethod": previously_declined.get("deliveryMethod"),
+            "expectedDeliveryDate": previously_declined.get("expectedDeliveryDate"),
+            "status": previously_declined.get("status"),
+            "createdAt": previously_declined.get("createdAt"),
+        })
+        offer["replacementQuoteHistory"] = history
+        await offer_repo.update({"_id": previously_declined["_id"]}, offer)
+        offer_id = str(previously_declined["_id"])
+        offer["_id"] = previously_declined["_id"]
+    else:
+        offer_id = await offer_repo.create(offer)
+        if not offer_id:
+            raise HTTPException(status_code=400, detail="Failed to submit offer")
+        offer["_id"] = ObjectId(offer_id)
     offer["id"] = str(offer_id)
 
     farmer = await farmer_repository.find_one({"userId": ObjectId(current_user["_id"])})
@@ -5666,6 +5734,21 @@ async def list_contract_replacement_offers(
             "benchmarkQuantityKg": benchmark_quantity,
         }}
 
+    source_rfq = await rfq_repo.find_one({
+        "_id": contract["rfqId"],
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not source_rfq:
+        raise HTTPException(status_code=404, detail="The originating RFQ for this contract could not be found")
+
+    # Recurring RFQ award automatically declines the losing bids. They remain
+    # valid historical quotes and are replacement candidates while still not
+    # accepted as another purchase.
+    can_reuse_award_declined_quotes = bool(
+        source_rfq.get("recurring")
+        and str(source_rfq.get("status") or "").lower() == str(RFQ_AWARDED).lower()
+    )
     offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=500) or []
     result = []
     for offer in offers:
@@ -5673,7 +5756,9 @@ async def list_contract_replacement_offers(
         offer_status = str(offer.get("status") or "submitted").strip().lower()
         if not farmer_id or farmer_id == str(contract.get("farmerId")):
             continue
-        if offer_status not in (OFFER_PENDING, "submitted"):
+        if offer_status not in (OFFER_PENDING, "submitted") and not (
+            offer_status == OFFER_DECLINED and can_reuse_award_declined_quotes
+        ):
             continue
         live_available = await _live_offer_available_quantity(offer, str(contract.get("cropName") or offer.get("productName") or ""))
         quoted_quantity = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
@@ -5704,6 +5789,7 @@ async def list_contract_replacement_offers(
             "ineligibleReason": reason,
             "pricePerKg": float(offer.get("pricePerKg") or 0),
             "status": offer_status,
+            "quoteType": "previously_submitted" if offer_status == OFFER_DECLINED else "current",
             "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
         })
     # Eligible suppliers appear first irrespective of sort mode; the UI ranks
@@ -5716,8 +5802,119 @@ async def list_contract_replacement_offers(
         "shortageKg": shortage_kg,
         "benchmarkPricePerKg": benchmark_rate,
         "benchmarkQuantityKg": benchmark_quantity,
+        "rfqId": str(source_rfq["_id"]),
+        "rfqNumber": source_rfq.get("rfqNumber"),
+        "replacementSourcingOpen": bool(source_rfq.get("replacementSourcingOpen")),
         "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
     }}
+
+
+class ReplacementSourcingRequest(BaseModel):
+    scheduledDate: str
+
+
+@router.post("/contracts/{contract_id}/replacement-sourcing")
+async def request_replacement_sourcing(
+    contract_id: str,
+    data: ReplacementSourcingRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Open the originating awarded recurring RFQ for replacement-only quotes."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can request replacement quotes")
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    contract_id_obj = ObjectId(contract_id)
+    contract = await contract_repo.find_one({
+        "_id": contract_id_obj,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not contract or contract.get("status") != "active":
+        raise HTTPException(status_code=404, detail="Active supply contract not found")
+
+    try:
+        scheduled_day = datetime.strptime(data.scheduledDate, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
+    schedule_key = scheduled_day.strftime("%Y-%m-%d")
+    confirmation = (contract.get("deliveryConfirmations") or {}).get(schedule_key)
+    if not confirmation or str(confirmation.get("status") or "").lower() not in ("shortage", "backup_required", "partial_approved"):
+        raise HTTPException(status_code=409, detail=f"No unresolved shortage exists for {schedule_key}")
+
+    rfq_id = contract.get("rfqId")
+    if not rfq_id:
+        raise HTTPException(status_code=409, detail="This supply contract has no originating RFQ")
+    source_rfq = await rfq_repo.find_one({
+        "_id": rfq_id,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not source_rfq or not source_rfq.get("recurring"):
+        raise HTTPException(status_code=409, detail="Replacement sourcing is only available for the originating recurring RFQ")
+    if str(source_rfq.get("status") or "").lower() != str(RFQ_AWARDED).lower():
+        raise HTTPException(status_code=409, detail="The originating RFQ is no longer in the awarded state")
+
+    db = MongoDB.db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not ready")
+    existing_replacement = await db["b2b_orders"].find_one({
+        "contractId": contract_id_obj,
+        "scheduledDeliveryDate": schedule_key,
+        "replacementForFarmerId": contract.get("farmerId"),
+        "status": {"$ne": ORDER_CANCELLED},
+        "deletedAt": None,
+    })
+    if existing_replacement:
+        raise HTTPException(status_code=409, detail="A replacement order already exists for this delivery; refresh the contract status")
+
+    now = datetime.utcnow()
+    await rfq_repo.update({"_id": rfq_id}, {
+        "replacementSourcingOpen": True,
+        "replacementSourcingContractId": contract_id_obj,
+        "replacementSourcingScheduledDate": schedule_key,
+        "replacementSourcingOpenedAt": now,
+        "replacementSourcingRequestedBy": ObjectId(current_user["_id"]),
+        "updatedAt": now,
+    })
+
+    notified = 0
+    farmer_profiles = await farmer_profile_repo.find_many({"deletedAt": None}, limit=500) or []
+    for farmer_profile in farmer_profiles:
+        farmer_user_id = str(farmer_profile.get("userId") or "")
+        if not farmer_user_id or farmer_user_id == str(contract.get("farmerId")):
+            continue
+        farmer_doc = await farmer_repository.get_by_user_id(farmer_user_id)
+        distance = _distance_km(farmer_doc, source_rfq) if farmer_doc else None
+        if not _visibility_match(source_rfq, farmer_doc, distance):
+            continue
+        try:
+            await NotificationService.create_in_app_notification(
+                farmer_user_id,
+                NotificationType.PROMOTION,
+                "Replacement produce quote requested",
+                f"A business needs replacement supply of {source_rfq.get('productName')} for delivery on {schedule_key}. Submit or update your quote on RFQ {source_rfq.get('rfqNumber') or str(rfq_id)[-6:]}.",
+                {
+                    "rfqId": str(rfq_id),
+                    "contractId": str(contract_id_obj),
+                    "scheduledDate": schedule_key,
+                    "type": "b2b_replacement_sourcing",
+                    "url": "/farmer/b2b/rfqs",
+                },
+                NotificationPriority.HIGH,
+                mandatory=True,
+            )
+            notified += 1
+        except Exception as exc:
+            logger.warning("Replacement sourcing notification failed for farmer %s: %s", farmer_user_id, exc)
+
+    return {"success": True, "data": {
+        "rfqId": str(rfq_id),
+        "rfqNumber": source_rfq.get("rfqNumber"),
+        "scheduledDate": schedule_key,
+        "notifiedFarmers": notified,
+        "replacementSourcingOpen": True,
+    }, "message": f"Replacement quote request opened on the original RFQ. {notified} eligible farmer(s) were notified."}
 
 
 @router.post("/contracts/{contract_id}/delivery-resolution")
@@ -5893,11 +6090,23 @@ async def resolve_contract_delivery_shortage(
         replacement_offer = await offer_repo.find_one({"_id": replacement_offer_id, "rfqId": rfq_id, "deletedAt": None})
         if not replacement_offer:
             raise HTTPException(status_code=404, detail="Replacement quote not found for this recurring RFQ")
+        source_rfq_for_assignment = await rfq_repo.find_one({
+            "_id": rfq_id,
+            "businessUserId": ObjectId(current_user["_id"]),
+            "deletedAt": None,
+        })
+        replacement_offer_status = str(replacement_offer.get("status") or "submitted").strip().lower()
+        can_assign_award_declined_quote = bool(
+            source_rfq_for_assignment
+            and source_rfq_for_assignment.get("recurring")
+            and str(source_rfq_for_assignment.get("status") or "").lower() == str(RFQ_AWARDED).lower()
+            and replacement_offer_status == OFFER_DECLINED
+        )
         replacement_farmer_id = str(replacement_offer.get("farmerId") or "")
         if not replacement_farmer_id or replacement_farmer_id == str(contract.get("farmerId")):
             raise HTTPException(status_code=400, detail="Replacement must be a different registered farmer")
-        if str(replacement_offer.get("status") or "submitted").strip().lower() not in (OFFER_PENDING, "submitted"):
-            raise HTTPException(status_code=409, detail="This replacement quote is no longer pending. Refresh the quote list.")
+        if replacement_offer_status not in (OFFER_PENDING, "submitted") and not can_assign_award_declined_quote:
+            raise HTTPException(status_code=409, detail="This replacement quote is no longer eligible. Refresh the quote list.")
         requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
         packed = float(confirmation.get("packedQuantityKg") or 0)
@@ -5972,7 +6181,7 @@ async def resolve_contract_delivery_shortage(
         # Claim this quote so it cannot also be accepted as a second purchase
         # after its stock has been committed to the replacement order.
         quote_claim = await offer_repo.collection.update_one(
-            {"_id": replacement_offer_id, "status": {"$in": [OFFER_PENDING, "submitted"]}, "deletedAt": None},
+            {"_id": replacement_offer_id, "status": replacement_offer_status, "deletedAt": None},
             {"$set": {
                 "status": OFFER_ACCEPTED,
                 "acceptedQuantityKg": missing,
@@ -6027,6 +6236,13 @@ async def resolve_contract_delivery_shortage(
             contract_update["nextDeliveryAt"] = next_at
             contract_update["generatedScheduleKeys"] = list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key]))
         await contract_repo.update({"_id": oid}, contract_update)
+        # Stop exposing the RFQ to new replacement quote submissions after an
+        # eligible replacement has been assigned for this schedule.
+        await rfq_repo.update({"_id": rfq_id}, {
+            "replacementSourcingOpen": False,
+            "replacementSourcingResolvedAt": now,
+            "updatedAt": now,
+        })
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("businessUserId")), NotificationType.PROMOTION,
