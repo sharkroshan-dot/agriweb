@@ -60,6 +60,7 @@ interface Contract {
     replacementQuantityKg?: number;
     replacementOrderNumber?: string;
     replacementOrderStatus?: string;
+    originalOrderCancelledId?: string;
   }>;
 }
 
@@ -475,7 +476,7 @@ export default function BusinessContractsPage() {
                         {replacementLoading && replacementPanelContractId === c.id
                           ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                           : <Users className="mr-1 h-4 w-4" />}
-                        {replacementPanelContractId === c.id ? "Close replacement quotes" : "Find & assign replacement farmer"}
+                        {replacementPanelContractId === c.id ? "Close replacement quotes" : "Replace full delivery with another farmer"}
                       </Button>
                     </div>
                   </div>
@@ -486,7 +487,11 @@ export default function BusinessContractsPage() {
                       <div>
                         <p className="font-semibold text-slate-900">Replacement Farmer Selection</p>
                         <p className="mt-1 text-xs text-slate-500">
-                          Live stock is checked from the farmer inventory. A quote is selectable only when both its quoted quantity and current stock cover the shortage.
+                          {String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementPanelDate)?.resolution || "").toLowerCase() === "partial"
+                            || String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementPanelDate)?.status || "").toLowerCase() === "partial_approved"
+                            ? "Partial delivery was approved. The replacement farmer will receive only the remaining shortage; the original farmer can still pack and deliver the approved quantity."
+                            : "Full replacement mode: the selected farmer receives the entire scheduled quantity. The original farmer's order will be cancelled and they will be told not to deliver this date. Future contract dates remain unchanged."}
+                          {" "}Live stock is checked from the farmer inventory and revalidated before assignment.
                         </p>
                         {replacementMeta?.replacementSourcingOpen && (
                           <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
@@ -598,13 +603,20 @@ export default function BusinessContractsPage() {
                                       action: "assign_replacement",
                                       scheduledDate: replacementMeta.scheduledDate,
                                       replacementOfferId: offer.id,
+                                      replacementMode: (
+                                        String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta.scheduledDate)?.resolution || "").toLowerCase() === "partial"
+                                        || String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta.scheduledDate)?.status || "").toLowerCase() === "partial_approved"
+                                      ) ? "shortage" : "full",
                                       notes: "Business selected a replacement using live stock and quote ranking",
                                     },
                                   });
                                 }}
                               >
                                 {resolveShortageMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1 h-4 w-4" />}
-                                Assign farmer
+                                {(
+                                  String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta?.scheduledDate)?.resolution || "").toLowerCase() === "partial"
+                                  || String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta?.scheduledDate)?.status || "").toLowerCase() === "partial_approved"
+                                ) ? "Assign farmer for shortage only" : "Replace full delivery"}
                               </Button>
                             </div>
                           </div>
