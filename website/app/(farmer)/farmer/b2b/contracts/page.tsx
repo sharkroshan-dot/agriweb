@@ -49,6 +49,8 @@ interface Contract {
     packedQuantityKg?: number;
     status?: string;
     resolution?: string;
+    replacementQuantityKg?: number;
+    originalOrderCancelledId?: string;
     isRescheduledOccurrence?: boolean;
   }>;
   status: "active" | "pending" | "paused" | "completed" | "cancelled";
@@ -427,6 +429,7 @@ export default function FarmerB2bContractsPage() {
                 ["partial", "replacement_supplier"].includes(String(confirmation?.resolution || "").toLowerCase())
                 || ["partial_approved", "replacement_assigned"].includes(String(confirmation?.status || "").toLowerCase())
               );
+            const isFullyReassigned = String(confirmation?.resolution || "").toLowerCase() === "replacement_supplier_full";
             return (
             <Card key={c.id}>
               <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
@@ -458,6 +461,13 @@ export default function FarmerB2bContractsPage() {
                     <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
                       <PackageCheck className="h-4 w-4" /> Confirm stock for next delivery
                     </p>
+                    {isFullyReassigned && (
+                      <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                        <strong>Do not pack or deliver this occurrence.</strong>
+                        The business assigned the full delivery on {confirmation?.scheduledDate} to another farmer. Your order for this date is no longer yours to fulfill. This change applies only to this scheduled delivery; future contract deliveries remain unchanged.
+                        {confirmation?.replacementQuantityKg != null && <p className="mt-1">Replacement quantity: {confirmation.replacementQuantityKg} kg.</p>}
+                      </div>
+                    )}
                     <p className="mb-2 text-xs text-slate-600">
                       Product: <strong>{c.cropName}</strong> · {hasApprovedPartial ? "Business-approved pickup quantity" : "Required for this delivery"}: <strong>{targetQuantity} kg</strong>.
                       {hasApprovedPartial && <span> Original scheduled quantity: {Number(confirmation?.requestedQuantityKg ?? c.quantityPerDeliveryKg ?? 0)} kg.</span>}
@@ -495,7 +505,7 @@ export default function FarmerB2bContractsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={stockMutation.isPending || !isShortOnRequiredQuantity}
+                        disabled={isFullyReassigned || stockMutation.isPending || !isShortOnRequiredQuantity}
                         onClick={() => validateStock(c, false)}
                       >
                         {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <AlertTriangle className="mr-1 h-4 w-4" />}
@@ -503,7 +513,7 @@ export default function FarmerB2bContractsPage() {
                       </Button>
                       <Button
                         size="sm"
-                        disabled={stockMutation.isPending || !isReadyForPickup}
+                        disabled={isFullyReassigned || stockMutation.isPending || !isReadyForPickup}
                         onClick={() => validateStock(c, true)}
                       >
                         {stockMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PackageCheck className="mr-1 h-4 w-4" />}
