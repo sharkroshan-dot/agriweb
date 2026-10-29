@@ -86,6 +86,27 @@ export default function FarmerB2bPreparationPage() {
     onError: (err: any) => toast.error(err?.message || "Could not save stock preparation"),
   });
 
+  const getDeliveryContext = (c: any) => {
+    // Business-approved/rescheduled occurrences can differ from the regular
+    // recurring cursor. Always act on the exact occurrence waiting for farmer
+    // confirmation rather than blindly submitting nextDeliveryAt.
+    const scheduledDate = String(c.pendingFarmerDeliveryDate || c.nextDeliveryAt || "").slice(0, 10) || undefined;
+    const occurrence = (Array.isArray(c.deliveryHistory) ? c.deliveryHistory : [])
+      .find((item: any) => String(item.scheduledDate || "").slice(0, 10) === scheduledDate);
+    const contractRequired = Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+    const approvedQuantity = Number(occurrence?.approvedQuantityKg || 0);
+    const isApprovedPartial = approvedQuantity > 0
+      && ["partial_approved", "replacement_assigned"].includes(String(occurrence?.status || "").toLowerCase());
+    return {
+      scheduledDate,
+      occurrence,
+      contractRequired,
+      approvedQuantity,
+      isApprovedPartial,
+      targetQuantity: isApprovedPartial ? approvedQuantity : contractRequired,
+    };
+  };
+
   const prepare = (c: any, ready: boolean) => {
     const availableRaw = availableQty[c.id] ?? "";
     const packedRaw = packedQty[c.id] ?? "";
@@ -95,7 +116,7 @@ export default function FarmerB2bPreparationPage() {
     }
     const available = Number(availableRaw);
     const packed = Number(packedRaw);
-    const required = Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+    const { targetQuantity, scheduledDate, isApprovedPartial } = getDeliveryContext(c);
     if (!Number.isFinite(available) || !Number.isFinite(packed) || available < 0 || packed < 0) {
       toast.error("Quantities must be valid non-negative numbers.");
       return;
@@ -104,25 +125,23 @@ export default function FarmerB2bPreparationPage() {
       toast.error("Packed quantity cannot exceed available quantity.");
       return;
     }
-    if (ready && (packed <= 0 || packed < required)) {
-      toast.error(`Pack the full required quantity (${required} kg) before confirming ready for pickup.`);
+    if (ready && (packed <= 0 || packed < targetQuantity)) {
+      toast.error(
+        isApprovedPartial
+          ? `The business approved ${targetQuantity} kg. Pack at least ${targetQuantity} kg before confirming ready for pickup.`
+          : `Pack the full required quantity (${targetQuantity} kg) before confirming ready for pickup.`,
+      );
+      return;
+    }
+    if (ready && available < targetQuantity) {
+      toast.error(`Available stock must cover the pickup quantity (${targetQuantity} kg).`);
       return;
     }
     if (!ready && !notes[c.id]?.trim()) {
       toast.error("Explain the shortage so the business can decide how to proceed.");
       return;
     }
-    // nextDeliveryAt is a calendar delivery date, not a UTC instant.
-    // Converting a naive midnight date with toISOString() in India (UTC+05:30)
-    // shifts it to the previous UTC day and creates yesterday's warehouse order.
-    const scheduledDate = c.nextDeliveryAt
-      ? (typeof c.nextDeliveryAt === "string"
-          ? c.nextDeliveryAt.slice(0, 10)
-          : (() => {
-              const date = new Date(c.nextDeliveryAt);
-              return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-            })())
-      : undefined;
+    // Keep calendar dates as YYYY-MM-DD; don't shift them through UTC conversion.
     stockMutation.mutate({ id: c.id, available, packed, ready, note: notes[c.id] || "", scheduledDate });
   };
 
@@ -143,7 +162,7 @@ export default function FarmerB2bPreparationPage() {
       <div className="grid gap-3 sm:grid-cols-3">
         <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Upcoming active supplies</p><p className="mt-1 text-2xl font-bold">{contracts.length}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Required quantity per listed delivery</p><p className="mt-1 text-2xl font-bold">{requiredTotal.toLocaleString("en-IN")} kg</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Preparation rule</p><p className="mt-1 text-sm font-semibold text-emerald-700">Pack the full required quantity before Ready for pickup</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-sm text-slate-500">Preparation rule</p><p className="mt-1 text-sm font-semibold text-emerald-700">Pack the full quantity, or the business-approved partial quantity</p></CardContent></Card>
       </div>
 
       <section className="space-y-3">
@@ -200,20 +219,22 @@ export default function FarmerB2bPreparationPage() {
       ) : (
         <div className="space-y-4">
           {contracts.map((c: any) => {
-            const required = Number(c.quantityPerDeliveryKg ?? c.quantityPerMonthKg ?? 0);
+            const delivery = getDeliveryContext(c);
+            const required = delivery.contractRequired;
+            const targetQuantity = delivery.targetQuantity;
             const available = availableQty[c.id] ?? "";
             const packed = packedQty[c.id] ?? "";
-            const shortage = available !== "" && packed !== "" && Number(packed) < required;
+            const shortage = available !== "" && packed !== "" && Number(packed) < targetQuantity;
             return (
               <Card key={c.id} className="overflow-hidden">
                 <CardContent className="space-y-4 p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2"><h2 className="font-semibold">{c.contractNumber || `B2B contract ${c.id.slice(-6)}`}</h2><Badge variant="outline">{c.cropName || "Produce"}</Badge><Badge variant={c.latestDeliveryStatus === "ready_for_pickup" ? "success" : "secondary"}>{String(c.latestDeliveryStatus || "preparation_required").replace(/_/g, " ")}</Badge></div>
-                      <p className="mt-1 text-sm text-slate-600">Business: {c.businessName || "Business buyer"} · Required: <strong>{required} kg</strong></p>
+                      <p className="mt-1 text-sm text-slate-600">Business: {c.businessName || "Business buyer"} · Contract quantity: <strong>{required} kg</strong>{delivery.isApprovedPartial && <> · Approved pickup quantity: <strong className="text-emerald-700">{targetQuantity} kg</strong></>}</p>
                     </div>
                     <div className="min-w-[220px] space-y-1 text-sm text-slate-600">
-                      <p><CalendarClock className="mr-1 inline h-4 w-4" /><strong>Delivery:</strong> {dateLabel(c.nextDeliveryAt)}</p>
+                      <p><CalendarClock className="mr-1 inline h-4 w-4" /><strong>Delivery:</strong> {dateLabel(delivery.scheduledDate)}</p>
                       <p><Clock className="mr-1 inline h-4 w-4" /><strong>Prepare by:</strong> {dateLabel(c.farmerPrepareBy)}</p>
                       <p><Truck className="mr-1 inline h-4 w-4" /><strong>Pickup:</strong> {dateLabel(c.plannedPickupAt || c.pickupDate || c.pickupDeadline)}</p>
                       {(c.pickupWindowStart || c.pickupWindowEnd) && <p><strong>Pickup window:</strong> {c.pickupWindowStart || "—"}–{c.pickupWindowEnd || "—"}</p>}
@@ -224,10 +245,12 @@ export default function FarmerB2bPreparationPage() {
                     <div className="space-y-1"><label className="text-sm font-medium">{c.cropName || "Produce"} — Available (kg)</label><Input type="number" min="0" step="0.1" value={available} onChange={(e) => setAvailableQty(old => ({ ...old, [c.id]: e.target.value }))} placeholder="Enter available stock" /></div>
                     <div className="space-y-1"><label className="text-sm font-medium">{c.cropName || "Produce"} — Packed (kg)</label><Input type="number" min="0" step="0.1" value={packed} onChange={(e) => setPackedQty(old => ({ ...old, [c.id]: e.target.value }))} placeholder={`Required: ${required} kg`} /></div>
                   </div>
-                  {shortage && <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>Short by {Math.max(0, required - Number(packed)).toLocaleString("en-IN")} kg. You cannot mark this delivery ready until the full required quantity is packed. Report a shortage below if you cannot fulfil it.</span></div>}
+                  {shortage && <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{delivery.isApprovedPartial
+                    ? `The business approved ${targetQuantity} kg for this pickup. Pack at least that amount to confirm readiness. The remaining ${Math.max(0, required - targetQuantity).toLocaleString("en-IN")} kg stays tracked separately.`
+                    : `Short by ${Math.max(0, required - Number(packed)).toLocaleString("en-IN")} kg. You cannot mark this delivery ready until the full required quantity is packed. Report a shortage below if you cannot fulfil it.`}</span></div>}
                   <div className="space-y-1"><label className="text-sm font-medium">Preparation note / shortage reason</label><Input value={notes[c.id] || ""} onChange={(e) => setNotes(old => ({ ...old, [c.id]: e.target.value }))} placeholder="Optional note, or explain why the required quantity is unavailable" /></div>
                   <div className="flex flex-wrap gap-2">
-                    <Button disabled={stockMutation.isPending} onClick={() => prepare(c, true)}><PackageCheck className="mr-2 h-4 w-4" />{stockMutation.isPending ? "Saving…" : "Confirm packed & ready for pickup"}</Button>
+                    <Button disabled={stockMutation.isPending} onClick={() => prepare(c, true)}><PackageCheck className="mr-2 h-4 w-4" />{stockMutation.isPending ? "Saving…" : delivery.isApprovedPartial ? `Confirm ${targetQuantity} kg packed & ready for pickup` : "Confirm packed & ready for pickup"}</Button>
                     <Button variant="outline" disabled={stockMutation.isPending} onClick={() => prepare(c, false)}><AlertTriangle className="mr-2 h-4 w-4" />Report shortage</Button>
                   </div>
                   <p className="text-xs text-slate-500">The quantities and readiness are sent to the backend. This page does not create a mock preview or pretend an unsaved change was saved.</p>
