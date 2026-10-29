@@ -3471,13 +3471,29 @@ def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
         value = doc.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    for parent_key in ("address", "location", "farmAddress", "warehouseAddress", "profile", "farmLocation"):
+    for parent_key in (
+        "address", "location", "farmAddress", "farmerAddress", "warehouseAddress",
+        "profile", "farmLocation", "farmDetails", "farm", "addressDetails",
+        "farmerInfo", "businessAddress", "contactInfo",
+    ):
         parent = doc.get(parent_key)
         if isinstance(parent, dict):
-            for key in ("district", "districtName", "district_name"):
+            for key in ("district", "districtName", "district_name", "farmDistrict", "warehouseDistrict"):
                 value = parent.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
+        elif isinstance(parent, list):
+            for entry in parent:
+                if isinstance(entry, dict):
+                    for key in ("district", "districtName", "district_name", "farmDistrict"):
+                        value = entry.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+    # Older farmer profiles sometimes only retain the farm locality/city field.
+    for key in ("farmCity", "village", "town", "city", "locality"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return ""
 
 async def _b2b_farm_district(order: Dict[str, Any]) -> str:
@@ -3536,16 +3552,25 @@ async def _b2b_farm_district(order: Dict[str, Any]) -> str:
                         if district:
                             return district
     # Some legacy order records snapshot the farm location at order creation.
-    for key in ("farmDistrict", "farmerDistrict", "sourceDistrict"):
+    for key in ("farmDistrict", "farmerDistrict", "sourceDistrict", "farmCity", "farmerCity", "farmVillage"):
         value = order.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    for parent_key in ("farmAddress", "farmerAddress", "farmLocation", "farmerInfo", "farmer"):
+    for parent_key in (
+        "farmAddress", "farmerAddress", "farmLocation", "farmerInfo",
+        "farmer", "farmDetails", "addressDetails", "addresses", "farmAddresses",
+    ):
         parent = order.get(parent_key)
         if isinstance(parent, dict):
             district = _district_from_doc(parent)
             if district:
                 return district
+        elif isinstance(parent, list):
+            for entry in parent:
+                if isinstance(entry, dict):
+                    district = _district_from_doc(entry)
+                    if district:
+                        return district
     return ""
 
 async def _resolve_b2b_current_warehouse_id(current_user: Dict[str, Any]) -> str:
