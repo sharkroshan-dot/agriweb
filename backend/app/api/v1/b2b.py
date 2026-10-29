@@ -1327,6 +1327,11 @@ async def accept_offer_batch(
     await _maybe_close_rfq(rfq)
     if rfq.get("status") not in (RFQ_OPEN, RFQ_AWARDED):
         raise HTTPException(status_code=409, detail="RFQ is closed or cancelled")
+    if rfq.get("replacementSourcingOpen"):
+        raise HTTPException(
+            status_code=409,
+            detail="This recurring RFQ is collecting replacement quotes for a specific shortage. Do not accept quotes as a normal RFQ award; assign a replacement from the linked supply-contract shortage panel.",
+        )
     offers_by_id = {str(offer["_id"]): offer for offer in offers}
     requested_total = 0.0
     order_specs = []
@@ -1396,6 +1401,11 @@ async def accept_offer_batch(
                 )
                 if not live_rfq:
                     raise HTTPException(status_code=409, detail="RFQ is no longer open for acceptance")
+                if live_rfq.get("replacementSourcingOpen"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This RFQ is in replacement-only sourcing mode. Finish replacement assignment from the supply-contract shortage panel.",
+                    )
                 live_accepted = float(live_rfq.get("acceptedQuantityKg") or 0)
                 if live_accepted + requested_total > total_qty + 1e-9:
                     raise HTTPException(status_code=409, detail=f"RFQ balance changed. Remaining quantity: {max(0, total_qty-live_accepted):g} kg")
