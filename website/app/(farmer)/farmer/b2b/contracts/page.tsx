@@ -14,11 +14,14 @@ import {
   Check,
   PackageCheck,
   AlertTriangle,
+  RefreshCw,
+  ClipboardCheck,
 } from "lucide-react";
 import { api } from "../../../../lib/api/client";
 import { formatPrice } from "../../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { Button } from "../../../../components/ui/button";
+import { Input } from "../../../../components/ui/input";
 import { Badge } from "../../../../components/ui/badge";
 import toast from "react-hot-toast";
 
@@ -37,6 +40,7 @@ interface Contract {
   endDate?: string;
   nextDeliveryAt?: string;
   pendingRescheduledDeliveryDate?: string;
+  pendingFarmerDeliveryDate?: string;
   deliveryHistory?: Array<{
     scheduledDate: string;
     requestedQuantityKg?: number;
@@ -63,8 +67,9 @@ export default function FarmerB2bContractsPage() {
   const [availableQty, setAvailableQty] = useState<Record<string, string>>({});
   const [packedQty, setPackedQty] = useState<Record<string, string>>({});
   const [stockNotes, setStockNotes] = useState<Record<string, string>>({});
+  const [orderPackedQty, setOrderPackedQty] = useState<Record<string, string>>({});
 
-  const { data: contractsData, isLoading } = useQuery({
+  const { data: contractsData, isLoading, isError: contractsError } = useQuery({
     queryKey: ["farmerContracts"],
     queryFn: () => api.get("/b2b/contracts/me"),
     retry: 1,
@@ -74,6 +79,56 @@ export default function FarmerB2bContractsPage() {
     const list = contractsData?.data?.contracts || contractsData?.data || [];
     return Array.isArray(list) ? list : [];
   }, [contractsData]);
+
+  const ordersQuery = useQuery({
+    queryKey: ["farmerB2bPreparationOrders"],
+    queryFn: () => api.get("/b2b/orders"),
+    refetchInterval: 30000,
+    retry: 1,
+  });
+
+  const orderPreparationMutation = useMutation({
+    mutationFn: ({ id, status, packedQuantityKg, qualityCheck, qualityNotes }: {
+      id: string;
+      status: string;
+      packedQuantityKg?: number;
+      qualityCheck?: string;
+      qualityNotes?: string;
+    }) => api.put(`/b2b/orders/${encodeURIComponent(id)}/status`, {
+      status,
+      packedQuantityKg,
+      qualityCheck,
+      qualityNotes,
+    }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["farmerB2bPreparationOrders"] }),
+        queryClient.invalidateQueries({ queryKey: ["b2b", "orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["farmerContracts"] }),
+      ]);
+      toast.success("B2B order preparation updated.");
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not update B2B order preparation"),
+  });
+
+  const oneTimeOrders = useMemo(() => {
+    const root = ordersQuery.data?.data ?? ordersQuery.data;
+    const payload = root?.data?.orders ?? root?.orders ?? [];
+    return (Array.isArray(payload) ? payload : [])
+      .map((order: any) => ({ ...order, id: String(order.id || order._id || "") }))
+      // Regular recurring occurrences are managed in the contract section below.
+      // Include separately assigned replacement supplies because they are their
+      // own B2B orders even though they reference a recurring contract.
+      .filter((order: any) =>
+        order.id
+        && (!order.contractId || order.isReplacementSupply === true)
+        && ["confirmed", "preparing", "quality_check"].includes(String(order.status || "").toLowerCase())
+      )
+      .sort((a: any, b: any) =>
+        new Date(a.deliveryDeadline || a.requiredDate || a.scheduledDeliveryDate || a.createdAt || 0).getTime()
+        - new Date(b.deliveryDeadline || b.requiredDate || b.scheduledDeliveryDate || b.createdAt || 0).getTime()
+      );
+  }, [ordersQuery.data]);
 
   const confirmMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => api.put(`/b2b/contracts/${id}/status`, { status }),
@@ -88,8 +143,11 @@ export default function FarmerB2bContractsPage() {
   const stockMutation = useMutation({
     mutationFn: ({ id, quantity, packed, ready, notes, scheduledDate }: { id: string; quantity: number; packed: number; ready: boolean; notes?: string; scheduledDate: string }) =>
       api.post(`/b2b/contracts/${id}/delivery-confirmation`, { availableQuantityKg: quantity, packedQuantityKg: packed, readyForPickup: ready, notes, scheduledDate }),
-    onSuccess: (res: any) => {
-      queryClient.invalidateQueries({ queryKey: ["farmerContracts"] });
+    onSuccess: async (res: any) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["farmerContracts"] }),
+        queryClient.invalidateQueries({ queryKey: ["farmerB2bPreparationOrders"] }),
+      ]);
       const status = res?.data?.data?.status || res?.data?.status;
       toast.success(status === "shortage" ? "Shortage reported. The business must choose a solution." : "Stock confirmed for the next delivery.");
     },
@@ -99,7 +157,7 @@ export default function FarmerB2bContractsPage() {
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
   const targetScheduleDate = (c: Contract) => {
     const regularDate = c.nextDeliveryAt ? String(c.nextDeliveryAt).slice(0, 10) : "";
-    const rescheduledDate = c.pendingRescheduledDeliveryDate || "";
+    const rescheduledDate = c.pendingFarmerDeliveryDate || c.pendingRescheduledDeliveryDate || "";
     // A rescheduled occurrence must not hide an earlier regular occurrence
     // in a recurring daily/weekly contract. Confirm the earliest actionable
     // date first, then the next occurrence becomes the target after refresh.
@@ -181,9 +239,23 @@ export default function FarmerB2bContractsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Supply Contracts</h1>
-        <p className="text-gray-500">Predictable monthly income from businesses through supply agreements.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">B2B Supply Workspace</h1>
+          <p className="mt-1 max-w-3xl text-gray-500">
+            Manage recurring contracts, confirm each delivery's stock, report shortages, and prepare one-time or replacement B2B orders from one place.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={async () => {
+          await Promise.all([queryClient.invalidateQueries({ queryKey: ["farmerContracts"] }), queryClient.invalidateQueries({ queryKey: ["farmerB2bPreparationOrders"] })]);
+          toast.success("Supply workspace refreshed.");
+        }}>
+          <RefreshCw className="mr-2 h-4 w-4" /> Refresh all
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <a href="#contracts" className="rounded-full border px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Recurring contracts</a>
+        <a href="#preparation" className="rounded-full border px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">Order preparation</a>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -207,7 +279,107 @@ export default function FarmerB2bContractsPage() {
         </Card>
       </div>
 
-      {isLoading ? (
+      <section id="preparation" className="scroll-mt-24 space-y-3">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-semibold">Order preparation &amp; quality check</h2>
+            <p className="text-sm text-slate-500">Prepare one-time B2B orders and separately assigned replacement orders. Recurring contract deliveries are managed in the contract section below.</p>
+          </div>
+          <Badge variant="outline">{ordersQuery.isLoading ? "Loading orders…" : `${oneTimeOrders.length} need action`}</Badge>
+        </div>
+
+        {ordersQuery.isLoading ? (
+          <Card><CardContent className="p-4 text-sm text-slate-500"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Loading B2B orders needing preparation…</CardContent></Card>
+        ) : ordersQuery.isError ? (
+          <Card><CardContent className="p-4 text-sm text-red-700">Could not load B2B orders. Use Refresh all or check the B2B orders API.</CardContent></Card>
+        ) : oneTimeOrders.length === 0 ? (
+          <Card><CardContent className="p-5 text-sm text-slate-500">No one-time or replacement B2B orders currently need preparation.</CardContent></Card>
+        ) : (
+          <div className="space-y-3">
+            {oneTimeOrders.map((order: any) => {
+              const packed = orderPackedQty[order.id] ?? String(order.packedQuantityKg ?? "");
+              const required = Number(order.quantityKg || 0);
+              const isReplacement = order.isReplacementSupply === true;
+              return (
+                <Card key={order.id}>
+                  <CardContent className="space-y-3 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-semibold">{order.orderNumber || `B2B-${order.id.slice(-6)}`} · {order.productName || "Produce"}</h3>
+                          {isReplacement && <Badge variant="outline">Replacement supply</Badge>}
+                        </div>
+                        <p className="text-sm text-slate-600">Required: {required} kg · Business: {order.businessInfo?.businessName || order.businessName || "Business buyer"}</p>
+                        <p className="text-sm text-slate-600">Delivery: {order.deliveryDeadline || order.requiredDate || order.scheduledDeliveryDate ? new Date(order.deliveryDeadline || order.requiredDate || order.scheduledDeliveryDate).toLocaleString("en-IN") : "Not scheduled"} · Prepare by: {order.farmerPrepareBy ? new Date(order.farmerPrepareBy).toLocaleString("en-IN") : "Not scheduled"}</p>
+                      </div>
+                      <Badge variant="outline">{String(order.status).replace(/_/g, " ")}</Badge>
+                    </div>
+
+                    {order.status === "confirmed" ? (
+                      <Button disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: order.id, status: "preparing" })}>
+                        <ClipboardCheck className="mr-2 h-4 w-4" />Start preparation
+                      </Button>
+                    ) : order.status === "preparing" ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-end gap-3">
+                          <div className="min-w-[220px] flex-1 space-y-1">
+                            <label className="text-sm font-medium">Actual packed quantity (kg)</label>
+                            <Input type="number" min="0" max={required} step="0.1" value={packed} onChange={(e) => setOrderPackedQty((old) => ({ ...old, [order.id]: e.target.value }))} placeholder={`Required: ${required} kg`} />
+                          </div>
+                          <Button
+                            disabled={orderPreparationMutation.isPending || !packed.trim() || !Number.isFinite(Number(packed)) || Number(packed) <= 0 || Number(packed) !== required}
+                            onClick={() => {
+                              if (Number(packed) < required) {
+                                toast.error("This order has a shortage. Report it to the business before sending it for quality check.");
+                                return;
+                              }
+                              if (Number(packed) > required) {
+                                toast.error(`Packed quantity cannot exceed the order quantity (${required} kg).`);
+                                return;
+                              }
+                              orderPreparationMutation.mutate({ id: order.id, status: "quality_check", packedQuantityKg: Number(packed) });
+                            }}
+                          >
+                            Save packed quantity &amp; submit for quality check
+                          </Button>
+                        </div>
+                        <p className="text-xs text-slate-500">A short quantity cannot be marked as a full supply. Contact the business to resolve the shortage before dispatch.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 rounded-lg border bg-slate-50 p-3">
+                        <p className="text-sm text-slate-700">Packed: {Number(order.packedQuantityKg || 0)} kg · Required: {required} kg. Complete the farmer quality check before the warehouse pickup queue can process it.</p>
+                        <div className="flex flex-wrap gap-2">
+                          <Button disabled={orderPreparationMutation.isPending || Number(order.packedQuantityKg || 0) < required} onClick={() => orderPreparationMutation.mutate({ id: order.id, status: "quality_check", qualityCheck: "passed", qualityNotes: "Farmer quality check passed" })}>
+                            <CheckCircle2 className="mr-2 h-4 w-4" />Pass quality check
+                          </Button>
+                          <Button variant="outline" disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: order.id, status: "quality_check", qualityCheck: "failed", qualityNotes: "Farmer quality check failed; reinspection required" })}>
+                            <AlertTriangle className="mr-2 h-4 w-4" />Mark quality failed
+                          </Button>
+                          {order.qualityCheck === "passed" && (
+                            <Button disabled={orderPreparationMutation.isPending} onClick={() => orderPreparationMutation.mutate({ id: order.id, status: "ready_for_pickup" })}>
+                              <PackageCheck className="mr-2 h-4 w-4" />Confirm ready for farm pickup
+                            </Button>
+                          )}
+                        </div>
+                        {order.qualityCheck === "failed" && <p className="text-sm text-amber-800">Quality failed. Resolve the issue and pass inspection before confirming pickup readiness.</p>}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      <section id="contracts" className="scroll-mt-24 space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Recurring supply contracts</h2>
+          <p className="text-sm text-slate-500">Accept agreements, prepare the next scheduled delivery, and respond to any business-approved shortage resolution.</p>
+        </div>
+      {contractsError ? (
+        <Card><CardContent className="p-5 text-sm text-red-700">Could not load supply contracts. Use Refresh all or try again.</CardContent></Card>
+      ) : isLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -327,6 +499,7 @@ export default function FarmerB2bContractsPage() {
           ))}
         </div>
       )}
+      </section>
     </div>
   );
 }
