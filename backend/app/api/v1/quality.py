@@ -443,6 +443,32 @@ async def verify_inspection(inspection_id: str, data: InspectionVerify, current_
     return {"success": True, "data": _serialize_inspection(refreshed), "message": "Quality inspection approved"}
 
 
+@router.post("/inspections/{inspection_id}/approve-batch")
+async def approve_batch_from_inspection(
+    inspection_id: str,
+    data: InspectionVerify,
+    current_user: dict = Depends(get_current_user),
+):
+    """Compatibility endpoint used by the admin quality queue to approve a batch.
+
+    It delegates to the same verifier-only path as /verify, so product activation
+    and batch status propagation stay consistent instead of duplicating approval
+    logic.
+    """
+    _require_verifier(current_user)
+    try:
+        oid = ObjectId(inspection_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    inspection = await inspection_repo.find_one({"_id": oid, "deletedAt": None})
+    if not inspection or not inspection.get("batchId"):
+        raise HTTPException(status_code=404, detail="Inspection or linked batch not found")
+    batch = await batch_repo.find_one({"_id": inspection["batchId"], "deletedAt": None})
+    if not batch:
+        raise HTTPException(status_code=404, detail="Linked batch not found")
+    return await verify_inspection(inspection_id, data, current_user)
+
+
 @router.post("/inspections/{inspection_id}/reject")
 async def reject_inspection(inspection_id: str, data: InspectionReject, current_user: dict = Depends(get_current_user)):
     """Reject a batch after independent inspection."""
