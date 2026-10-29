@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileSignature,
@@ -12,6 +13,7 @@ import {
   IndianRupee,
   Users,
   AlertTriangle,
+  ExternalLink,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
@@ -85,11 +87,16 @@ interface ReplacementMeta {
   shortageKg: number;
   benchmarkPricePerKg: number;
   benchmarkQuantityKg: number;
+  rfqId?: string;
+  rfqNumber?: string;
+  replacementSourcingOpen?: boolean;
   stockCheckedAt?: string;
 }
 
 export default function BusinessContractsPage() {
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const autoOpenedReplacementKey = useRef<string | null>(null);
   const { data: contractsData, isLoading } = useQuery({
     queryKey: ["businessContracts"],
     queryFn: () => api.get("/b2b/contracts"),
@@ -132,7 +139,10 @@ export default function BusinessContractsPage() {
         shortageKg: Number(result.shortageKg || 0),
         benchmarkPricePerKg: Number(result.benchmarkPricePerKg || 0),
         benchmarkQuantityKg: Number(result.benchmarkQuantityKg || 0),
-        stockCheckedAt: result.stockCheckedAt,
+        rfqId: String(result.rfqId || result.data?.rfqId || ""),
+        rfqNumber: String(result.rfqNumber || result.data?.rfqNumber || ""),
+        replacementSourcingOpen: Boolean(result.replacementSourcingOpen || result.data?.replacementSourcingOpen),
+        stockCheckedAt: result.stockCheckedAt || result.data?.stockCheckedAt,
       });
     } catch (error: any) {
       setReplacementPanelContractId(null);
@@ -196,6 +206,37 @@ export default function BusinessContractsPage() {
     },
     onError: (err: any) => toast.error(err?.message || "Could not resolve delivery shortage"),
   });
+
+  const requestReplacementSourcingMutation = useMutation({
+    mutationFn: ({ contractId, scheduledDate }: { contractId: string; scheduledDate: string }) =>
+      api.post(`/b2b/contracts/${contractId}/replacement-sourcing`, { scheduledDate }),
+    onSuccess: async (res: any, variables) => {
+      await queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
+      const payload = res?.data?.data ?? res?.data ?? res;
+      toast.success(res?.data?.message || "Replacement quote request opened for this delivery.");
+      if (payload?.replacementSourcingOpen) {
+        const matching = apiContracts.find((item: any) => String(item._id || item.id) === variables.contractId);
+        if (matching) await loadReplacementOffers({ ...matching, id: String(matching._id || matching.id) }, variables.scheduledDate);
+      }
+    },
+    onError: (err: any) => toast.error(err?.message || "Could not open replacement sourcing for this delivery"),
+  });
+
+  const requestedReplacementContractId = searchParams.get("replacementContractId");
+  const requestedReplacementDate = searchParams.get("scheduledDate");
+  useEffect(() => {
+    if (!requestedReplacementContractId || !requestedReplacementDate || apiContracts.length === 0) return;
+    const key = `${requestedReplacementContractId}:${requestedReplacementDate}`;
+    if (autoOpenedReplacementKey.current === key) return;
+    const matching = apiContracts.find((item: any) => String(item._id || item.id) === requestedReplacementContractId);
+    if (!matching) {
+      toast.error("The requested shortage contract could not be found. Refresh the contracts list.");
+      autoOpenedReplacementKey.current = key;
+      return;
+    }
+    autoOpenedReplacementKey.current = key;
+    void loadReplacementOffers({ ...matching, id: String(matching._id || matching.id) }, requestedReplacementDate);
+  }, [requestedReplacementContractId, requestedReplacementDate, apiContracts]);
 
   const contracts: Contract[] = apiContracts.map((c: any) => ({ ...c, id: c._id || c.id }));
   const monthlyTotal = contracts.filter((c) => c.status === "active").reduce((s, c) => s + Number(c.quantityPerMonthKg ?? c.quantityPerDeliveryKg ?? 0), 0);
@@ -434,6 +475,11 @@ export default function BusinessContractsPage() {
                         <p className="mt-1 text-xs text-slate-500">
                           Live stock is checked from the farmer inventory. A quote is selectable only when both its quoted quantity and current stock cover the shortage.
                         </p>
+                        {replacementMeta?.replacementSourcingOpen && (
+                          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
+                            Replacement sourcing is open for RFQ {replacementMeta.rfqNumber || replacementMeta.rfqId}. Previously submitted award-declined quotes are included; new quotes for this delivery will appear here after submission.
+                          </p>
+                        )}
                       </div>
                       <Button size="sm" variant="outline" disabled={replacementLoading} onClick={() => loadReplacementOffers(c)}>
                         {replacementLoading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
@@ -462,7 +508,20 @@ export default function BusinessContractsPage() {
                       <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                         None of the existing quotes currently covers the full {replacementMeta?.shortageKg ?? 0} kg shortage using both quoted quantity and live stock. Invite more farmers to submit quotes for this RFQ, then refresh live stock.
                         <div className="mt-2">
-                          <Button size="sm" variant="outline" onClick={() => window.location.assign("/business/rfqs")}>Open RFQs to request more quotes</Button>
+                          {replacementMeta?.replacementSourcingOpen && replacementMeta.rfqId ? (
+                          <Button size="sm" variant="outline" onClick={() => window.location.assign(`/business/rfqs?rfqId=${encodeURIComponent(replacementMeta.rfqId || "")}&replacementContractId=${encodeURIComponent(c.id)}&scheduledDate=${encodeURIComponent(replacementMeta.scheduledDate)}`)}>
+                            <ExternalLink className="mr-1.5 h-4 w-4" /> Open RFQ {replacementMeta.rfqNumber || ""}
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" disabled={requestReplacementSourcingMutation.isPending} onClick={() => {
+                            const date = replacementMeta?.scheduledDate || replacementPanelDate;
+                            if (!date) { toast.error("Choose the exact scheduled delivery before requesting replacement quotes."); return; }
+                            requestReplacementSourcingMutation.mutate({ contractId: c.id, scheduledDate: date });
+                          }}>
+                            {requestReplacementSourcingMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Users className="mr-1.5 h-4 w-4" />}
+                            Request more quotes for this delivery
+                          </Button>
+                        )}
                         </div>
                       </div>
                     )}
@@ -474,7 +533,20 @@ export default function BusinessContractsPage() {
                     ) : rankedReplacementOffers.length === 0 ? (
                       <div className="py-5 text-sm text-slate-600">
                         <p>No pending replacement quotes were found for other farmers on this RFQ. Ask additional farmers to quote, then refresh to recheck current stock.</p>
-                        <Button className="mt-3" size="sm" variant="outline" onClick={() => window.location.assign("/business/rfqs")}>Open RFQs to request more quotes</Button>
+                        {replacementMeta?.replacementSourcingOpen && replacementMeta.rfqId ? (
+                          <Button size="sm" variant="outline" onClick={() => window.location.assign(`/business/rfqs?rfqId=${encodeURIComponent(replacementMeta.rfqId || "")}&replacementContractId=${encodeURIComponent(c.id)}&scheduledDate=${encodeURIComponent(replacementMeta.scheduledDate)}`)}>
+                            <ExternalLink className="mr-1.5 h-4 w-4" /> Open RFQ {replacementMeta.rfqNumber || ""}
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" disabled={requestReplacementSourcingMutation.isPending} onClick={() => {
+                            const date = replacementMeta?.scheduledDate || replacementPanelDate;
+                            if (!date) { toast.error("Choose the exact scheduled delivery before requesting replacement quotes."); return; }
+                            requestReplacementSourcingMutation.mutate({ contractId: c.id, scheduledDate: date });
+                          }}>
+                            {requestReplacementSourcingMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Users className="mr-1.5 h-4 w-4" />}
+                            Request more quotes for this delivery
+                          </Button>
+                        )}
                       </div>
                     ) : (
                       <div className="mt-3 space-y-3">
