@@ -3437,8 +3437,16 @@ async def list_b2b_destination_warehouses(
 
 
 def _district_key(value: Any) -> str:
-    """Normalize district labels so spelling/case/spacing do not affect routing."""
-    return re.sub(r"[^a-z0-9]", "", str(value or "").strip().casefold())
+    """Normalize district/locality labels before comparing farm pickup ownership."""
+    key = re.sub(r"[^a-z0-9]", "", str(value or "").strip().casefold())
+    # Known locality names seen in existing AgriConnect farmer addresses.
+    # These are aliases for district matching only; do not change stored addresses.
+    aliases = {
+        "manachanallur": "tiruchirappalli",
+        "manachanallurtrichy": "tiruchirappalli",
+        "chettikulam": "perambalur",
+    }
+    return aliases.get(key, key)
 
 def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
     if not isinstance(doc, dict):
@@ -3457,20 +3465,60 @@ def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
     return ""
 
 async def _b2b_farm_district(order: Dict[str, Any]) -> str:
-    """Resolve the farmer's registered district for farm-pickup ownership."""
+    """Resolve farm district across current and legacy farmer/profile schemas."""
     farmer_id = order.get("farmerId") or order.get("farmerUserId")
-    farmer_doc = None
+    farmer_docs: List[Dict[str, Any]] = []
     if farmer_id:
-        values: List[Any] = [str(farmer_id)]
-        if ObjectId.is_valid(str(farmer_id)):
-            values.append(ObjectId(str(farmer_id)))
-        farmer_doc = await farmer_repository.find_one({"$or": [
+        farmer_id_text = str(farmer_id).strip()
+        values: List[Any] = [farmer_id_text]
+        if ObjectId.is_valid(farmer_id_text):
+            values.append(ObjectId(farmer_id_text))
+        queries = [
             {"userId": {"$in": values}},
+            {"user_id": {"$in": values}},
             {"_id": {"$in": values}},
-        ]})
-    district = _district_from_doc(farmer_doc)
-    if district:
-        return district
+        ]
+        for query in queries:
+            try:
+                doc = await farmer_repository.find_one(query)
+                if doc and doc not in farmer_docs:
+                    farmer_docs.append(doc)
+            except Exception:
+                continue
+            try:
+                doc = await farmer_profile_repo.find_one(query)
+                if doc and doc not in farmer_docs:
+                    farmer_docs.append(doc)
+            except Exception:
+                continue
+        # Repository filters may miss old records without deletedAt. Search the
+        # concrete collections as a fallback, using both string and ObjectId IDs.
+        db = MongoDB.db
+        if db is not None:
+            for collection_name in ("farmer_profiles", "farmers"):
+                for query in queries:
+                    try:
+                        doc = await db[collection_name].find_one(query)
+                        if doc and doc not in farmer_docs:
+                            farmer_docs.append(doc)
+                    except Exception:
+                        continue
+    for farmer_doc in farmer_docs:
+        district = _district_from_doc(farmer_doc)
+        if district:
+            return district
+        for parent_key in ("profile", "user", "farm", "farmDetails", "addressDetails", "addresses", "farmAddresses"):
+            parent = farmer_doc.get(parent_key)
+            if isinstance(parent, dict):
+                district = _district_from_doc(parent)
+                if district:
+                    return district
+            if isinstance(parent, list):
+                for entry in parent:
+                    if isinstance(entry, dict):
+                        district = _district_from_doc(entry)
+                        if district:
+                            return district
     # Some legacy order records snapshot the farm location at order creation.
     for key in ("farmDistrict", "farmerDistrict", "sourceDistrict"):
         value = order.get(key)
