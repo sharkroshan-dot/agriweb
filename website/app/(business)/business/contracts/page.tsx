@@ -220,11 +220,16 @@ export default function BusinessContractsPage() {
     onSuccess: async (res: any, variables) => {
       await queryClient.invalidateQueries({ queryKey: ["businessContracts"] });
       const payload = res?.data?.data ?? res?.data ?? res;
-      toast.success(res?.data?.message || "Replacement quote request opened for this delivery.");
-      if (payload?.replacementSourcingOpen) {
-        const matching = apiContracts.find((item: any) => String(item._id || item.id) === variables.contractId);
-        if (matching) await loadReplacementOffers({ ...matching, id: String(matching._id || matching.id) }, variables.scheduledDate);
+      const rfqId = String(payload?.rfqId || "");
+      if (!payload?.replacementSourcingOpen || !rfqId) {
+        toast.error("The replacement request was saved but the originating RFQ ID was not returned. Refresh the contract and retry.");
+        return;
       }
+      // Send the user directly to the exact awarded RFQ, with its quote panel
+      // expanded in replacement-only mode. No generic RFQ list handoff.
+      window.location.assign(
+        `/business/rfqs?rfqId=${encodeURIComponent(rfqId)}&replacementContractId=${encodeURIComponent(variables.contractId)}&scheduledDate=${encodeURIComponent(variables.scheduledDate)}`,
+      );
     },
     onError: (err: any) => toast.error(err?.message || "Could not open replacement sourcing for this delivery"),
   });
