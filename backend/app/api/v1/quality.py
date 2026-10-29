@@ -163,20 +163,29 @@ async def _propagate_verification(inspection: dict) -> None:
     )
     product_id = batch.get("productId")
     if product_id:
-        # A harvested product becomes customer-visible only after independent
-        # quality approval. Its quantity and final harvest rate are taken from
-        # the verified batch, not from a stale draft value.
-        actual_qty = float(batch.get("quantityKg") or 0)
-        final_rate = float(
-            batch.get("finalSellingRatePerKg")
-            or batch.get("finalRatePerKg")
-            or product.get("price") if product else 0
-        )
-        await product_repository.collection.update_one(
-            {"_id": product_id, "deletedAt": None},
-            {"$set": {
+        # A product becomes customer-visible only after independent quality
+        # approval. Load the linked product first so pricing/unit fallbacks are
+        # valid; this also avoids NameError when an inspector approves a batch.
+        product = await product_repository.find_one({
+            "_id": product_id,
+            "deletedAt": None,
+        })
+        if not product:
+            logger.warning(
+                "Verified batch %s references missing/deleted product %s",
+                batch_id,
+                product_id,
+            )
+        else:
+            actual_qty = float(batch.get("quantityKg") or 0)
+            final_rate = float(
+                batch.get("finalSellingRatePerKg")
+                or batch.get("finalRatePerKg")
+                or product.get("price")
+                or 0
+            )
+            product_update = {
                 "quantity": int(actual_qty),
-                "price": final_rate if final_rate > 0 else (product.get("price") if product else 0),
                 "qualityGrade": inspection["verifiedGrade"],
                 "farmerDeclaredGrade": inspection.get("farmerDeclaredGrade"),
                 "verifiedGrade": inspection["verifiedGrade"],
@@ -186,15 +195,24 @@ async def _propagate_verification(inspection: dict) -> None:
                 "verifiedAt": inspection.get("verifiedAt"),
                 "verificationNotes": inspection.get("verificationNotes"),
                 "qualityStatus": "approved",
+                "status": "active",
                 "isActive": True,
-            }},
-        )
-        await inventory_repository.ensure_inventory_exists(
-            str(product_id),
-            str(batch.get("farmerId")),
-            int(actual_qty),
-            (product or {}).get("unit", "kg"),
-        )
+                "updatedAt": datetime.utcnow(),
+            }
+            # Never replace an existing valid product price with zero when a
+            # batch has no final selling rate configured.
+            if final_rate > 0:
+                product_update["price"] = final_rate
+            await product_repository.collection.update_one(
+                {"_id": product_id, "deletedAt": None},
+                {"$set": product_update},
+            )
+            await inventory_repository.ensure_inventory_exists(
+                str(product_id),
+                str(batch.get("farmerId")),
+                int(actual_qty),
+                product.get("unit", "kg"),
+            )
 
     # Quality approval is the gate that turns an allocated harvest reservation
     # into a customer action: confirm final price + pay.
