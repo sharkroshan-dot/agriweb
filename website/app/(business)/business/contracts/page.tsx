@@ -91,6 +91,7 @@ interface ReplacementMeta {
   rfqId?: string;
   rfqNumber?: string;
   replacementSourcingOpen?: boolean;
+  replacementMode?: "shortage" | "full";
   stockCheckedAt?: string;
 }
 
@@ -135,17 +136,22 @@ export default function BusinessContractsPage() {
     }
     setReplacementPanelContractId(contract.id);
     setReplacementPanelDate(scheduledDate);
+    const delivery = contract.deliveryHistory?.find((item) => item.scheduledDate === scheduledDate);
+    const partialApproved = String(delivery?.resolution || "").toLowerCase() === "partial"
+      || String(delivery?.status || "").toLowerCase() === "partial_approved";
+    const replacementMode = partialApproved ? "shortage" : "full";
     setReplacementLoading(true);
     setReplacementOffers([]);
     setReplacementMeta(null);
     try {
-      const response = await api.get(`/b2b/contracts/${contract.id}/replacement-offers?scheduledDate=${encodeURIComponent(scheduledDate)}`);
+      const response = await api.get(`/b2b/contracts/${contract.id}/replacement-offers?scheduledDate=${encodeURIComponent(scheduledDate)}&replacementMode=${replacementMode}`);
       const result = response?.data || {};
       setReplacementOffers(Array.isArray(result.offers) ? result.offers : []);
       setReplacementMeta({
         scheduledDate: String(result.scheduledDate || scheduledDate),
         requestedQuantityKg: Number(result.requestedQuantityKg || 0),
         shortageKg: Number(result.shortageKg || 0),
+        replacementMode: result.replacementMode === "shortage" ? "shortage" : "full",
         benchmarkPricePerKg: Number(result.benchmarkPricePerKg || 0),
         benchmarkQuantityKg: Number(result.benchmarkQuantityKg || 0),
         rfqId: String(result.rfqId || result.data?.rfqId || ""),
@@ -510,7 +516,7 @@ export default function BusinessContractsPage() {
                         <p><span className="text-slate-500">Scheduled date:</span> {replacementMeta.scheduledDate || "Not available"}</p>
                         <p><span className="text-slate-500">Original rate:</span> ₹{replacementMeta.benchmarkPricePerKg}/kg</p>
                         <p><span className="text-slate-500">Original quoted quantity:</span> {replacementMeta.benchmarkQuantityKg} kg</p>
-                        <p className="font-semibold text-red-700"><span className="font-normal text-slate-500">Remaining shortage:</span> {replacementMeta.shortageKg} kg</p>
+                        <p className="font-semibold text-red-700"><span className="font-normal text-slate-500">{replacementMeta.replacementMode === "full" ? "Full quantity replacement farmer must supply:" : "Remaining shortage:"}</span> {replacementMeta.shortageKg} kg</p>
                       </div>
                     )}
 
@@ -524,7 +530,7 @@ export default function BusinessContractsPage() {
 
                     {!replacementLoading && rankedReplacementOffers.length > 0 && !rankedReplacementOffers.some((offer) => offer.eligible) && (
                       <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                        None of the existing quotes currently covers the full {replacementMeta?.shortageKg ?? 0} kg shortage using both quoted quantity and live stock. Invite more farmers to submit quotes for this RFQ, then refresh live stock.
+                        None of the existing quotes currently covers the {replacementMeta?.replacementMode === "full" ? "full required quantity" : "remaining shortage"} of {replacementMeta?.shortageKg ?? 0} kg using both quoted quantity and live stock. Invite more farmers to submit quotes for this RFQ, then refresh live stock.
                         <div className="mt-2">
                           {replacementMeta?.replacementSourcingOpen && replacementMeta.rfqId ? (
                           <Button size="sm" variant="outline" onClick={() => window.location.assign(`/business/rfqs?rfqId=${encodeURIComponent(replacementMeta.rfqId || "")}&replacementContractId=${encodeURIComponent(c.id)}&scheduledDate=${encodeURIComponent(replacementMeta.scheduledDate)}`)}>
@@ -603,20 +609,14 @@ export default function BusinessContractsPage() {
                                       action: "assign_replacement",
                                       scheduledDate: replacementMeta.scheduledDate,
                                       replacementOfferId: offer.id,
-                                      replacementMode: (
-                                        String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta.scheduledDate)?.resolution || "").toLowerCase() === "partial"
-                                        || String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta.scheduledDate)?.status || "").toLowerCase() === "partial_approved"
-                                      ) ? "shortage" : "full",
+                                      replacementMode: replacementMeta.replacementMode || "full",
                                       notes: "Business selected a replacement using live stock and quote ranking",
                                     },
                                   });
                                 }}
                               >
                                 {resolveShortageMutation.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1 h-4 w-4" />}
-                                {(
-                                  String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta?.scheduledDate)?.resolution || "").toLowerCase() === "partial"
-                                  || String(c.deliveryHistory?.find((delivery) => delivery.scheduledDate === replacementMeta?.scheduledDate)?.status || "").toLowerCase() === "partial_approved"
-                                ) ? "Assign farmer for shortage only" : "Replace full delivery"}
+                                {replacementMeta?.replacementMode === "shortage" ? "Assign farmer for shortage only" : "Replace full delivery"}
                               </Button>
                             </div>
                           </div>
