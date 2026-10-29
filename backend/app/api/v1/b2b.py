@@ -343,6 +343,22 @@ async def _warehouse_route_for_b2b(
     buyer_doc = dict(rfq)
     if isinstance(rfq.get("deliveryLocation"), dict):
         buyer_doc["location"] = rfq.get("deliveryLocation")
+    # Older RFQs may not carry GPS/district on deliveryLocation; recover the
+    # buyer's registered address from their business profile before failing.
+    if rfq.get("businessProfileId"):
+        try:
+            profile_id = rfq.get("businessProfileId")
+            if not isinstance(profile_id, ObjectId):
+                profile_id = ObjectId(str(profile_id))
+            buyer_profile = await profile_repo.find_one({"_id": profile_id})
+            if buyer_profile:
+                buyer_doc["businessInfo"] = buyer_profile
+                for key in ("district", "districtName", "city", "town", "state", "country", "address", "location", "coordinates", "latitude", "longitude", "lat", "lng"):
+                    if buyer_doc.get(key) in (None, "", {}):
+                        if buyer_profile.get(key) not in (None, "", {}):
+                            buyer_doc[key] = buyer_profile[key]
+        except Exception as exc:
+            logger.warning("Could not recover B2B buyer profile location for routing: %s", exc)
     farm_coords = farm_coords or await _recover_b2b_location_coords(farmer or {})
     buyer_coords = await _recover_b2b_location_coords(buyer_doc)
     if not farm_coords or not buyer_coords:
