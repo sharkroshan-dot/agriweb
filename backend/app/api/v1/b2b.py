@@ -610,11 +610,44 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, accept: Optional["OfferAccept"]) -> Dict[str, Any]:
     # Calculate delivery using Farm -> Source Warehouse -> Destination Warehouse -> Business.
-    # Never silently revert to the incorrect direct farm-to-business distance.
-    farmer = await farmer_repository.find_one({"userId": offer.get("farmerId")})
-    if not farmer:
-        farmer = await farmer_repository.find_one({"userId": ObjectId(str(offer.get("farmerId")))})
-    route = await _warehouse_route_for_b2b(farmer, rfq)
+    # Resolve the farmer across legacy identifier shapes and profile collections:
+    # some older quotes store a farmer document id while newer ones store userId.
+    farmer_id = str(offer.get("farmerId") or "")
+    farmer = None
+    if farmer_id:
+        farmer = await farmer_repository.find_one({"userId": farmer_id})
+        if not farmer and ObjectId.is_valid(farmer_id):
+            farmer = await farmer_repository.find_one({"userId": ObjectId(farmer_id)})
+        if not farmer and ObjectId.is_valid(farmer_id):
+            farmer = await farmer_repository.find_one({"_id": ObjectId(farmer_id)})
+        if not farmer:
+            farmer = await farmer_profile_repo.find_one({"userId": farmer_id})
+        if not farmer and ObjectId.is_valid(farmer_id):
+            farmer = await farmer_profile_repo.find_one({"userId": ObjectId(farmer_id)})
+        if not farmer and ObjectId.is_valid(farmer_id):
+            farmer = await farmer_profile_repo.find_one({"_id": ObjectId(farmer_id)})
+
+    # Merge location-bearing profile data instead of letting an incomplete farmer
+    # record hide the registered farm address. The source documents are only used
+    # for routing; the actual order still belongs to the selected offer farmer.
+    farmer_location = dict(farmer or {})
+    for profile_repo_candidate in (farmer_profile_repo,):
+        if farmer_id:
+            profile = await profile_repo_candidate.find_one({"userId": farmer_id})
+            if not profile and ObjectId.is_valid(farmer_id):
+                profile = await profile_repo_candidate.find_one({"userId": ObjectId(farmer_id)})
+            if profile:
+                for key, value in profile.items():
+                    if key not in farmer_location or farmer_location.get(key) in (None, "", {}, []):
+                        farmer_location[key] = value
+
+    # Some RFQ quote snapshots already carry the farmer's address/location.
+    for key in ("farmLocation", "farmerLocation", "farmerAddress", "farmAddress", "location", "address", "district", "districtName", "city", "town", "village", "taluk", "coordinates", "latitude", "longitude", "lat", "lng"):
+        value = offer.get(key)
+        if value not in (None, "", {}, []):
+            if farmer_location.get(key) in (None, "", {}, []):
+                farmer_location[key] = value
+    route = await _warehouse_route_for_b2b(farmer_location or None, rfq)
     if not route.get("available"):
         raise HTTPException(status_code=400, detail=f"Cannot calculate warehouse-based delivery fee: {route.get('reason')}")
     distance_km = round(
