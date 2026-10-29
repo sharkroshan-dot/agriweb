@@ -168,6 +168,8 @@ export default function FarmerB2bContractsPage() {
   };
   const confirmationForTargetDate = (c: Contract) =>
     c.deliveryHistory?.find((delivery) => delivery.scheduledDate === targetScheduleDate(c));
+  const latestFullReplacement = (c: Contract) =>
+    c.deliveryHistory?.find((delivery) => String(delivery.resolution || "").toLowerCase() === "replacement_supplier_full");
   const requiredQuantity = (c: Contract) => {
     const confirmation = confirmationForTargetDate(c);
     const resolution = String(confirmation?.resolution || "").toLowerCase();
@@ -456,6 +458,13 @@ export default function FarmerB2bContractsPage() {
                   <span className="flex items-center gap-1"><CalendarRange className="h-4 w-4 text-amber-600" /> {c.frequency || "monthly"}{Number(c.recurrenceInterval || 1) > 1 ? ` · every ${c.recurrenceInterval}` : ""}</span>
                   {c.nextDeliveryAt && <span className="text-xs text-slate-500">Next delivery: {new Date(c.nextDeliveryAt).toLocaleDateString("en-IN")}</span>}
                 </div>
+                {c.status === "active" && latestFullReplacement(c) && (
+                  <div className="w-full rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                    <strong>Do not deliver the reassigned occurrence ({latestFullReplacement(c)?.scheduledDate}).</strong>
+                    {" "}The business assigned the full quantity to another farmer. Do not pack, hand over, or deliver that date. Your future scheduled contract deliveries remain active and should be prepared normally.
+                    {latestFullReplacement(c)?.replacementQuantityKg != null && <span> Replacement quantity: {latestFullReplacement(c)?.replacementQuantityKg} kg.</span>}
+                  </div>
+                )}
                 {c.status === "active" && (
                   <div className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3">
                     <p className="mb-2 flex items-center gap-2 text-sm font-semibold">
