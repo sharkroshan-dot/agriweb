@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   FileSignature,
@@ -95,8 +94,16 @@ interface ReplacementMeta {
 
 export default function BusinessContractsPage() {
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
   const autoOpenedReplacementKey = useRef<string | null>(null);
+  const [requestedReplacementRoute, setRequestedReplacementRoute] = useState<{ contractId: string; scheduledDate: string } | null>(null);
+  useEffect(() => {
+    // Read deep-link parameters client-side to avoid forcing a Next.js
+    // static-rendered page into a useSearchParams suspense boundary.
+    const params = new URLSearchParams(window.location.search);
+    const contractId = params.get("replacementContractId");
+    const scheduledDate = params.get("scheduledDate");
+    if (contractId && scheduledDate) setRequestedReplacementRoute({ contractId, scheduledDate });
+  }, []);
   const { data: contractsData, isLoading } = useQuery({
     queryKey: ["businessContracts"],
     queryFn: () => api.get("/b2b/contracts"),
@@ -222,8 +229,8 @@ export default function BusinessContractsPage() {
     onError: (err: any) => toast.error(err?.message || "Could not open replacement sourcing for this delivery"),
   });
 
-  const requestedReplacementContractId = searchParams.get("replacementContractId");
-  const requestedReplacementDate = searchParams.get("scheduledDate");
+  const requestedReplacementContractId = requestedReplacementRoute?.contractId;
+  const requestedReplacementDate = requestedReplacementRoute?.scheduledDate;
   useEffect(() => {
     if (!requestedReplacementContractId || !requestedReplacementDate || apiContracts.length === 0) return;
     const key = `${requestedReplacementContractId}:${requestedReplacementDate}`;
