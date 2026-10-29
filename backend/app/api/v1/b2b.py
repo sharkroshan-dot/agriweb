@@ -208,6 +208,16 @@ def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, floa
         # a plausible-looking but wildly incorrect OSRM distance.
         if not (-180 <= lng <= 180 and -90 <= lat <= 90):
             raise ValueError("Coordinates are outside valid longitude/latitude ranges")
+        # (0, 0) is a common placeholder for missing warehouse GPS, not a
+        # valid location for a farm or warehouse in India. Reject it so callers
+        # recover coordinates from the district instead of routing to the Gulf
+        # of Guinea and producing thousands of false kilometres.
+        if abs(lng) < 0.0001 and abs(lat) < 0.0001:
+            raise ValueError("Coordinates are missing (0, 0) placeholder")
+        if is_india and not (67 <= lng <= 99 and 6 <= lat <= 38.5):
+            # Reject out-of-region coordinates on Indian records; a later
+            # district fallback is safer than a plausible-looking wrong route.
+            raise ValueError("Coordinates are outside India's geographic bounds")
         return lng, lat
 
     for key in ("location", "farmLocation", "coordinates", "geoLocation"):
@@ -3142,6 +3152,12 @@ async def recommend_b2b_fulfillment_route(
 
     source_coords = _location_coords_from_doc(source)
     destination_coords = _location_coords_from_doc(destination)
+    # A warehouse may have a saved placeholder (0, 0) or malformed GPS.
+    # Resolve missing coordinates from its own district before asking OSRM.
+    if not source_coords:
+        source_coords = await _geocode_indian_district(source_district) or _fallback_tamil_nadu_district_coords(source_district)
+    if not destination_coords:
+        destination_coords = await _geocode_indian_district(buyer_district) or _fallback_tamil_nadu_district_coords(buyer_district)
     transfer_distance_km = None
     used_road_distance = False
     if source_coords and destination_coords:
