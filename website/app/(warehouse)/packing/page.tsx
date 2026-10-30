@@ -381,7 +381,7 @@ export default function WarehousePackingPage() {
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{showRemainingOnly ? "No remaining orders in this date range" : searchTerm.trim() ? "No orders match your search" : "No packing tasks in this date range"}</h3><p className="mt-2 text-sm text-muted-foreground">{showRemainingOnly ? "All matching orders have finished packing or are waiting for customer approval/verification." : "Try another date range or search term, or choose All Time to see older orders."}</p></Card>
-      ) : <div className="space-y-6">{farmGroups.map((farm) => (
+      ) : <div className="warehouse-packing-page space-y-6">{farmGroups.map((farm) => (
         <section key={farm.key} className="space-y-3">
           <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
             <div className="min-w-0">
