@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Warehouse, PackageCheck, Truck, Plus, RefreshCw, Copy, CheckCircle2, ArrowRight, Clock3, MapPin, ClipboardCheck, CheckCircle2 } from "lucide-react";
+import { Warehouse, PackageCheck, Truck, Plus, RefreshCw, Copy, CheckCircle2, ArrowRight, Clock3, MapPin, ClipboardCheck } from "lucide-react";
 import toast from "react-hot-toast";
 
 const unwrap = (value: any) => value?.data?.data ?? value?.data ?? value ?? {};
