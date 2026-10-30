@@ -48,8 +48,8 @@ export default function WarehouseLayout({
       <RoleMobileNav role="warehouse" />
       <div className="flex flex-1 bg-transparent">
         <WarehouseSidebar />
-        <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="site-content role-workspace mx-auto w-full max-w-[1440px]"><WorkflowGuide role="warehouse" />{children}</div>
+        <main className="site-main warehouse-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-6 sm:py-7 lg:px-9">
+          <div className="site-content role-workspace warehouse-workspace mx-auto w-full max-w-[1520px]"><WorkflowGuide role="warehouse" />{children}</div>
         </main>
       </div>
       <Footer />
