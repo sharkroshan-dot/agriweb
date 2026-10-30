@@ -486,8 +486,6 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 budgetMinPerKg: form.budgetMinPerKg ? Number(form.budgetMinPerKg) : null,
                 budgetMaxPerKg: form.budgetMaxPerKg ? Number(form.budgetMaxPerKg) : null,
                 deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
-                quantityKg: form.recurring ? null : form.quantityKg,
-                quantityPerWeekKg: form.recurring ? form.quantityPerWeekKg : null,
                 recurrenceFrequency: form.recurring ? form.recurrenceFrequency : null,
                 recurrenceInterval: form.recurring ? form.recurrenceInterval : null,
                 scheduleStartDate: form.recurring && form.scheduleStartDate ? new Date(form.scheduleStartDate).toISOString() : null,
