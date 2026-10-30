@@ -197,7 +197,7 @@ export default function WarehouseQualityInspectionPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-quality-page space-y-6">
       <div>
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-7 w-7 text-emerald-600" />
