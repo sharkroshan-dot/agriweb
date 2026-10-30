@@ -80,7 +80,7 @@ export default function B2BFulfillmentPage() {
   const setForm = (id: string, patch: any) => setForms((old) => ({ ...old, [id]: { ...old[id], ...patch } }));
   const act = (id: string, payload: any) => mutation.mutate({ id, payload });
 
-  return <div className="space-y-5 p-4 md:p-6">
+  return <div className="warehouse-b2b-page space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-2xl font-bold text-slate-900">B2B Pickup &amp; Fulfillment</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">The dedicated control center for business orders: farm pickup, warehouse receipt, transfer, delivery and business handoff. All actions update the original B2B order.</p></div>
       <Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
@@ -101,7 +101,7 @@ export default function B2BFulfillmentPage() {
       { label: "Ready for Direct Delivery", key: "readyForDirectDelivery" },
       { label: "Direct Delivery in Transit", key: "directDeliveryInTransit" },
       { label: "Delivered to Business", key: "deliveredToBusiness" },
-    ].map((s: any) => <Card key={s.key}><CardContent className="p-4"><p className="text-sm text-slate-500">{s.label}</p><p className="mt-1 text-2xl font-bold">{Number(query.data?.data?.summary?.[s.key] ?? 0)}</p></CardContent></Card>)}</div>
+    ].map((s: any) => <Card key={s.key} className="wh-dashboard-kpi"><CardContent className="p-4"><p className="text-sm text-slate-500">{s.label}</p><p className="mt-1 text-2xl font-bold">{Number(query.data?.data?.summary?.[s.key] ?? 0)}</p></CardContent></Card>)}</div>
     {(view === "active" ? query.isLoading : completedQuery.isLoading) ? <p className="py-12 text-center text-slate-500">Loading B2B orders…</p> : (view === "active" ? query.isError : completedQuery.isError) ? <Card><CardContent className="p-6 text-sm text-red-700">Could not load {view === "completed" ? "completed" : "active"} B2B orders. Check the API response and warehouse permissions, then refresh.</CardContent></Card> : !displayedOrders.length ? <Card><CardContent className="p-10 text-center text-slate-500">{view === "completed" ? "No completed B2B orders are archived for this warehouse yet." : "No B2B orders are currently in the pickup or fulfillment workflow."}</CardContent></Card> : <div className="space-y-4">{displayedOrders.map((o: any) => {
       const f = form(o.id);
       const teamId = String(f.pickupTeam || o.pickupTeam || "");
