@@ -74,7 +74,7 @@ export default function PickupRoutesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-pickup-routes-page space-y-6">
       <div className="rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 p-6 text-white shadow-sm sm:p-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
