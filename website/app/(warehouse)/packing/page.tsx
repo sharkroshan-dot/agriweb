@@ -282,7 +282,7 @@ export default function WarehousePackingPage() {
   return (
     <>
     {printLabelData && <div aria-hidden="true" style={{ position: "fixed", left: "-10000px", top: 0 }}><div ref={printQrRef}><QRCodeSVG value={typeof window !== "undefined" ? window.location.origin + "/delivery/deliveries?orderId=" + encodeURIComponent(String(printLabelData.orderId || printLabelData.order?.id || printLabelData.order?._id || printLabelData.orderNumber || "")) : ""} size={160} level="M" /></div></div>}
-      <div className="space-y-6">
+      <div className="warehouse-packing-page space-y-6">
       <Card className="border-blue-100 bg-blue-50/60"><CardContent className="flex gap-3 p-4"><Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-600"/><div className="text-sm text-blue-900"><p className="font-semibold">Only warehouse-fulfilled orders appear here.</p><p className="mt-1 text-xs leading-5 text-blue-800">Bulk farm stock is received, quality-checked, and stored first. Then the warehouse allocates stock to each customer order and packs each order separately. Farmer-fulfilled long-distance orders are already packed and must never be repacked here.</p></div></CardContent></Card>
       <div className="grid gap-3 md:grid-cols-2">
         <Card className="border-amber-200 bg-amber-50/60"><CardContent className="p-4">
@@ -381,7 +381,7 @@ export default function WarehousePackingPage() {
       {packingError && <Card className="border-red-200 bg-red-50"><CardContent className="p-4 text-sm text-red-700">Unable to load warehouse packing tasks. Check the backend logs or refresh the page.</CardContent></Card>}
       {isLoading ? <div className="h-32 animate-pulse rounded-lg bg-muted"/> : !packingError && visibleTasks.length === 0 ? (
         <Card className="p-12 text-center"><PackageCheck className="mx-auto h-12 w-12 text-muted-foreground"/><h3 className="mt-4 font-semibold">{showRemainingOnly ? "No remaining orders in this date range" : searchTerm.trim() ? "No orders match your search" : "No packing tasks in this date range"}</h3><p className="mt-2 text-sm text-muted-foreground">{showRemainingOnly ? "All matching orders have finished packing or are waiting for customer approval/verification." : "Try another date range or search term, or choose All Time to see older orders."}</p></Card>
-      ) : <div className="warehouse-packing-page space-y-6">{farmGroups.map((farm) => (
+      ) : <div className="space-y-6">{farmGroups.map((farm) => (
         <section key={farm.key} className="space-y-3">
           <Card className="border-emerald-200 bg-emerald-50/40"><CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
             <div className="min-w-0">
