@@ -689,3 +689,138 @@ button { -webkit-tap-highlight-color: transparent; }
     .warehouse-transfers-page { padding-left: 0; padding-right: 0; }
   }
 }
+
+
+/* Second-pass page finishing for the warehouse operating suite. */
+@layer components {
+  .warehouse-incoming-page,
+  .warehouse-collections-page,
+  .warehouse-pickup-routes-page,
+  .warehouse-consolidation-page,
+  .warehouse-transfers-page,
+  .warehouse-outgoing-page,
+  .warehouse-stock-page,
+  .warehouse-cold-storage-page,
+  .warehouse-packing-page {
+    min-width: 0;
+    color: #10251f;
+  }
+  .warehouse-incoming-page > :is(.flex,.grid),
+  .warehouse-stock-page > :is(.flex,.grid),
+  .warehouse-transfers-page > :is(.flex,.grid) {
+    min-width: 0;
+  }
+  .warehouse-incoming-page > div:first-of-type:not(:has(h1)),
+  .warehouse-consolidation-page > div:first-child,
+  .warehouse-stock-page > div:first-child,
+  .warehouse-cold-storage-page > div:first-child {
+    margin-bottom: 2px;
+  }
+  .warehouse-incoming-page [role="tab"] {
+    min-height: 104px;
+    border-radius: 15px;
+    border-color: #e2ece5;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(16,37,31,.025);
+  }
+  .warehouse-incoming-page [role="tab"][aria-selected="true"] {
+    border-color: #0b8b63;
+    background: linear-gradient(145deg,#effaf3,#f8fcf9);
+    box-shadow: inset 0 0 0 1px rgba(11,139,99,.18), 0 4px 14px rgba(11,139,99,.06);
+  }
+  .warehouse-incoming-page > .rounded-xl,
+  .warehouse-incoming-page > .rounded-2xl {
+    border-radius: 16px;
+  }
+  .warehouse-collections-page > div:first-child,
+  .warehouse-pickup-routes-page > div:first-child {
+    border-radius: 22px;
+    box-shadow: 0 12px 28px rgba(5,85,58,.12);
+  }
+  .warehouse-collections-page > .grid > *,
+  .warehouse-pickup-routes-page > .grid > * {
+    border-radius: 16px;
+  }
+  .warehouse-collections-page > .grid > * p:last-child,
+  .warehouse-pickup-routes-page > .grid > * p:last-child {
+    font-variant-numeric: tabular-nums;
+  }
+  .warehouse-consolidation-page > .rounded-xl,
+  .warehouse-consolidation-page > [class*="Card"],
+  .warehouse-consolidation-page [class*="rounded-xl"][class*="border"] {
+    border-radius: 15px;
+  }
+  .warehouse-consolidation-page > div:first-child button,
+  .warehouse-pickup-routes-page > div:first-child button {
+    box-shadow: 0 4px 12px rgba(6,65,47,.12);
+  }
+  .warehouse-transfers-page {
+    padding: 0 !important;
+  }
+  .warehouse-transfers-page > div:first-child,
+  .warehouse-outgoing-page > div:first-child,
+  .warehouse-stock-page > div:first-child {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 14px;
+  }
+  .warehouse-transfers-page > .grid > *,
+  .warehouse-stock-page > .grid > * {
+    border: 1px solid #e3ece6;
+    border-radius: 16px;
+    box-shadow: 0 3px 12px rgba(16,37,31,.03);
+  }
+  .warehouse-transfers-page > .flex.flex-col,
+  .warehouse-stock-page > .flex.flex-col {
+    border: 1px solid #e3ece6;
+    border-radius: 16px;
+    background: rgba(255,255,255,.92);
+    padding: 12px;
+  }
+  .warehouse-stock-page table thead {
+    background: #f4f8f5;
+  }
+  .warehouse-stock-page table th {
+    padding-block: 14px;
+    color: #607168;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+  }
+  .warehouse-stock-page table td {
+    padding-block: 14px;
+  }
+  .warehouse-cold-storage-page > .grid > * {
+    border: 1px solid #e3ece6;
+    border-radius: 18px;
+    box-shadow: 0 4px 18px rgba(16,37,31,.035);
+  }
+  .warehouse-cold-storage-page > .grid > * [class*="bg-slate-50"] {
+    border: 1px solid #edf2ee;
+    border-radius: 13px;
+    background: #f7faf8;
+  }
+  .warehouse-outgoing-page > .grid > *,
+  .warehouse-outgoing-page [class*="rounded-xl"][class*="border"] {
+    border-radius: 15px;
+  }
+  .warehouse-packing-page > .grid > * {
+    border-radius: 16px;
+  }
+  .warehouse-packing-page [class*="rounded-md"][class*="border"] {
+    border-radius: 12px;
+  }
+  @media (max-width: 767px) {
+    .warehouse-collections-page > div:first-child,
+    .warehouse-pickup-routes-page > div:first-child {
+      border-radius: 17px;
+      padding: 20px;
+    }
+    .warehouse-incoming-page [role="tab"] { min-height: auto; }
+    .warehouse-transfers-page > .flex.flex-col,
+    .warehouse-stock-page > .flex.flex-col { padding: 10px; }
+  }
+}
