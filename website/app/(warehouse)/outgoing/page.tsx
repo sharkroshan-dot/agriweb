@@ -227,7 +227,7 @@ export default function WarehouseOutgoingPage() {
     } catch (e: any) { toast.error(e?.message || "Could not process shipment"); }
   };
 
-  return <div className="mx-auto w-full max-w-[1500px] space-y-5 pb-8">
+  return <div className="warehouse-outgoing-page mx-auto w-full max-w-[1500px] space-y-5 pb-8">
     <div className="flex flex-col gap-4 rounded-xl border bg-card p-5 shadow-sm lg:flex-row lg:items-center lg:justify-between">
       <div className="flex min-w-0 items-start gap-3">
         <div className="rounded-xl bg-primary/10 p-3 text-primary"><Truck className="h-6 w-6"/></div>
