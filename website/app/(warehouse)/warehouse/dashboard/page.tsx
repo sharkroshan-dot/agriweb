@@ -50,8 +50,8 @@ export default function WarehouseDashboardPage() {
   const dashboard = dashboardData?.data ?? dashboardData ?? {};
   const warehouse = dashboard.warehouse ?? {};
   const summary = dashboard.stockSummary ?? {};
-  const inventoryData = dashboard.inventoryFlow ?? [];
-  const categoryData = dashboard.stockByCategory ?? [];
+  const inventoryData = Array.isArray(dashboard.inventoryFlow) ? dashboard.inventoryFlow : [];
+  const categoryData = Array.isArray(dashboard.stockByCategory) ? dashboard.stockByCategory : [];
   const recentActivities = Array.isArray(dashboard.recentActivities) ? dashboard.recentActivities : [];
   const lowStockItems = Array.isArray(dashboard.lowStockItems) ? dashboard.lowStockItems : [];
   const capacityUtilization = Number(dashboard.capacityUtilization ?? 0);
@@ -65,7 +65,7 @@ export default function WarehouseDashboardPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">{[1,2,3,4].map((i)=><div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />)}</div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{[1,2,3,4].map((i)=><div key={i} className="h-32 animate-pulse rounded-lg bg-muted" />)}</div>
         <div className="h-96 animate-pulse rounded-lg bg-muted" />
       </div>
     );
@@ -88,7 +88,7 @@ export default function WarehouseDashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
           { title: "Total Stock Items", value: String(summary.totalItems ?? 0), change: "", icon: Package, color: "text-blue-600" },
           { title: "Stock Value", value: `₹${Number(summary.totalValue ?? 0).toLocaleString("en-IN")}`, change: "", icon: Warehouse, color: "text-green-600" },
@@ -99,24 +99,42 @@ export default function WarehouseDashboardPage() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="wh-dashboard-panel lg:col-span-2">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-3">
+        <Card className="wh-dashboard-panel min-w-0 xl:col-span-2">
           <CardHeader><CardTitle>Inventory Flow</CardTitle><CardDescription>Received vs Dispatched items</CardDescription></CardHeader>
           <CardContent>
-            <div className="h-[300px]"><ResponsiveContainer width="100%" height="100%"><AreaChart data={inventoryData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Area type="monotone" dataKey="received" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorReceived)" /><Area type="monotone" dataKey="dispatched" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorDispatched)" /><defs><linearGradient id="colorReceived" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} /><stop offset="95%" stopColor="#22c55e" stopOpacity={0} /></linearGradient><linearGradient id="colorDispatched" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient></defs></AreaChart></ResponsiveContainer></div>
+            {inventoryData.length > 0 ? (
+            <div className="h-[300px] min-w-0"><ResponsiveContainer width="100%" height="100%"><AreaChart data={inventoryData}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" /><YAxis /><Tooltip /><Area type="monotone" dataKey="received" stroke="#22c55e" strokeWidth={2} fillOpacity={1} fill="url(#colorReceived)" /><Area type="monotone" dataKey="dispatched" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorDispatched)" /><defs><linearGradient id="colorReceived" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} /><stop offset="95%" stopColor="#22c55e" stopOpacity={0} /></linearGradient><linearGradient id="colorDispatched" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient></defs></AreaChart></ResponsiveContainer></div>
+          ) : (
+            <div className="flex h-[300px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 text-center">
+              <Package className="h-7 w-7 text-slate-300" />
+              <p className="mt-2 text-sm font-semibold text-slate-700">No inventory movement yet</p>
+              <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">Received and dispatched activity will appear here when stock movements are recorded.</p>
+            </div>
+          )}
           </CardContent>
         </Card>
 
-        <Card className="wh-dashboard-panel">
+        <Card className="wh-dashboard-panel min-w-0">
           <CardHeader><CardTitle>Stock by Category</CardTitle><CardDescription>Distribution of inventory</CardDescription></CardHeader>
           <CardContent>
-            <div className="h-[250px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{categoryData.map((entry,index)=><Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
+            {categoryData.length > 0 ? (
+              <>
+                <div className="h-[250px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={categoryData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">{categoryData.map((entry,index)=><Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}</Pie><Tooltip /></PieChart></ResponsiveContainer></div>
             <div className="mt-4 grid grid-cols-2 gap-2">{categoryData.map((item,index)=><div key={item.name} className="flex items-center gap-2 text-sm"><div className={cn("h-3 w-3 rounded-full", index === 0 && "bg-green-500", index === 1 && "bg-blue-500", index === 2 && "bg-yellow-500", index === 3 && "bg-red-500")} /><span>{item.name}</span><span className="ml-auto font-medium">{item.value}%</span></div>)}</div>
+              </>
+            ) : (
+              <div className="flex h-[250px] flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-5 text-center">
+                <Package className="h-7 w-7 text-slate-300" />
+                <p className="mt-2 text-sm font-semibold text-slate-700">No category data available</p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-slate-500">Stock distribution will appear here when inventory is available.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-2">
         <Card className="wh-dashboard-panel">
           <CardHeader><CardTitle>Capacity Utilization</CardTitle><CardDescription>Storage space usage</CardDescription></CardHeader>
           <CardContent>
