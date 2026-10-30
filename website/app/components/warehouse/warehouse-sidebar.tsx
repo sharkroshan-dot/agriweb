@@ -103,9 +103,9 @@ export function WarehouseSidebar() {
   const lowStock = Number.isFinite(lowStockNumber) ? lowStockNumber : null;
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
-      <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
+    <aside className="warehouse-sidebar hidden w-[276px] shrink-0 border-r border-slate-200/80 bg-white md:block">
+      <div className="warehouse-sidebar-inner sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
+        <div className="warehouse-identity mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100">
               <Warehouse className="h-5 w-5 text-emerald-600" />
@@ -121,7 +121,7 @@ export function WarehouseSidebar() {
           </div>
         </div>
 
-        <nav aria-label="Warehouse navigation" className="space-y-5">
+        <nav aria-label="Warehouse navigation" className="warehouse-nav space-y-5">
           {visibleSections.map((section) => (
             <section key={section.title} aria-label={section.title}>
               <div className="mb-2 px-2">
@@ -136,7 +136,7 @@ export function WarehouseSidebar() {
                       href={item.href}
                       aria-current={isActive ? "page" : undefined}
                       className={cn(
-                        "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
+                        "warehouse-nav-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                         isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                       )}
                     >
