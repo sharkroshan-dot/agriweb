@@ -1221,7 +1221,7 @@ export default function CheckoutPage() {
                   <Button
                     className="mt-4 w-full"
                     size="lg"
-                    onClick={handlePlaceOrder}
+                    onClick={() => handlePlaceOrder()}
                     disabled={isPlacing || (paymentMethod === "wallet" && walletBalance < estimatedTotal)}
                   >
                     {isPlacing ? (
