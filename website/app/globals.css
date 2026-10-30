@@ -582,3 +582,110 @@ button { -webkit-tap-highlight-color: transparent; }
     .warehouse-b2b-page .wh-dashboard-kpi { min-height: 90px; }
   }
 }
+
+
+/* Page-level polish for the Warehouse operations suite. */
+@layer components {
+  .warehouse-incoming-page,
+  .warehouse-collections-page,
+  .warehouse-pickup-routes-page,
+  .warehouse-consolidation-page,
+  .warehouse-transfers-page,
+  .warehouse-outgoing-page,
+  .warehouse-stock-page,
+  .warehouse-cold-storage-page,
+  .warehouse-packing-page,
+  .warehouse-pickup-team-page {
+    min-width: 0;
+    color: #10251f;
+  }
+  .warehouse-incoming-page > .flex.items-center.justify-between,
+  .warehouse-incoming-page > .flex.flex-col,
+  .warehouse-collections-page > .flex.items-center.justify-between,
+  .warehouse-pickup-routes-page > .flex.items-center.justify-between,
+  .warehouse-consolidation-page > .flex.items-center.justify-between,
+  .warehouse-transfers-page > .flex.items-center.justify-between,
+  .warehouse-stock-page > .flex.items-center.justify-between,
+  .warehouse-cold-storage-page > .flex.items-center.justify-between,
+  .warehouse-packing-page > .flex.items-center.justify-between {
+    gap: 14px;
+  }
+  .warehouse-incoming-page > .flex h1,
+  .warehouse-collections-page h1,
+  .warehouse-pickup-routes-page h1,
+  .warehouse-consolidation-page h1,
+  .warehouse-transfers-page h1,
+  .warehouse-outgoing-page h1,
+  .warehouse-stock-page h1,
+  .warehouse-cold-storage-page h1,
+  .warehouse-packing-page h1,
+  .warehouse-pickup-team-page h1 {
+    color: #10251f;
+    font-weight: 770;
+    letter-spacing: -.04em;
+  }
+  .warehouse-incoming-page > .flex p,
+  .warehouse-collections-page > p,
+  .warehouse-pickup-routes-page > p,
+  .warehouse-consolidation-page > p,
+  .warehouse-transfers-page > div > p,
+  .warehouse-outgoing-page > div p,
+  .warehouse-stock-page > div p,
+  .warehouse-cold-storage-page > div p,
+  .warehouse-packing-page > div p,
+  .warehouse-pickup-team-page p {
+    line-height: 1.6;
+  }
+  .warehouse-incoming-page > .flex,
+  .warehouse-collections-page > .flex,
+  .warehouse-pickup-routes-page > .flex,
+  .warehouse-consolidation-page > .flex,
+  .warehouse-transfers-page > .flex,
+  .warehouse-stock-page > .flex,
+  .warehouse-cold-storage-page > .flex,
+  .warehouse-packing-page > .flex {
+    min-width: 0;
+  }
+  .warehouse-incoming-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-collections-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-pickup-routes-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-consolidation-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-transfers-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-outgoing-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-stock-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-cold-storage-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white),
+  .warehouse-packing-page :is(.rounded-xl.border.bg-white,.rounded-2xl.border.bg-white) {
+    border-color: #e4ece7;
+    box-shadow: 0 2px 12px rgba(16,37,31,.035);
+  }
+  .warehouse-incoming-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-collections-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-pickup-routes-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-consolidation-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-transfers-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-outgoing-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-stock-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-cold-storage-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-packing-page :is(.rounded-lg.border,.rounded-xl.border),
+  .warehouse-pickup-team-page :is(.rounded-lg.border,.rounded-xl.border) {
+    border-color: #e4ece7;
+  }
+  .warehouse-workspace :is(.text-3xl.font-bold,.text-3xl.font-extrabold) {
+    letter-spacing: -.04em;
+  }
+  @media (max-width: 767px) {
+    .warehouse-incoming-page,
+    .warehouse-collections-page,
+    .warehouse-pickup-routes-page,
+    .warehouse-consolidation-page,
+    .warehouse-transfers-page,
+    .warehouse-outgoing-page,
+    .warehouse-stock-page,
+    .warehouse-cold-storage-page,
+    .warehouse-packing-page,
+    .warehouse-pickup-team-page {
+      padding-bottom: 1.25rem;
+    }
+    .warehouse-transfers-page { padding-left: 0; padding-right: 0; }
+  }
+}
