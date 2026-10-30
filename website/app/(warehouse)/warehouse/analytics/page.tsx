@@ -58,10 +58,10 @@ export default function WarehouseAnalyticsPage() {
   });
 
   const dashboard = dashboardQuery.data;
-  const stockItems = stockQuery.data?.data?.stock || [];
-  const incomingItems = incomingQuery.data?.data?.incoming || [];
-  const outgoingItems = outgoingQuery.data?.data?.outgoing || [];
-  const coldStorageItems = coldStorageQuery.data?.data?.coldStorage || [];
+  const stockItems = useMemo(() => stockQuery.data?.data?.stock || [], [stockQuery.data]);
+  const incomingItems = useMemo(() => incomingQuery.data?.data?.incoming || [], [incomingQuery.data]);
+  const outgoingItems = useMemo(() => outgoingQuery.data?.data?.outgoing || [], [outgoingQuery.data]);
+  const coldStorageItems = useMemo(() => coldStorageQuery.data?.data?.coldStorage || [], [coldStorageQuery.data]);
   const isLoading = dashboardQuery.isLoading || stockQuery.isLoading || incomingQuery.isLoading || outgoingQuery.isLoading || coldStorageQuery.isLoading;
 
   const stockTotals = useMemo(() => {
