@@ -135,7 +135,7 @@ export default function WarehouseOutgoingPage() {
     queryFn: () => api.get("/warehouse/me/outgoing", { params: { status: statusFilter !== "all" ? statusFilter : undefined, limit: 100 } }),
     refetchInterval: 20000,
   });
-  const allOutgoing = data?.data?.outgoing || [];
+  const allOutgoing = useMemo(() => data?.data?.outgoing || [], [data]);
   const outgoing = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return allOutgoing.filter((item: any) => !q || [item.orderId, item.productId, item.productName, item.batchNumber, item.deliveryPartnerId, item.sourceDistrict, item.destinationDistrict].filter(Boolean).some((v) => String(v).toLowerCase().includes(q)));
