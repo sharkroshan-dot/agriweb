@@ -117,8 +117,11 @@ export function WorkflowGuide({ role, compact = false }: { role: Role; compact?:
         </div>
       </div>
 
-      {(!compact || isExpanded) && (
-      <div id="warehouse-workflow-steps" className="p-4">
+      <div
+        id="warehouse-workflow-steps"
+        className={`p-4 ${compact && !isExpanded ? "hidden" : ""}`}
+        aria-hidden={compact && !isExpanded}
+      >
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-11">
           {steps.map((step) => {
             const selected = selectedKey === step.key;
@@ -141,7 +144,6 @@ export function WorkflowGuide({ role, compact = false }: { role: Role; compact?:
           })}
         </div>
       </div>
-      )}
     </section>
   );
 }
