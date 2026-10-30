@@ -307,7 +307,7 @@ export default function WarehouseStockPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-stock-page space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div><h1 className="text-3xl font-bold">Stock Management</h1><p className="text-muted-foreground">{stockItems.length} items in inventory</p></div>
         <div className="flex items-center gap-2"><Button variant="outline" size="sm"><Download className="mr-2 h-4 w-4" />Export</Button><Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button><Button onClick={openAddDialog}><Plus className="mr-2 h-4 w-4" />Add Stock</Button></div>
