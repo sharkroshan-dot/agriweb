@@ -295,8 +295,8 @@ export default function FarmerFulfillmentWarehousePage() {
     } catch(e:any){toast.error(e?.message||"Storage failed");}
   };
 
-  return <div className="space-y-6">
-    <div className="rounded-2xl bg-gradient-to-r from-indigo-800 to-slate-800 p-6 text-white">
+  return <div className="warehouse-farmer-fulfillment-page space-y-6">
+    <div className="rounded-2xl bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-700 p-6 text-white">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div><div className="flex items-center gap-2 text-sm text-indigo-200"><Warehouse className="h-4 w-4"/>Farmer Fulfillment Transfer</div>
         <h1 className="mt-1 text-3xl font-bold">Packed Farmer Orders</h1>
