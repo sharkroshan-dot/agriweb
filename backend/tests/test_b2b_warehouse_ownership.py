@@ -312,3 +312,42 @@ def test_legacy_ready_order_with_pickup_history_is_never_rewound():
 
     assert _reconcile_legacy_one_off_ready_order(order) is False
     assert order["status"] == ORDER_READY_FOR_PICKUP
+
+def test_recurring_confirmation_is_recovered_when_order_history_is_only_partial():
+    from datetime import datetime
+
+    created_at = datetime(2026, 10, 31, 9, 0)
+    confirmed_at = datetime(2026, 10, 31, 17, 45)
+    creation_event = {
+        "status": "confirmed",
+        "action": "order_created",
+        "actorRole": "system",
+        "timestamp": created_at,
+    }
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "contractId": "contract-456",
+        "scheduledDeliveryDate": "2026-11-01",
+        "quantityKg": 25,
+        "createdAt": created_at,
+        "statusHistory": [creation_event],
+    }
+    confirmation = {
+        "scheduledDate": "2026-11-01",
+        "availableQuantityKg": 30,
+        "packedQuantityKg": 25,
+        "readyForPickup": True,
+        "confirmedBy": "farmer-456",
+        "confirmedAt": confirmed_at,
+    }
+
+    history = _build_recurring_ready_history(order, confirmation)
+
+    assert len(history) == 2
+    assert history[0] is creation_event
+    assert history[1]["action"] == "farmer_confirmed_ready_for_pickup"
+    assert history[1]["actorId"] == "farmer-456"
+    assert history[1]["timestamp"] == confirmed_at
+    assert "25 kg packed from 30 kg available" in history[1]["details"]
+
