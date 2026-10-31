@@ -481,3 +481,129 @@ def test_real_recurring_confirmation_replaces_derived_ready_placeholder():
     assert ready_events[0]["actorRole"] == "farmer"
     assert ready_events[0]["actorId"] == "farmer-789"
 
+def test_replacement_order_does_not_inherit_original_contract_farmer_confirmation():
+    contract = {"farmerId": "original-farmer"}
+    replacement_order = {
+        "contractId": "contract-1",
+        "scheduledDeliveryDate": "2026-10-30",
+        "farmerId": "replacement-farmer",
+        "isReplacementSupply": True,
+    }
+    original_order = {
+        "contractId": "contract-1",
+        "scheduledDeliveryDate": "2026-10-30",
+        "farmerId": "original-farmer",
+    }
+
+    from app.api.v1.b2b import _is_primary_recurring_occurrence
+
+    assert not _is_primary_recurring_occurrence(replacement_order, contract)
+    assert _is_primary_recurring_occurrence(original_order, contract)
+
+
+def test_receive_stock_snapshot_is_recognized_as_real_warehouse_received_transition():
+    order = {
+        "status": ORDER_WAREHOUSE_RECEIVED,
+        "qualityCheck": "passed",
+        "createdAt": "2026-10-27T08:00:00",
+        "warehouseReceivedAt": "2026-10-27T11:57:27",
+        "statusHistory": [
+            {
+                "status": "confirmed",
+                "action": "order_created",
+                "timestamp": "2026-10-27T08:00:00",
+            },
+            {
+                "status": ORDER_WAREHOUSE_RECEIVED,
+                "previousStatus": ORDER_PICKED_UP,
+                "action": "receive_stock",
+                "actorRole": "warehouse",
+                "timestamp": "2026-10-27T11:57:27",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert not any(
+        event.get("isDerived") is True
+        and event.get("action") == ORDER_WAREHOUSE_RECEIVED
+        and str(event.get("details") or "").startswith("The order's stored current stage is")
+        for event in history
+    )
+
+
+def test_completed_order_cannot_be_reopened_by_legacy_receive_stock_event():
+    order = {
+        "status": ORDER_WAREHOUSE_RECEIVED,
+        "completedAt": "2026-10-28T14:40:52",
+        "qualityCheck": "passed",
+        "statusHistory": [
+            {
+                "status": ORDER_WAREHOUSE_RECEIVED,
+                "previousStatus": ORDER_COMPLETED,
+                "action": "receive_stock",
+                "actorRole": "warehouse",
+                "timestamp": "2026-10-29T09:00:00",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_COMPLETED
+    invalid = next(event for event in history if event.get("action") == "receive_stock")
+    assert invalid["isInvalidTransition"] is True
+    assert invalid["isIgnoredForLifecycle"] is True
+    assert any(
+        event.get("action") == "complete_order" and event.get("isDerived") is True
+        for event in history
+    )
+
+
+def test_completed_at_reconstructs_specific_business_completion_event():
+    order = {
+        "status": ORDER_COMPLETED,
+        "completedAt": "2026-10-28T14:40:52",
+        "createdAt": "2026-10-27T12:00:00",
+        "statusHistory": [
+            {
+                "status": "confirmed",
+                "action": "order_created",
+                "timestamp": "2026-10-27T12:00:00",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    completion = next(event for event in history if event.get("action") == "complete_order")
+    assert completion["timestamp"] == "2026-10-28T14:40:52"
+    assert completion["previousStatus"] == ORDER_DELIVERED
+    assert completion["isDerived"] is True
+
+
+def test_delivered_at_reconstructs_delivery_handover_event_with_proof():
+    order = {
+        "status": ORDER_DELIVERED,
+        "deliveredAt": "2026-10-27T20:25:11",
+        "deliveredBy": "delivery-user",
+        "deliveryProof": "Received by business manager",
+        "createdAt": "2026-10-27T08:00:00",
+        "statusHistory": [
+            {
+                "status": "confirmed",
+                "action": "order_created",
+                "timestamp": "2026-10-27T08:00:00",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    delivered = next(event for event in history if event.get("action") == "confirm_delivery")
+    assert delivered["timestamp"] == "2026-10-27T20:25:11"
+    assert delivered["actorRole"] == "delivery"
+    assert delivered["actorId"] == "delivery-user"
+    assert delivered["details"] == "Received by business manager"
+
