@@ -838,54 +838,86 @@ def _build_recurring_ready_history(
 
 
 def _reconcile_terminal_b2b_status(order: Dict[str, Any], history: List[Dict[str, Any]]) -> bool:
-    """Restore a terminal B2B status when a legacy action later regressed it.
+    """Restore terminal status after stale updates without invalidating older history.
 
-    Delivered/completed/cancelled orders cannot be reopened by a stale pickup or
-    warehouse action. If an old history entry explicitly records a transition
-    from a terminal stage back to an earlier stage, preserve that attempted
-    action as an ignored audit entry and restore the terminal stage.
+    A historical action recorded before delivery/completion remains a valid
+    event even if a later stale top-level status overwrote the current status.
+    Only a backward action timestamped after a terminal timestamp is flagged.
     """
+    def parse_event_time(value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+            except ValueError:
+                return None
+        return None
+
+    terminal_facts = [
+        (ORDER_COMPLETED, parse_event_time(order.get("completedAt"))),
+        (ORDER_DELIVERED, parse_event_time(order.get("deliveredAt"))),
+        (ORDER_CANCELLED, parse_event_time(order.get("cancelledAt"))),
+    ]
+    terminal_facts = [(status, stamp) for status, stamp in terminal_facts if stamp is not None]
     current = str(order.get("status") or "").strip().lower()
-    terminal = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
-    if current in terminal:
-        return False
 
-    candidates = []
-    for index, event in enumerate(history):
-        if not isinstance(event, dict):
-            continue
-        previous = str(event.get("previousStatus") or "").strip().lower()
-        target = str(event.get("status") or "").strip().lower()
-        if previous not in terminal or target != current:
-            continue
-        allowed = previous == ORDER_DELIVERED and target == ORDER_COMPLETED
-        if allowed:
-            continue
-        candidates.append((index, event, previous))
-
-    if candidates:
-        _, event, restored_status = candidates[-1]
-        event["isInvalidTransition"] = True
-        event["isIgnoredForLifecycle"] = True
-        event["reconciliationNote"] = (
-            f"This recorded {str(event.get('action') or 'operation').replace('_', ' ')} "
-            f"attempt occurred after the order had already reached {restored_status.replace('_', ' ')}. "
-            "The backward transition is ignored and the terminal order status is restored."
-        )
-        order["status"] = restored_status
+    # Prefer the latest persisted terminal timestamp when the stored status
+    # was overwritten by an earlier-stage queue update.
+    if terminal_facts and current not in {status for status, _ in terminal_facts}:
+        latest_status, latest_timestamp = max(terminal_facts, key=lambda item: item[1])
+        order["status"] = latest_status
+        for event in history:
+            if not isinstance(event, dict) or event.get("isInvalidTransition") is True:
+                continue
+            previous = str(event.get("previousStatus") or "").strip().lower()
+            target = str(event.get("status") or "").strip().lower()
+            event_timestamp = parse_event_time(event.get("timestamp") or event.get("createdAt"))
+            if previous in {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED} and target not in {
+                ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED
+            } and event_timestamp and event_timestamp >= latest_timestamp:
+                event["isInvalidTransition"] = True
+                event["isIgnoredForLifecycle"] = True
+                event["reconciliationNote"] = (
+                    f"This recorded {str(event.get('action') or 'operation').replace('_', ' ')} "
+                    f"attempt occurred after the order had already reached {latest_status.replace('_', ' ')}. "
+                    "The backward transition is ignored and the terminal order status is restored."
+                )
         return True
 
-    # Persisted terminal timestamps are stronger evidence than a later stale
-    # current-stage field. Prefer completion, then business delivery.
-    if order.get("completedAt"):
-        order["status"] = ORDER_COMPLETED
-        return True
-    if order.get("deliveredAt"):
-        order["status"] = ORDER_DELIVERED
-        return True
-    if order.get("cancelledAt"):
-        order["status"] = ORDER_CANCELLED
-        return True
+    # When the current status itself is non-terminal, a history event may still
+    # prove the order was completed/delivered/cancelled. Require chronological
+    # evidence: a warehouse action dated before completion is not invalid.
+    terminal_statuses = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
+    if current not in terminal_statuses:
+        candidates = []
+        for event in history:
+            if not isinstance(event, dict):
+                continue
+            previous = str(event.get("previousStatus") or "").strip().lower()
+            target = str(event.get("status") or "").strip().lower()
+            if previous not in terminal_statuses or target != current:
+                continue
+            if previous == ORDER_DELIVERED and target == ORDER_COMPLETED:
+                continue
+            terminal_timestamp = dict(terminal_facts).get(previous)
+            event_timestamp = parse_event_time(event.get("timestamp") or event.get("createdAt"))
+            if terminal_timestamp and event_timestamp and event_timestamp >= terminal_timestamp:
+                event["isInvalidTransition"] = True
+                event["isIgnoredForLifecycle"] = True
+                event["reconciliationNote"] = (
+                    f"This recorded {str(event.get('action') or 'operation').replace('_', ' ')} "
+                    f"attempt occurred after the order had already reached {previous.replace('_', ' ')}. "
+                    "The backward transition is ignored and the terminal order status is restored."
+                )
+            if terminal_timestamp:
+                candidates.append((terminal_timestamp, previous))
+        if candidates:
+            _, restored_status = max(candidates, key=lambda item: item[0])
+            order["status"] = restored_status
+            return True
+
     return False
 
 
