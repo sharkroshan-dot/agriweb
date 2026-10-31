@@ -251,7 +251,7 @@ export default function AdminDashboardPage() {
         </Button>
       </AdminPageHeader>
 
-      <div className="admin-action-banner<div className="admin-action-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="admin-action-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div><p className="font-semibold text-blue-950">Control room priorities</p><p className="text-sm text-blue-900">Review alerts, settlement exceptions, verification queues and delivery health before routine reporting.</p></div>
         <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/admin/settlements">Review settlements</Link></Button><Button asChild size="sm" variant="outline"><Link href="/admin/users">Manage users</Link></Button></div>
       </div>
