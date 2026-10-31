@@ -896,7 +896,18 @@ def _reconcile_terminal_b2b_status(order: Dict[str, Any], history: List[Dict[str
             if previous not in terminal_statuses or target in terminal_statuses:
                 continue
             event_timestamp = parse_event_time(event.get("timestamp") or event.get("createdAt"))
-            if not event_timestamp or event_timestamp < authoritative_timestamp:
+            if not event_timestamp:
+                continue
+            if event_timestamp < authoritative_timestamp:
+                # The operational event predates the terminal timestamp. Keep
+                # it as real history, but do not trust a stale previousStatus
+                # snapshot claiming that the order was already terminal.
+                event["isInconsistentPreviousStatus"] = True
+                event["previousStatusReconciliationNote"] = (
+                    f"The saved previous-stage label ({previous.replace('_', ' ')}) conflicts with this event's timestamp. "
+                    f"This action happened before the recorded {authoritative_status.replace('_', ' ')} time; "
+                    "the action is retained, but the previous-stage label is not reliable."
+                )
                 continue
             event["isInvalidTransition"] = True
             event["isIgnoredForLifecycle"] = True
