@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Star, ShoppingCart, Heart, Plus } from "lucide-react";
+import { CheckCircle2, Heart, MapPin, Plus, ShoppingCart, Star } from "lucide-react";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "../ui/card";
 import { cn, formatPrice } from "../../lib/utils";
@@ -18,17 +18,21 @@ interface ProductCardProps {
 export function ProductCard({ product, compact = false }: ProductCardProps) {
 	const addItem = useCartStore((s: any) => s.addItem);
 	const { isWishlisted, toggle } = useWishlist();
-	const wishlisted = isWishlisted(product.id);
+	const productId = product.id || product._id;
+	const wishlisted = isWishlisted(productId);
+	const image = product.images?.[0] || product.image || "/images/placeholder-product.jpg";
+	const availableQuantity = Number(product.availableQuantity ?? product.quantity ?? product.stock ?? 0);
+	const isAvailable = availableQuantity > 0 || product.inStock === true;
 
 	const handleAddToCart = (e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		addItem({
-			id: product.id,
+			id: productId,
 			name: product.name,
 			price: product.price,
 			quantity: 1,
-			image: product.images?.[0] || "/images/placeholder.jpg",
+			image,
 			farmerName: product.farmerName,
 			unit: product.unit,
 			pickupAvailable: product.pickupAvailable ?? false,
@@ -40,32 +44,18 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 	const handleWishlist = (e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
-		toggle(product.id);
+		toggle(productId);
 	};
 
 	const vStatus = product.verificationStatus;
 	const verified = vStatus === "verified" || vStatus === "buyer_verified";
-	const effectiveGrade = product.effectiveGrade || product.qualityGrade;
-
-	const qualityBadge = (
-		<span
-			className={`absolute left-3 top-3 rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-sm ${
-				verified
-					? "bg-emerald-600 text-white"
-					: "bg-amber-100 text-amber-800 border border-amber-200"
-			}`}
-		>
-			{verified ? `✓ Grade ${effectiveGrade} Verified` : "⚠ Farmer Declared · Unverified"}
-		</span>
-	);
-
 	if (compact) {
 		return (
-			<Link href={`/product/${product.id}`} className="group">
+			<Link href={`/product/${productId}`} className="group">
 				<div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
 					<div className="relative aspect-square overflow-hidden bg-slate-100">
 						<Image
-							src={product.images?.[0] || "/images/placeholder.jpg"}
+							src={image}
 							alt={product.name}
 							fill
 							className="object-cover transition-transform group-hover:scale-105"
@@ -92,17 +82,21 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 	}
 
 	return (
-		<Link href={`/product/${product.id}`} className="group">
-			<Card className="overflow-hidden transition-all hover:shadow-lg">
+	<Link href={`/product/${productId}`} className="group block h-full">
+		<Card className="flex h-full flex-col overflow-hidden border-slate-200 transition-all hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-lg">
 				<CardHeader className="p-0">
 					<div className="relative aspect-square overflow-hidden bg-slate-100">
 						<Image
-							src={product.images?.[0] || "/images/placeholder.jpg"}
+							src={image}
 							alt={product.name}
 							fill
 							className="object-cover transition-transform duration-300 group-hover:scale-110"
 						/>
-						{qualityBadge}
+						{(product.isOrganic || verified) && (
+							<span className="absolute left-3 top-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold text-emerald-800 shadow-sm">
+								<CheckCircle2 className="h-3 w-3" /> {product.isOrganic ? "Organic" : "Verified"}
+							</span>
+						)}
 						<Button
 							variant="ghost"
 							className={cn(
@@ -119,7 +113,7 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 					<div className="flex items-start justify-between gap-2">
 						<div className="flex-1 min-w-0">
 							<h3 className="line-clamp-1 text-sm font-medium group-hover:text-emerald-600">{product.name}</h3>
-							<p className="text-xs text-slate-500">{product.farmerName || "Local Farmer"}</p>
+							<p className="truncate text-xs text-slate-500">{product.farmerName || "Local Farmer"}</p>
 						</div>
 						<div className="flex items-center gap-1 text-sm">
 							<Star className="h-3 w-3 text-yellow-500" />
@@ -133,19 +127,22 @@ export function ProductCard({ product, compact = false }: ProductCardProps) {
 						</div>
 						<div className={cn(
 							"text-right text-xs font-medium",
-							Number(product.availableQuantity ?? product.quantity ?? 0) > 0 ? "text-emerald-700" : "text-red-600"
+							isAvailable ? "text-emerald-700" : "text-red-600"
 						)}>
-							{Number(product.quantity || 0) > 0
-								? `${product.availableQuantity ?? product.quantity} ${product.unit} available`
+							{isAvailable
+								? availableQuantity > 0 ? `${availableQuantity} ${product.unit} available` : "In stock"
 								: "Out of stock"}
 						</div>
 					</div>
 				</CardContent>
-				<CardFooter className="p-4 pt-0">
-					<Button className="w-full" onClick={handleAddToCart} disabled={Number(product.quantity || 0) <= 0}>
-						<ShoppingCart className="mr-2 h-4 w-4" />
-						Add to Cart
-					</Button>
+			<CardFooter className="mt-auto p-4 pt-0">
+				<div className="w-full space-y-2">
+					{product.farmDistanceKm && <p className="flex items-center gap-1 text-xs text-slate-500"><MapPin className="h-3.5 w-3.5 text-emerald-600" />{Number(product.farmDistanceKm).toFixed(1)} km away</p>}
+				<Button className="w-full" onClick={handleAddToCart} disabled={!isAvailable}>
+					<ShoppingCart className="mr-2 h-4 w-4" />
+					Add to Cart
+				</Button>
+				</div>
 				</CardFooter>
 			</Card>
 		</Link>

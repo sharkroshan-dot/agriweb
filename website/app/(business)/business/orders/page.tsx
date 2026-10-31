@@ -294,7 +294,7 @@ export default function BusinessOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="business-page-header flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-6 w-6 text-emerald-600" />
           <h1 className="text-2xl font-bold">B2B Purchase Orders</h1>

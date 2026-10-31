@@ -237,7 +237,7 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="admin-page-header flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Operations overview</p>
           <h1 className="text-3xl font-semibold tracking-tight">Administrator command center</h1>
@@ -251,6 +251,11 @@ export default function AdminDashboardPage() {
             <Link href="/admin/alerts">Review Alerts</Link>
           </Button>
         </div>
+      </div>
+
+      <div className="admin-action-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-blue-950">Control room priorities</p><p className="text-sm text-blue-900">Review alerts, settlement exceptions, verification queues and delivery health before routine reporting.</p></div>
+        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/admin/settlements">Review settlements</Link></Button><Button asChild size="sm" variant="outline"><Link href="/admin/users">Manage users</Link></Button></div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

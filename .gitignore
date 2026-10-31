@@ -34,6 +34,7 @@ ai/models/
 # Website
 website/node_modules/
 website/.next/
+website/.next-dev-*/
 website/out/
 website/dist/
 website/public/uploads/

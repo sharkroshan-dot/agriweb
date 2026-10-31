@@ -26,7 +26,7 @@ export default function AdminAlertsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="admin-page-header">
         <p className="text-sm font-medium text-primary">Monitoring</p>
         <h1 className="text-3xl font-semibold tracking-tight">Alerts</h1>
         <p className="mt-1 text-sm text-muted-foreground">Review live issues and platform notifications.</p>

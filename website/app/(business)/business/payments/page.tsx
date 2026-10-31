@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CreditCard, Loader2, Wallet, CheckCircle2, Clock, Landmark } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { BusinessPageHeader } from "../../../components/business/business-page-header";
 import { useEffect, useState } from "react";
 import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent } from "../../../components/ui/card";
@@ -99,10 +100,7 @@ export default function PaymentsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <CreditCard className="h-6 w-6 text-emerald-600" />
-        <h1 className="text-2xl font-bold">Payments</h1>
-      </div>
+      <BusinessPageHeader title="Payments & settlement" description="Track payment intent, paid amounts, pending balances and the order each transaction belongs to." />
 
       <div className="grid gap-4 md:grid-cols-3">
         {statCards.map((s) => (

@@ -12,6 +12,7 @@ import { Badge } from "../../../components/ui/badge";
 import { CreateRfqForm } from "../../../components/business/create-rfq-form";
 import { AcceptOfferDialog } from "../../../components/business/accept-offer-dialog";
 import toast from "react-hot-toast";
+import { BusinessPageHeader } from "../../../components/business/business-page-header";
 
 const RFQ_STATUSES = ["", "open", "awarded", "closed", "cancelled"];
 
@@ -172,16 +173,12 @@ export default function BusinessRfqsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <FileText className="h-6 w-6 text-emerald-600" />
-          <h1 className="text-2xl font-bold">My Requests for Quote</h1>
-        </div>
-        <Button onClick={() => setShowForm(!showForm)}>
+      <BusinessPageHeader title="Requests for quote" description="Create one-time or recurring procurement requests, review farmer offers and award only when quantity, quality and delivery terms are clear.">
+        <Button variant="outline" onClick={() => setShowForm(!showForm)}>
           {showForm ? <RefreshCw className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
           {showForm ? "Cancel" : "New RFQ"}
         </Button>
-      </div>
+      </BusinessPageHeader>
 
       {replacementContextActive && (
         <Card className="border-amber-300 bg-amber-50">

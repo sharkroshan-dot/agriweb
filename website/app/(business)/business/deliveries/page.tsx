@@ -74,7 +74,7 @@ export default function DeliveriesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="business-page-header flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Truck className="h-6 w-6 text-emerald-600" />
           <h1 className="text-2xl font-bold">Deliveries</h1>

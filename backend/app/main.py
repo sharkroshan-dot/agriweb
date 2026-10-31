@@ -154,11 +154,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+OPENAPI_URL = app.openapi_url
+
 
 @app.get("/api/docs", include_in_schema=False)
 async def swagger_ui_with_api_count():
         docs = get_swagger_ui_html(
-                openapi_url=app.openapi_url,
+                openapi_url=OPENAPI_URL,
                 title=f"{settings.PROJECT_NAME} - Swagger UI",
                 oauth2_redirect_url="/docs/oauth2-redirect",
         )

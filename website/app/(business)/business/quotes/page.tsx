@@ -16,6 +16,7 @@ import {
   Truck,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { BusinessPageHeader } from "../../../components/business/business-page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
@@ -129,10 +130,7 @@ export default function FarmerQuotesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <MessagesSquare className="h-6 w-6 text-emerald-600" />
-        <h1 className="text-2xl font-bold">Farmer Quotes</h1>
-      </div>
+      <BusinessPageHeader title="Farmer quotes" description="Compare price, available quantity, quality, rating and delivery fit before selecting one or multiple suppliers." />
 
       {(offersLoading || aiLoading) && rfqs.length > 0 && (
         <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500">

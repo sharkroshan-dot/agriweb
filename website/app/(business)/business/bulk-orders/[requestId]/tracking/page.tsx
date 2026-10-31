@@ -17,7 +17,6 @@ const STAGES = [
   ["collection", "Collection", "Products are being collected from farms."],
   ["warehouse_receiving", "Warehouse Receiving", "All collected products are being received and quality-checked at the warehouse."],
   ["consolidation", "Consolidation", "All received products are being stored and consolidated together."],
-  ["local_hub_receipt", "Local Hub Receipt", "The consolidated order is on the way to the assigned local hub and must be physically received there."],
   ["ready_for_delivery", "Ready for Delivery", "The complete bulk order is ready."],
   ["delivery_partner", "Delivery Partner Assigned", "A delivery job has been assigned."],
   ["out_for_delivery", "Out for Delivery", "Your order is on the way."],
@@ -27,6 +26,7 @@ const STAGES = [
 const INDEX: Record<string, number> = Object.fromEntries(STAGES.map((s, i) => [s[0], i]));
 
 function stageIndex(stage: string) {
+  if (stage === "local_hub_receipt") return INDEX.consolidation ?? 0;
   return INDEX[stage] ?? 0;
 }
 

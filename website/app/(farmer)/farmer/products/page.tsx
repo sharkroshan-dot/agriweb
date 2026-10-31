@@ -24,6 +24,7 @@ import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import { formatPrice } from "../../../lib/utils";
 import toast from "react-hot-toast";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 export default function FarmerProductsPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -82,13 +83,7 @@ export default function FarmerProductsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Products</h1>
-          <p className="text-gray-500">Manage your product listings ({products?.data?.products?.length || 0})</p>
-        </div>
-        <Button asChild><Link href="/farmer/products/new"><Plus className="mr-2 h-4 w-4"/>Add New Product</Link></Button>
-      </div>
+      <FarmerPageHeader title="Products & listings" description={`Keep your marketplace catalogue accurate, available and ready to sell. ${products?.data?.products?.length || 0} products loaded.`} actionHref="/farmer/products/new" actionLabel="Add product" actionIcon="plus" />
 
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <div className="relative flex-1">

@@ -20,6 +20,7 @@ import {
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 type Tab = "to_pack" | "packed" | "shortage";
 
@@ -240,22 +241,9 @@ export default function FarmerPackingPage() {
   return (
     <div className="min-h-screen bg-slate-50/70 p-4 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <Link href="/farmer/orders" className="mb-2 inline-flex items-center text-xs font-medium text-slate-500 hover:text-emerald-700">
-              <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> Back to Orders
-            </Link>
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Packing & Checking</h1>
-            <p className="mt-1 text-sm text-slate-500">Check every Farmer Fulfillment order → enter actual packed quantity → resolve shortages → Confirm Packed → print the label → Mark Ready for Pickup when warehouse collection is required.</p>
-          </div>
-          {allPacked && (
-            <Button asChild className="bg-emerald-600 hover:bg-emerald-700">
-              <Link href="/farmer/order-map?delivery=required">
-                <Truck className="mr-2 h-4 w-4" /> Open Farmer Order Map
-              </Link>
-            </Button>
-          )}
-        </div>
+        <FarmerPageHeader title="Packing & quality check" description="Verify each Farmer Fulfillment order, record actual packed quantities, resolve shortages, and hand off ready orders." actionHref={allPacked ? "/farmer/order-map?delivery=required" : undefined} actionLabel={allPacked ? "Open order map" : undefined}>
+          <Button asChild variant="outline"><Link href="/farmer/orders"><ArrowLeft className="mr-1.5 h-4 w-4" /> Orders</Link></Button>
+        </FarmerPageHeader>
 
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

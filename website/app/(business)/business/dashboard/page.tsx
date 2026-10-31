@@ -120,7 +120,7 @@ export default function BusinessDashboard() {
         </div>
         {shortageDeliveries.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><ShieldAlert className="mr-2 inline h-4 w-4" /> {shortageDeliveries.length} recurring delivery update(s) need review. Open Supply Contracts to review the farmer's quantities and choose a resolution.</div>}
       </section>
-      <div className="flex flex-col gap-1">
+      <div className="business-page-header flex flex-col gap-1">
         <div className="flex items-center gap-3">
           <h1 className="text-2xl font-bold">{profile.businessName}</h1>
           {profile.isVerified ? (
@@ -133,6 +133,11 @@ export default function BusinessDashboard() {
           {(profile.businessType || "Business").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
           {profile.city ? ` • ${profile.city}` : ""}
         </p>
+      </div>
+
+      <div className="business-task-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-blue-950">Procurement command centre</p><p className="text-sm text-blue-900">Review open quotes, confirm upcoming delivery dates and resolve supply risks before they become missed orders.</p></div>
+        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/business/quotes">Compare quotes</Link></Button><Button asChild size="sm" variant="outline"><Link href="/business/orders">Track orders</Link></Button></div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

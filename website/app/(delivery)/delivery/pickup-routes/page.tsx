@@ -408,7 +408,7 @@ export default function DeliveryPickupRoutesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white">
+      <div className="delivery-page-header rounded-2xl bg-gradient-to-r from-emerald-700 to-teal-600 p-6 text-white">
         <p className="text-sm text-emerald-100">Delivery partner route operations</p>
         <h1 className="mt-1 text-3xl font-bold">{routeView === "pickup" ? "Farm Pickup Routes" : "Warehouse Transfer Routes"}</h1>
         <p className="mt-2 text-sm text-emerald-50">

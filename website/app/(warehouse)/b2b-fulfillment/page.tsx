@@ -9,6 +9,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
+import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
 
 const label = (value: string) => String(value || "unknown").replace(/_/g, " ");
 export default function B2BFulfillmentPage() {
@@ -81,10 +82,13 @@ export default function B2BFulfillmentPage() {
   const act = (id: string, payload: any) => mutation.mutate({ id, payload });
 
   return <div className="warehouse-b2b-page space-y-6">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h1 className="text-2xl font-bold text-slate-900">B2B Pickup &amp; Fulfillment</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">The dedicated control center for business orders: farm pickup, warehouse receipt, transfer, delivery and business handoff. All actions update the original B2B order.</p></div>
-      <Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
-    </div>
+    <WarehousePageHeader
+      title="B2B Pickup & Fulfillment"
+      description="Manage district-based business order receipt, transfer, delivery, and business handoff. B2B orders do not use the Local Hub stage."
+      eyebrow="B2B operations"
+      meta={<Badge variant="outline">District routing enforced</Badge>}
+      actions={<Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>}
+    />
     <div className="flex flex-wrap gap-2">
       <Button variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")}>Active fulfillment ({orders.length})</Button>
       <Button variant={view === "completed" ? "default" : "outline"} onClick={() => setView("completed")}>Completed orders ({completedOrders.length})</Button>
