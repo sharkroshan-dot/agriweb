@@ -1,0 +1,189 @@
+/*
+ * AgriConnect cross-role experience layer.
+ * Imported after globals.css so shared UX refinements are consistent
+ * while preserving role- and status-specific styling.
+ */
+:root {
+  --agri-ink: #10251f;
+  --agri-muted: #64756e;
+  --agri-line: #e3ebe6;
+  --agri-surface: #ffffff;
+  --agri-canvas: #f6f9f7;
+  --agri-brand: #087f5b;
+  --agri-brand-dark: #066447;
+  --agri-focus: rgba(8, 127, 91, 0.24);
+  --agri-card-shadow: 0 2px 8px rgba(16, 37, 31, 0.035), 0 12px 28px rgba(16, 37, 31, 0.025);
+}
+
+.role-workspace {
+  width: 100%;
+  min-width: 0;
+  color: var(--agri-ink);
+}
+
+.role-workspace > *,
+.role-workspace :is(.grid, .flex) > * {
+  min-width: 0;
+}
+
+.role-workspace :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+.role-workspace h1 {
+  font-size: clamp(1.55rem, 2.1vw, 2.1rem);
+  line-height: 1.16;
+  letter-spacing: -0.04em;
+  font-weight: 780;
+}
+
+.role-workspace h2 {
+  font-size: clamp(1.02rem, 1.3vw, 1.2rem);
+  line-height: 1.32;
+  letter-spacing: -0.025em;
+  font-weight: 730;
+}
+
+.role-workspace p {
+  text-wrap: pretty;
+}
+
+.role-workspace :is(
+  [class*="rounded-lg"][class*="border"],
+  [class*="rounded-xl"][class*="border"],
+  [class*="rounded-2xl"][class*="border"]
+):not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]) {
+  border-color: var(--agri-line);
+}
+
+.role-workspace :is(
+  [class*="rounded-xl"][class*="bg-white"],
+  [class*="rounded-2xl"][class*="bg-white"],
+  [class*="rounded-xl"][class*="bg-card"],
+  [class*="rounded-2xl"][class*="bg-card"]
+) {
+  box-shadow: var(--agri-card-shadow);
+}
+
+.role-workspace :is(input, select, textarea) {
+  min-width: 0;
+  max-width: 100%;
+  border-radius: 0.75rem;
+}
+
+.role-workspace :is(input, select, textarea):focus-visible {
+  outline: 3px solid var(--agri-focus);
+  outline-offset: 1px;
+}
+
+.role-workspace :is(button, a) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.role-workspace :is(.overflow-x-auto, [data-table-scroll]) {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.role-workspace table {
+  max-width: 100%;
+}
+
+.role-workspace :is(.grid, [class*="grid-cols-"]) > * {
+  min-width: 0;
+}
+
+.role-workspace [class*="truncate"] {
+  min-width: 0;
+}
+
+/* Sidebars reduce the content width at tablet and small desktop sizes.
+   Keep card grids readable until there is enough room for four columns. */
+@media (min-width: 768px) and (max-width: 1279px) {
+  .role-workspace [class~="md:grid-cols-3"],
+  .role-workspace [class~="lg:grid-cols-3"],
+  .role-workspace [class~="lg:grid-cols-4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .role-workspace [class~="lg:col-span-2"] {
+    grid-column: span 2 / span 2;
+  }
+}
+
+@media (max-width: 767px) {
+  .role-workspace {
+    padding-bottom: 1.25rem;
+  }
+
+  .role-workspace :is(.flex.items-center.justify-between, .flex.justify-between) {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .role-workspace [class~="sm:grid-cols-2"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Customer marketplace: commerce-first discovery and product presentation. */
+.marketplace-hub-page {
+  width: 100%;
+  min-width: 0;
+  max-width: 1520px;
+  margin-inline: auto;
+}
+
+.marketplace-hub-page .marketplace-hero {
+  overflow: hidden;
+  border: 1px solid #d9eee3;
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 92% 8%, rgba(16, 185, 129, 0.16), transparent 18rem),
+    linear-gradient(125deg, #effaf3 0%, #ffffff 52%, #f0fdfa 100%);
+  box-shadow: 0 12px 32px rgba(6, 95, 70, 0.07);
+}
+
+.marketplace-hub-page .marketplace-mode-card,
+.marketplace-hub-page .marketplace-product-card {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #e5eee8;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 3px 12px rgba(16, 37, 31, 0.035);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.marketplace-hub-page .marketplace-mode-card:hover,
+.marketplace-hub-page .marketplace-product-card:hover {
+  transform: translateY(-2px);
+  border-color: #b9ddca;
+  box-shadow: 0 12px 28px rgba(16, 37, 31, 0.08);
+}
+
+.marketplace-hub-page .marketplace-mode-grid,
+.marketplace-hub-page .marketplace-product-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 1199px) {
+  .marketplace-hub-page .marketplace-mode-grid,
+  .marketplace-hub-page .marketplace-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 639px) {
+  .marketplace-hub-page .marketplace-mode-grid,
+  .marketplace-hub-page .marketplace-product-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .marketplace-hub-page .marketplace-hero {
+    border-radius: 20px;
+  }
+}
