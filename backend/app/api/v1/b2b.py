@@ -828,7 +828,12 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
                 return True
             # A tracking event's status is only a snapshot of the order stage
             # at that moment. It is not itself the stage transition.
-            if event_status == stage and not event_type:
+            if event_status == stage and not event_type and (
+                not action
+                or action == stage
+                or (stage == ORDER_CONFIRMED and action == "order_created")
+                or (stage == ORDER_READY_FOR_PICKUP and action == "farmer_confirmed_ready_for_pickup")
+            ):
                 return True
         return False
     history = order.get("statusHistory")
@@ -911,11 +916,7 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
             "isDerived": True,
         })
 
-    if current_status and not any(
-        isinstance(event, dict)
-        and str(event.get("status") or "").lower() == current_status.lower()
-        for event in history
-    ):
+    if current_status and not has_stage_event(current_status.lower()):
         timestamp = (
             order.get("readyForPickupAt")
             or order.get("stageUpdatedAt")
