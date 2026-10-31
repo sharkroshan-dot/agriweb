@@ -172,8 +172,8 @@ button { -webkit-tap-highlight-color: transparent; }
     letter-spacing: -0.015em;
   }
 
-  .farmer-workspace [class*="rounded-lg"][class*="border"],
-  .farmer-workspace [class*="rounded-xl"][class*="border"] {
+  .farmer-workspace [class*="rounded-lg"][class*="border"]:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]):not([class*="border-pink-"]):not([class*="border-fuchsia-"]):not([class*="border-lime-"]),
+  .farmer-workspace [class*="rounded-xl"][class*="border"]:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]):not([class*="border-pink-"]):not([class*="border-fuchsia-"]):not([class*="border-lime-"]) {
     border-color: #e2e8f0;
   }
 
@@ -362,9 +362,9 @@ button { -webkit-tap-highlight-color: transparent; }
     line-height: 1.4;
   }
 
-  .role-workspace [class*="rounded-lg"][class*="border"],
-  .role-workspace [class*="rounded-xl"][class*="border"],
-  .role-workspace [class*="rounded-2xl"][class*="border"] {
+  .role-workspace [class*="rounded-lg"][class*="border"]:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]):not([class*="border-pink-"]):not([class*="border-fuchsia-"]):not([class*="border-lime-"]),
+  .role-workspace [class*="rounded-xl"][class*="border"]:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]):not([class*="border-pink-"]):not([class*="border-fuchsia-"]):not([class*="border-lime-"]),
+  .role-workspace [class*="rounded-2xl"][class*="border"]:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]):not([class*="border-pink-"]):not([class*="border-fuchsia-"]):not([class*="border-lime-"]) {
     border-color: #e2e8f0;
   }
 
