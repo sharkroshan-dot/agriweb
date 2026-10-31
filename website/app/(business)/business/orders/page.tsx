@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle } from "lucide-react";
+import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle, CreditCard } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -283,6 +283,82 @@ export default function BusinessOrdersPage() {
   const [filter, setFilter] = useState("");
   const [invoiceFor, setInvoiceFor] = useState<any>(null);
   const [rateFor, setRateFor] = useState<any>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || (window as any).Razorpay) return;
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    document.body.appendChild(script);
+    return () => { script.remove(); };
+  }, []);
+
+  const payB2BOrder = async (order: any) => {
+    setPayingId(order.id);
+    try {
+      const intentResponse = await api.post(
+        `/b2b/orders/${encodeURIComponent(order.id)}/payment-intent`,
+        { payment_method: "razorpay" },
+      );
+      const intent = intentResponse?.data?.data || intentResponse?.data || intentResponse;
+      if (!intent?.order_id || !intent?.payment_id) {
+        throw new Error(intent?.error || "Could not start online payment. Check Razorpay configuration.");
+      }
+      if (!(window as any).Razorpay) {
+        throw new Error("Razorpay Checkout is still loading. Please try again.");
+      }
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (error?: Error) => {
+          if (settled) return;
+          settled = true;
+          if (error) reject(error);
+          else resolve();
+        };
+        const checkout = new (window as any).Razorpay({
+          key: intent.key_id,
+          amount: intent.amount,
+          currency: intent.currency || "INR",
+          name: intent.name || "AgriConnect",
+          description: intent.description || `B2B Order ${order.orderNumber}`,
+          order_id: intent.order_id,
+          prefill: intent.prefill || {},
+          theme: intent.theme || { color: "#059669" },
+          handler: async (response: any) => {
+            try {
+              await api.post(
+                `/b2b/orders/${encodeURIComponent(order.id)}/verify-payment`,
+                {
+                  payment_id: intent.payment_id,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                },
+              );
+              toast.success(`Payment verified for ${order.orderNumber}`);
+              await Promise.all([
+                queryClient.invalidateQueries({ queryKey: ["b2b", "orders"] }),
+                queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] }),
+              ]);
+              finish();
+            } catch (error: any) {
+              finish(new Error(error?.message || "Payment verification failed. Check payment history before retrying."));
+            }
+          },
+          modal: { ondismiss: () => finish() },
+        });
+        checkout.on("payment.failed", (event: any) => {
+          finish(new Error(event?.error?.description || "Payment failed. No successful payment was recorded."));
+        });
+        checkout.open();
+      });
+    } catch (error: any) {
+      toast.error(error?.message || "B2B payment failed");
+    } finally {
+      setPayingId(null);
+    }
+  };
 
   const { data: ordersData, isLoading } = useQuery({
     queryKey: ["b2b", "orders"],
@@ -444,9 +520,15 @@ export default function BusinessOrdersPage() {
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  {o.status !== "cancelled" && o.paymentStatus !== "paid" && Number(o.totalAmount || 0) - Number(o.paymentStatus === "advance" ? (o.paidAmount ?? o.advanceAmount ?? 0) : (o.paidAmount ?? 0)) > 0 && (
+                    <Button size="sm" disabled={payingId === o.id} onClick={() => payB2BOrder(o)}>
+                      {payingId === o.id ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CreditCard className="mr-1.5 h-4 w-4" />}
+                      {payingId === o.id ? "Processing…" : "Pay online"}
+                    </Button>
+                  )}
                   {o.status === "delivered" && (
                     <>
-                      <Button size="sm" onClick={() => updateMutation.mutate({ id: o.id, payload: { status: "completed", paymentStatus: "paid" } })}>
+                      <Button size="sm" onClick={() => updateMutation.mutate({ id: o.id, payload: { status: "completed" } })}>
                         <CheckCircle className="mr-1.5 h-4 w-4" /> Confirm Receipt & Complete
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setRateFor(o)}>
