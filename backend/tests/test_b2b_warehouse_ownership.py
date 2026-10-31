@@ -426,6 +426,7 @@ def test_tracking_snapshot_does_not_hide_missing_current_stage_transition():
 
     history = _ensure_b2b_order_activity_history(order)
 
+    assert order["status"] == ORDER_READY_FOR_PICKUP
     assert any(
         event.get("action") == ORDER_READY_FOR_PICKUP and event.get("isDerived") is True
         for event in history
