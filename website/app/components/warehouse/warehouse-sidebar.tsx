@@ -103,7 +103,7 @@ export function WarehouseSidebar() {
   const lowStock = Number.isFinite(lowStockNumber) ? lowStockNumber : null;
 
   return (
-    <aside className="warehouse-sidebar hidden w-[276px] shrink-0 border-r border-slate-200/80 bg-white md:block">
+    <aside className="role-sidebar warehouse-sidebar hidden w-[276px] shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="warehouse-sidebar-inner sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="warehouse-identity mb-5 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex items-start gap-3">
