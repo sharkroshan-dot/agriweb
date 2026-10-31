@@ -10,6 +10,8 @@ from app.api.v1.b2b import (
     _ensure_b2b_order_activity_history,
     _reconcile_legacy_one_off_ready_order,
     _build_recurring_ready_history,
+    _b2b_paid_amount,
+    _b2b_amount_due,
 )
 
 
@@ -726,4 +728,35 @@ def test_legacy_completed_stage_uses_last_update_only_with_clear_timestamp_warni
     assert completed["timestamp"] == "2026-10-28T14:40:52"
     assert "last saved order-record update" in completed["details"]
     assert "not a verified timestamp" in completed["details"]
+
+def test_b2b_pending_cod_keeps_advance_terms_out_of_paid_total():
+    order = {
+        "totalAmount": 1200,
+        "paymentMode": "cod",
+        "paymentStatus": "pending",
+        "advanceAmount": 300,
+    }
+    assert _b2b_paid_amount(order) == 0
+    assert _b2b_amount_due(order) == 1200
+
+
+def test_b2b_advance_payment_reduces_outstanding_balance():
+    order = {
+        "totalAmount": 1200,
+        "paymentStatus": "advance",
+        "advanceAmount": 300,
+        "paidAmount": 300,
+    }
+    assert _b2b_paid_amount(order) == 300
+    assert _b2b_amount_due(order) == 900
+
+
+def test_b2b_paid_order_has_no_outstanding_balance():
+    order = {
+        "totalAmount": 1200,
+        "paymentStatus": "paid",
+        "paidAmount": 1200,
+    }
+    assert _b2b_paid_amount(order) == 1200
+    assert _b2b_amount_due(order) == 0
 
