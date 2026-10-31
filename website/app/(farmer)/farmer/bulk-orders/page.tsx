@@ -673,11 +673,18 @@ export default function FarmerBulkOrdersPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="font-medium">{o.orderNumber || o.id}</p>
                             <Badge variant={b2bStatusVariant[o.status] || "secondary"}>{o.status.replace(/_/g, " ")}</Badge>
+                            {o.isReplacementSupply ? <Badge variant="outline">Replacement supply</Badge> : null}
                             {o.qualityGrade ? <Badge variant="outline">{o.qualityGrade}</Badge> : null}
                           </div>
                           <p className="text-sm text-gray-500">
                             {o.productName} · {o.quantityKg} kg · ₹{o.pricePerKg}/kg · {(o.businessInfo || {})?.businessName || "Business buyer"}
                           </p>
+                          {o.isReplacementSupply && (
+                            <p className="mt-1 text-xs font-medium text-indigo-700">
+                              Replacement for contract {o.contractNumber || "—"} · covers {o.replacementForShortageKg ?? o.quantityKg} kg shortage
+                              {o.scheduledDeliveryDate ? ` · delivery ${String(o.scheduledDeliveryDate).slice(0, 10)}` : ""}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-lg font-bold text-emerald-600">{formatPrice(o.totalAmount)}</p>

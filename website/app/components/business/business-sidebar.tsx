@@ -32,7 +32,6 @@ const navGroups = [
     items: [
       { name: "Create RFQ", href: "/business/rfqs/new", icon: PlusCircle },
       { name: "My RFQs", href: "/business/rfqs", icon: FileText },
-      { name: "Farmer Quotes", href: "/business/quotes", icon: MessagesSquare },
       { name: "Messages", href: "/business/messages", icon: MessagesSquare },
       { name: "Supply Contracts", href: "/business/contracts", icon: FileSignature },
     ],
@@ -78,7 +77,7 @@ export function BusinessSidebar() {
   const displayName = profileData?.data?.businessName || businessName;
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
+    <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
@@ -107,6 +106,7 @@ export function BusinessSidebar() {
                     <Link
                       key={item.name}
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                         isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"

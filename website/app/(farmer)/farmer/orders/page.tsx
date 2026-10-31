@@ -360,11 +360,11 @@ export default function FarmerOrdersPage() {
         </CardContent>
       </Card>
 
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="farmer-page-header flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-medium text-emerald-600">Farmer workspace</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Orders</h1>
-          <p className="mt-1 text-sm text-slate-500">Review customer demand, confirm available stock, and manage fulfillment.</p>
+          <p className="mt-1 text-sm text-slate-500">Review customer demand, confirm available stock, and manage fulfillment without changing the multi-order workflow.</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -389,6 +389,11 @@ export default function FarmerOrdersPage() {
             <RefreshCw className="h-4 w-4"/>
           </Button>
         </div>
+      </div>
+
+      <div className="farmer-task-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-emerald-950">Fulfilment priority</p><p className="text-sm text-emerald-800">Select multiple eligible orders for the next workflow action. Radius filters only help you review nearby deliveries; they never assign orders.</p></div>
+        <Button asChild size="sm" variant="outline"><Link href="/farmer/order-map">Plan delivery</Link></Button>
       </div>
 
       <Card className="overflow-hidden border-slate-200 shadow-sm">

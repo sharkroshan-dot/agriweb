@@ -214,7 +214,7 @@ export default function WarehouseSettingsPage() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="warehouse-settings-page space-y-7">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold">Warehouse Settings</h1>

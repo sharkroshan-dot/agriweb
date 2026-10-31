@@ -24,7 +24,7 @@ export default function ColdStoragePage() {
   if (isError) return <PageErrorState title="Unable to load cold storage" description="Live cold-storage records are unavailable. Retry to fetch the latest warehouse readings." retry={() => { void refetch(); }} />;
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-cold-storage-page space-y-6">
       <div><h1 className="text-3xl font-bold">Cold Storage</h1><p className="text-muted-foreground">Monitor temperature-sensitive inventory using current warehouse records.</p></div>
       {items.length === 0 ? (
         <Card><CardContent className="p-10 text-center"><Snowflake className="mx-auto h-10 w-10 text-slate-300" /><h2 className="mt-3 font-semibold">No cold-storage records</h2><p className="mt-1 text-sm text-slate-500">Add a cold-storage record when temperature-controlled stock is received.</p></CardContent></Card>

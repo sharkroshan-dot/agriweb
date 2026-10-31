@@ -278,7 +278,9 @@ async def create_product(
                 detail="Could not reserve the harvested quantity for existing pre-orders.",
             )
         try:
-            from datetime import datetime
+            # Use the module-level datetime import. An import inside this
+            # function shadows the name for the whole function and breaks
+            # the earlier timestamp used during product creation.
             now = datetime.utcnow()
             await harvest_preorder_repo.collection.update_many(
                 {

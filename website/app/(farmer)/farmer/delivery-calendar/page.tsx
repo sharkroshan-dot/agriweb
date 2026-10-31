@@ -30,6 +30,7 @@ import { Badge } from "../../../components/ui/badge";
 import { cn, formatPrice } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import Link from "next/link";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 type ViewMode = "month" | "week" | "day";
 
@@ -219,11 +220,7 @@ export default function DeliveryCalendarPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Delivery Calendar</h1>
-          <p className="text-gray-500">Manage your monthly, weekly and daily delivery schedule</p>
-        </div>
+      <FarmerPageHeader title="Delivery calendar" description="See upcoming customer commitments, time slots and partner handoffs before planning the route." actionHref="/farmer/delivery-schedule/new" actionLabel="Schedule delivery" actionIcon="plus">
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border p-1">
             {(["month", "week", "day"] as const).map((mode) => (
@@ -241,14 +238,8 @@ export default function DeliveryCalendarPage() {
               </button>
             ))}
           </div>
-          <Button asChild>
-            <Link href="/farmer/delivery-schedule/new">
-              <Plus className="mr-2 h-4 w-4" />
-              Schedule Delivery
-            </Link>
-          </Button>
         </div>
-      </div>
+      </FarmerPageHeader>
 
       <div className="grid gap-6 lg:grid-cols-[1fr,320px]">
         <div className="space-y-4">

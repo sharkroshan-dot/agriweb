@@ -138,7 +138,22 @@ export default function WarehouseQualityInspectionPage() {
 
   const claimMutation = useMutation({
     mutationFn: (id: string) => api.post(`/quality/inspections/${id}/claim`, { notes: "Inspector assigned for physical inspection" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] }),
+    onSuccess: async (_result, id) => {
+      // "selected" is a separate state object from the query cache. Updating
+      // only the queue leaves it stuck at "pending", so Approve Quality stays
+      // disabled even after a successful claim. Advance the open inspection
+      // immediately, then refresh the queue's authoritative server state.
+      setSelected(current =>
+        current?.id === id
+          ? { ...current, inspectionStatus: "in_progress" }
+          : current
+      );
+      await queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] });
+      toast.success("Inspection claimed. Complete the checks and approve quality.");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Could not claim inspection. Refresh the queue and try again.");
+    },
   });
 
   const verifyMutation = useMutation({
@@ -151,10 +166,14 @@ export default function WarehouseQualityInspectionPage() {
         weightKg: weightKg ? Number(weightKg) : undefined,
         notes,
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       setSelected(null);
       setNotes("");
-      queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] });
+      await queryClient.invalidateQueries({ queryKey: ["warehouseQualityQueue"] });
+      toast.success("Quality approved. The linked product can now be activated.");
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "Quality approval failed. Check the inspection and try again.");
     },
   });
 
@@ -178,7 +197,7 @@ export default function WarehouseQualityInspectionPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="warehouse-quality-page space-y-6">
       <div>
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-7 w-7 text-emerald-600" />

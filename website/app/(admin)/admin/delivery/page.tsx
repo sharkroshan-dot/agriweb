@@ -69,7 +69,7 @@ export default function AdminDeliveryPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      <div className="admin-page-header">
         <p className="text-sm font-medium text-primary">Logistics</p>
         <h1 className="text-3xl font-semibold tracking-tight">Delivery operations</h1>
         <p className="mt-1 text-sm text-muted-foreground">Monitor shipment progress, delays, and dispatch readiness.</p>

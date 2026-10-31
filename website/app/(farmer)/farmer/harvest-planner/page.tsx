@@ -30,6 +30,7 @@ import {
 import { api } from "../../../lib/api/client";
 import { formatDate, formatPrice, cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "../../../components/ui/dialog";
@@ -556,18 +557,12 @@ export default function FarmerHarvestPlannerPage() {
       {batchDialog}
       {batchDialog}
       <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold">Harvest Planner</h1>
-          <p className="text-gray-500">
-            Field → Crop → Harvest → Batch → Inventory → Marketplace. Plan what you grow and when it will be ready.
-          </p>
-        </div>
+      <FarmerPageHeader title="Harvest planner" description="Move from field to marketplace with a clear plan: crop, harvest, batch, inventory and customer availability.">
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
           {showForm ? "Cancel" : "Plan a Harvest"}
         </Button>
-      </div>
+      </FarmerPageHeader>
 
       <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center gap-1.5">

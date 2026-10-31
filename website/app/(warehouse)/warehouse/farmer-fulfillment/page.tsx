@@ -333,7 +333,7 @@ export default function FarmerFulfillmentTransfersPage() {
     finally{setBusy(null);}
   };
 
-  return <div className="space-y-6">
+  return <div className="warehouse-fulfillment-transfers-page space-y-6">
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div><p className="text-sm font-medium text-indigo-600">Farmer Fulfillment</p><h1 className="text-3xl font-bold">Farmer Fulfillment Transfers</h1></div>
       <div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/warehouse/farmer-fulfillment/completed"><CheckCircle2 className="mr-2 h-4 w-4"/>Completed Orders</Link></Button><Button variant="outline" size="icon" aria-label="Refresh transfers" onClick={()=>{refetch();}}><RefreshCw className="h-4 w-4"/></Button></div>

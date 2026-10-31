@@ -352,10 +352,10 @@ export default function DeliveryOrderMapPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="delivery-page-header flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-medium text-primary">Delivery workbench</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Order Map</h1>
+          <h1 className="delivery-page-title text-3xl font-semibold tracking-tight">Order Map</h1>
           <p className="mt-1 text-sm text-muted-foreground">View available delivery orders by location and accept them from one place.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

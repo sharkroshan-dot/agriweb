@@ -11,6 +11,7 @@ import { formatPrice } from "../../lib/utils";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
 import toast from "react-hot-toast";
+import { CustomerPageHeader } from "../../components/customer/customer-page-header";
 
 export default function WishlistPage() {
   const { items, isLoading, remove } = useWishlist();
@@ -43,14 +44,9 @@ export default function WishlistPage() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Wishlist</h1>
-          <p className="text-sm text-muted-foreground">
-            {items.length} {items.length === 1 ? "item" : "items"} saved for later
-          </p>
-        </div>
+    <div className="customer-retail-shell space-y-6">
+      <CustomerPageHeader eyebrow="Saved for later" title="Wishlist" description={`${items.length} ${items.length === 1 ? "item" : "items"} saved for later`} />
+      <div className="flex justify-end">
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input

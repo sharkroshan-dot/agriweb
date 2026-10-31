@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Input } from "../../../components/ui/input";
+import { BusinessPageHeader } from "../../../components/business/business-page-header";
 
 export default function BusinessDashboard() {
   const router = useRouter();
@@ -104,6 +105,27 @@ export default function BusinessDashboard() {
 
       {hasProfile && (
         <>
+
+      <BusinessPageHeader
+        title={profile.businessName || "Business workspace"}
+        eyebrow="Procurement workspace"
+        description={`${(profile.businessType || "Business").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}${profile.city ? ` • ${profile.city}` : ""}`}
+        actionHref="/business/rfqs/new"
+        actionLabel="Create RFQ"
+        actionIcon="plus"
+      >
+        {profile.isVerified ? (
+          <Badge variant="success" className="gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Verified Business</Badge>
+        ) : (
+          <Badge variant="outline" className="gap-1 text-amber-700"><ShieldAlert className="h-3.5 w-3.5" /> Unverified</Badge>
+        )}
+      </BusinessPageHeader>
+
+      <div className="business-task-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div><p className="font-semibold text-blue-950">Procurement command centre</p><p className="text-sm text-blue-900">Review open quotes, confirm upcoming delivery dates and resolve supply risks before they become missed orders.</p></div>
+        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/business/rfqs">Review RFQ quotes</Link></Button><Button asChild size="sm" variant="outline"><Link href="/business/orders">Track orders</Link></Button></div>
+      </div>
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -120,20 +142,6 @@ export default function BusinessDashboard() {
         </div>
         {shortageDeliveries.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"><ShieldAlert className="mr-2 inline h-4 w-4" /> {shortageDeliveries.length} recurring delivery update(s) need review. Open Supply Contracts to review the farmer's quantities and choose a resolution.</div>}
       </section>
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">{profile.businessName}</h1>
-          {profile.isVerified ? (
-            <Badge variant="success" className="gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Verified Business</Badge>
-          ) : (
-            <Badge variant="outline" className="gap-1 text-amber-700"><ShieldAlert className="h-3.5 w-3.5" /> Unverified</Badge>
-          )}
-        </div>
-        <p className="text-gray-500">
-          {(profile.businessType || "Business").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
-          {profile.city ? ` • ${profile.city}` : ""}
-        </p>
-      </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {statCards.map((s) => (

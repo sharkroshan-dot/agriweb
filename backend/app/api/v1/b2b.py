@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 from bson import ObjectId
 import logging
 import os
+import httpx
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_RIGHT
@@ -51,6 +52,11 @@ from app.repositories.warehouse_pickup_team_repository import warehouse_pickup_t
 from app.repositories.warehouse_pickup_route_repository import warehouse_pickup_route_repository
 from app.repositories.warehouse_collection_repository import warehouse_collection_repository
 from app.services.warehouse_service import WarehouseService
+from app.services.warehouse_collection_service import (
+    farmer_collection_district,
+    normalize_collection_district,
+    warehouse_collection_districts,
+)
 from app.schemas.notification import NotificationType, NotificationPriority
 from app.services.bulk_order_service import haversine_km, _coords, _farmer_location
 from app.database.mongodb import MongoDB
@@ -178,35 +184,169 @@ def _distance_km(farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]) -> Optio
 
 
 def _location_coords_from_doc(doc: Dict[str, Any]) -> Optional[Tuple[float, float]]:
-    """Return (longitude, latitude) from supported GeoJSON-like location fields."""
+    """Return validated (longitude, latitude), correcting legacy India lat/lng arrays."""
+    country = str(doc.get("country") or doc.get("countryName") or "").strip().lower()
+    state = str(doc.get("state") or doc.get("stateName") or "").strip().lower()
+    district = str(doc.get("district") or doc.get("districtName") or "").strip().lower()
+    is_india = country in {"india", "in"} or state in {
+        "tamil nadu", "andhra pradesh", "telangana", "kerala", "karnataka",
+        "maharashtra", "gujarat", "rajasthan", "madhya pradesh", "uttar pradesh",
+        "bihar", "west bengal", "odisha", "punjab", "haryana", "assam",
+    } or bool(district and doc.get("countryCode") == "IN")
+
+    def normalize(lng: float, lat: float, is_geojson: bool = False) -> Tuple[float, float]:
+        # GeoJSON Point is always [longitude, latitude]. Legacy non-GeoJSON
+        # arrays are inconsistent across older records and may contain [lat, lng].
+        # Infer the swap from the coordinate ranges as well as metadata: warehouse
+        # documents often do not have country/state fields populated.
+        normal_in_india = 6 <= lat <= 38.5 and 67 <= lng <= 99
+        swapped_in_india = 6 <= lng <= 38.5 and 67 <= lat <= 99
+        # GeoJSON mandates [longitude, latitude], but some legacy records were
+        # saved as [latitude, longitude] even after being labelled Point. Prefer
+        # the ordering that places the point inside India's geographic bounds.
+        # This range-based check is country-neutral unless one ordering uniquely
+        # matches the supported India bounds; all other countries retain the
+        # documented coordinate order.
+        if swapped_in_india and not normal_in_india:
+            lng, lat = lat, lng
+        # Reject invalid coordinates instead of letting a malformed pair generate
+        # a plausible-looking but wildly incorrect OSRM distance.
+        if not (-180 <= lng <= 180 and -90 <= lat <= 90):
+            raise ValueError("Coordinates are outside valid longitude/latitude ranges")
+        # (0, 0) is a common placeholder for missing warehouse GPS, not a
+        # valid location for a farm or warehouse in India. Reject it so callers
+        # recover coordinates from the district instead of routing to the Gulf
+        # of Guinea and producing thousands of false kilometres.
+        if abs(lng) < 0.0001 and abs(lat) < 0.0001:
+            raise ValueError("Coordinates are missing (0, 0) placeholder")
+        if is_india and not (67 <= lng <= 99 and 6 <= lat <= 38.5):
+            # Reject out-of-region coordinates on Indian records; a later
+            # district fallback is safer than a plausible-looking wrong route.
+            raise ValueError("Coordinates are outside India's geographic bounds")
+        return lng, lat
+
     for key in ("location", "farmLocation", "coordinates", "geoLocation"):
         value = doc.get(key)
         if isinstance(value, dict):
             coords = value.get("coordinates")
             if isinstance(coords, (list, tuple)) and len(coords) >= 2:
                 try:
-                    return float(coords[0]), float(coords[1])
+                    is_geojson = str(value.get("type") or "").lower() == "point"
+                    return normalize(float(coords[0]), float(coords[1]), is_geojson)
                 except (TypeError, ValueError):
                     continue
             lat = value.get("latitude", value.get("lat"))
             lng = value.get("longitude", value.get("lng", value.get("lon")))
             if lat is not None and lng is not None:
                 try:
-                    return float(lng), float(lat)
+                    return normalize(float(lng), float(lat))
                 except (TypeError, ValueError):
                     continue
         if isinstance(value, (list, tuple)) and len(value) >= 2:
             try:
-                return float(value[0]), float(value[1])
+                return normalize(float(value[0]), float(value[1]))
             except (TypeError, ValueError):
                 continue
     lat = doc.get("latitude", doc.get("lat"))
     lng = doc.get("longitude", doc.get("lng", doc.get("lon")))
     if lat is not None and lng is not None:
         try:
-            return float(lng), float(lat)
+            return normalize(float(lng), float(lat))
         except (TypeError, ValueError):
             return None
+    return None
+
+
+async def _road_distance_km_between(
+    start: Tuple[float, float], end: Tuple[float, float]
+) -> Optional[float]:
+    """Return actual driving-road distance from OSRM, or None when unavailable."""
+    try:
+        url = (
+            "https://router.project-osrm.org/route/v1/driving/"
+            f"{start[0]},{start[1]};{end[0]},{end[1]}"
+        )
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            response = await client.get(url, params={"overview": "false"})
+            response.raise_for_status()
+            routes = response.json().get("routes") or []
+            if not routes or routes[0].get("distance") is None:
+                return None
+            return round(float(routes[0]["distance"]) / 1000.0, 1)
+    except Exception as exc:
+        logger.warning("B2B road distance lookup failed; using validated straight-line distance: %s", exc)
+        return None
+
+# Approximate district/city-centre coordinates used only when registered warehouse
+# GPS and the external geocoder are unavailable. Tuple format is (longitude, latitude).
+# These are planning fallbacks, not exact warehouse pins.
+_TN_DISTRICT_CENTRE_COORDS: Dict[str, Tuple[float, float]] = {
+    "trichy": (78.7047, 10.7905),
+    "trichirapalli": (78.7047, 10.7905),
+    "tiruchirapalli": (78.7047, 10.7905),
+    "tiruchirappalli": (78.7047, 10.7905),
+    "thiruchirapalli": (78.7047, 10.7905),
+    "thiruchirappalli": (78.7047, 10.7905),
+    "perambalur": (78.8801, 11.2342),
+}
+
+def _fallback_tamil_nadu_district_coords(district: str) -> Optional[Tuple[float, float]]:
+    token = re.sub(r"[^a-z0-9]", "", (district or "").lower())
+    return _TN_DISTRICT_CENTRE_COORDS.get(token)
+
+async def _geocode_indian_district(district: str) -> Optional[Tuple[float, float]]:
+    """Resolve a Tamil Nadu district to (longitude, latitude) as a recovery path."""
+    if not district or not district.strip():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={"User-Agent": "AgriConnect-B2B-routing/1.0"}) as client:
+            response = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": district.strip() + ", Tamil Nadu, India", "format": "jsonv2", "limit": 1, "countrycodes": "in"},
+            )
+            response.raise_for_status()
+            results = response.json()
+            if not results:
+                return None
+            lat, lon = float(results[0]["lat"]), float(results[0]["lon"])
+            if not (6 <= lat <= 14.5 and 76 <= lon <= 81.5):
+                return None
+            return lon, lat
+    except Exception as exc:
+        logger.warning("B2B district geocoding failed for %s: %s", district, exc)
+        return None
+
+def _b2b_location_district_candidates(doc: Optional[Dict[str, Any]]) -> List[str]:
+    """Collect district/city labels from legacy farmer and RFQ address shapes."""
+    if not isinstance(doc, dict):
+        return []
+    values: List[str] = []
+    for key in ("district", "districtName", "city", "town", "village", "taluk", "addressLine", "address", "formattedAddress", "farmAddress", "farmerAddress", "businessAddress"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    for key in ("location", "farmLocation", "farmerLocation", "farmAddress", "farmerAddress", "deliveryLocation", "businessAddress", "addressDetails", "businessInfo", "profile", "farm", "farmDetails"):
+        value = doc.get(key)
+        if isinstance(value, dict):
+            values.extend(_b2b_location_district_candidates(value))
+        elif isinstance(value, str) and value.strip():
+            values.append(value.strip())
+    return values
+
+
+async def _recover_b2b_location_coords(doc: Optional[Dict[str, Any]]) -> Optional[Tuple[float, float]]:
+    """Use a district/city-centre fallback only when precise GPS is absent."""
+    coords = _location_coords_from_doc(doc or {})
+    if coords:
+        return coords
+    for label in _b2b_location_district_candidates(doc):
+        # Prefer a known Tamil Nadu district-centre mapping, then a validated
+        # geocoder result. Never fabricate coordinates from an arbitrary address.
+        coords = _fallback_tamil_nadu_district_coords(label)
+        if not coords:
+            coords = await _geocode_indian_district(label)
+        if coords:
+            return coords
     return None
 
 
@@ -214,10 +354,31 @@ async def _warehouse_route_for_b2b(
     farmer: Optional[Dict[str, Any]], rfq: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Select nearest active source/destination warehouses and price each route leg."""
-    farm_coords = _location_coords_from_doc(farmer or {})
-    buyer_coords = _location_coords_from_doc({"location": rfq.get("deliveryLocation")}) or _location_coords_from_doc(rfq)
+    farm_coords = await _recover_b2b_location_coords(farmer or {})
+    buyer_doc = dict(rfq)
+    if isinstance(rfq.get("deliveryLocation"), dict):
+        buyer_doc["location"] = rfq.get("deliveryLocation")
+    # Older RFQs may not carry GPS/district on deliveryLocation; recover the
+    # buyer's registered address from their business profile before failing.
+    if rfq.get("businessProfileId"):
+        try:
+            profile_id = rfq.get("businessProfileId")
+            if not isinstance(profile_id, ObjectId):
+                profile_id = ObjectId(str(profile_id))
+            buyer_profile = await profile_repo.find_one({"_id": profile_id})
+            if buyer_profile:
+                buyer_doc["businessInfo"] = buyer_profile
+                for key in ("district", "districtName", "city", "town", "state", "country", "address", "location", "coordinates", "latitude", "longitude", "lat", "lng"):
+                    if buyer_doc.get(key) in (None, "", {}):
+                        if buyer_profile.get(key) not in (None, "", {}):
+                            buyer_doc[key] = buyer_profile[key]
+        except Exception as exc:
+            logger.warning("Could not recover B2B buyer profile location for routing: %s", exc)
+    farm_coords = farm_coords or await _recover_b2b_location_coords(farmer or {})
+    buyer_coords = await _recover_b2b_location_coords(buyer_doc)
     if not farm_coords or not buyer_coords:
-        return {"available": False, "reason": "Farm or business delivery coordinates are missing."}
+        missing = "farm" if not farm_coords else "business"
+        return {"available": False, "reason": f"{missing.capitalize()} coordinates and a recognized district/city fallback are missing."}
 
     warehouses = await warehouse_repo.find_many({"deletedAt": None}, limit=500)
     candidates = []
@@ -335,6 +496,53 @@ async def _farmer_can_supply(farmer_user_id: str, product_name: str) -> Dict[str
 
 
 
+async def _live_offer_available_quantity(offer: Dict[str, Any], product_name: str) -> float:
+    """Return the live available stock behind a quote, not its stale quoted quantity.
+
+    Normal offers carry supplyAllocations with product IDs. Read inventory for
+    each allocated product so reserved/sold stock is respected. Legacy offers
+    without allocations fall back to the farmer's current product inventory.
+    """
+    allocations = offer.get("supplyAllocations")
+    if isinstance(allocations, list) and allocations:
+        total = 0.0
+        seen = set()
+        for allocation in allocations:
+            if not isinstance(allocation, dict):
+                continue
+            farmer_id = str(allocation.get("farmerId") or offer.get("farmerId") or "").strip()
+            product_id = str(allocation.get("productId") or "").strip()
+            key = (farmer_id, product_id)
+            if not product_id or key in seen or not ObjectId.is_valid(product_id):
+                continue
+            seen.add(key)
+            product = await product_repository.find_one({
+                "_id": ObjectId(product_id),
+                "deletedAt": None,
+                "isActive": {"$ne": False},
+            })
+            if not product:
+                continue
+            # Never count another farmer's product merely because a legacy
+            # allocation contains its product ID.
+            if farmer_id and str(product.get("farmerId") or "") != farmer_id:
+                continue
+            current_stock = await InventoryService.get_available_stock(product_id)
+            total += max(0.0, float(current_stock or 0))
+        # Some older quotes contain stale or incomplete allocation product IDs.
+        # If none of those allocations resolve to usable stock, fall through to
+        # the farmer's current active products for the same crop instead of
+        # incorrectly reporting zero merely because the quote allocation is stale.
+        if total > 0:
+            return round(total, 2)
+
+    farmer_id = str(offer.get("farmerId") or "").strip()
+    if not farmer_id:
+        return 0.0
+    supply = await _farmer_can_supply(farmer_id, product_name)
+    return round(max(0.0, float(supply.get("availableKg") or 0)), 2)
+
+
 async def _cooperative_context(user_id: str) -> Optional[Dict[str, Any]]:
     coop_repo = BaseRepository("cooperatives")
     member_repo = BaseRepository("cooperative_members")
@@ -397,12 +605,17 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
     rfq["businessUserId"] = str(rfq.get("businessUserId"))
     if rfq.get("businessProfileId"):
         rfq["businessProfileId"] = str(rfq["businessProfileId"])
+    # These linkage fields are stored as ObjectIds by replacement sourcing but
+    # are exposed to the farmer quote page as JSON-safe identifiers.
+    if rfq.get("replacementSourcingContractId"):
+        rfq["replacementSourcingContractId"] = str(rfq["replacementSourcingContractId"])
+    if rfq.get("replacementSourcingRequestedBy"):
+        rfq["replacementSourcingRequestedBy"] = str(rfq["replacementSourcingRequestedBy"])
     await _enrich_business_info(rfq)
-    rfq["offerCount"] = await offer_repo.count({
-        "rfqId": rfq["_id"],
-        "status": {"$ne": OFFER_DECLINED},
-        "deletedAt": None,
-    })
+    offer_count_filter = {"rfqId": rfq["_id"], "deletedAt": None}
+    if not (rfq.get("recurring") and rfq.get("replacementSourcingOpen")):
+        offer_count_filter["status"] = {"$ne": OFFER_DECLINED}
+    rfq["offerCount"] = await offer_repo.count(offer_count_filter)
     rfq["remainingQuantityKg"] = round(max(0.0, _rfq_quantity(rfq) - float(rfq.get("acceptedQuantityKg") or 0)), 2)
     rfq["closingIn"] = _closing_in(rfq.get("deadline"))
     if rfq.get("rfqNumber") is None:
@@ -410,13 +623,634 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
     return rfq
 
 
+def _b2b_order_has_passed_quality_check(order: Dict[str, Any]) -> bool:
+    if str(order.get("qualityCheck") or "").strip().lower() == "passed":
+        return True
+    for event in order.get("statusHistory") or []:
+        if not isinstance(event, dict) or str(event.get("status") or "").lower() != ORDER_QUALITY_CHECK:
+            continue
+        result = str(event.get("qualityCheck") or event.get("result") or "").strip().lower()
+        if result == "passed":
+            return True
+        details = str(event.get("details") or "").casefold()
+        if "failed" in details or "not passed" in details or "did not pass" in details:
+            continue
+        if re.search(r"\bpassed\b", details):
+            return True
+    return False
+
+
+def _reconcile_legacy_one_off_ready_order(order: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    """Restore a legacy one-off order to the latest stage supported by evidence.
+
+    Earlier versions could create a one-off order as ready_for_pickup without a
+    successful quality check. Do not roll back recurring contract occurrences,
+    replacement supply orders, or orders already assigned/collected by pickup.
+    For a one-off order with no successful quality evidence, recover the last
+    legitimate farmer stage from the recorded quality result, packed quantity,
+    and existing activity history.
+    """
+    if str(order.get("status") or "") != ORDER_READY_FOR_PICKUP:
+        return False
+    if order.get("contractId") or order.get("scheduledDeliveryDate") or order.get("isReplacementSupply"):
+        return False
+    if _b2b_order_has_passed_quality_check(order):
+        order["qualityCheck"] = "passed"
+        return False
+    if any(order.get(key) for key in (
+        "pickupTeam", "pickupAssignedAt", "pickupAssignment",
+        "pickedUpAt", "warehouseReceivedAt",
+        "warehouseCollectionStatus", "warehouseFulfillmentStage",
+        "destinationReceivedAt", "deliveredAt", "completedAt", "cancelledAt",
+    )) or any(
+        isinstance(event, dict)
+        and str(event.get("eventType") or "").strip().lower().startswith(("collection_", "pickup_"))
+        for event in (order.get("statusHistory") or [])
+    ):
+        return False
+    if any(
+        isinstance(event, dict)
+        and str(event.get("status") or "").lower() in {
+            ORDER_PICKED_UP,
+            ORDER_WAREHOUSE_RECEIVED,
+            ORDER_TRANSFER_IN_TRANSIT,
+            ORDER_DESTINATION_RECEIVED,
+            ORDER_IN_TRANSIT,
+            ORDER_DELIVERED,
+            ORDER_COMPLETED,
+        }
+        for event in (order.get("statusHistory") or [])
+    ):
+        # Do not rewind an order whose later pickup/warehouse/delivery stage is
+        # present in its audit history, even if older status fields are stale.
+        return False
+
+    event_time = now or datetime.utcnow()
+    created_at = order.get("createdAt") or order.get("startedAt") or event_time
+    previous_history = list(order.get("statusHistory") or [])
+
+    # Remove the earlier compatibility patch's synthetic "created directly at
+    # ready for pickup" event. It described the bad stage, not a real action.
+    history = [
+        event for event in previous_history
+        if not (
+            isinstance(event, dict)
+            and event.get("action") == "order_created"
+            and (
+                event.get("isDerived") is True
+                or (
+                    str(event.get("status") or "") == ORDER_READY_FOR_PICKUP
+                    and "created in the Ready for Pickup stage" in str(event.get("details") or "")
+                )
+            )
+        )
+    ]
+
+    # Decide the furthest stage supported by real evidence. A failed/pending
+    # quality inspection belongs at quality_check; a prior preparation event
+    # or recorded packed quantity belongs at preparing; otherwise it is confirmed.
+    has_quality_event = any(
+        isinstance(event, dict) and str(event.get("status") or "").lower() == ORDER_QUALITY_CHECK
+        for event in history
+    )
+    has_preparing_event = any(
+        isinstance(event, dict) and str(event.get("status") or "").lower() == ORDER_PREPARING
+        for event in history
+    )
+    quality_value = str(order.get("qualityCheck") or "").strip().lower()
+    packed_quantity = float(order.get("packedQuantityKg") or 0)
+    if has_quality_event or quality_value == "failed" or packed_quantity > 0:
+        corrected_status = ORDER_QUALITY_CHECK
+    elif has_preparing_event:
+        corrected_status = ORDER_PREPARING
+    else:
+        corrected_status = ORDER_CONFIRMED
+
+    if not history or not any(
+        isinstance(event, dict)
+        and (event.get("action") == "order_created" or str(event.get("status") or "") == ORDER_CONFIRMED)
+        for event in history
+    ):
+        history.insert(0, {
+            "status": ORDER_CONFIRMED,
+            "previousStatus": None,
+            "action": "order_created",
+            "actorRole": "system",
+            "actorId": "",
+            "details": "Business accepted the farmer quote. The order entered the farmer preparation workflow.",
+            "timestamp": created_at,
+        })
+
+    history.append({
+        "status": corrected_status,
+        "previousStatus": ORDER_READY_FOR_PICKUP,
+        "action": corrected_status,
+        "actorRole": "system",
+        "actorId": "",
+        "details": (
+            f"Stage corrected from Ready for Pickup to {corrected_status.replace('_', ' ').title()} "
+            "because no successful farmer quality-check approval was recorded. "
+            "Complete the remaining farmer preparation and quality steps before pickup."
+        ),
+        "timestamp": event_time,
+    })
+    order.update({
+        "status": corrected_status,
+        "qualityCheck": "failed" if quality_value == "failed" else "pending",
+        "statusHistory": history,
+        "updatedAt": event_time,
+    })
+    return True
+
+
+def _is_primary_recurring_occurrence(order: Dict[str, Any], contract: Dict[str, Any]) -> bool:
+    """Whether this order is the original contracted farmer's scheduled occurrence."""
+    return bool(
+        order.get("contractId")
+        and order.get("scheduledDeliveryDate")
+        and not order.get("isReplacementSupply")
+        and str(order.get("farmerId") or "") == str(contract.get("farmerId") or "")
+    )
+
+
+def _build_recurring_ready_history(
+    order: Dict[str, Any],
+    confirmation: Dict[str, Any],
+    *,
+    farmer_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Build truthful history for a recurring occurrence the farmer marked ready."""
+    history = [
+        event
+        for event in (order.get("statusHistory") or [])
+        if not (
+            isinstance(event, dict)
+            and event.get("isDerived") is True
+            and str(event.get("status") or "").lower() == ORDER_READY_FOR_PICKUP
+            and str(event.get("action") or "").lower() == ORDER_READY_FOR_PICKUP
+        )
+    ]
+    created_at = order.get("createdAt") or order.get("startedAt") or datetime.utcnow()
+    if not history:
+        history.append({
+            "status": ORDER_CONFIRMED,
+            "previousStatus": None,
+            "action": "order_created",
+            "actorRole": "system",
+            "actorId": "",
+            "details": "Scheduled B2B delivery occurrence created for farmer preparation.",
+            "timestamp": created_at,
+        })
+    if not any(
+        isinstance(event, dict)
+        and event.get("isDerived") is not True
+        and (
+            event.get("action") == "farmer_confirmed_ready_for_pickup"
+            or (
+                event.get("action") == "ready_for_pickup"
+                and str(event.get("actorRole") or "").lower() == "farmer"
+            )
+        )
+        for event in history
+    ):
+        packed = float(confirmation.get("packedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
+        available = float(confirmation.get("availableQuantityKg") or order.get("availableQuantityKg") or packed)
+        scheduled_date = str(confirmation.get("scheduledDate") or order.get("scheduledDeliveryDate") or "")
+        notes = str(confirmation.get("notes") or "").strip()
+        details = (
+            f"Farmer confirmed {packed:g} kg packed from {available:g} kg available"
+            + (f" for scheduled delivery {scheduled_date}" if scheduled_date else "")
+            + " and marked the occurrence ready for pickup."
+        )
+        if notes:
+            details += f" Farmer note: {notes}"
+        actor = confirmation.get("confirmedBy") or farmer_id or order.get("farmerId") or ""
+        history.append({
+            "status": ORDER_READY_FOR_PICKUP,
+            "previousStatus": ORDER_CONFIRMED,
+            "action": "farmer_confirmed_ready_for_pickup",
+            "actorRole": "farmer",
+            "actorId": str(actor),
+            "details": details,
+            "timestamp": confirmation.get("confirmedAt") or confirmation.get("updatedAt") or created_at,
+        })
+    return history
+
+
+def _reconcile_terminal_b2b_status(order: Dict[str, Any], history: List[Dict[str, Any]]) -> bool:
+    """Restore terminal status after stale updates without invalidating older history."""
+    def parse_event_time(value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+                return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+            except ValueError:
+                return None
+        return None
+
+    terminal_facts = [
+        (ORDER_COMPLETED, parse_event_time(order.get("completedAt"))),
+        (ORDER_DELIVERED, parse_event_time(order.get("deliveredAt"))),
+        (ORDER_CANCELLED, parse_event_time(order.get("cancelledAt"))),
+    ]
+    terminal_facts = [(status, stamp) for status, stamp in terminal_facts if stamp is not None]
+    current = str(order.get("status") or "").strip().lower()
+    changed = False
+
+    if terminal_facts:
+        latest_status, latest_timestamp = max(terminal_facts, key=lambda item: item[1])
+        terminal_rank = {ORDER_DELIVERED: 1, ORDER_COMPLETED: 2}
+        current_rank = terminal_rank.get(current, 0)
+        latest_rank = terminal_rank.get(latest_status, 0)
+
+        # Promote a delivered record to completed when a later completion time
+        # exists. Never demote a completed order merely because an older record
+        # has deliveredAt but lost completedAt.
+        should_restore = (
+            current not in {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
+            or (
+                current in {ORDER_DELIVERED, ORDER_COMPLETED}
+                and latest_rank > current_rank
+            )
+        )
+        if should_restore:
+            order["status"] = latest_status
+            current = latest_status
+            changed = True
+
+        # Mark only actions that occurred at/after the terminal timestamp as
+        # invalid. Older historical warehouse actions remain genuine activity.
+        authoritative_status = current if current in {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED} else latest_status
+        authoritative_timestamp = next(
+            (stamp for status, stamp in terminal_facts if status == authoritative_status),
+            latest_timestamp,
+        )
+        terminal_statuses = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
+        for event in history:
+            if not isinstance(event, dict) or event.get("isInvalidTransition") is True:
+                continue
+            previous = str(event.get("previousStatus") or "").strip().lower()
+            target = str(event.get("status") or "").strip().lower()
+            if previous not in terminal_statuses or target in terminal_statuses:
+                continue
+            event_timestamp = parse_event_time(event.get("timestamp") or event.get("createdAt"))
+            if not event_timestamp:
+                continue
+            if event_timestamp < authoritative_timestamp:
+                # The operational event predates the terminal timestamp. Keep
+                # it as real history, but do not trust a stale previousStatus
+                # snapshot claiming that the order was already terminal.
+                event["isInconsistentPreviousStatus"] = True
+                event["previousStatusReconciliationNote"] = (
+                    f"The saved previous-stage label ({previous.replace('_', ' ')}) conflicts with this event's timestamp. "
+                    f"This action happened before the recorded {authoritative_status.replace('_', ' ')} time; "
+                    "the action is retained, but the previous-stage label is not reliable."
+                )
+                continue
+            event["isInvalidTransition"] = True
+            event["isIgnoredForLifecycle"] = True
+            event["reconciliationNote"] = (
+                f"This recorded {str(event.get('action') or 'operation').replace('_', ' ')} "
+                f"attempt occurred after the order had already reached {authoritative_status.replace('_', ' ')}. "
+                "The backward transition is ignored and the terminal order status is restored."
+            )
+    return changed
+
+
+def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Ensure the timeline contains milestones supported by persisted evidence."""
+    history = order.get("statusHistory")
+    if not isinstance(history, list):
+        history = []
+    order["statusHistory"] = history
+
+    _reconcile_terminal_b2b_status(order, history)
+    _reconcile_legacy_one_off_ready_order(order)
+
+    terminal = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
+
+    def has_stage_event(stage: str, *, include_derived: bool = True) -> bool:
+        for event in history:
+            if not isinstance(event, dict) or event.get("isInvalidTransition") is True:
+                continue
+            action = str(event.get("action") or "").strip().lower()
+            event_type = str(event.get("eventType") or "").strip().lower()
+            event_status = str(event.get("status") or "").strip().lower()
+            details = str(event.get("details") or "")
+            if (
+                include_derived is False
+                and event.get("isDerived") is True
+            ):
+                continue
+            # Remove the older generic current-stage placeholder from the
+            # evidence check; a real stage transition supersedes it.
+            if event.get("isDerived") is True and details.startswith("The order's stored current stage is "):
+                continue
+            if action == stage or event_type == stage:
+                return True
+            # Tracking events carry the current status as a snapshot. They do
+            # not prove that the order entered that stage.
+            if event_status != stage or event_type:
+                continue
+            previous = str(event.get("previousStatus") or "").strip().lower()
+            if previous and previous != stage:
+                # A terminal order cannot move backwards to a non-terminal stage.
+                if previous in terminal and stage not in terminal:
+                    continue
+                return True
+            if not previous and (
+                not action
+                or (stage == ORDER_CONFIRMED and action == "order_created")
+                or (stage == ORDER_READY_FOR_PICKUP and action == "farmer_confirmed_ready_for_pickup")
+            ):
+                return True
+        return False
+
+    created_at = order.get("createdAt") or order.get("startedAt")
+    if not any(
+        isinstance(event, dict)
+        and (
+            event.get("action") == "order_created"
+            or (
+                str(event.get("status") or "").lower() == ORDER_CONFIRMED
+                and not event.get("eventType")
+                and not event.get("isInvalidTransition")
+            )
+        )
+        for event in history
+    ):
+        history.insert(0, {
+            "status": ORDER_CONFIRMED,
+            "previousStatus": None,
+            "action": "order_created",
+            "actorRole": "system",
+            "actorId": "",
+            "details": "B2B order created after the business accepted the farmer quote.",
+            "timestamp": created_at,
+            "isDerived": True,
+        })
+
+    current_status = str(order.get("status") or "").strip().lower()
+    is_recurring_occurrence = bool(
+        order.get("contractId")
+        and order.get("scheduledDeliveryDate")
+        and not order.get("isReplacementSupply")
+    )
+    current_stage_index = ORDER_FLOW.index(current_status) if current_status in ORDER_FLOW else -1
+    packed_quantity = float(order.get("packedQuantityKg") or 0)
+
+    # A replacement farmer uses the one-off preparation and inspection flow,
+    # even though the order remains linked to the recurring contract schedule.
+    if (
+        not is_recurring_occurrence
+        and current_stage_index >= ORDER_FLOW.index(ORDER_QUALITY_CHECK)
+        and packed_quantity > 0
+        and not has_stage_event(ORDER_PREPARING)
+    ):
+        history.append({
+            "status": ORDER_PREPARING,
+            "previousStatus": ORDER_CONFIRMED,
+            "action": ORDER_PREPARING,
+            "actorRole": "farmer",
+            "actorId": str(order.get("farmerId") or ""),
+            "details": (
+                f"The saved packed quantity ({packed_quantity:g} kg) confirms that farmer preparation was completed. "
+                "The original preparation activity event is unavailable in this legacy record."
+            ),
+            "timestamp": (
+                order.get("preparationStartedAt")
+                or order.get("preparingAt")
+                or order.get("preparedAt")
+                or order.get("qualityCheckedAt")
+                or order.get("readyForPickupAt")
+                or created_at
+            ),
+            "isDerived": True,
+        })
+
+    if (
+        not is_recurring_occurrence
+        and current_stage_index >= ORDER_FLOW.index(ORDER_READY_FOR_PICKUP)
+        and str(order.get("qualityCheck") or "").lower() == "passed"
+        and not has_stage_event(ORDER_QUALITY_CHECK)
+    ):
+        history.append({
+            "status": ORDER_QUALITY_CHECK,
+            "previousStatus": ORDER_PREPARING,
+            "action": "quality_check",
+            "actorRole": "farmer",
+            "actorId": str(order.get("farmerId") or ""),
+            "details": "The order record confirms that the farmer quality check passed; the original quality-check activity entry is unavailable.",
+            "timestamp": order.get("qualityCheckedAt") or order.get("readyForPickupAt") or created_at,
+            "isDerived": True,
+        })
+
+    # Reconstruct delivery/completion using their own persisted facts, rather
+    # than inventing the event at the order's unrelated last-updated time.
+    if current_status in (ORDER_DELIVERED, ORDER_COMPLETED) and order.get("deliveredAt") and not has_stage_event(ORDER_DELIVERED):
+        history.append({
+            "status": ORDER_DELIVERED,
+            "previousStatus": ORDER_IN_TRANSIT,
+            "action": "confirm_delivery",
+            "title": "Business delivery confirmed",
+            "actorRole": "delivery",
+            "actorId": str(order.get("deliveredBy") or ""),
+            "details": (
+                str(order.get("deliveryProof") or order.get("deliveryNotes") or "").strip()
+                or "The order record confirms that the delivery partner completed handover to the business. The original delivery activity event is unavailable."
+            ),
+            "timestamp": order.get("deliveredAt"),
+            "isDerived": True,
+        })
+
+    if current_status == ORDER_COMPLETED and order.get("completedAt") and not has_stage_event(ORDER_COMPLETED):
+        history.append({
+            "status": ORDER_COMPLETED,
+            "previousStatus": ORDER_DELIVERED,
+            "action": "complete_order",
+            "title": "Business confirmed receipt and completed the order",
+            "actorRole": "business",
+            "actorId": str(order.get("completedBy") or ""),
+            "details": "The saved completion timestamp confirms that the business completed this delivered order. The original completion activity event is unavailable.",
+            "timestamp": order.get("completedAt"),
+            "isDerived": True,
+        })
+
+    # Remove old generic current-stage placeholders when an actual transition is
+    # now present. Keep all genuine tracking activity and derived evidence.
+    if current_status and has_stage_event(current_status):
+        history = [
+            event for event in history
+            if not (
+                isinstance(event, dict)
+                and event.get("isDerived") is True
+                and str(event.get("action") or "").lower() == current_status
+                and str(event.get("details") or "").startswith("The order's stored current stage is ")
+            )
+        ]
+
+    if current_status and not has_stage_event(current_status):
+        stage_timestamp_fields = {
+            ORDER_CONFIRMED: ("createdAt", "startedAt"),
+            ORDER_PREPARING: ("preparationStartedAt", "preparingAt", "preparedAt"),
+            ORDER_QUALITY_CHECK: ("qualityCheckedAt",),
+            ORDER_READY_FOR_PICKUP: ("readyForPickupAt",),
+            ORDER_PICKED_UP: ("pickedUpAt", "collectedAt"),
+            ORDER_WAREHOUSE_RECEIVED: ("warehouseReceivedAt", "receivedAt"),
+            ORDER_TRANSFER_IN_TRANSIT: ("transferDispatchedAt",),
+            ORDER_DESTINATION_RECEIVED: ("destinationReceivedAt", "destinationWarehouseReceivedAt"),
+            ORDER_IN_TRANSIT: ("finalDeliveryAssignedAt", "finalDeliveryStartedAt"),
+            ORDER_DELIVERED: ("deliveredAt",),
+            ORDER_COMPLETED: ("completedAt",),
+            ORDER_CANCELLED: ("cancelledAt",),
+        }
+        timestamp = next(
+            (order.get(field) for field in stage_timestamp_fields.get(current_status, ()) if order.get(field)),
+            None,
+        )
+        uses_last_update_fallback = timestamp is None and bool(order.get("updatedAt"))
+        if uses_last_update_fallback:
+            timestamp = order.get("updatedAt")
+        details = (
+            f"The order's stored current stage is {current_status.replace('_', ' ')}. "
+            "The original activity event and a stage-specific timestamp are unavailable in this legacy record."
+        )
+        if uses_last_update_fallback:
+            details += (
+                " The displayed time is the last saved order-record update, not a verified "
+                "timestamp for this specific stage transition."
+            )
+        history.append({
+            "status": current_status,
+            "previousStatus": None,
+            "action": current_status,
+            "actorRole": "system",
+            "actorId": "",
+            "details": details,
+            "timestamp": timestamp,
+            "isDerived": True,
+        })
+
+    order["statusHistory"] = history
+    return history
+
+
 async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, accept: Optional["OfferAccept"]) -> Dict[str, Any]:
     # Calculate delivery using Farm -> Source Warehouse -> Destination Warehouse -> Business.
-    # Never silently revert to the incorrect direct farm-to-business distance.
-    farmer = await farmer_repository.find_one({"userId": offer.get("farmerId")})
-    if not farmer:
-        farmer = await farmer_repository.find_one({"userId": ObjectId(str(offer.get("farmerId")))})
-    route = await _warehouse_route_for_b2b(farmer, rfq)
+    # Resolve the farmer across legacy identifier shapes and profile collections:
+    # some older quotes store a farmer document id while newer ones store userId.
+    farmer_id = str(offer.get("farmerId") or "")
+    farmer = None
+    farmer_profile = None
+    farmer_user = None
+    if farmer_id:
+        id_variants: List[Any] = [farmer_id]
+        if ObjectId.is_valid(farmer_id):
+            id_variants.append(ObjectId(farmer_id))
+        # Older RFQs are inconsistent about whether farmerId is a user id or
+        # a farmer-profile document id. Try both collections and both id shapes.
+        for query in (
+            {"userId": {"$in": id_variants}},
+            {"user_id": {"$in": id_variants}},
+            {"_id": ObjectId(farmer_id)} if ObjectId.is_valid(farmer_id) else {"_id": None},
+        ):
+            if farmer is None:
+                farmer = await farmer_repository.find_one(query)
+            if farmer_profile is None:
+                farmer_profile = await farmer_profile_repo.find_one(query)
+        if farmer is None and hasattr(farmer_repository, "get_by_user_id"):
+            try:
+                farmer = await farmer_repository.get_by_user_id(farmer_id)
+            except Exception:
+                farmer = None
+        if farmer_profile is None:
+            # Last-resort matching covers legacy records whose user id is stored
+            # as a nested object or under a differently named field.
+            try:
+                profiles = await farmer_profile_repo.find_many({"deletedAt": None}, limit=1000) or []
+                farmer_profile = next((
+                    item for item in profiles
+                    if str(item.get("userId") or item.get("user_id") or item.get("user") or "") == farmer_id
+                    or str((item.get("user") or {}).get("_id") or "") == farmer_id
+                ), None)
+            except Exception as exc:
+                logger.warning("Could not scan legacy farmer profiles for route location: %s", exc)
+        try:
+            farmer_user = await user_repository.get_by_id(farmer_id)
+        except Exception:
+            farmer_user = None
+
+        # Repository helpers can filter out legacy records (for example, records
+        # without deletedAt) or use a different ID type. Query the underlying
+        # collections directly as a final location-only recovery path.
+        db = MongoDB.db
+        if db is not None:
+            direct_queries: List[Dict[str, Any]] = []
+            if ObjectId.is_valid(farmer_id):
+                farmer_oid = ObjectId(farmer_id)
+                direct_queries.extend([
+                    {"userId": farmer_oid}, {"userId": farmer_id},
+                    {"user_id": farmer_oid}, {"user_id": farmer_id},
+                    {"_id": farmer_oid},
+                ])
+            else:
+                direct_queries.extend([{"userId": farmer_id}, {"user_id": farmer_id}])
+            for collection_name in ("farmer_profiles", "farmers"):
+                try:
+                    collection = db[collection_name]
+                    for query in direct_queries:
+                        direct_record = await collection.find_one(query)
+                        if direct_record:
+                            if collection_name == "farmer_profiles" and farmer_profile is None:
+                                farmer_profile = direct_record
+                            elif collection_name == "farmers" and farmer is None:
+                                farmer = direct_record
+                            # Stop searching a collection after finding the matching farmer.
+                            break
+                except Exception as exc:
+                    logger.warning("Direct B2B farmer location lookup failed in %s: %s", collection_name, exc)
+
+    # Merge all available registered location sources; the order still belongs
+    # to the selected quote farmer. Preserve non-empty values from each source.
+    farmer_location: Dict[str, Any] = {}
+    for source in (farmer_user, farmer_profile, farmer):
+        if isinstance(source, dict):
+            for key, value in source.items():
+                if value not in (None, "", {}, []) and (
+                    key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
+                ):
+                    farmer_location[key] = value
+    # Flatten common legacy nested address objects for the coordinate resolver.
+    for nested_key in ("profile", "user", "addressDetails", "farm", "farmDetails", "farmAddress", "farmerAddress", "location", "farmLocation", "address", "contactInfo", "personalInfo"):
+        nested = farmer_location.get(nested_key)
+        if isinstance(nested, dict):
+            for key, value in nested.items():
+                if value not in (None, "", {}, []) and (
+                    key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
+                ):
+                    farmer_location[key] = value
+    # Some farmer profiles store the address as a list of structured address
+    # records rather than a single object.
+    for list_key in ("addresses", "farmAddresses"):
+        entries = farmer_location.get(list_key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    for key, value in entry.items():
+                        if value not in (None, "", {}, []) and (
+                            key not in farmer_location or farmer_location.get(key) in (None, "", {}, [])
+                        ):
+                            farmer_location[key] = value
+
+    # Some RFQ quote snapshots already carry the farmer's address/location.
+    for key in ("farmLocation", "farmerLocation", "farmerAddress", "farmAddress", "location", "address", "district", "districtName", "city", "town", "village", "taluk", "coordinates", "latitude", "longitude", "lat", "lng"):
+        value = offer.get(key)
+        if value not in (None, "", {}, []):
+            if farmer_location.get(key) in (None, "", {}, []):
+                farmer_location[key] = value
+    route = await _warehouse_route_for_b2b(farmer_location or None, rfq)
     if not route.get("available"):
         raise HTTPException(status_code=400, detail=f"Cannot calculate warehouse-based delivery fee: {route.get('reason')}")
     distance_km = round(
@@ -456,6 +1290,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         preparation_deadline = None
         planned_pickup_deadline = None
         planned_transfer_dispatch = None
+    created_at = datetime.utcnow()
     order = {
         "orderNumber": await _next_number("B2B", order_repo),
         "rfqId": rfq["_id"],
@@ -516,14 +1351,23 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "paymentMode": (accept.paymentMode if accept and accept.paymentMode else "cod"),
         "advanceAmount": float(accept.advanceAmount) if accept and accept.advanceAmount else 0.0,
         "paymentStatus": PAYMENT_PENDING,
-        "status": ORDER_READY_FOR_PICKUP,
+        "status": ORDER_CONFIRMED,
         "qualityCheck": "pending",
         "notes": (accept.notes if accept else None) or offer.get("message"),
-        "startedAt": datetime.utcnow(),
+        "startedAt": created_at,
         "deliveredAt": None,
         "completedAt": None,
-        "createdAt": datetime.utcnow(),
+        "createdAt": created_at,
     }
+    order["statusHistory"] = [{
+        "status": ORDER_CONFIRMED,
+        "previousStatus": None,
+        "action": "order_created",
+        "actorRole": "system",
+        "actorId": "",
+        "details": "Business accepted the farmer quote. Order is awaiting farmer preparation.",
+        "timestamp": created_at,
+    }]
     return order
 
 # ================== BUSINESS PROFILE ==================
@@ -796,7 +1640,10 @@ async def list_rfqs(
         # Match open status case-insensitively in MongoDB so legacy values like
         # "Open" / "OPEN" are included without fetching closed RFQs first.
         match = {
-            "status": {"$regex": f"^{RFQ_OPEN}$", "$options": "i"},
+            "$or": [
+                {"status": {"$regex": f"^{RFQ_OPEN}$", "$options": "i"}},
+                {"status": RFQ_AWARDED, "recurring": True, "replacementSourcingOpen": True},
+            ],
             "deletedAt": None,
         }
     else:
@@ -815,8 +1662,15 @@ async def list_rfqs(
         if role == "farmer":
             # Farmers should only bid on open requests, but compare normalized
             # values so legacy records with OPEN/Open status remain visible.
-            if str(r.get("status") or "").strip().lower() != str(RFQ_OPEN).strip().lower():
+            rfq_status = str(r.get("status") or "").strip().lower()
+            is_replacement_sourcing = bool(
+                r.get("recurring")
+                and r.get("replacementSourcingOpen")
+                and rfq_status == str(RFQ_AWARDED).strip().lower()
+            )
+            if rfq_status != str(RFQ_OPEN).strip().lower() and not is_replacement_sourcing:
                 continue
+            r["replacementSourcingOpen"] = is_replacement_sourcing
             if farmer:
                 distance = _distance_km(farmer, r)
                 if not _visibility_match(r, farmer, distance):
@@ -825,9 +1679,12 @@ async def list_rfqs(
                 supply = await _farmer_can_supply(str(current_user["_id"]), r.get("productName"))
                 r["canSupply"] = supply["canSupply"]
                 r["availableKg"] = supply["availableKg"]
+            # During replacement sourcing a declined original quote can be updated
+            # and resubmitted, so only an active quote should suppress the form.
             my = await offer_repo.find_one({
                 "rfqId": r["_id"],
                 "farmerId": ObjectId(current_user["_id"]),
+                "status": {"$ne": OFFER_DECLINED},
                 "deletedAt": None,
             })
             r["myOfferId"] = str(my["_id"]) if my else None
@@ -897,8 +1754,33 @@ async def submit_offer(
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
     await _maybe_close_rfq(rfq)
-    if rfq.get("status") != RFQ_OPEN:
-        raise HTTPException(status_code=400, detail="RFQ is no longer open (deadline passed or already awarded)")
+    rfq_status = str(rfq.get("status") or "").strip().lower()
+    replacement_sourcing_open = bool(
+        rfq.get("recurring")
+        and rfq.get("replacementSourcingOpen")
+        and rfq_status == str(RFQ_AWARDED).strip().lower()
+    )
+    if rfq_status != str(RFQ_OPEN).strip().lower() and not replacement_sourcing_open:
+        raise HTTPException(status_code=400, detail="RFQ is no longer open for quotes")
+    if replacement_sourcing_open:
+        source_contract_id = rfq.get("replacementSourcingContractId")
+        source_date = str(rfq.get("replacementSourcingScheduledDate") or "")
+        source_contract = await contract_repo.find_one({
+            "_id": ObjectId(source_contract_id) if source_contract_id and ObjectId.is_valid(str(source_contract_id)) else None,
+            "rfqId": rfq["_id"],
+            "deletedAt": None,
+        }) if source_contract_id else None
+        source_confirmation = (
+            (source_contract or {}).get("deliveryConfirmations") or {}
+        ).get(source_date) if source_contract else None
+        if (
+            not source_contract
+            or source_contract.get("status") != "active"
+            or str(source_contract.get("farmerId")) == str(current_user["_id"])
+            or not source_confirmation
+            or str(source_confirmation.get("status") or "").lower() not in ("shortage", "backup_required", "partial_approved")
+        ):
+            raise HTTPException(status_code=409, detail="This replacement request has been resolved or is no longer available")
 
     if data.deliveryMethod and data.deliveryMethod not in DELIVERY_METHODS:
         raise HTTPException(status_code=400, detail="Invalid delivery method")
@@ -911,6 +1793,14 @@ async def submit_offer(
     })
     if existing:
         raise HTTPException(status_code=400, detail="You already have an offer on this RFQ")
+    previously_declined = None
+    if replacement_sourcing_open:
+        previously_declined = await offer_repo.find_one({
+            "rfqId": ObjectId(rfq_id),
+            "farmerId": ObjectId(current_user["_id"]),
+            "status": OFFER_DECLINED,
+            "deletedAt": None,
+        })
 
     qty = data.availableQuantityKg or data.minOrderKg or _rfq_quantity(rfq)
     ceiling = rfq.get("priceCeilingPerKg") or rfq.get("budgetMaxPerKg")
@@ -946,10 +1836,33 @@ async def submit_offer(
         "status": OFFER_PENDING,
         "createdAt": datetime.utcnow(),
     }
-    offer_id = await offer_repo.create(offer)
-    if not offer_id:
-        raise HTTPException(status_code=400, detail="Failed to submit offer")
-    offer["_id"] = ObjectId(offer_id)
+    if replacement_sourcing_open:
+        offer.update({
+            "replacementResubmission": True,
+            "replacementRequestContractId": rfq.get("replacementSourcingContractId"),
+            "replacementScheduledDate": rfq.get("replacementSourcingScheduledDate"),
+        })
+    if previously_declined:
+        history = list(previously_declined.get("replacementQuoteHistory") or [])
+        history.append({
+            "pricePerKg": previously_declined.get("pricePerKg"),
+            "availableQuantityKg": previously_declined.get("availableQuantityKg"),
+            "minOrderKg": previously_declined.get("minOrderKg"),
+            "deliveryCharge": previously_declined.get("deliveryCharge"),
+            "deliveryMethod": previously_declined.get("deliveryMethod"),
+            "expectedDeliveryDate": previously_declined.get("expectedDeliveryDate"),
+            "status": previously_declined.get("status"),
+            "createdAt": previously_declined.get("createdAt"),
+        })
+        offer["replacementQuoteHistory"] = history
+        await offer_repo.update({"_id": previously_declined["_id"]}, offer)
+        offer_id = str(previously_declined["_id"])
+        offer["_id"] = previously_declined["_id"]
+    else:
+        offer_id = await offer_repo.create(offer)
+        if not offer_id:
+            raise HTTPException(status_code=400, detail="Failed to submit offer")
+        offer["_id"] = ObjectId(offer_id)
     offer["id"] = str(offer_id)
 
     farmer = await farmer_repository.find_one({"userId": ObjectId(current_user["_id"])})
@@ -1120,6 +2033,11 @@ async def accept_offer_batch(
     await _maybe_close_rfq(rfq)
     if rfq.get("status") not in (RFQ_OPEN, RFQ_AWARDED):
         raise HTTPException(status_code=409, detail="RFQ is closed or cancelled")
+    if rfq.get("replacementSourcingOpen"):
+        raise HTTPException(
+            status_code=409,
+            detail="This recurring RFQ is collecting replacement quotes for a specific shortage. Do not accept quotes as a normal RFQ award; assign a replacement from the linked supply-contract shortage panel.",
+        )
     offers_by_id = {str(offer["_id"]): offer for offer in offers}
     requested_total = 0.0
     order_specs = []
@@ -1189,6 +2107,11 @@ async def accept_offer_batch(
                 )
                 if not live_rfq:
                     raise HTTPException(status_code=409, detail="RFQ is no longer open for acceptance")
+                if live_rfq.get("replacementSourcingOpen"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="This RFQ is in replacement-only sourcing mode. Finish replacement assignment from the supply-contract shortage panel.",
+                    )
                 live_accepted = float(live_rfq.get("acceptedQuantityKg") or 0)
                 if live_accepted + requested_total > total_qty + 1e-9:
                     raise HTTPException(status_code=409, detail=f"RFQ balance changed. Remaining quantity: {max(0, total_qty-live_accepted):g} kg")
@@ -1464,6 +2387,62 @@ def payment_repo_for_b2b():
 # ================== ORDERS ==================
 
 async def _enrich_order(o: Dict[str, Any]) -> None:
+    previous_status = o.get("status")
+    previous_quality_check = o.get("qualityCheck")
+    previous_history = [
+        dict(event) if isinstance(event, dict) else event
+        for event in (o.get("statusHistory") or [])
+    ]
+
+    # Recover the farmer's real recurring-occurrence confirmation even when
+    # an older order already has a partial history (for example, only the
+    # creation event). The contract confirmation is authoritative evidence for
+    # packed quantity, available stock, readiness, actor and timestamp.
+    has_recurring_ready_event = any(
+        isinstance(event, dict)
+        and event.get("isDerived") is not True
+        and (
+            event.get("action") == "farmer_confirmed_ready_for_pickup"
+            or (
+                event.get("action") == "ready_for_pickup"
+                and str(event.get("actorRole") or "").lower() == "farmer"
+            )
+        )
+        for event in previous_history
+    )
+    if (
+        not has_recurring_ready_event
+        and o.get("contractId")
+        and o.get("scheduledDeliveryDate")
+        and not o.get("isReplacementSupply")
+    ):
+        try:
+            contract_oid = ObjectId(str(o.get("contractId")))
+        except Exception:
+            contract_oid = None
+        if contract_oid:
+            contract = await contract_repo.find_one({"_id": contract_oid, "deletedAt": None})
+            # Never attach one farmer's contract confirmation to a replacement
+            # order created for another farmer for the same occurrence.
+            if contract and _is_primary_recurring_occurrence(o, contract):
+                confirmations = (contract or {}).get("deliveryConfirmations") or {}
+                key = str(o.get("scheduledDeliveryDate"))[:10]
+                confirmation = confirmations.get(key) if isinstance(confirmations, dict) else None
+                if isinstance(confirmation, dict) and confirmation.get("readyForPickup") is True:
+                    o["statusHistory"] = _build_recurring_ready_history(o, confirmation)
+
+    _ensure_b2b_order_activity_history(o)
+    if (
+        str(o.get("status") or "") != str(previous_status or "")
+        or str(o.get("qualityCheck") or "") != str(previous_quality_check or "")
+        or o.get("statusHistory") != previous_history
+    ):
+        await order_repo.update({"_id": o["_id"]}, {
+            "status": o.get("status"),
+            "qualityCheck": o.get("qualityCheck"),
+            "statusHistory": o.get("statusHistory") or [],
+            "updatedAt": o.get("updatedAt") or datetime.utcnow(),
+        })
     o["id"] = str(o["_id"])
     o["farmerId"] = str(o.get("farmerId"))
     if o.get("businessUserId"):
@@ -1530,6 +2509,7 @@ async def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    _ensure_b2b_order_activity_history(order)
     role = current_user.get("role")
     if role == "farmer" and str(order.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your order")
@@ -1555,6 +2535,7 @@ async def update_order_status(
         history.append({
             "status": event_status or data.status,
             "previousStatus": current,
+            "action": event_status or data.status,
             "actorRole": str(role or "unknown"),
             "actorId": actor_id,
             "details": details or data.qualityNotes or "",
@@ -1568,6 +2549,70 @@ async def update_order_status(
         update["cancelledAt"] = event_time
         add_status_history(update, details="Order cancelled")
         await order_repo.update({"_id": order["_id"]}, update)
+
+        # If a replacement order is cancelled before preparation begins, reopen
+        # the contract shortage so the business cannot mistake the missing
+        # quantity for secured supply and can choose another pending RFQ quote.
+        if order.get("isReplacementSupply") and order.get("contractId") and order.get("scheduledDeliveryDate"):
+            contract_id = order.get("contractId")
+            try:
+                contract_oid = ObjectId(str(contract_id))
+            except Exception:
+                contract_oid = None
+            if contract_oid:
+                contract = await contract_repo.find_one({"_id": contract_oid, "deletedAt": None})
+                reopened = False
+                schedule_key = str(order.get("scheduledDeliveryDate"))[:10]
+                if contract:
+                    confirmations = dict(contract.get("deliveryConfirmations") or {})
+                    confirmation = confirmations.get(schedule_key)
+                    if (
+                        isinstance(confirmation, dict)
+                        and str(confirmation.get("replacementOrderId") or "") == str(order["_id"])
+                        and confirmation.get("status") == "replacement_assigned"
+                    ):
+                        notes = str(confirmation.get("resolutionNotes") or "").strip()
+                        cancellation_note = f"Replacement order {order.get('orderNumber') or order['_id']} was cancelled before preparation."
+                        confirmation.update({
+                            "status": "backup_required",
+                            "resolution": "replacement_cancelled",
+                            "resolutionNotes": f"{notes} {cancellation_note}".strip(),
+                            "replacementCancelledAt": event_time,
+                            "updatedAt": event_time,
+                        })
+                        confirmations[schedule_key] = confirmation
+                        await contract_repo.update({"_id": contract_oid}, {
+                            "deliveryConfirmations": confirmations,
+                            "latestDeliveryStatus": "backup_required",
+                            "latestDeliveryDate": schedule_key,
+                            "updatedAt": event_time,
+                        })
+                        reopened = True
+                # Only reopen a quote if this order was the active replacement
+                # attached to the current contract occurrence.
+                offer_id = order.get("offerId")
+                if reopened and offer_id:
+                    try:
+                        await offer_repo.collection.update_one(
+                            {
+                                "_id": ObjectId(str(offer_id)),
+                                "status": OFFER_ACCEPTED,
+                                "replacementForContractId": contract_oid,
+                                "replacementScheduledDate": schedule_key,
+                            },
+                            {
+                                "$set": {"status": OFFER_PENDING, "updatedAt": event_time},
+                                "$unset": {
+                                    "acceptedQuantityKg": "",
+                                    "acceptedAt": "",
+                                    "replacementForContractId": "",
+                                    "replacementScheduledDate": "",
+                                },
+                            },
+                        )
+                    except Exception as exc:
+                        logger.warning("Could not reopen quote after replacement order cancellation %s: %s", order.get("orderNumber"), exc)
+
         other = str(order.get("businessUserId")) if role == "farmer" else str(order.get("farmerId"))
         await NotificationService.create_in_app_notification(
             other, NotificationType.ORDER, "B2B order cancelled",
@@ -1629,9 +2674,10 @@ async def update_order_status(
                     status_code=409,
                     detail=f"Packed quantity is {packed_quantity:g} kg but the order requires {required_quantity:g} kg. Record and resolve the shortage with the business before marking ready for pickup.",
                 )
-            # A ready B2B order must have a real pickup warehouse. Without one,
-            # the warehouse collection job and delivery pickup offer cannot be
-            # published, even though the farmer UI would otherwise show Ready.
+            # Orders may enter the claimable pickup queue before a warehouse
+            # is selected. The warehouse that assigns the registered pickup team
+            # becomes the operational source warehouse. If a warehouse is already
+            # specified, validate it rather than silently accepting a stale ID.
             pickup_warehouse_id = str(
                 order.get("pickupWarehouseId")
                 or order.get("assignedWarehouseId")
@@ -1640,20 +2686,21 @@ async def update_order_status(
                 or order.get("receivingWarehouseId")
                 or ""
             )
-            if not ObjectId.is_valid(pickup_warehouse_id):
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot mark this B2B order ready for collection: no source pickup warehouse is assigned. Assign the actual pickup warehouse before continuing.",
-                )
-            pickup_warehouse = await warehouse_repo.find_one({
-                "_id": ObjectId(pickup_warehouse_id), "deletedAt": None
-            })
-            if not pickup_warehouse:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Cannot publish B2B farm pickup: the assigned pickup warehouse is not registered or active in the warehouse directory.",
-                )
-            update["pickupWarehouseId"] = pickup_warehouse_id
+            if pickup_warehouse_id:
+                if not ObjectId.is_valid(pickup_warehouse_id):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The configured pickup warehouse ID is invalid. Clear or correct the warehouse assignment before continuing.",
+                    )
+                pickup_warehouse = await warehouse_repo.find_one({
+                    "_id": ObjectId(pickup_warehouse_id), "deletedAt": None
+                })
+                if not pickup_warehouse:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The configured pickup warehouse is not registered. Correct the warehouse assignment or let a warehouse claim this order from the pickup queue.",
+                    )
+                update["pickupWarehouseId"] = pickup_warehouse_id
         if data.status == ORDER_PICKED_UP:
             update["pickedUpAt"] = datetime.utcnow()
         if data.status == ORDER_WAREHOUSE_RECEIVED:
@@ -1817,11 +2864,17 @@ async def update_order_status(
     if data.status == ORDER_COMPLETED:
         if current != ORDER_DELIVERED:
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
-        update["completedAt"] = datetime.utcnow()
+        update["completedAt"] = event_time
+        update["completedBy"] = actor_id
         if data.paymentStatus in (PAYMENT_PAID, PAYMENT_ADVANCE):
             update["paymentStatus"] = data.paymentStatus
         else:
             update["paymentStatus"] = PAYMENT_PAID
+        add_status_history(
+            update,
+            event_status=ORDER_COMPLETED,
+            details="Business confirmed receipt and marked the delivered B2B order completed.",
+        )
         await order_repo.update({"_id": order["_id"]}, update)
         await NotificationService.create_in_app_notification(
             str(order.get("farmerId")), NotificationType.ORDER, "Order completed & settled ✅",
@@ -1859,12 +2912,87 @@ class B2BLogisticsAction(BaseModel):
     notes: Optional[str] = None
 
 
+def _b2b_warehouse_workflow_is_complete(order: Dict[str, Any]) -> bool:
+    """Archive only after final delivery to the business is recorded.
+
+    Destination warehouse receipt and quality inspection are intermediate
+    steps: the destination warehouse must still assign a delivery team and
+    deliver the order to the business. Those orders belong in the active queue.
+    """
+    # A business delivery is terminal for the warehouse workflow once
+    # delivery is recorded. Older records may use "delivered" without a
+    # separate completedAt timestamp; keep them out of Active Fulfillments.
+    status = str(order.get("status") or "").lower()
+    delivered_at = order.get("deliveredAt") or order.get("businessDeliveredAt") or order.get("finalDeliveredAt")
+    return bool(
+        delivered_at
+        and status in (ORDER_DELIVERED, ORDER_COMPLETED, "delivered_to_business", "business_delivered")
+    )
+
+
+@router.get("/warehouse/fulfillment/completed")
+async def list_b2b_completed_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
+    """Read-only archive only after the business buyer confirms receipt."""
+    role = str(current_user.get("role") or "").lower()
+    allowed = ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin")
+    if role not in allowed:
+        raise HTTPException(status_code=403, detail="Warehouse role required")
+
+    # Include legacy rows with stale status values, then decide completion from
+    # terminal workflow evidence rather than status alone.
+    # Query all non-deleted B2B orders in the bounded archive window. Legacy
+    # rows can have a status reset to warehouse_received, while the decisive
+    # destination receipt/inspection fields remain populated.
+    candidates = await order_repo.find_many(
+        {"deletedAt": None},
+        sort=[("updatedAt", -1)],
+        limit=2000,
+    )
+    archived = [order for order in candidates if _b2b_warehouse_workflow_is_complete(order)]
+
+    warehouse_id = await _resolve_b2b_current_warehouse_id(current_user) if role not in ("admin", "super_admin") else ""
+    if role not in ("admin", "super_admin"):
+        if not ObjectId.is_valid(warehouse_id):
+            raise HTTPException(status_code=409, detail="Your warehouse account is not linked to a registered warehouse.")
+        warehouse_doc = await warehouse_repo.get_by_id(warehouse_id)
+        warehouse_names = {
+            str((warehouse_doc or {}).get(key) or "").strip().casefold()
+            for key in ("name", "warehouseName", "displayName", "code")
+            if (warehouse_doc or {}).get(key)
+        }
+        filtered = []
+        for order in archived:
+            related_warehouses = {
+                str(order.get(key) or "")
+                for key in ("sourceWarehouseId", "assignedWarehouseId", "warehouseId", "pickupWarehouseId", "receivedAtWarehouseId", "destinationWarehouseId")
+            }
+            related_names = {
+                str(order.get(key) or "").strip().casefold()
+                for key in ("sourceWarehouseName", "assignedWarehouseName", "warehouseName", "pickupWarehouseName", "destinationWarehouseName")
+                if order.get(key)
+            }
+            if warehouse_id in related_warehouses or bool(warehouse_names & related_names):
+                filtered.append(order)
+        archived = filtered
+
+    for order in archived:
+        await _enrich_order(order)
+        order["id"] = str(order.get("_id") or order.get("id") or "")
+        for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
+            if order.get(key) is not None:
+                order[key] = str(order[key])
+    return {"success": True, "data": {"orders": archived, "count": len(archived)}}
+
+
 @router.get("/warehouse/fulfillment")
 async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_current_user)):
     """Warehouse-facing queue for B2B orders ready for pickup through final delivery."""
     role = str(current_user.get("role") or "").lower()
-    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin", "delivery", "delivery_partner", "delivery_manager"):
-        raise HTTPException(status_code=403, detail="Warehouse or delivery role required")
+    # This is the warehouse control-center queue. Delivery partners must use
+    # their assigned pickup/transfer/final-delivery queues, not a global list
+    # of every business order.
+    if role not in ("warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
+        raise HTTPException(status_code=403, detail="Warehouse staff access required")
     statuses = [ORDER_READY_FOR_PICKUP, ORDER_PICKED_UP, ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED]
     orders = await order_repo.find_many({
         "$and": [
@@ -1876,48 +3004,11 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             ]},
         ]
     }, sort=[("updatedAt", -1)], limit=500)
-    current_warehouse_id = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "")
-    # Resolve warehouse accounts that store the association on the warehouse
-    # document instead of the user/session. Without this, every warehouse login
-    # receives the same global B2B queue and can see another warehouse's actions.
-    if role in ("warehouse", "warehouse_manager", "warehouse_staff") and not ObjectId.is_valid(current_warehouse_id):
-        user_id = str(current_user.get("_id") or current_user.get("id") or "")
-        user_values: List[Any] = [user_id]
-        if ObjectId.is_valid(user_id):
-            user_values.append(ObjectId(user_id))
-        user_email = str(current_user.get("email") or "").strip().lower()
-        warehouse_links = [
-            {"userId": {"$in": user_values}},
-            {"user_id": {"$in": user_values}},
-            {"managerId": {"$in": user_values}},
-            {"managerUserId": {"$in": user_values}},
-            {"ownerId": {"$in": user_values}},
-            {"warehouseManagerId": {"$in": user_values}},
-            {"accountId": {"$in": user_values}},
-            {"createdBy": {"$in": user_values}},
-            {"staffUserIds": {"$in": user_values}},
-            {"staffIds": {"$in": user_values}},
-            {"members.userId": {"$in": user_values}},
-            {"members.user_id": {"$in": user_values}},
-            {"users.userId": {"$in": user_values}},
-        ]
-        if user_email:
-            warehouse_links.extend([
-                {"managerEmail": user_email},
-                {"contactEmail": user_email},
-                {"email": user_email},
-                {"staffEmails": user_email},
-                {"members.email": user_email},
-                {"users.email": user_email},
-            ])
-        linked_warehouse = await warehouse_repo.find_one({
-            "$and": [
-                {"deletedAt": None},
-                {"$or": warehouse_links},
-            ]
-        })
-        if linked_warehouse:
-            current_warehouse_id = str(linked_warehouse.get("_id") or "")
+    current_warehouse_id = (
+        await _resolve_b2b_current_warehouse_id(current_user)
+        if role in ("warehouse", "warehouse_manager", "warehouse_staff")
+        else ""
+    )
 
 
     # Reconcile legacy B2B orders from their authoritative farm-collection and
@@ -1983,7 +3074,13 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         if current_warehouse_id and destination_id and current_warehouse_id == destination_id and source_id and source_id != destination_id:
             # Destination warehouse must see only the inbound/receipt workflow,
             # even if an older record still carries a stale source-stage status.
-            order["warehouseTransferSide"] = "destination_received" if order.get("status") == ORDER_DESTINATION_RECEIVED else "destination_incoming"
+            order["warehouseTransferSide"] = (
+                "destination_received"
+                if order.get("status") == ORDER_DESTINATION_RECEIVED
+                else "destination_incoming"
+                if order.get("status") == ORDER_TRANSFER_IN_TRANSIT and order.get("transferPartnerStatus") == "arrived_at_destination"
+                else "destination_incoming"
+            )
         elif current_warehouse_id and source_id and current_warehouse_id == source_id and destination_id and source_id != destination_id and order.get("status") in (ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED):
             order["warehouseTransferSide"] = "source_outgoing"
         elif order.get("status") == ORDER_TRANSFER_IN_TRANSIT:
@@ -1994,80 +3091,169 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             if order.get(key) is not None:
                 order[key] = str(order[key])
 
-    # Warehouse managers should only see actionable stages for the warehouse
-    # they are signed into. Source warehouses handle farm receipt and dispatch;
-    # destination warehouses see a transfer only after it has been dispatched.
-    # Admins retain the global oversight queue.
+    # A legacy order corrected from Ready for Pickup back to Confirmed
+    # must not remain visible in an actionable warehouse queue.
+    orders = [
+        order for order in orders
+        if str(order.get("status") or "") in statuses
+        or str(order.get("warehouseCollectionStatus") or "").lower() in ("collected", "departed_farm", "arrived_warehouse", "warehouse_arrived")
+        or str(order.get("warehouseFulfillmentStage") or "").lower() in ("collected", "collection_departed", "warehouse_arrived")
+    ]
+
+    # Warehouse queue ownership is stage-based. Farm pickup is district-scoped:
+    # only the warehouse in the farmer's registered district can claim it.
+    # Once a source warehouse owns the order, its ID controls processing; transfer
+    # arrival/receipt then moves responsibility to the destination warehouse.
     if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
+        warehouse_district = _district_from_doc(current_warehouse)
+        configured_districts = warehouse_collection_districts(current_warehouse or {})
         scoped_orders = []
         for order in orders:
-            source_id = str(order.get("sourceWarehouseId") or order.get("warehouseId") or order.get("receivedAtWarehouseId") or order.get("pickupWarehouseId") or "")
-            destination_id = str(order.get("destinationWarehouseId") or "")
-            status = str(order.get("status") or "")
-            if status == ORDER_TRANSFER_IN_TRANSIT:
-                if current_warehouse_id in (source_id, destination_id):
-                    scoped_orders.append(order)
-            elif status == ORDER_DESTINATION_RECEIVED:
-                if current_warehouse_id == destination_id:
-                    scoped_orders.append(order)
-            elif status in (ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED):
-                # Keep completed/read-only tracking visible only to the warehouse
-                # that last handled the stock or the destination warehouse.
-                if current_warehouse_id in (source_id, destination_id):
-                    scoped_orders.append(order)
-            elif current_warehouse_id == source_id or (
-                status == ORDER_READY_FOR_PICKUP and (
-                    current_warehouse_id == str(order.get("pickupWarehouseId") or order.get("assignedWarehouseId") or "")
-                    or not (order.get("sourceWarehouseId") or order.get("assignedWarehouseId") or order.get("warehouseId") or order.get("pickupWarehouseId"))
-                )
+            farm_district = (
+                await _b2b_farm_district(order, configured_districts)
+                if order.get("status") == ORDER_READY_FOR_PICKUP
+                and not str(order.get("pickupTeam") or "").strip()
+                else ""
+            )
+            if _b2b_order_visible_to_warehouse(
+                order,
+                current_warehouse_id,
+                warehouse_district,
+                farm_district,
+                configured_districts,
             ):
-                # Unassigned ready-for-pickup orders must remain visible so a
-                # warehouse can claim them by assigning its own approved pickup team.
                 scoped_orders.append(order)
         orders = scoped_orders
 
-    # Counts are computed from persisted database queries, not the capped list
-    # returned for rendering. Derived workflow stages use server-side predicates.
-    base = {"deletedAt": None}
-    async def count_status(status: str, extra: Optional[Dict[str, Any]] = None) -> int:
-        criteria: Dict[str, Any] = {**base, "status": status}
-        if extra:
-            criteria.update(extra)
-        return await order_repo.count(criteria)
+    # Hydrate legacy claimable pickups, but warehouse users must still pass
+    # the same farm-district ownership check below before they are appended.
+    ready_pickup_orders = await order_repo.find_many({
+        "$and": [
+            {"deletedAt": None},
+            {"status": ORDER_READY_FOR_PICKUP},
+            {"$or": [
+                {"pickupTeam": {"$exists": False}},
+                {"pickupTeam": None},
+                {"pickupTeam": ""},
+            ]},
+        ]
+    }, sort=[("updatedAt", -1)], limit=500)
+    existing_order_ids = {str(item.get("_id") or item.get("id") or "") for item in orders}
+    for pickup_order in ready_pickup_orders:
+        pickup_id = str(pickup_order.get("_id") or pickup_order.get("id") or "")
+        if not pickup_id or pickup_id in existing_order_ids:
+            continue
+        await _enrich_order(pickup_order)
+        if pickup_order.get("status") != ORDER_READY_FOR_PICKUP:
+            continue
+        pickup_order["id"] = pickup_id
+        pickup_order["b2bFarmerCount"] = 1
+        for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
+            if pickup_order.get(key) is not None:
+                pickup_order[key] = str(pickup_order[key])
+        pickup_order["warehouseTransferSide"] = None
+        if role in ("warehouse", "warehouse_manager", "warehouse_staff"):
+            if not ObjectId.is_valid(current_warehouse_id):
+                continue
+            current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
+            warehouse_district = _district_from_doc(current_warehouse)
+            farm_district = await _b2b_farm_district(
+                pickup_order,
+                warehouse_collection_districts(current_warehouse or {}),
+            )
+            if not _b2b_order_visible_to_warehouse(
+                pickup_order,
+                current_warehouse_id,
+                warehouse_district,
+                farm_district,
+                warehouse_collection_districts(current_warehouse or {}),
+            ):
+                continue
+        orders.append(pickup_order)
+        existing_order_ids.add(pickup_id)
 
-    # Keep source and destination warehouse actions separated. A transfer in
-    # transit may be visible to both ends; once received, only the destination
-    # warehouse should own the remaining fulfillment actions.
+    # Terminal workflow records belong only in the archive. This also hides
+    # legacy orders whose status was accidentally reset to warehouse_received
+    # after destination receipt or business-confirmed delivery.
+    orders = [order for order in orders if not _b2b_warehouse_workflow_is_complete(order)]
+
+    # Final stage ownership filter: pickup is strictly farm-district based;
+    # all later processing belongs to the assigned source until transfer arrival,
+    # then the destination warehouse owns receipt and final delivery.
     if role in ("warehouse", "warehouse_manager", "warehouse_staff") and ObjectId.is_valid(current_warehouse_id):
+        current_warehouse = await warehouse_repo.get_by_id(current_warehouse_id)
+        warehouse_district = _district_from_doc(current_warehouse)
+        configured_districts = warehouse_collection_districts(current_warehouse or {})
         scoped_orders = []
         for item in orders:
-            status = str(item.get("status") or "")
-            source_id = str(item.get("sourceWarehouseId") or item.get("receivedAtWarehouseId") or item.get("warehouseId") or "")
-            destination_id = str(item.get("destinationWarehouseId") or "")
-            if status == ORDER_DESTINATION_RECEIVED:
-                if destination_id == current_warehouse_id:
-                    scoped_orders.append(item)
-                continue
-            if status == ORDER_TRANSFER_IN_TRANSIT:
-                if source_id == current_warehouse_id or destination_id == current_warehouse_id:
-                    scoped_orders.append(item)
-                continue
-            if source_id and source_id != current_warehouse_id:
-                continue
-            scoped_orders.append(item)
+            farm_district = (
+                await _b2b_farm_district(item, configured_districts)
+                if item.get("status") == ORDER_READY_FOR_PICKUP
+                and not str(item.get("pickupTeam") or "").strip()
+                else ""
+            )
+            if _b2b_order_visible_to_warehouse(
+                item,
+                current_warehouse_id,
+                warehouse_district,
+                farm_district,
+                configured_districts,
+            ):
+                scoped_orders.append(item)
         orders = scoped_orders
 
+    # Dashboard counters must use the exact same warehouse-scoped actionable
+    # queue returned to the UI. Global database counts make every warehouse see
+    # other warehouses' stages (for example "2 ready for pickup" with no cards).
+    def has_value(value: Any) -> bool:
+        return value is not None and str(value).strip() != ""
+
     summary = {
-        "readyForFarmPickup": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$in": [None, ""]}}),
-        "pickupAssigned": await count_status(ORDER_READY_FOR_PICKUP, {"pickupTeam": {"$nin": [None, ""]}}),
-        "collectedFromFarm": await count_status(ORDER_PICKED_UP),
-        "warehouseReceived": await count_status(ORDER_WAREHOUSE_RECEIVED),
-        "routingRequired": await order_repo.count({**base, "status": ORDER_WAREHOUSE_RECEIVED, "$or": [{"fulfillmentRoute": {"$exists": False}}, {"fulfillmentRoute": None}, {"fulfillmentRoute": ""}]}),
-        "awaitingConsolidation": await order_repo.count({**base, "fulfillmentRoute": "nearby_multi_farmer", "status": {"$in": [ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED]}, "consolidationCompletedAt": {"$in": [None, ""]}}),
-        "warehouseTransferInTransit": await count_status(ORDER_TRANSFER_IN_TRANSIT),
-        "readyForDirectDelivery": await order_repo.count({**base, "$or": [{"status": ORDER_WAREHOUSE_RECEIVED, "warehouseQualityCheck": "passed", "fulfillmentRoute": "nearby_single_farmer"}, {"status": ORDER_WAREHOUSE_RECEIVED, "warehouseQualityCheck": "passed", "fulfillmentRoute": "nearby_multi_farmer", "consolidationCompletedAt": {"$nin": [None, ""]}}, {"status": ORDER_DESTINATION_RECEIVED, "destinationQualityCheck": "passed", "fulfillmentRoute": "long_distance"}]}),
-        "directDeliveryInTransit": await count_status(ORDER_IN_TRANSIT),
-        "deliveredToBusiness": await order_repo.count({**base, "status": {"$in": [ORDER_DELIVERED, ORDER_COMPLETED]}}),
+        "readyForFarmPickup": sum(
+            1 for order in orders
+            if order.get("status") == ORDER_READY_FOR_PICKUP
+            and not has_value(order.get("pickupTeam"))
+        ),
+        "pickupAssigned": sum(
+            1 for order in orders
+            if order.get("status") == ORDER_READY_FOR_PICKUP
+            and has_value(order.get("pickupTeam"))
+        ),
+        "collectedFromFarm": sum(1 for order in orders if order.get("status") == ORDER_PICKED_UP),
+        "warehouseReceived": sum(1 for order in orders if order.get("status") == ORDER_WAREHOUSE_RECEIVED),
+        "routingRequired": sum(
+            1 for order in orders
+            if order.get("status") == ORDER_WAREHOUSE_RECEIVED
+            and not has_value(order.get("fulfillmentRoute"))
+        ),
+        "awaitingConsolidation": sum(
+            1 for order in orders
+            if order.get("fulfillmentRoute") == "nearby_multi_farmer"
+            and order.get("status") in (ORDER_WAREHOUSE_RECEIVED, ORDER_DESTINATION_RECEIVED)
+            and not has_value(order.get("consolidationCompletedAt"))
+        ),
+        "warehouseTransferInTransit": sum(1 for order in orders if order.get("status") == ORDER_TRANSFER_IN_TRANSIT),
+        "readyForDirectDelivery": sum(
+            1 for order in orders
+            if (
+                order.get("status") == ORDER_WAREHOUSE_RECEIVED
+                and order.get("warehouseQualityCheck") == "passed"
+                and (
+                    order.get("fulfillmentRoute") == "nearby_single_farmer"
+                    or (
+                        order.get("fulfillmentRoute") == "nearby_multi_farmer"
+                        and has_value(order.get("consolidationCompletedAt"))
+                    )
+                )
+            ) or (
+                order.get("status") == ORDER_DESTINATION_RECEIVED
+                and order.get("destinationQualityCheck") == "passed"
+                and order.get("fulfillmentRoute") == "long_distance"
+            )
+        ),
+        "directDeliveryInTransit": sum(1 for order in orders if order.get("status") == ORDER_IN_TRANSIT),
+        "deliveredToBusiness": sum(1 for order in orders if order.get("status") in (ORDER_DELIVERED, ORDER_COMPLETED)),
     }
     return {"success": True, "data": {"orders": orders, "count": len(orders), "summary": summary}}
 
@@ -2368,7 +3554,13 @@ async def recommend_b2b_fulfillment_route(
                         tokens.add(token)
         return tokens
 
-    destination_matches = [w for w in active if buyer_district in district_tokens(w)]
+    # A source warehouse must never be selected as the destination for
+    # a different business district, even if its service-area list includes it.
+    destination_matches = [
+        w for w in active
+        if buyer_district in district_tokens(w)
+        and str(w.get("_id") or "") != source_id
+    ]
     # If the business is in the source district, the stock stays in the warehouse
     # that received it. It must not be transferred to another warehouse in that district.
     same_district = source_district == buyer_district
@@ -2385,17 +3577,47 @@ async def recommend_b2b_fulfillment_route(
         if not unique_matches:
             return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "sourceWarehouseId": source_id, "sourceWarehouseName": source.get("name") or source.get("warehouseName") or "Source Warehouse", "sourceDistrict": source_district, "businessDistrict": buyer_district, "reason": f"No active designated warehouse is configured for business district '{buyer_district}'. Configure that district's warehouse before dispatch."}}
         if len(unique_matches) > 1:
-            designated = [w for w in unique_matches.values() if w.get("isDistrictPrimary") is True or w.get("isPrimaryForDistrict") is True or w.get("districtWarehouse") is True]
-            if len(designated) == 1:
-                destination = designated[0]
-            else:
-                return {"success": True, "data": {"available": False, "fulfillmentRoute": "long_distance", "sourceWarehouseId": source_id, "sourceWarehouseName": source.get("name") or source.get("warehouseName") or "Source Warehouse", "sourceDistrict": source_district, "businessDistrict": buyer_district, "reason": f"More than one active warehouse matches district '{buyer_district}'. Configure exactly one designated district warehouse."}}
+            # Legacy data can contain multiple active warehouse records for a
+            # district. Prefer an explicitly designated district warehouse.
+            # If none is configured, select deterministically rather than
+            # blocking fulfillment; prefer capacity sufficient for this order.
+            designated = [
+                w for w in unique_matches.values()
+                if w.get("isDistrictPrimary") is True
+                or w.get("isPrimaryForDistrict") is True
+                or w.get("districtWarehouse") is True
+            ]
+            candidates = designated or list(unique_matches.values())
+            required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
+
+            def destination_rank(warehouse: Dict[str, Any]) -> Tuple[int, int, str]:
+                try:
+                    total = float(warehouse.get("totalCapacity", warehouse.get("capacity")))
+                    used = float(warehouse.get("usedCapacity", warehouse.get("occupiedCapacity", 0)) or 0)
+                    has_capacity = int(total - used >= required_kg)
+                except (TypeError, ValueError):
+                    has_capacity = 0
+                explicit_district = re.sub(r"[^a-z0-9]", "", str(warehouse.get("district") or warehouse.get("districtName") or "").lower())
+                exact_district = int(explicit_district == buyer_district)
+                return (-has_capacity, -exact_district, str(warehouse.get("_id") or ""))
+
+            destination = sorted(candidates, key=destination_rank)[0]
         else:
             destination = next(iter(unique_matches.values()))
         destination_id = str(destination.get("_id"))
         destination_name = destination.get("name") or destination.get("warehouseName") or destination.get("code") or "Destination District Warehouse"
+    # Warehouse names may be duplicated in legacy records. Show the destination
+    # district alongside the name so the UI cannot misleadingly show the source
+    # and destination as the same warehouse.
+    destination_district_label = _normalized_district(destination) or buyer_district
+    source_name_label = source.get("name") or source.get("warehouseName") or source.get("code") or "Source Warehouse"
+    if not same_district:
+        # Every cross-district order must be routed to the destination district
+        # warehouse regardless of whether warehouse names happen to match.
         route = "long_distance"
         reason = f"Business district ({buyer_district}) differs from source district ({source_district}). Transfer to the designated warehouse for {buyer_district}; distance is not used for routing."
+        if str(destination_name).strip().casefold() == str(source_name_label).strip().casefold():
+            destination_name = f"{destination_name} — {destination_district_label.title()} District"
 
     required_kg = float(order.get("receivedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or order.get("quantity") or 0)
     try:
@@ -2426,31 +3648,147 @@ async def recommend_b2b_fulfillment_route(
 
     source_coords = _location_coords_from_doc(source)
     destination_coords = _location_coords_from_doc(destination)
+    # A warehouse may have a saved placeholder (0, 0) or malformed GPS.
+    # Resolve missing coordinates from its own district before asking OSRM.
+    if not source_coords:
+        source_coords = await _geocode_indian_district(source_district) or _fallback_tamil_nadu_district_coords(source_district)
+    if not destination_coords:
+        destination_coords = await _geocode_indian_district(buyer_district) or _fallback_tamil_nadu_district_coords(buyer_district)
     transfer_distance_km = None
+    used_road_distance = False
     if source_coords and destination_coords:
-        transfer_distance_km = round(haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1)
+        # Prefer real driving-road distance for dispatch planning. The straight-
+        # line fallback is only used when the road-routing service is unavailable.
+        transfer_distance_km = await _road_distance_km_between(source_coords, destination_coords)
+        used_road_distance = transfer_distance_km is not None
+        if transfer_distance_km is None:
+            transfer_distance_km = round(
+                haversine_km(source_coords[1], source_coords[0], destination_coords[1], destination_coords[0]), 1
+            )
+        # Do not present a multi-thousand-kilometre route for two warehouses
+        # registered in Indian districts unless the route can be independently
+        # validated. This catches coordinates still corrupted in the database
+        # and prevents a false urgent/late classification based on bad geometry.
+        india_states = {
+            "tamil nadu", "andhra pradesh", "telangana", "kerala", "karnataka",
+            "maharashtra", "gujarat", "rajasthan", "madhya pradesh", "uttar pradesh",
+            "bihar", "west bengal", "odisha", "punjab", "haryana", "assam",
+        }
+        source_state = str(source.get("state") or source.get("stateName") or "").strip().lower()
+        destination_state = str(destination.get("state") or destination.get("stateName") or "").strip().lower()
+        source_country = str(source.get("country") or source.get("countryName") or "").strip().lower()
+        destination_country = str(destination.get("country") or destination.get("countryName") or "").strip().lower()
+        india_route = (
+            source_country in {"india", "in"} or destination_country in {"india", "in"}
+            or source_state in india_states or destination_state in india_states
+            or (source_state and destination_state and source_state == destination_state and source_state in india_states)
+        )
+        source_district_token = re.sub(r"[^a-z0-9]", "", source_district.lower())
+        destination_district_token = re.sub(r"[^a-z0-9]", "", buyer_district.lower())
+        tamil_nadu_district_tokens = {
+            # Include common spellings used by older warehouse records.
+            "trichy", "trichirapalli", "tiruchirapalli", "tiruchirappalli",
+            "thiruchirapalli", "thiruchirappalli", "perambalur", "ariyalur",
+            "karur", "pudukkottai", "thanjavur", "thiruvarur", "nagapattinam",
+            "mayiladuthurai", "salem", "namakkal", "erode", "coimbatore", "tiruppur",
+            "dindigul", "madurai", "theni", "virudhunagar", "sivaganga",
+            "ramanathapuram", "tirunelveli", "thoothukudi", "kanniyakumari", "tenkasi",
+            "chengalpattu", "chennai", "kancheepuram", "tiruvallur", "thiruvallur",
+            "vellore", "ranipet", "tirupattur", "krishnagiri", "dharmapuri",
+            "villupuram", "kallakurichi", "cuddalore", "tiruvannamalai", "nilgiris",
+        }
+        inferred_tamil_nadu_route = source_district_token in tamil_nadu_district_tokens and destination_district_token in tamil_nadu_district_tokens
+        if (india_route or inferred_tamil_nadu_route) and transfer_distance_km is not None and transfer_distance_km > 1500:
+            logger.error(
+                "B2B warehouse route distance rejected as implausible for Indian warehouses: "
+                "source_id=%s source_coords=%s destination_id=%s destination_coords=%s distance_km=%s",
+                source_id, source_coords, destination_id, destination_coords, transfer_distance_km,
+            )
+            transfer_distance_km = None
+            used_road_distance = False
+            if inferred_tamil_nadu_route:
+                geocoded_source = await _geocode_indian_district(source_district)
+                geocoded_destination = await _geocode_indian_district(buyer_district)
+                if geocoded_source and geocoded_destination:
+                    recovered_distance = await _road_distance_km_between(geocoded_source, geocoded_destination)
+                    # District-centre routing is a recovery path for corrupted
+                    # warehouse coordinates, not a reason to accept another
+                    # implausible result. For Tamil Nadu districts, reject any
+                    # recovered distance that is still clearly outside the region.
+                    if recovered_distance is not None and 0 < recovered_distance <= 1500:
+                        transfer_distance_km = recovered_distance
+                        used_road_distance = True
+            # Never return a multi-thousand-kilometre distance for a known
+            # Tamil Nadu district pair. If coordinates cannot be recovered,
+            # fall back to an explicitly configured lead time or needs_review.
+            if inferred_tamil_nadu_route and transfer_distance_km is not None and transfer_distance_km > 1500:
+                logger.error(
+                    "B2B route remains implausible after district geocoding; suppressing distance: "
+                    "source_district=%s destination_district=%s distance_km=%s",
+                    source_district, buyer_district, transfer_distance_km,
+                )
+                transfer_distance_km = None
+                used_road_distance = False
 
-    transit_hours_value = (
-        order.get("estimatedTransferHours")
-        or order.get("transferLeadTimeHours")
-        or destination.get("estimatedTransferHours")
-        or destination.get("transferLeadTimeHours")
-        or source.get("estimatedTransferHours")
-        or source.get("transferLeadTimeHours")
-    )
-    try:
-        estimated_transit_hours = float(transit_hours_value) if transit_hours_value is not None else None
-        if estimated_transit_hours is not None and estimated_transit_hours <= 0:
-            estimated_transit_hours = None
-    except (TypeError, ValueError):
-        estimated_transit_hours = None
-    transit_estimate_basis = "configured"
-    # If no operator has configured a lead time, use an explicit conservative
-    # planning estimate only when both warehouse coordinates are available.
-    # This is an estimate, not a live traffic ETA; dispatch still revalidates it.
-    if estimated_transit_hours is None and transfer_distance_km is not None:
-        estimated_transit_hours = round((transfer_distance_km / 35.0) + 2.0, 1)
-        transit_estimate_basis = "distance_estimate_35_kmh_plus_2h_handling_buffer"
+    # If warehouse coordinates are missing (not just corrupted), recover a
+    # useful regional estimate from the source and business district centres.
+    # This is explicitly a district-to-district planning estimate, not a claim
+    # that the exact warehouse pins were located. It prevents the UI getting
+    # stuck at NEEDS REVIEW solely because older warehouse records lack GPS.
+    if transfer_distance_km is None and inferred_tamil_nadu_route:
+        geocoded_source = await _geocode_indian_district(source_district) or _fallback_tamil_nadu_district_coords(source_district)
+        geocoded_destination = await _geocode_indian_district(buyer_district) or _fallback_tamil_nadu_district_coords(buyer_district)
+        if geocoded_source and geocoded_destination:
+            recovered_distance = await _road_distance_km_between(geocoded_source, geocoded_destination)
+            if recovered_distance is not None and 0 < recovered_distance <= 1500:
+                transfer_distance_km = recovered_distance
+                used_road_distance = True
+                transit_estimate_basis = "district_centre_road_estimate_plus_2h_handling_buffer"
+            else:
+                # If the road router is unavailable, use the district-centre
+                # straight-line distance with a road detour factor.
+                straight_line_km = haversine_km(
+                    geocoded_source[1], geocoded_source[0],
+                    geocoded_destination[1], geocoded_destination[0],
+                )
+                if 0 < straight_line_km <= 1200:
+                    transfer_distance_km = round(straight_line_km, 1)
+                    used_road_distance = False
+                    transit_estimate_basis = "district_centre_straight_line_fallback_plus_road_factor_and_2h_buffer"
+
+    # Do not trust per-order lead times here: older orders may contain an ETA
+    # persisted from malformed/swapped coordinates (for example, hundreds of
+    # hours for a short regional transfer). Recalculate from the current validated
+    # warehouse-to-warehouse route every time the recommendation is requested.
+    # Prefer road distance; when OSRM is unavailable, the fallback is straight-line
+    # distance, so apply a road factor before estimating travel and handling time.
+    estimated_transit_hours = None
+    transit_estimate_basis = "needs_review"
+    if transfer_distance_km is not None and transfer_distance_km >= 0:
+        road_distance_for_eta = transfer_distance_km
+        if not used_road_distance:
+            road_distance_for_eta = transfer_distance_km * 1.25
+            transit_estimate_basis = "straight_line_fallback_road_factor_plus_2h_handling_buffer"
+        else:
+            transit_estimate_basis = "road_distance_plus_2h_handling_buffer"
+        estimated_transit_hours = round((road_distance_for_eta / 35.0) + 2.0, 1)
+    else:
+        # If valid coordinates are unavailable, only use an explicit warehouse
+        # operational lead time. Ignore stale order-level values.
+        for configured in (
+            source.get("estimatedTransferHours"),
+            source.get("transferLeadTimeHours"),
+            destination.get("estimatedTransferHours"),
+            destination.get("transferLeadTimeHours"),
+        ):
+            try:
+                parsed = float(configured) if configured is not None else None
+                if parsed is not None and 0 < parsed <= 168:
+                    estimated_transit_hours = parsed
+                    transit_estimate_basis = "warehouse_configured_lead_time_coordinates_unavailable"
+                    break
+            except (TypeError, ValueError):
+                continue
 
     dispatch_cutoff = (
         order.get("transferDispatchCutoff")
@@ -2483,19 +3821,16 @@ async def recommend_b2b_fulfillment_route(
         now_for_plan = datetime.utcnow()
         required_arrival = delivery_deadline
         planned_arrival = now_for_plan + timedelta(hours=estimated_transit_hours)
-        planned_dispatch_day = delivery_deadline.date() - timedelta(days=1)
-        if dispatch_cutoff and now_for_plan > dispatch_cutoff:
-            schedule_status = "at_risk"
-            schedule_reason = "The configured dispatch cutoff has passed. Alert the warehouse and business and agree on a new feasible delivery slot."
-        elif planned_arrival > required_arrival:
-            schedule_status = "at_risk"
-            schedule_reason = "Estimated transfer arrival is after the business morning delivery deadline. Do not promise the slot; agree on an earlier recovery plan or reschedule."
-        elif now_for_plan.date() > planned_dispatch_day:
-            schedule_status = "at_risk"
-            schedule_reason = "The planned one-day-before transfer dispatch date has passed. Confirm an explicitly approved recovery plan or reschedule before dispatch."
+        # Warehouse transfer timing is based on whether stock can reach the
+        # destination warehouse before the business deadline. A previous-day
+        # dispatch rule or farmer pickup window must not independently make a
+        # transfer urgent; the destination warehouse handles last-mile delivery.
+        if planned_arrival > required_arrival:
+            schedule_status = "urgent"
+            schedule_reason = "Estimated arrival at the destination warehouse is after the business delivery deadline. Mark this order urgent so the destination warehouse can coordinate recovery and final delivery."
         else:
             schedule_status = "feasible"
-            schedule_reason = "Configured transfer lead time fits before the morning delivery deadline. Dispatch on the previous day, or earlier if the cutoff requires it."
+            schedule_reason = "Estimated arrival at the destination warehouse is before the business delivery deadline. The destination warehouse has time to process the order and complete final delivery."
 
     return {"success": True, "data": {
         "available": True,
@@ -2513,7 +3848,12 @@ async def recommend_b2b_fulfillment_route(
         "destinationAvailableCapacityKg": round(available_capacity, 2),
         "schedulePlan": {
             "status": schedule_status,
+            "currentTime": now_for_plan.isoformat() if not same_district and isinstance(delivery_deadline, datetime) and estimated_transit_hours is not None else None,
+            "estimatedArrivalAt": planned_arrival.isoformat() if not same_district and isinstance(delivery_deadline, datetime) and estimated_transit_hours is not None else None,
             "deliveryDeadline": delivery_deadline.isoformat() if isinstance(delivery_deadline, datetime) else None,
+            "arrivalComparison": (
+                "after_deadline" if planned_arrival > delivery_deadline else "before_deadline"
+            ) if not same_district and isinstance(delivery_deadline, datetime) and estimated_transit_hours is not None else None,
             "transferDistanceKm": transfer_distance_km,
             "estimatedTransitHours": estimated_transit_hours,
             "transitEstimateBasis": transit_estimate_basis if not same_district else "not_required",
@@ -2608,6 +3948,251 @@ async def list_b2b_destination_warehouses(
     return {"success": True, "data": {"warehouses": options, "requiredCapacityKg": round(required_kg, 2)}}
 
 
+def _district_key(value: Any) -> str:
+    """Normalize district/locality labels before comparing farm pickup ownership."""
+    key = re.sub(r"[^a-z0-9]", "", str(value or "").strip().casefold())
+    # Known locality names seen in existing AgriConnect farmer addresses.
+    # These are aliases for district matching only; do not change stored addresses.
+    aliases = {
+        "trichy": "tiruchirappalli",
+        "trichirapalli": "tiruchirappalli",
+        "tiruchirapalli": "tiruchirappalli",
+        "manachanallur": "tiruchirappalli",
+        "manachanallurtrichy": "tiruchirappalli",
+        "chettikulam": "perambalur",
+    }
+    return aliases.get(key, key)
+
+
+def _b2b_order_visible_to_warehouse(
+    order: Dict[str, Any],
+    warehouse_id: str,
+    warehouse_district: str = "",
+    farm_district: str = "",
+    configured_districts: Optional[set[str]] = None,
+) -> bool:
+    """Apply warehouse ownership rules consistently to a B2B order."""
+    warehouse_id = str(warehouse_id or "")
+    status = str(order.get("status") or "")
+    source_id = str(
+        order.get("sourceWarehouseId")
+        or order.get("receivedAtWarehouseId")
+        or order.get("warehouseId")
+        or order.get("pickupWarehouseId")
+        or ""
+    )
+    route = (order.get("deliveryPricing") or {}).get("route") if isinstance(order.get("deliveryPricing"), dict) else {}
+    source_ids = {
+        str(value)
+        for value in (
+            order.get("sourceWarehouseId"),
+            order.get("receivedAtWarehouseId"),
+            order.get("warehouseId"),
+            order.get("pickupWarehouseId"),
+            order.get("assignedWarehouseId"),
+            route.get("sourceWarehouseId") if isinstance(route, dict) else None,
+        )
+        if value
+    }
+    destination_id = str(order.get("destinationWarehouseId") or "")
+
+    if status == ORDER_READY_FOR_PICKUP:
+        if str(order.get("pickupTeam") or "").strip():
+            pickup_owner = str(
+                order.get("pickupWarehouseId")
+                or order.get("assignedWarehouseId")
+                or source_id
+            )
+            return bool(warehouse_id and pickup_owner == warehouse_id)
+
+        farm_key = _district_key(normalize_collection_district(farm_district))
+        if not farm_key:
+            return bool(warehouse_id and warehouse_id in source_ids)
+
+        coverage = {
+            _district_key(normalize_collection_district(value))
+            for value in (configured_districts or set())
+            if str(value or "").strip()
+        }
+        if not coverage and warehouse_district:
+            coverage.add(_district_key(normalize_collection_district(warehouse_district)))
+        coverage.discard("")
+        return farm_key in coverage
+
+    if status == ORDER_TRANSFER_IN_TRANSIT:
+        if order.get("transferPartnerStatus") == "arrived_at_destination":
+            return bool(warehouse_id and destination_id == warehouse_id)
+        return bool(warehouse_id and source_id == warehouse_id)
+
+    if status == ORDER_DESTINATION_RECEIVED:
+        return bool(warehouse_id and destination_id == warehouse_id)
+
+    if status in (ORDER_IN_TRANSIT, ORDER_DELIVERED):
+        if destination_id and source_id != destination_id and order.get("fulfillmentRoute") == "long_distance":
+            return bool(warehouse_id and destination_id == warehouse_id)
+        return bool(warehouse_id and warehouse_id in (source_id, destination_id))
+
+    return bool(warehouse_id and source_id == warehouse_id)
+
+
+def _district_from_doc(doc: Optional[Dict[str, Any]]) -> str:
+    if not isinstance(doc, dict):
+        return ""
+    for key in ("district", "districtName", "farmDistrict", "warehouseDistrict", "deliveryDistrict"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for parent_key in (
+        "address", "location", "farmAddress", "farmerAddress", "warehouseAddress",
+        "profile", "farmLocation", "farmDetails", "farm", "addressDetails",
+        "farmerInfo", "businessAddress", "contactInfo",
+    ):
+        parent = doc.get(parent_key)
+        if isinstance(parent, dict):
+            for key in ("district", "districtName", "district_name", "farmDistrict", "warehouseDistrict"):
+                value = parent.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        elif isinstance(parent, list):
+            for entry in parent:
+                if isinstance(entry, dict):
+                    for key in ("district", "districtName", "district_name", "farmDistrict"):
+                        value = entry.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+    # Older farmer profiles sometimes only retain the farm locality/city field.
+    for key in ("farmCity", "village", "town", "city", "locality"):
+        value = doc.get(key)
+        if isinstance(value, str) and value.strip():
+            normalized = _district_key(normalize_collection_district(value))
+            canonical_names = {
+                "tiruchirappalli": "Tiruchirappalli",
+                "perambalur": "Perambalur",
+            }
+            return canonical_names.get(normalized, value.strip())
+    return ""
+
+def _b2b_farm_district_in_coverage(
+    doc: Optional[Dict[str, Any]],
+    configured_districts: set[str],
+) -> str:
+    if not isinstance(doc, dict) or not configured_districts:
+        return ""
+    sources = [doc]
+    for key in (
+        "profile", "user", "farm", "farmDetails", "addressDetails",
+        "addresses", "farmAddresses", "farmerInfo",
+    ):
+        value = doc.get(key)
+        if isinstance(value, dict):
+            sources.append(value)
+        elif isinstance(value, list):
+            sources.extend(item for item in value if isinstance(item, dict))
+
+    for source in sources:
+        for location_key in (
+            "farmAddress", "farmerAddress", "farmLocation", "location",
+            "address", "formattedAddress",
+        ):
+            matched = farmer_collection_district(
+                source,
+                source.get(location_key),
+                configured_districts,
+            )
+            if matched:
+                return matched
+    return ""
+
+
+async def _b2b_farm_district(
+    order: Dict[str, Any],
+    configured_districts: Optional[set[str]] = None,
+) -> str:
+    """Resolve farm district across current and legacy farmer/profile schemas."""
+    farmer_id = order.get("farmerId") or order.get("farmerUserId")
+    farmer_docs: List[Dict[str, Any]] = []
+    if farmer_id:
+        farmer_id_text = str(farmer_id).strip()
+        values: List[Any] = [farmer_id_text]
+        if ObjectId.is_valid(farmer_id_text):
+            values.append(ObjectId(farmer_id_text))
+        queries = [
+            {"userId": {"$in": values}},
+            {"user_id": {"$in": values}},
+            {"_id": {"$in": values}},
+        ]
+        for query in queries:
+            try:
+                doc = await farmer_repository.find_one(query)
+                if doc and doc not in farmer_docs:
+                    farmer_docs.append(doc)
+            except Exception:
+                continue
+            try:
+                doc = await farmer_profile_repo.find_one(query)
+                if doc and doc not in farmer_docs:
+                    farmer_docs.append(doc)
+            except Exception:
+                continue
+        # Repository filters may miss old records without deletedAt. Search the
+        # concrete collections as a fallback, using both string and ObjectId IDs.
+        db = MongoDB.db
+        if db is not None:
+            for collection_name in ("farmer_profiles", "farmers"):
+                for query in queries:
+                    try:
+                        doc = await db[collection_name].find_one(query)
+                        if doc and doc not in farmer_docs:
+                            farmer_docs.append(doc)
+                    except Exception:
+                        continue
+    for farmer_doc in farmer_docs:
+        district = _b2b_farm_district_in_coverage(
+            farmer_doc,
+            configured_districts or set(),
+        )
+        if district:
+            return district
+        district = _district_from_doc(farmer_doc)
+        if district:
+            return district
+        for parent_key in ("profile", "user", "farm", "farmDetails", "addressDetails", "addresses", "farmAddresses"):
+            parent = farmer_doc.get(parent_key)
+            if isinstance(parent, dict):
+                district = _district_from_doc(parent)
+                if district:
+                    return district
+            if isinstance(parent, list):
+                for entry in parent:
+                    if isinstance(entry, dict):
+                        district = _district_from_doc(entry)
+                        if district:
+                            return district
+    district = _b2b_farm_district_in_coverage(order, configured_districts or set())
+    if district:
+        return district
+    # Some legacy order records snapshot the farm location at order creation.
+    for key in ("farmDistrict", "farmerDistrict", "sourceDistrict", "farmCity", "farmerCity", "farmVillage"):
+        value = order.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for parent_key in (
+        "farmAddress", "farmerAddress", "farmLocation", "farmerInfo",
+        "farmer", "farmDetails", "addressDetails", "addresses", "farmAddresses",
+    ):
+        parent = order.get(parent_key)
+        if isinstance(parent, dict):
+            district = _district_from_doc(parent)
+            if district:
+                return district
+        elif isinstance(parent, list):
+            for entry in parent:
+                if isinstance(entry, dict):
+                    district = _district_from_doc(entry)
+                    if district:
+                        return district
+    return ""
+
 async def _resolve_b2b_current_warehouse_id(current_user: Dict[str, Any]) -> str:
     """Resolve the warehouse attached to the signed-in warehouse account."""
     direct = str(current_user.get("warehouseId") or current_user.get("assignedWarehouseId") or "").strip()
@@ -2661,9 +4246,23 @@ async def update_b2b_warehouse_fulfillment(
     order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
     if not order:
         raise HTTPException(status_code=404, detail="B2B order not found")
+    original_stage = order.get("status")
+    _ensure_b2b_order_activity_history(order)
+    if order.get("status") != original_stage:
+        await order_repo.update({"_id": order["_id"]}, {
+            "status": order.get("status"),
+            "qualityCheck": order.get("qualityCheck"),
+            "statusHistory": order.get("statusHistory") or [],
+            "updatedAt": order.get("updatedAt") or datetime.utcnow(),
+        })
     current = order.get("status")
     update: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
     action = data.action
+
+    # Once the warehouse workflow reaches its terminal stage, reject every
+    # repeated logistics action even if a stale status field was later changed.
+    if _b2b_warehouse_workflow_is_complete(order):
+        raise HTTPException(status_code=409, detail="This B2B order has completed its warehouse workflow and cannot be processed again.")
 
     if action == "assign_pickup":
         if role not in allowed_warehouse:
@@ -2675,12 +4274,16 @@ async def update_b2b_warehouse_fulfillment(
         pickup_partner_id = data.pickupTeam.strip()
         if not ObjectId.is_valid(pickup_partner_id):
             raise HTTPException(status_code=400, detail="Select a registered pickup partner from the approved team list.")
+        # Claim the unassigned pickup using the warehouse account performing
+        # the assignment. Route estimates may pre-populate sourceWarehouseId;
+        # they must not override the actual operational pickup warehouse.
+        acting_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
         pickup_warehouse_id = str(
-            order.get("assignedWarehouseId")
+            acting_warehouse_id
+            or order.get("assignedWarehouseId")
             or order.get("sourceWarehouseId")
             or order.get("warehouseId")
             or order.get("receivingWarehouseId")
-            or await _resolve_b2b_current_warehouse_id(current_user)
             or ""
         )
         if not ObjectId.is_valid(pickup_warehouse_id):
@@ -2688,6 +4291,28 @@ async def update_b2b_warehouse_fulfillment(
         pickup_warehouse = await warehouse_repo.find_one({"_id": ObjectId(pickup_warehouse_id), "deletedAt": None})
         if not pickup_warehouse:
             raise HTTPException(status_code=409, detail="The source warehouse assigned to this B2B order is not registered.")
+        # Enforce farm-to-warehouse district matching at the API boundary too;
+        # hiding a card in the UI is not sufficient authorization.
+        acting_warehouse_id = await _resolve_b2b_current_warehouse_id(current_user)
+        if role in ("warehouse", "warehouse_manager", "warehouse_staff") and acting_warehouse_id:
+            warehouse_district = _district_from_doc(pickup_warehouse)
+            configured_districts = warehouse_collection_districts(pickup_warehouse)
+            farm_district = await _b2b_farm_district(order, configured_districts)
+            pickup_ownership_matches = _b2b_order_visible_to_warehouse(
+                order,
+                acting_warehouse_id,
+                warehouse_district,
+                farm_district,
+                configured_districts,
+            )
+            # Legacy orders may have missing/inconsistent farmer district fields.
+            # An explicit source assignment is sufficient ownership evidence;
+            # otherwise the farm and warehouse districts must match.
+            if not pickup_ownership_matches:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Farm pickup can only be assigned by the farm's district warehouse or its explicitly assigned source warehouse. Farm district: {farm_district or 'unknown'}; selected warehouse district: {warehouse_district or 'unknown'}.",
+                )
         membership = await warehouse_pickup_team_repository.get_membership(pickup_warehouse_id, pickup_partner_id)
         if not membership:
             raise HTTPException(status_code=403, detail="The selected delivery partner is not an approved pickup-team member of this order's source warehouse.")
@@ -2698,7 +4323,7 @@ async def update_b2b_warehouse_fulfillment(
             "assignedWarehouseId": pickup_warehouse_id,
             "pickupWarehouseId": pickup_warehouse_id,
             "pickupTeam": pickup_partner_id,
-            "pickupTeamName": data.pickupTeamName or membership.get("name") or membership.get("partnerName") or "Assigned pickup partner",
+            "pickupTeamName": membership.get("name") or membership.get("partnerName") or membership.get("displayName") or "Assigned pickup partner",
             "pickupVehicle": data.vehicle.strip(),
             "pickupAssignedAt": datetime.utcnow(),
             "pickupAssignedBy": str(current_user.get("_id")),
@@ -2773,14 +4398,28 @@ async def update_b2b_warehouse_fulfillment(
             })
             await warehouse_pickup_route_repository.create_route(route_payload)
     elif action == "confirm_pickup":
-        if role not in ("pickup_team", "pickup", "warehouse", "warehouse_manager", "warehouse_staff", "admin", "super_admin"):
-            raise HTTPException(status_code=403, detail="Only the assigned pickup team or warehouse can confirm collection")
+        if role not in ("pickup_team", "pickup", "admin", "super_admin"):
+            raise HTTPException(status_code=403, detail="Only the assigned pickup partner can confirm farm collection")
         if current != ORDER_READY_FOR_PICKUP or not order.get("pickupTeam") or not order.get("pickupVehicle"):
             raise HTTPException(status_code=400, detail="Assign a pickup team and vehicle before confirming collection")
+        assigned_pickup_partner = str(order.get("pickupTeam") or "")
+        acting_partner_ids = {
+            str(current_user.get("_id") or ""),
+            str(current_user.get("id") or ""),
+            str(current_user.get("userId") or ""),
+            str(current_user.get("user_id") or ""),
+        }
+        acting_partner_ids.discard("")
+        if role not in ("admin", "super_admin") and assigned_pickup_partner not in acting_partner_ids:
+            raise HTTPException(status_code=403, detail="Only the pickup partner assigned to this B2B order can confirm farm collection")
         update.update({"status": ORDER_PICKED_UP, "pickedUpAt": datetime.utcnow(), "pickupNotes": data.notes})
     elif action == "receive_stock":
         if role not in allowed_warehouse:
             raise HTTPException(status_code=403, detail="Only warehouse staff can receive B2B stock")
+        # Never let a stale collection record roll a delivered/completed order
+        # back into warehouse_received. Completed orders belong in the archive.
+        if current in (ORDER_WAREHOUSE_RECEIVED, ORDER_TRANSFER_IN_TRANSIT, ORDER_DESTINATION_RECEIVED, ORDER_IN_TRANSIT, ORDER_DELIVERED, ORDER_COMPLETED) or order.get("warehouseReceivedAt") or order.get("destinationReceivedAt") or order.get("deliveredAt") or order.get("completedAt"):
+            raise HTTPException(status_code=409, detail="Warehouse receipt has already been recorded for this B2B order. Continue with routing, transfer, destination receipt, or delivery; do not receive it again.")
         collection_stage = str(order.get("warehouseCollectionStatus") or order.get("warehouseFulfillmentStage") or "").strip().lower()
         if current != ORDER_PICKED_UP and collection_stage not in ("collected", "departed_farm", "arrived_warehouse", "warehouse_arrived", "collection_departed"):
             raise HTTPException(status_code=400, detail="Stock can be received only after the pickup partner has collected the order and returned to the warehouse")
@@ -2935,20 +4574,16 @@ async def update_b2b_warehouse_fulfillment(
         if transit_hours is None or transit_hours <= 0:
             raise HTTPException(status_code=409, detail="Transfer lead time cannot be calculated because warehouse coordinates and configured lead time are missing. Add coordinates or configure estimatedTransferHours before dispatch.")
         now_for_transfer = datetime.utcnow()
-        if now_for_transfer + timedelta(hours=transit_hours) > delivery_deadline:
-            raise HTTPException(status_code=409, detail="Transfer lead time exceeds the business delivery deadline. Do not dispatch against an infeasible schedule; alert the business and warehouse and agree on a new delivery slot.")
-        if now_for_transfer.date() >= delivery_deadline.date():
-            raise HTTPException(status_code=409, detail="The planned previous-day transfer dispatch window has passed. Do not dispatch late without an approved recovery plan; agree on a new feasible delivery slot.")
-        cutoff_value = order.get("transferDispatchCutoff") or source_record.get("transferDispatchCutoff") or source_record.get("dispatchCutoff") or destination_record.get("transferDispatchCutoff") or destination_record.get("dispatchCutoff")
-        if isinstance(cutoff_value, str):
-            try:
-                cutoff_value = datetime.fromisoformat(cutoff_value.replace("Z", "+00:00"))
-                if cutoff_value.tzinfo is not None:
-                    cutoff_value = cutoff_value.astimezone(timezone.utc).replace(tzinfo=None)
-            except (TypeError, ValueError):
-                cutoff_value = None
-        if isinstance(cutoff_value, datetime) and now_for_transfer > cutoff_value:
-            raise HTTPException(status_code=409, detail="Transfer dispatch cutoff has passed. Alert the business and warehouse and agree on a new delivery slot before dispatch.")
+        estimated_destination_arrival = now_for_transfer + timedelta(hours=transit_hours)
+        if estimated_destination_arrival > delivery_deadline:
+            # Late arrival is an urgency signal, not a reason to strand stock at
+            # the source warehouse. Dispatch is allowed; destination operations
+            # must prioritize receipt, processing and final delivery recovery.
+            update["deliveryPriority"] = "urgent"
+            update["scheduleRisk"] = "destination_arrival_after_business_deadline"
+        else:
+            update["deliveryPriority"] = order.get("deliveryPriority") or "normal"
+            update["scheduleRisk"] = None
 
         if not data.transferTeam or not ObjectId.is_valid(str(data.transferTeam)):
             raise HTTPException(status_code=400, detail="Select a registered transfer team before dispatch")
@@ -2994,6 +4629,8 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=403, detail="Only destination warehouse staff can receive a transfer")
         if current != ORDER_TRANSFER_IN_TRANSIT:
             raise HTTPException(status_code=400, detail="No warehouse transfer is in transit")
+        if str(order.get("transferPartnerStatus") or "") != "arrived_at_destination":
+            raise HTTPException(status_code=409, detail="The assigned transfer partner must confirm physical arrival before destination receipt.")
         transfer_source_id = str(order.get("sourceWarehouseId") or order.get("receivedAtWarehouseId") or order.get("warehouseId") or "")
         transfer_destination_id = str(order.get("destinationWarehouseId") or "")
         if not transfer_source_id or not transfer_destination_id or transfer_source_id == transfer_destination_id:
@@ -3047,12 +4684,31 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=409, detail=f"Consolidation blocked: {len(outstanding)} farmer portion(s) have not reached the required warehouse or have not passed quality inspection")
         now = datetime.utcnow()
         for portion in portions:
-            await order_repo.update({"_id": portion["_id"]}, {
-                "consolidationCompletedAt": now,
-                "consolidationCompletedBy": str(current_user.get("_id")),
+            history = list(portion.get("statusHistory") or [])
+            already_recorded = any(
+                isinstance(event, dict)
+                and event.get("action") == "complete_consolidation"
+                for event in history
+            )
+            update_data = {
+                "consolidationCompletedAt": portion.get("consolidationCompletedAt") or now,
+                "consolidationCompletedBy": portion.get("consolidationCompletedBy") or str(current_user.get("_id")),
                 "consolidationStatus": "completed",
                 "updatedAt": now,
-            })
+            }
+            if not already_recorded:
+                history.append({
+                    "status": str(portion.get("status") or current),
+                    "previousStatus": portion.get("status"),
+                    "action": "complete_consolidation",
+                    "title": "B2B farmer portions consolidated",
+                    "actorRole": role,
+                    "actorId": str(current_user.get("_id") or ""),
+                    "details": "All farmer portions for this RFQ have reached the required warehouse and passed the required quality inspection. Consolidation is complete.",
+                    "timestamp": now,
+                })
+                update_data["statusHistory"] = history
+            await order_repo.update({"_id": portion["_id"]}, update_data)
         return {"success": True, "message": "All required B2B farmer portions are received and quality-passed; consolidation completed", "orderId": str(order["_id"]), "portionCount": len(portions)}
     elif action == "dispatch_to_buyer":
         if role not in allowed_warehouse:
@@ -3143,9 +4799,17 @@ async def update_b2b_warehouse_fulfillment(
         if not data.notes or not data.notes.strip():
             raise HTTPException(status_code=400, detail="Delivery proof / handoff notes are required")
         assigned_partner = str(order.get("finalDeliveryPartner") or "")
-        current_user_id = str(current_user.get("_id") or "")
-        if role not in ("admin", "super_admin") and assigned_partner and assigned_partner != current_user_id:
-            raise HTTPException(status_code=403, detail="Only the assigned delivery team member can confirm this delivery")
+        current_user_id = str(current_user.get("_id") or current_user.get("id") or "")
+        acting_delivery_ids = {
+            current_user_id,
+            str(current_user.get("userId") or ""),
+            str(current_user.get("user_id") or ""),
+        }
+        acting_delivery_ids.discard("")
+        if role not in ("admin", "super_admin") and not assigned_partner:
+            raise HTTPException(status_code=409, detail="Assign a final delivery partner before confirming business delivery")
+        if role not in ("admin", "super_admin") and assigned_partner not in acting_delivery_ids:
+            raise HTTPException(status_code=403, detail="Only the delivery partner assigned to this order can confirm delivery")
         update.update({"status": ORDER_DELIVERED, "deliveredAt": datetime.utcnow(), "deliveredBy": current_user_id, "deliveryProof": data.notes.strip(), "deliveryNotes": data.notes.strip()})
     else:
         raise HTTPException(status_code=400, detail="Unknown B2B logistics action")
@@ -4414,6 +6078,26 @@ def _contract_public(row: Dict[str, Any]) -> Dict[str, Any]:
                 item["confirmedBy"] = str(item["confirmedBy"])
             history.append(item)
     result["deliveryHistory"] = sorted(history, key=lambda item: str(item.get("scheduledDate") or ""), reverse=True)
+    pending_farmer_actions = [
+        str(item.get("scheduledDate") or "")
+        for item in history
+        if item.get("scheduledDate")
+        and (
+            (
+                item.get("isRescheduledOccurrence")
+                and str(item.get("status") or "").lower() in ("awaiting_confirmation", "shortage", "partial_approved", "backup_required")
+            )
+            or (
+                str(item.get("status") or "").lower() in ("partial_approved", "replacement_assigned")
+                and float(item.get("approvedQuantityKg") or 0) > 0
+                and not item.get("originalOrderId")
+            )
+        )
+    ]
+    result["pendingFarmerDeliveryDate"] = min(pending_farmer_actions) if pending_farmer_actions else None
+    # Keep the explicit name for older clients while the general field also
+    # covers an original farmer contribution waiting beside a replacement order.
+    result["pendingRescheduledDeliveryDate"] = result["pendingFarmerDeliveryDate"]
     result.pop("deliveryConfirmations", None)
     return result
 
@@ -4425,7 +6109,40 @@ async def list_business_supply_contracts(current_user: dict = Depends(get_curren
     rows = await contract_repo.find_many({
         "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None
     }, sort=[("createdAt", -1)], limit=500) or []
-    return {"success": True, "data": {"contracts": [_contract_public(row) for row in rows]}}
+    public_rows = [_contract_public(row) for row in rows]
+
+    # Hydrate replacement references so the business can see the real order
+    # number and current fulfillment status without conflating it with the
+    # original farmer's order or the contract's shortage-resolution status.
+    db = MongoDB.db
+    replacement_order_ids = set()
+    for row in rows:
+        confirmations = row.get("deliveryConfirmations") or {}
+        if not isinstance(confirmations, dict):
+            continue
+        for confirmation in confirmations.values():
+            if not isinstance(confirmation, dict):
+                continue
+            order_id = str(confirmation.get("replacementOrderId") or "")
+            if ObjectId.is_valid(order_id):
+                replacement_order_ids.add(order_id)
+    order_lookup = {}
+    if db is not None and replacement_order_ids:
+        cursor = db["b2b_orders"].find({
+            "_id": {"$in": [ObjectId(value) for value in replacement_order_ids]},
+            "deletedAt": None,
+        })
+        for order in await cursor.to_list(length=500):
+            order_lookup[str(order.get("_id"))] = order
+    for public_contract in public_rows:
+        for delivery in public_contract.get("deliveryHistory") or []:
+            order_id = str(delivery.get("replacementOrderId") or "")
+            replacement_order = order_lookup.get(order_id)
+            if replacement_order:
+                delivery["replacementOrderNumber"] = replacement_order.get("orderNumber")
+                delivery["replacementOrderStatus"] = replacement_order.get("status")
+                delivery["replacementQuantityKg"] = replacement_order.get("quantityKg", delivery.get("replacementQuantityKg"))
+    return {"success": True, "data": {"contracts": public_rows}}
 
 
 @router.get("/contracts/me")
@@ -4591,6 +6308,7 @@ class DeliveryShortageResolution(BaseModel):
     newDeliveryDate: Optional[datetime] = None
     approvedQuantityKg: Optional[float] = Field(None, gt=0)
     replacementOfferId: Optional[str] = None
+    replacementMode: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -4627,23 +6345,56 @@ async def confirm_contract_delivery_stock(
         raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
     if scheduled_day < next_at.date() and schedule_key not in (contract.get("deliveryConfirmations") or {}):
         raise HTTPException(status_code=409, detail="This date is not an open scheduled delivery for the contract")
-    requested = float(contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+    confirmations = dict(contract.get("deliveryConfirmations") or {})
+    existing_confirmation = dict(confirmations.get(schedule_key) or {})
+    if str(existing_confirmation.get("resolution") or "").lower() == "replacement_supplier_full":
+        raise HTTPException(
+            status_code=409,
+            detail="This scheduled delivery was reassigned to another farmer. You must not pack or deliver it.",
+        )
+    requested = float(
+        existing_confirmation.get("requestedQuantityKg")
+        or contract.get("quantityPerDeliveryKg")
+        or contract.get("quantityPerMonthKg")
+        or 0
+    )
     available = float(data.availableQuantityKg)
     packed = float(data.packedQuantityKg if data.packedQuantityKg is not None else available)
-    status = "confirmed" if available >= requested and packed >= requested and data.readyForPickup else "shortage"
-    confirmations = dict(contract.get("deliveryConfirmations") or {})
-    confirmations[schedule_key] = {
+    if packed > available:
+        raise HTTPException(status_code=400, detail="Packed quantity cannot exceed the reported available quantity")
+    approved_qty_raw = existing_confirmation.get("approvedQuantityKg")
+    confirmation_resolution = str(existing_confirmation.get("resolution") or "").lower()
+    has_partial_approval = approved_qty_raw is not None and confirmation_resolution in ("partial", "replacement_supplier")
+    approved_qty = float(approved_qty_raw) if has_partial_approval else None
+
+    if has_partial_approval:
+        # A follow-up stock update must preserve the approved split. When a
+        # replacement is already assigned, keep that resolution visible while
+        # the original farmer confirms the separately packed portion.
+        if available >= approved_qty and packed >= approved_qty:
+            status = "replacement_assigned" if confirmation_resolution == "replacement_supplier" else "partial_approved"
+        else:
+            status = "shortage"
+        order_quantity = approved_qty
+    else:
+        status = "confirmed" if available >= requested and packed >= requested and data.readyForPickup else "shortage"
+        order_quantity = requested
+
+    ready_for_order = bool(data.readyForPickup and packed >= order_quantity and available >= order_quantity)
+    record = dict(existing_confirmation)
+    record.update({
         "scheduledDate": schedule_key,
         "requestedQuantityKg": requested,
         "availableQuantityKg": available,
         "packedQuantityKg": packed,
-        "readyForPickup": bool(data.readyForPickup and packed >= requested),
+        "readyForPickup": ready_for_order,
         "status": status,
-        "notes": (data.notes or "").strip() or None,
+        "notes": (data.notes or "").strip() or existing_confirmation.get("notes"),
         "confirmedBy": ObjectId(current_user["_id"]),
         "confirmedAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
-    }
+    })
+    confirmations[schedule_key] = record
     await contract_repo.update({"_id": oid}, {
         "deliveryConfirmations": confirmations,
         "latestDeliveryStatus": status,
@@ -4660,7 +6411,7 @@ async def confirm_contract_delivery_stock(
     # creation just because nextDeliveryAt was advanced or stored with a different
     # date than the submitted occurrence; the scheduled-date validation above is
     # the guard against invalid dates.
-    if status == "confirmed":
+    if status in ("confirmed", "partial_approved", "replacement_assigned") and order_quantity > 0 and ready_for_order:
         db = MongoDB.db
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
@@ -4668,6 +6419,8 @@ async def confirm_contract_delivery_stock(
         existing_order = await orders_collection.find_one({
             "contractId": oid,
             "scheduledDeliveryDate": schedule_key,
+            "farmerId": contract.get("farmerId"),
+            "isReplacementSupply": {"$ne": True},
             "deletedAt": None,
         })
         if existing_order:
@@ -4680,12 +6433,20 @@ async def confirm_contract_delivery_stock(
                     status_code=409,
                     detail=f"Contract {contract.get('contractNumber') or oid} is missing its original RFQ or accepted farmer quote; warehouse order could not be created.",
                 )
-            order = await _build_order(rfq, offer, requested, None)
+            occurrence_rfq = dict(rfq)
+            occurrence_rfq.update({
+                "requiredDate": schedule_key,
+                "deliveryDeadline": schedule_key,
+                "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+            })
+            order = await _build_order(occurrence_rfq, offer, order_quantity, None)
             # Keep recurring occurrences grouped under the first B2B order number.
             # First occurrence keeps its normal number (for example B2B-00011);
             # the next is B2B-00011-1A, then -1B, etc.
             prior_occurrences = await orders_collection.find({
                 "contractId": oid,
+                "farmerId": contract.get("farmerId"),
+                "isReplacementSupply": {"$ne": True},
                 "deletedAt": None,
                 "scheduledDeliveryDate": {"$ne": schedule_key},
             }).sort("createdAt", 1).to_list(length=500)
@@ -4715,7 +6476,10 @@ async def confirm_contract_delivery_stock(
                 "pickupWindowEnd": "23:59",
                 "transferDispatchDate": order.get("transferDispatchDate"),
                 "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
-                "deliveryDeadline": next_at,
+                # _build_order received the exact scheduled occurrence and
+                # already resolved its delivery time slot in India time. Keep
+                # that timestamp instead of replacing it with the RFQ's first
+                # delivery date or midnight.
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
@@ -4727,13 +6491,18 @@ async def confirm_contract_delivery_stock(
                 "deliveryDistrict": contract.get("deliveryDistrict") or order.get("deliveryDistrict"),
                 "deliveryLocation": contract.get("deliveryLocation") or order.get("deliveryLocation"),
                 "deliveryTimeSlot": contract.get("deliveryTimeSlot") or order.get("deliveryTimeSlot"),
-                "quantityKg": requested,
+                "quantityKg": order_quantity,
                 "packedQuantityKg": packed,
                 "availableQuantityKg": available,
                 "pricePerKg": float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0),
-                "productSubtotal": round(requested * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
-                "totalAmount": round(requested * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
+                "productSubtotal": round(order_quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
+                "totalAmount": round(order_quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
                 "status": ORDER_READY_FOR_PICKUP,
+                # This explicit farmer confirmation includes actual available and
+                # packed quantities plus a ready-for-pickup decision for the occurrence.
+                "statusHistory": _build_recurring_ready_history(
+                    order, record, farmer_id=str(current_user.get("_id") or "")
+                ),
                 "paymentStatus": PAYMENT_PENDING,
                 "deliveryMethod": "dedicated_transport",
                 "startedAt": datetime.utcnow(),
@@ -4744,11 +6513,21 @@ async def confirm_contract_delivery_stock(
             inserted = await orders_collection.insert_one(order)
             created_order_id = str(inserted.inserted_id)
 
+        # Link this farmer's original order to the occurrence so the business
+        # can see that the original contribution and replacement are tracked
+        # separately, and the farmer's rescheduled/shortage action clears.
+        record["originalOrderId"] = created_order_id
+        confirmations[schedule_key] = record
+
         # Advance only after this occurrence is safely represented by a B2B order.
         # Keep the schedule key as an idempotency guard for the legacy generator.
         frequency = contract.get("frequency") or "monthly"
         interval = int(contract.get("recurrenceInterval") or 1)
-        if schedule_key not in (contract.get("generatedScheduleKeys") or []):
+        contract_update = {
+            "deliveryConfirmations": confirmations,
+            "updatedAt": datetime.utcnow(),
+        }
+        if not record.get("isRescheduledOccurrence") and schedule_key not in (contract.get("generatedScheduleKeys") or []):
             if frequency == "daily":
                 next_at = next_at + timedelta(days=interval)
             elif frequency == "weekly":
@@ -4759,27 +6538,41 @@ async def confirm_contract_delivery_stock(
                 year = next_at.year + month // 12
                 month = month % 12 + 1
                 next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
-            await contract_repo.update({"_id": oid}, {
-                "nextDeliveryAt": next_at,
-                "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])),
-                "updatedAt": datetime.utcnow(),
-            })
+            contract_update["nextDeliveryAt"] = next_at
+            contract_update["generatedScheduleKeys"] = list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key]))
+        await contract_repo.update({"_id": oid}, contract_update)
 
-    # Notify the business for both positive confirmations and shortages.
+    # Notify the business with the actual resolution state; an approved partial
+    # contribution must not be described as a fresh unresolved shortage.
     try:
-        shortage_kg = max(0, requested - min(available, packed))
+        shortage_kg = max(
+            0,
+            requested - (order_quantity if has_partial_approval else min(available, packed)),
+        )
+        farmer_name = contract.get("farmerName") or "Your farmer"
+        product_name = contract.get("cropName") or "produce"
         if status == "confirmed":
             title = "Recurring supply update: full supply confirmed"
-            message = f"{contract.get('farmerName') or 'Your farmer'} confirmed {packed:g} kg of {contract.get('cropName') or 'produce'} for {schedule_key} (required {requested:g} kg)."
+            message = f"{farmer_name} confirmed {packed:g} kg of {product_name} for {schedule_key} (required {requested:g} kg)."
+        elif status == "partial_approved":
+            title = "Recurring supply update: approved partial quantity confirmed" if ready_for_order else "Recurring supply update: approved partial supply awaiting readiness"
+            message = f"{farmer_name} reports {available:g} kg available and {packed:g} kg packed for {schedule_key}. The approved original contribution is {order_quantity:g} kg; {shortage_kg:g} kg remains outside this original farmer order."
+            if created_order_id:
+                message += f" Original order {created_order_id} is ready for farm pickup."
+        elif status == "replacement_assigned":
+            title = "Recurring supply update: original contribution confirmed" if ready_for_order else "Recurring supply update: original contribution awaiting readiness"
+            message = f"{farmer_name} reports {available:g} kg available and {packed:g} kg packed for {schedule_key}. The original farmer contribution is {order_quantity:g} kg; the contract tracks the remaining {shortage_kg:g} kg in a separate replacement order."
+            if created_order_id:
+                message += f" Original order {created_order_id} is ready for farm pickup."
         else:
             title = "Recurring supply update: shortage reported"
-            message = f"{contract.get('farmerName') or 'Your farmer'} reports {shortage_kg:g} kg shortage for {contract.get('cropName') or 'produce'} on {schedule_key}. Available: {available:g} kg; packed: {packed:g} kg. Please review the contract."
+            message = f"{farmer_name} reports {shortage_kg:g} kg shortage for {product_name} on {schedule_key}. Available: {available:g} kg; packed: {packed:g} kg. Please review the contract."
         await NotificationService.create_in_app_notification(
             str(contract.get("businessUserId")),
             NotificationType.PROMOTION,
             title,
             message,
-            {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": status},
+            {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": status, "warehouseOrderId": created_order_id},
             NotificationPriority.HIGH if status == "shortage" else NotificationPriority.MEDIUM,
         )
     except Exception as exc:
@@ -4788,20 +6581,30 @@ async def confirm_contract_delivery_stock(
         "success": True,
         "data": {"contractId": str(oid), "scheduledDeliveryDate": schedule_key,
                  "requestedQuantityKg": requested, "availableQuantityKg": available,
-                 "packedQuantityKg": packed, "readyForPickup": bool(data.readyForPickup and packed >= requested),
+                 "packedQuantityKg": packed, "readyForPickup": ready_for_order,
                  "status": status, "warehouseOrderId": created_order_id,
-                 "shortageKg": max(0, round(requested - min(available, packed), 2))},
-        "message": (f"Stock confirmed for {schedule_key}. B2B warehouse order {created_order_id} is ready for farm pickup."
-                    if status == "confirmed" and created_order_id else
-                    "Stock and packing confirmed. The warehouse order will be available after the scheduled delivery enters the planning window."
-                    if status == "confirmed" else
-                    "A stock or packing shortage was recorded. No full-quantity pickup will be scheduled until the business approves a resolution."),
+                 "approvedQuantityKg": order_quantity if has_partial_approval else None,
+                 "shortageKg": max(0, round(requested - (order_quantity if has_partial_approval else min(available, packed)), 2))},
+        "message": (
+            f"Stock confirmed for {schedule_key}. B2B warehouse order {created_order_id} is ready for farm pickup."
+            if ready_for_order and created_order_id and status in ("confirmed", "partial_approved", "replacement_assigned") else
+            f"The approved quantity ({order_quantity:g} kg) is recorded for {schedule_key}. Mark it ready once the approved amount is packed; the normal warehouse order has not been created yet."
+            if has_partial_approval and status in ("partial_approved", "replacement_assigned") else
+            "Stock and packing confirmed. The warehouse order will be available after the scheduled delivery enters the planning window."
+            if status == "confirmed" else
+            "A stock or packing shortage was recorded. No full-quantity pickup will be scheduled until the business approves a resolution."
+        ),
     }
 
 
 @router.get("/contracts/{contract_id}/replacement-offers")
-async def list_contract_replacement_offers(contract_id: str, current_user: dict = Depends(get_current_user)):
-    """Return quotes from other farmers on the same RFQ that could cover a recurring shortage."""
+async def list_contract_replacement_offers(
+    contract_id: str,
+    scheduledDate: Optional[str] = Query(None),
+    replacementMode: Optional[str] = Query("shortage"),
+    current_user: dict = Depends(get_current_user),
+):
+    """List same-RFQ replacement quotes with live stock and shortage eligibility."""
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only the business buyer can source replacement farmers")
     try:
@@ -4811,24 +6614,266 @@ async def list_contract_replacement_offers(contract_id: str, current_user: dict 
     contract = await contract_repo.find_one({"_id": oid, "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None})
     if not contract:
         raise HTTPException(status_code=404, detail="Supply contract not found")
+
+    next_at = contract.get("nextDeliveryAt")
+    if isinstance(next_at, str):
+        try:
+            next_at = datetime.fromisoformat(next_at.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            next_at = None
+    schedule_key = (scheduledDate or contract.get("latestDeliveryDate") or (
+        next_at.strftime("%Y-%m-%d") if isinstance(next_at, datetime) else ""
+    )).strip()
+    if not schedule_key:
+        raise HTTPException(status_code=409, detail="No scheduled delivery date is available for this shortage")
+    try:
+        datetime.strptime(schedule_key, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
+
+    confirmations = contract.get("deliveryConfirmations") or {}
+    confirmation = confirmations.get(schedule_key) if isinstance(confirmations, dict) else None
+    if not confirmation or confirmation.get("status") not in ("shortage", "backup_required", "partial_approved"):
+        raise HTTPException(status_code=409, detail=f"No unresolved stock shortage exists for scheduled delivery {schedule_key}")
+
+    requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
+    available_original = float(confirmation.get("availableQuantityKg") or 0)
+    packed_original = float(confirmation.get("packedQuantityKg") or 0)
+    approved_ceiling = (
+        float(confirmation.get("approvedQuantityKg"))
+        if confirmation.get("approvedQuantityKg") is not None
+        else min(available_original, packed_original)
+    )
+    approved_original = min(approved_ceiling, available_original, packed_original)
+    mode = str(replacementMode or "shortage").strip().lower()
+    if mode not in ("shortage", "full"):
+        raise HTTPException(status_code=400, detail="replacementMode must be 'shortage' or 'full'")
+    shortage_kg = round(requested if mode == "full" else max(0.0, requested - approved_original), 2)
+    if shortage_kg <= 0:
+        raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
+
+    accepted_offer = None
+    accepted_offer_id = contract.get("offerId")
+    if accepted_offer_id:
+        accepted_offer = await offer_repo.find_one({"_id": accepted_offer_id, "deletedAt": None})
+    benchmark_rate = float((accepted_offer or {}).get("pricePerKg") or contract.get("pricePerKg") or 0)
+    benchmark_quantity = float(
+        (accepted_offer or {}).get("availableQuantityKg")
+        or (accepted_offer or {}).get("minOrderKg")
+        or requested
+    )
     if not contract.get("rfqId"):
-        return {"success": True, "data": {"offers": []}}
-    offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=200) or []
+        return {"success": True, "data": {
+            "offers": [], "scheduledDate": schedule_key, "requestedQuantityKg": requested,
+            "shortageKg": shortage_kg, "replacementMode": mode, "benchmarkPricePerKg": benchmark_rate,
+            "benchmarkQuantityKg": benchmark_quantity,
+        }}
+
+    source_rfq = await rfq_repo.find_one({
+        "_id": contract["rfqId"],
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not source_rfq:
+        raise HTTPException(status_code=404, detail="The originating RFQ for this contract could not be found")
+
+    # Awarding an RFQ commonly marks losing bids as declined. Those quotes
+    # remain valid historical offers for replacement sourcing on the SAME RFQ,
+    # for one-off and recurring procurement. Never reuse accepted quotes.
+    can_reuse_award_declined_quotes = (
+        str(source_rfq.get("status") or "").lower() == str(RFQ_AWARDED).lower()
+    )
+    offers = await offer_repo.find_many({"rfqId": contract["rfqId"], "deletedAt": None}, limit=500) or []
     result = []
     for offer in offers:
         farmer_id = str(offer.get("farmerId") or "")
+        offer_status = str(offer.get("status") or "submitted").strip().lower()
         if not farmer_id or farmer_id == str(contract.get("farmerId")):
             continue
-        qty = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
+        if offer_status not in (OFFER_PENDING, "submitted") and not (
+            offer_status == OFFER_DECLINED and can_reuse_award_declined_quotes
+        ):
+            continue
+        live_available = await _live_offer_available_quantity(offer, str(contract.get("cropName") or offer.get("productName") or ""))
+        quoted_quantity = float(offer.get("availableQuantityKg") or offer.get("minOrderKg") or 0)
+        enough_stock = live_available + 1e-6 >= shortage_kg
+        quote_covers_shortage = quoted_quantity + 1e-6 >= shortage_kg
+        eligible = enough_stock and quote_covers_shortage
+        farmer_doc = await farmer_repository.find_one({"userId": farmer_id})
+        if not farmer_doc and ObjectId.is_valid(farmer_id):
+            farmer_doc = await farmer_repository.find_one({"userId": ObjectId(farmer_id)})
+        assignable_quantity = min(quoted_quantity, live_available)
+        if not enough_stock:
+            reason = f"Live stock is {live_available:g} kg; {shortage_kg:g} kg is required."
+        elif not quote_covers_shortage:
+            reason = f"This quote covers only {quoted_quantity:g} kg; a new or updated quote is needed for {shortage_kg:g} kg."
+        else:
+            reason = None
         result.append({
             "id": str(offer.get("_id")),
             "farmerId": farmer_id,
-            "farmerName": offer.get("farmerName") or offer.get("farmName") or "Replacement farmer",
-            "availableQuantityKg": qty,
+            "farmerName": offer.get("farmerName") or offer.get("farmName") or (farmer_doc or {}).get("farmName") or (farmer_doc or {}).get("name") or "Replacement farmer",
+            "productName": offer.get("productName") or contract.get("cropName"),
+            "quotedQuantityKg": quoted_quantity,
+            "availableQuantityKg": live_available,
+            "liveAvailableQuantityKg": live_available,
+            "assignableQuantityKg": round(max(0.0, assignable_quantity), 2),
+            "shortageQuantityKg": shortage_kg,
+            "eligible": eligible,
+            "ineligibleReason": reason,
             "pricePerKg": float(offer.get("pricePerKg") or 0),
-            "status": offer.get("status") or "submitted",
+            "status": offer_status,
+            "quoteType": "previously_submitted" if offer_status == OFFER_DECLINED else "current",
+            "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
         })
-    return {"success": True, "data": {"offers": result}}
+    # Eligible suppliers appear first irrespective of sort mode; the UI ranks
+    # eligible candidates against the accepted quote's price and quantity.
+    result.sort(key=lambda row: (not row["eligible"], row["pricePerKg"], -row["availableQuantityKg"], row["farmerName"].casefold()))
+    return {"success": True, "data": {
+        "offers": result,
+        "scheduledDate": schedule_key,
+        "requestedQuantityKg": requested,
+        "shortageKg": shortage_kg,
+        "replacementMode": mode,
+        "benchmarkPricePerKg": benchmark_rate,
+        "benchmarkQuantityKg": benchmark_quantity,
+        "rfqId": str(source_rfq["_id"]),
+        "rfqNumber": source_rfq.get("rfqNumber"),
+        "replacementSourcingOpen": bool(source_rfq.get("replacementSourcingOpen")),
+        "stockCheckedAt": datetime.utcnow().isoformat() + "Z",
+    }}
+
+
+class ReplacementSourcingRequest(BaseModel):
+    scheduledDate: str
+
+
+@router.post("/contracts/{contract_id}/replacement-sourcing")
+async def request_replacement_sourcing(
+    contract_id: str,
+    data: ReplacementSourcingRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Open the originating awarded recurring RFQ for replacement-only quotes."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the business buyer can request replacement quotes")
+    if not ObjectId.is_valid(contract_id):
+        raise HTTPException(status_code=404, detail="Supply contract not found")
+    contract_id_obj = ObjectId(contract_id)
+    contract = await contract_repo.find_one({
+        "_id": contract_id_obj,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not contract or contract.get("status") != "active":
+        raise HTTPException(status_code=404, detail="Active supply contract not found")
+
+    try:
+        scheduled_day = datetime.strptime(data.scheduledDate, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="scheduledDate must use YYYY-MM-DD")
+    schedule_key = scheduled_day.strftime("%Y-%m-%d")
+    confirmation = (contract.get("deliveryConfirmations") or {}).get(schedule_key)
+    if not confirmation or str(confirmation.get("status") or "").lower() not in ("shortage", "backup_required", "partial_approved"):
+        raise HTTPException(status_code=409, detail=f"No unresolved shortage exists for {schedule_key}")
+
+    rfq_id = contract.get("rfqId")
+    if not rfq_id:
+        raise HTTPException(status_code=409, detail="This supply contract has no originating RFQ")
+    source_rfq = await rfq_repo.find_one({
+        "_id": rfq_id,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not source_rfq or not source_rfq.get("recurring"):
+        raise HTTPException(status_code=409, detail="Replacement sourcing is only available for the originating recurring RFQ")
+    if str(source_rfq.get("status") or "").lower() != str(RFQ_AWARDED).lower():
+        raise HTTPException(status_code=409, detail="The originating RFQ is no longer in the awarded state")
+
+    db = MongoDB.db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not ready")
+    existing_replacement = await db["b2b_orders"].find_one({
+        "contractId": contract_id_obj,
+        "scheduledDeliveryDate": schedule_key,
+        "replacementForFarmerId": contract.get("farmerId"),
+        "status": {"$ne": ORDER_CANCELLED},
+        "deletedAt": None,
+    })
+    if existing_replacement:
+        raise HTTPException(status_code=409, detail="A replacement order already exists for this delivery; refresh the contract status")
+
+    already_open = bool(source_rfq.get("replacementSourcingOpen"))
+    open_contract_id = str(source_rfq.get("replacementSourcingContractId") or "")
+    open_schedule_date = str(source_rfq.get("replacementSourcingScheduledDate") or "")
+    if already_open and (open_contract_id != str(contract_id_obj) or open_schedule_date != schedule_key):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Replacement sourcing is already open for {open_schedule_date or 'another delivery'} on this RFQ. Resolve that request before opening another.",
+        )
+    if already_open and open_contract_id == str(contract_id_obj) and open_schedule_date == schedule_key:
+        return {"success": True, "data": {
+            "rfqId": str(rfq_id),
+            "rfqNumber": source_rfq.get("rfqNumber"),
+            "scheduledDate": schedule_key,
+            "notifiedFarmers": 0,
+            "replacementSourcingOpen": True,
+            "alreadyOpen": True,
+        }, "message": "Replacement sourcing is already open for this delivery. Use the same RFQ to review new and previously submitted quotes."}
+
+    now = datetime.utcnow()
+    await rfq_repo.update({"_id": rfq_id}, {
+        "replacementSourcingOpen": True,
+        "replacementSourcingContractId": contract_id_obj,
+        "replacementSourcingScheduledDate": schedule_key,
+        "replacementSourcingOpenedAt": now,
+        "replacementSourcingRequestedBy": ObjectId(current_user["_id"]),
+        "updatedAt": now,
+    })
+
+    notified = 0
+    farmer_profiles = await farmer_profile_repo.find_many({"deletedAt": None}, limit=500) or []
+    for farmer_profile in farmer_profiles:
+        farmer_user_id = str(farmer_profile.get("userId") or "")
+        if not farmer_user_id or farmer_user_id == str(contract.get("farmerId")):
+            continue
+        farmer_doc = await farmer_repository.get_by_user_id(farmer_user_id)
+        if not farmer_doc and ObjectId.is_valid(farmer_user_id):
+            farmer_doc = await farmer_repository.find_one({"userId": ObjectId(farmer_user_id)})
+        # Missing profile/location fields should not crash the whole sourcing
+        # request; the visibility helper is deliberately permissive when location
+        # data cannot prove that a farmer is outside the RFQ's target area.
+        farmer_context = farmer_doc or {}
+        distance = _distance_km(farmer_context, source_rfq)
+        if not _visibility_match(source_rfq, farmer_context, distance):
+            continue
+        try:
+            await NotificationService.create_in_app_notification(
+                farmer_user_id,
+                NotificationType.PROMOTION,
+                "Replacement produce quote requested",
+                f"A business needs replacement supply of {source_rfq.get('productName')} for delivery on {schedule_key}. Submit or update your quote on RFQ {source_rfq.get('rfqNumber') or str(rfq_id)[-6:]}.",
+                {
+                    "rfqId": str(rfq_id),
+                    "contractId": str(contract_id_obj),
+                    "scheduledDate": schedule_key,
+                    "type": "b2b_replacement_sourcing",
+                    "url": "/farmer/b2b/rfqs",
+                },
+                NotificationPriority.HIGH,
+                mandatory=True,
+            )
+            notified += 1
+        except Exception as exc:
+            logger.warning("Replacement sourcing notification failed for farmer %s: %s", farmer_user_id, exc)
+
+    return {"success": True, "data": {
+        "rfqId": str(rfq_id),
+        "rfqNumber": source_rfq.get("rfqNumber"),
+        "scheduledDate": schedule_key,
+        "notifiedFarmers": notified,
+        "replacementSourcingOpen": True,
+    }, "message": f"Replacement quote request opened on the original RFQ. {notified} eligible farmer(s) were notified."}
 
 
 @router.post("/contracts/{contract_id}/delivery-resolution")
@@ -4869,10 +6914,16 @@ async def resolve_contract_delivery_shortage(
     if action == "partial":
         quantity = float(data.approvedQuantityKg or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
-        if quantity <= 0 or quantity > available:
-            raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the farmer's confirmed stock")
+        requested_quantity = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
+        if quantity <= 0 or quantity > available or quantity > requested_quantity:
+            raise HTTPException(status_code=400, detail="Approved partial quantity must be greater than zero and no more than the reported available stock or contracted quantity")
         confirmation.update({"status": "partial_approved", "approvedQuantityKg": quantity,
-                             "readyForPickup": float(confirmation.get("packedQuantityKg") or 0) >= quantity,
+                             # A business approval is not itself a farmer pickup-ready confirmation.
+                             "readyForPickup": bool(
+                                 confirmation.get("readyForPickup")
+                                 and float(confirmation.get("availableQuantityKg") or 0) >= quantity
+                                 and float(confirmation.get("packedQuantityKg") or 0) >= quantity
+                             ),
                              "resolution": "partial", "resolutionNotes": data.notes, "resolvedAt": now})
         confirmations[schedule_key] = confirmation
         await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
@@ -4888,7 +6939,7 @@ async def resolve_contract_delivery_shortage(
         except Exception as exc:
             logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
         return {"success": True, "data": {"status": "partial_approved", "scheduledDeliveryDate": schedule_key,
-            "approvedQuantityKg": quantity}, "message": "Partial delivery approved; order generation will use the approved quantity."}
+            "approvedQuantityKg": quantity}, "message": "Partial delivery approved. The farmer must confirm that the approved quantity is packed and ready before the B2B order is created."}
     if action == "reschedule":
         new_date = data.newDeliveryDate
         if not new_date:
@@ -4896,24 +6947,95 @@ async def resolve_contract_delivery_shortage(
         new_date = new_date.replace(tzinfo=None)
         if new_date.date() <= datetime.utcnow().date():
             raise HTTPException(status_code=400, detail="Choose a future delivery date")
+        new_schedule_key = new_date.strftime("%Y-%m-%d")
+        if new_schedule_key == schedule_key:
+            raise HTTPException(status_code=400, detail="Choose a different date for the rescheduled delivery")
+        existing_target = confirmations.get(new_schedule_key)
+        if existing_target:
+            raise HTTPException(status_code=409, detail=f"A delivery occurrence is already recorded for {new_schedule_key}. Choose another date.")
+
+        requested_quantity = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or contract.get("quantityPerMonthKg") or 0)
         confirmation.update({"status": "rescheduled", "resolution": "reschedule",
                              "resolutionNotes": data.notes, "resolvedAt": now, "rescheduledTo": new_date})
         confirmations[schedule_key] = confirmation
-        # Rescheduling one occurrence must not shift every future occurrence of the recurring contract.
-        await contract_repo.update({"_id": oid}, {"deliveryConfirmations": confirmations,
-            "latestDeliveryStatus": "rescheduled", "latestDeliveryDate": schedule_key, "updatedAt": now})
+        # Preserve the recurring series: mark this occurrence rescheduled and advance
+        # its regular cursor once. The rescheduled occurrence is stored separately.
+        resume_next_at = next_at
+        if next_at.strftime("%Y-%m-%d") == schedule_key:
+            frequency = str(contract.get("frequency") or "monthly").lower()
+            interval = max(1, int(contract.get("recurrenceInterval") or 1))
+            if frequency == "daily":
+                resume_next_at = next_at + timedelta(days=interval)
+            elif frequency == "weekly":
+                resume_next_at = next_at + timedelta(weeks=interval)
+            else:
+                import calendar
+                month = next_at.month - 1 + interval
+                year = next_at.year + month // 12
+                month = month % 12 + 1
+                resume_next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
+        # Delivery confirmations are keyed by calendar date, so a rescheduled
+        # occurrence cannot collide with any future occurrence in the recurring
+        # series (not just the immediately following date).
+        regular_candidate = resume_next_at
+        recurrence_frequency = str(contract.get("frequency") or "monthly").lower()
+        recurrence_interval = max(1, int(contract.get("recurrenceInterval") or 1))
+        for _ in range(5000):
+            if regular_candidate.date() == new_date.date():
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected date is already part of the regular recurring schedule. Choose a different date.",
+                )
+            if regular_candidate.date() > new_date.date():
+                break
+            if recurrence_frequency == "daily":
+                regular_candidate = regular_candidate + timedelta(days=recurrence_interval)
+            elif recurrence_frequency == "weekly":
+                regular_candidate = regular_candidate + timedelta(weeks=recurrence_interval)
+            else:
+                import calendar
+                month = regular_candidate.month - 1 + recurrence_interval
+                year = regular_candidate.year + month // 12
+                month = month % 12 + 1
+                regular_candidate = regular_candidate.replace(
+                    year=year,
+                    month=month,
+                    day=min(regular_candidate.day, calendar.monthrange(year, month)[1]),
+                )
+
+        confirmations[new_schedule_key] = {
+            "scheduledDate": new_schedule_key,
+            "requestedQuantityKg": requested_quantity,
+            "availableQuantityKg": 0.0,
+            "packedQuantityKg": 0.0,
+            "readyForPickup": False,
+            "status": "awaiting_confirmation",
+            "notes": None,
+            "isRescheduledOccurrence": True,
+            "rescheduledFromDate": schedule_key,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        await contract_repo.update({"_id": oid}, {
+            "deliveryConfirmations": confirmations,
+            "nextDeliveryAt": resume_next_at,
+            "latestDeliveryStatus": "rescheduled",
+            "latestDeliveryDate": schedule_key,
+            "updatedAt": now,
+        })
         try:
             await NotificationService.create_in_app_notification(
                 str(contract.get("farmerId")), NotificationType.PROMOTION,
                 "Recurring supply delivery rescheduled",
-                f"The business rescheduled the delivery originally planned for {schedule_key} to {new_date:%Y-%m-%d}.",
-                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "rescheduled"},
+                f"The business rescheduled the delivery originally planned for {schedule_key} to {new_schedule_key}. Confirm stock and packing for the new date in your supply contracts.",
+                {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": new_schedule_key, "originalScheduledDate": schedule_key, "status": "awaiting_confirmation"},
                 NotificationPriority.HIGH,
             )
         except Exception as exc:
             logger.warning("Recurring supply farmer notification failed for contract %s: %s", oid, exc)
-        return {"success": True, "data": {"status": "rescheduled", "nextDeliveryAt": new_date.isoformat()},
-                "message": "Delivery rescheduled with business approval; the contract remains active."}
+        return {"success": True, "data": {"status": "rescheduled", "rescheduledDeliveryDate": new_schedule_key,
+            "nextDeliveryAt": resume_next_at.isoformat()},
+            "message": f"Delivery moved to {new_schedule_key}. The farmer must confirm stock and packing for that occurrence."}
     if action == "assign_replacement":
         if not data.replacementOfferId:
             raise HTTPException(status_code=400, detail="Choose an eligible replacement farmer quote")
@@ -4927,29 +7049,73 @@ async def resolve_contract_delivery_shortage(
         replacement_offer = await offer_repo.find_one({"_id": replacement_offer_id, "rfqId": rfq_id, "deletedAt": None})
         if not replacement_offer:
             raise HTTPException(status_code=404, detail="Replacement quote not found for this recurring RFQ")
+        source_rfq_for_assignment = await rfq_repo.find_one({
+            "_id": rfq_id,
+            "businessUserId": ObjectId(current_user["_id"]),
+            "deletedAt": None,
+        })
+        replacement_offer_status = str(replacement_offer.get("status") or "submitted").strip().lower()
+        can_assign_award_declined_quote = bool(
+            source_rfq_for_assignment
+            and source_rfq_for_assignment.get("recurring")
+            and str(source_rfq_for_assignment.get("status") or "").lower() == str(RFQ_AWARDED).lower()
+            and replacement_offer_status == OFFER_DECLINED
+        )
         replacement_farmer_id = str(replacement_offer.get("farmerId") or "")
         if not replacement_farmer_id or replacement_farmer_id == str(contract.get("farmerId")):
             raise HTTPException(status_code=400, detail="Replacement must be a different registered farmer")
+        if replacement_offer_status not in (OFFER_PENDING, "submitted") and not can_assign_award_declined_quote:
+            raise HTTPException(status_code=409, detail="This replacement quote is no longer eligible. Refresh the quote list.")
         requested = float(confirmation.get("requestedQuantityKg") or contract.get("quantityPerDeliveryKg") or 0)
         available = float(confirmation.get("availableQuantityKg") or 0)
         packed = float(confirmation.get("packedQuantityKg") or 0)
-        original_approved = float(confirmation.get("approvedQuantityKg") or min(available, packed))
-        missing = max(0.0, requested - original_approved)
+        replacement_mode = str(data.replacementMode or "shortage").strip().lower()
+        if replacement_mode not in ("shortage", "full"):
+            raise HTTPException(status_code=400, detail="replacementMode must be 'shortage' or 'full'")
+        approved_ceiling = (
+            float(confirmation.get("approvedQuantityKg"))
+            if confirmation.get("approvedQuantityKg") is not None
+            else min(available, packed)
+        )
+        original_approved = 0.0 if replacement_mode == "full" else min(approved_ceiling, available, packed)
+        missing = requested if replacement_mode == "full" else max(0.0, requested - original_approved)
         if missing <= 0:
             raise HTTPException(status_code=409, detail="There is no remaining shortage to source")
-        replacement_available = float(replacement_offer.get("availableQuantityKg") or replacement_offer.get("minOrderKg") or 0)
-        if replacement_available < missing:
-            raise HTTPException(status_code=409, detail=f"Replacement farmer has only {replacement_available:g} kg available; {missing:g} kg is required")
+        # Recheck stock at assignment time. Quote quantities are snapshots and
+        # may have changed since the business opened the replacement list.
+        quoted_available = float(replacement_offer.get("availableQuantityKg") or replacement_offer.get("minOrderKg") or 0)
+        if quoted_available + 1e-6 < missing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"The selected quote covers only {quoted_available:g} kg; {missing:g} kg is required. Choose a larger quote.",
+            )
+        replacement_available = await _live_offer_available_quantity(
+            replacement_offer,
+            str(contract.get("cropName") or replacement_offer.get("productName") or ""),
+        )
+        if replacement_available + 1e-6 < missing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Live stock changed: {replacement_offer.get('farmerName') or 'Replacement farmer'} now has {replacement_available:g} kg available; {missing:g} kg is required. Refresh the list and choose another eligible quote.",
+            )
         rfq = await rfq_repo.find_one({"_id": rfq_id, "deletedAt": None})
         if not rfq:
             raise HTTPException(status_code=409, detail="Original recurring RFQ is unavailable")
-        replacement_order = await _build_order(rfq, replacement_offer, missing, None)
+        occurrence_rfq = dict(rfq)
+        occurrence_rfq.update({
+            "requiredDate": schedule_key,
+            "deliveryDeadline": schedule_key,
+            "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+        })
+        replacement_order = await _build_order(occurrence_rfq, replacement_offer, missing, None)
         db = MongoDB.db
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
         existing_replacement = await db["b2b_orders"].find_one({
             "contractId": oid, "scheduledDeliveryDate": schedule_key,
-            "replacementForFarmerId": contract.get("farmerId"), "deletedAt": None,
+            "replacementForFarmerId": contract.get("farmerId"),
+            "status": {"$ne": ORDER_CANCELLED},
+            "deletedAt": None,
         })
         if existing_replacement:
             raise HTTPException(status_code=409, detail="A replacement order already exists for this scheduled delivery")
@@ -4959,26 +7125,147 @@ async def resolve_contract_delivery_shortage(
             "replacementForShortageKg": missing, "isReplacementSupply": True,
             "farmerId": replacement_offer.get("farmerId"), "businessUserId": contract.get("businessUserId"),
             "productName": contract.get("cropName") or replacement_order.get("productName"),
-            "quantityKg": missing, "status": ORDER_READY_FOR_PICKUP,
-            "farmerPrepareBy": datetime.strptime(schedule_key, "%Y-%m-%d") - timedelta(days=1) + timedelta(hours=16),
-            "pickupDate": (datetime.strptime(schedule_key, "%Y-%m-%d").date() - timedelta(days=1)).isoformat(),
-            "pickupWindowStart": "18:00", "pickupWindowEnd": "23:59",
-            "deliveryDeadline": datetime.strptime(schedule_key, "%Y-%m-%d"),
+            "quantityKg": missing, "status": ORDER_CONFIRMED,
+            "statusHistory": [{
+                "status": ORDER_CONFIRMED,
+                "previousStatus": None,
+                "action": "replacement_order_created",
+                "actorRole": "business",
+                "actorId": str(current_user.get("_id") or ""),
+                "details": f"Replacement supply order created for {missing:g} kg. Farmer preparation and quality checks are pending.",
+                "timestamp": now,
+            }],
+            "packedQuantityKg": 0, "qualityCheck": "pending",
+            "requiredDate": replacement_order.get("requiredDate"),
+            # Preserve route-derived preparation/pickup/transfer dates and the
+            # slot-adjusted delivery deadline from _build_order for this date.
+            "farmerPrepareBy": replacement_order.get("farmerPrepareBy"),
+            "pickupDate": replacement_order.get("pickupDate"),
+            "transferDispatchDate": replacement_order.get("transferDispatchDate"),
+            "deliveryDeadline": replacement_order.get("deliveryDeadline"),
+            "deliveryTimeSlot": contract.get("deliveryTimeSlot") or replacement_order.get("deliveryTimeSlot"),
+            "pickupWindowStart": replacement_order.get("pickupWindowStart") or "18:00",
+            "pickupWindowEnd": replacement_order.get("pickupWindowEnd") or "23:59",
             "createdAt": now, "updatedAt": now, "deletedAt": None,
         })
         inserted = await db["b2b_orders"].insert_one(replacement_order)
+        # Claim this quote so it cannot also be accepted as a second purchase
+        # after its stock has been committed to the replacement order.
+        quote_claim = await offer_repo.collection.update_one(
+            {"_id": replacement_offer_id, "status": replacement_offer_status, "deletedAt": None},
+            {"$set": {
+                "status": OFFER_ACCEPTED,
+                "acceptedQuantityKg": missing,
+                "acceptedAt": now,
+                "updatedAt": now,
+                "replacementForContractId": oid,
+                "replacementScheduledDate": schedule_key,
+            }},
+        )
+        if quote_claim.modified_count != 1:
+            await db["b2b_orders"].delete_one({"_id": inserted.inserted_id})
+            raise HTTPException(
+                status_code=409,
+                detail="This replacement quote was accepted or changed by another request. Refresh the live stock and quote list.",
+            )
+        cancelled_original_order_id = None
+        if replacement_mode == "full":
+            # Full replacement means the original farmer must not also deliver
+            # the same occurrence. Cancel any original order already created and
+            # remove its unassigned pickup route from the claimable queue.
+            original_order = await db["b2b_orders"].find_one({
+                "contractId": oid,
+                "scheduledDeliveryDate": schedule_key,
+                "farmerId": contract.get("farmerId"),
+                "isReplacementSupply": {"$ne": True},
+                "deletedAt": None,
+                "status": {"$ne": ORDER_CANCELLED},
+            })
+            if original_order:
+                cancelled_original_order_id = str(original_order.get("_id"))
+                _ensure_b2b_order_activity_history(original_order)
+                history = list(original_order.get("statusHistory") or [])
+                history.append({
+                    "status": ORDER_CANCELLED,
+                    "previousStatus": original_order.get("status"),
+                    "actorRole": "business",
+                    "actorId": str(current_user["_id"]),
+                    "details": f"Reassigned in full to replacement farmer for scheduled delivery {schedule_key}; do not deliver.",
+                    "timestamp": now,
+                })
+                await db["b2b_orders"].update_one(
+                    {"_id": original_order["_id"]},
+                    {"$set": {
+                        "status": ORDER_CANCELLED,
+                        "cancelledAt": now,
+                        "cancelReason": "Full replacement farmer assignment",
+                        "replacementFulfilledByOther": True,
+                        "replacementOrderId": str(inserted.inserted_id),
+                        "updatedAt": now,
+                        "statusHistory": history,
+                    }},
+                )
+                try:
+                    await db["warehouse_pickup_routes"].update_many(
+                        {"b2bOrderId": str(original_order["_id"]), "deletedAt": None},
+                        {"$set": {"status": "cancelled", "updatedAt": now, "cancelReason": "Order fully reassigned to replacement farmer"}},
+                    )
+                except Exception as exc:
+                    logger.warning("Could not close original pickup route %s after full replacement: %s", original_order.get("orderNumber"), exc)
+            confirmation.update({
+                "status": "replacement_assigned",
+                "approvedQuantityKg": 0.0,
+                "readyForPickup": False,
+                "resolution": "replacement_supplier_full",
+                "originalOrderCancelledId": cancelled_original_order_id,
+            })
+        else:
+            confirmation.update({
+                "status": "replacement_assigned", "approvedQuantityKg": original_approved,
+                # For a shortage-only replacement, the original farmer keeps
+                # their approved share and can prepare it independently.
+                "readyForPickup": bool(
+                    confirmation.get("readyForPickup")
+                    and original_approved > 0
+                    and available >= original_approved
+                    and packed >= original_approved
+                ),
+                "resolution": "replacement_supplier",
+            })
         confirmation.update({
-            "status": "replacement_assigned", "approvedQuantityKg": original_approved,
-            "readyForPickup": original_approved > 0 and packed >= original_approved,
-            "resolution": "replacement_supplier",
             "resolutionNotes": data.notes, "replacementOfferId": str(replacement_offer_id),
             "replacementFarmerId": replacement_farmer_id, "replacementOrderId": str(inserted.inserted_id),
             "replacementQuantityKg": missing, "resolvedAt": now,
         })
         confirmations[schedule_key] = confirmation
-        await contract_repo.update({"_id": oid}, {
-            "deliveryConfirmations": confirmations, "latestDeliveryStatus": "replacement_assigned",
-            "latestDeliveryDate": schedule_key, "updatedAt": now,
+        contract_update = {
+            "deliveryConfirmations": confirmations,
+            "latestDeliveryStatus": "replacement_assigned",
+            "latestDeliveryDate": schedule_key,
+            "updatedAt": now,
+        }
+        if original_approved <= 0 and isinstance(next_at, datetime) and next_at.strftime("%Y-%m-%d") == schedule_key:
+            frequency = str(contract.get("frequency") or "monthly").lower()
+            interval = max(1, int(contract.get("recurrenceInterval") or 1))
+            if frequency == "daily":
+                next_at = next_at + timedelta(days=interval)
+            elif frequency == "weekly":
+                next_at = next_at + timedelta(weeks=interval)
+            else:
+                import calendar
+                month = next_at.month - 1 + interval
+                year = next_at.year + month // 12
+                month = month % 12 + 1
+                next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
+            contract_update["nextDeliveryAt"] = next_at
+            contract_update["generatedScheduleKeys"] = list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key]))
+        await contract_repo.update({"_id": oid}, contract_update)
+        # Stop exposing the RFQ to new replacement quote submissions after an
+        # eligible replacement has been assigned for this schedule.
+        await rfq_repo.update({"_id": rfq_id}, {
+            "replacementSourcingOpen": False,
+            "replacementSourcingResolvedAt": now,
+            "updatedAt": now,
         })
         try:
             await NotificationService.create_in_app_notification(
@@ -4990,9 +7277,37 @@ async def resolve_contract_delivery_shortage(
             )
         except Exception as exc:
             logger.warning("Replacement supplier business notification failed for contract %s: %s", oid, exc)
-        return {"success": True, "data": {"status": "replacement_assigned", "scheduledDeliveryDate": schedule_key,
-            "replacementOrderId": str(inserted.inserted_id), "replacementQuantityKg": missing},
-            "message": f"Replacement order created for {missing:g} kg. It will follow the existing B2B warehouse fulfillment workflow."}
+        try:
+            await NotificationService.create_in_app_notification(
+                replacement_farmer_id,
+                NotificationType.ORDER,
+                "Replacement B2B supply assigned to you",
+                f"You were selected to supply {missing:g} kg of {contract.get('cropName') or 'produce'} for delivery on {schedule_key}. Open your B2B orders to prepare, pack, and complete quality checks before pickup.",
+                {"type": "b2b", "orderId": str(inserted.inserted_id), "contractId": str(oid), "scheduledDeliveryDate": schedule_key, "status": ORDER_CONFIRMED},
+                NotificationPriority.HIGH,
+            )
+        except Exception as exc:
+            logger.warning("Replacement farmer notification failed for order %s: %s", inserted.inserted_id, exc)
+        if replacement_mode == "full":
+            try:
+                await NotificationService.create_in_app_notification(
+                    str(contract.get("farmerId")),
+                    NotificationType.ORDER,
+                    "Do not deliver — this occurrence was reassigned",
+                    f"The business assigned the full {requested:g} kg of {contract.get('cropName') or 'produce'} for {schedule_key} to another farmer. Do not pack, hand over, or deliver this scheduled occurrence. Your original order was cancelled if it had already been created. This change applies only to this delivery date; future contract deliveries remain unchanged.",
+                    {"type": "b2b_recurring_delivery", "contractId": str(oid), "scheduledDate": schedule_key, "status": "replacement_assigned_full", "replacementOrderId": str(inserted.inserted_id)},
+                    NotificationPriority.HIGH,
+                )
+            except Exception as exc:
+                logger.warning("Original farmer full-replacement notification failed for contract %s: %s", oid, exc)
+        return {"success": True, "data": {"status": "replacement_assigned", "mode": replacement_mode, "scheduledDeliveryDate": schedule_key,
+            "replacementOrderId": str(inserted.inserted_id), "replacementQuantityKg": missing,
+            "originalFarmerQuantityKg": original_approved, "originalOrderCancelledId": cancelled_original_order_id},
+            "message": (
+                f"Full replacement assigned for {missing:g} kg. The original farmer was notified not to deliver this occurrence."
+                if replacement_mode == "full" else
+                f"Replacement order created for the {missing:g} kg shortage. The original farmer can still deliver the approved {original_approved:g} kg share."
+            )}
     if action == "backup_required":
         confirmation.update({"status": "backup_required", "resolution": "backup_required",
                              "resolutionNotes": data.notes, "resolvedAt": now})
@@ -5027,11 +7342,168 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
     # Generate up to 48 hours ahead. This is essential for night pickup and
     # cross-district transfers that must depart one day before morning delivery.
     planning_horizon = now + timedelta(days=2)
-    query = {"status": "active", "nextDeliveryAt": {"$lte": planning_horizon}, "deletedAt": None}
+    # Include active contracts with stored delivery confirmations so separately
+    # rescheduled occurrences can be processed even when the regular nextDeliveryAt
+    # is later than the planning horizon. The regular schedule is still guarded below.
+    rescheduled_date_queries = []
+    candidate_day = now.date()
+    while candidate_day <= planning_horizon.date():
+        date_key = candidate_day.strftime("%Y-%m-%d")
+        rescheduled_date_queries.append({
+            f"deliveryConfirmations.{date_key}.isRescheduledOccurrence": True,
+        })
+        candidate_day += timedelta(days=1)
+    query = {
+        "status": "active",
+        "deletedAt": None,
+        "$or": [
+            {"nextDeliveryAt": {"$lte": planning_horizon}},
+            *rescheduled_date_queries,
+        ],
+    }
     if current_user.get("role") == "business":
         query["businessUserId"] = ObjectId(current_user["_id"])
     contracts = await contract_repo.find_many(query, limit=500) or []
     generated = []
+
+    # Rescheduled occurrences have their own confirmation key and must not depend
+    # on the contract's regular nextDeliveryAt cursor. Process only confirmed,
+    # ready-to-pick-up occurrences inside the same 48-hour planning window.
+    db = MongoDB.db
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database is not ready")
+    orders_collection = db["b2b_orders"]
+    for contract in contracts:
+        confirmations = dict(contract.get("deliveryConfirmations") or {})
+        confirmations_changed = False
+        for occurrence_key, occurrence_confirmation in list(confirmations.items()):
+            if not isinstance(occurrence_confirmation, dict) or occurrence_confirmation.get("isRescheduledOccurrence") is not True:
+                continue
+            try:
+                occurrence_day = datetime.strptime(str(occurrence_key), "%Y-%m-%d").date()
+            except ValueError:
+                logger.warning("Ignoring invalid rescheduled delivery date %s on contract %s", occurrence_key, contract.get("_id"))
+                continue
+            if datetime.combine(occurrence_day, datetime.min.time()) > planning_horizon:
+                continue
+            occurrence_status = str(occurrence_confirmation.get("status") or "").lower()
+            if occurrence_status not in ("confirmed", "partial_approved", "replacement_assigned"):
+                continue
+
+            quantity = float(
+                occurrence_confirmation.get("approvedQuantityKg")
+                or occurrence_confirmation.get("requestedQuantityKg")
+                or 0
+            )
+            available = float(occurrence_confirmation.get("availableQuantityKg") or 0)
+            packed = float(occurrence_confirmation.get("packedQuantityKg") or 0)
+            if (
+                quantity <= 0
+                or available < quantity
+                or packed < quantity
+                or occurrence_confirmation.get("readyForPickup") is not True
+            ):
+                # Do not generate a warehouse order for an unready occurrence.
+                continue
+
+            existing_order = await orders_collection.find_one({
+                "contractId": contract["_id"],
+                "scheduledDeliveryDate": str(occurrence_key),
+                "farmerId": contract.get("farmerId"),
+                "isReplacementSupply": {"$ne": True},
+                "deletedAt": None,
+            })
+            if existing_order:
+                order_id = str(existing_order.get("_id"))
+            else:
+                rfq = await rfq_repo.find_one({"_id": contract.get("rfqId"), "deletedAt": None}) if contract.get("rfqId") else None
+                offer = await offer_repo.find_one({"_id": contract.get("offerId"), "deletedAt": None}) if contract.get("offerId") else None
+                if not rfq or not offer:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Contract {contract.get('contractNumber') or contract['_id']} is missing its original RFQ or accepted farmer quote; rescheduled order was not created.",
+                    )
+                occurrence_rfq = dict(rfq)
+                occurrence_rfq.update({
+                    "requiredDate": str(occurrence_key),
+                    "deliveryDeadline": str(occurrence_key),
+                    "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+                })
+                order = await _build_order(occurrence_rfq, offer, quantity, None)
+                prior_occurrences = await orders_collection.find({
+                    "contractId": contract["_id"],
+                    "farmerId": contract.get("farmerId"),
+                    "isReplacementSupply": {"$ne": True},
+                    "deletedAt": None,
+                    "scheduledDeliveryDate": {"$ne": str(occurrence_key)},
+                }).sort("createdAt", 1).to_list(length=500)
+                if prior_occurrences:
+                    root_order = next(
+                        (row for row in prior_occurrences
+                         if not re.search(r"-1[A-Z]$", str(row.get("orderNumber") or ""))),
+                        prior_occurrences[0],
+                    )
+                    root_number = str(root_order.get("orderNumber") or order.get("orderNumber") or f"B2B-{str(root_order.get('_id'))[-6:]}")
+                    occurrence_index = len(prior_occurrences) - 1
+                    suffix = chr(ord("A") + (occurrence_index % 26))
+                    order["orderNumber"] = f"{root_number}-1{suffix}"
+                order.update({
+                    "contractId": contract["_id"],
+                    "contractNumber": contract.get("contractNumber"),
+                    "scheduledDeliveryDate": str(occurrence_key),
+                    "isRescheduledOccurrence": True,
+                    "rescheduledFromDate": occurrence_confirmation.get("rescheduledFromDate"),
+                    "businessUserId": contract["businessUserId"],
+                    "farmerId": contract["farmerId"],
+                    "rfqId": contract.get("rfqId"),
+                    "offerId": contract.get("offerId"),
+                    "productName": contract.get("cropName") or order.get("productName"),
+                    "deliveryAddress": contract.get("deliveryAddress") or order.get("deliveryAddress") or {},
+                    "deliveryCity": contract.get("deliveryCity") or order.get("deliveryCity"),
+                    "deliveryState": contract.get("deliveryState") or order.get("deliveryState"),
+                    "deliveryDistrict": contract.get("deliveryDistrict") or order.get("deliveryDistrict"),
+                    "deliveryLocation": contract.get("deliveryLocation") or order.get("deliveryLocation"),
+                    "deliveryTimeSlot": contract.get("deliveryTimeSlot") or order.get("deliveryTimeSlot"),
+                    "quantityKg": quantity,
+                    "availableQuantityKg": available,
+                    "packedQuantityKg": packed,
+                    "pricePerKg": float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0),
+                    "productSubtotal": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
+                    "totalAmount": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
+                    "status": ORDER_READY_FOR_PICKUP,
+                    "statusHistory": _build_recurring_ready_history(order, occurrence_confirmation),
+                    "paymentStatus": PAYMENT_PENDING,
+                    "deliveryMethod": "dedicated_transport",
+                    "farmerPrepareBy": order.get("farmerPrepareBy") or datetime.combine(occurrence_day - timedelta(days=1), datetime.min.time()).replace(hour=16),
+                    "pickupDate": order.get("pickupDate") or (occurrence_day - timedelta(days=1)).isoformat(),
+                    "pickupWindowStart": "18:00",
+                    "pickupWindowEnd": "23:59",
+                    "transferDispatchDate": order.get("transferDispatchDate"),
+                    "startedAt": now,
+                    "createdAt": now,
+                    "updatedAt": now,
+                    "deletedAt": None,
+                })
+                inserted = await orders_collection.insert_one(order)
+                order_id = str(inserted.inserted_id)
+                generated.append({
+                    "orderId": order_id,
+                    "contractId": str(contract["_id"]),
+                    "scheduledDeliveryDate": str(occurrence_key),
+                    "rescheduled": True,
+                })
+
+            occurrence_confirmation["originalOrderId"] = order_id
+            occurrence_confirmation["orderGeneratedAt"] = occurrence_confirmation.get("orderGeneratedAt") or now
+            confirmations[str(occurrence_key)] = occurrence_confirmation
+            confirmations_changed = True
+
+        if confirmations_changed:
+            await contract_repo.update(
+                {"_id": contract["_id"]},
+                {"deliveryConfirmations": confirmations, "updatedAt": now},
+            )
+
     for contract in contracts:
         next_at = contract.get("nextDeliveryAt")
         if isinstance(next_at, str):
@@ -5040,6 +7512,10 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             except Exception:
                 continue
         if not isinstance(next_at, datetime):
+            continue
+        # This query also includes contracts fetched only for rescheduled
+        # occurrences. Do not accidentally process their future regular delivery.
+        if next_at > planning_horizon:
             continue
         schedule_key = next_at.strftime("%Y-%m-%d")
         if schedule_key in (contract.get("generatedScheduleKeys") or []):
@@ -5061,7 +7537,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             confirmed_quantity <= 0
             or available_quantity < confirmed_quantity
             or packed_quantity < confirmed_quantity
-            or confirmation.get("readyForPickup", True) is not True
+            or confirmation.get("readyForPickup", confirmation.get("status") == "confirmed") is not True
         ):
             continue
         end_at = contract.get("endDate")
@@ -5072,9 +7548,15 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
         if db is None:
             raise HTTPException(status_code=503, detail="Database is not ready")
         orders_collection = db["b2b_orders"]
-        exists = await orders_collection.find_one({"contractId": contract["_id"], "scheduledDeliveryDate": schedule_key, "deletedAt": None})
+        exists = await orders_collection.find_one({
+            "contractId": contract["_id"],
+            "scheduledDeliveryDate": schedule_key,
+            "farmerId": contract.get("farmerId"),
+            "isReplacementSupply": {"$ne": True},
+            "deletedAt": None,
+        })
         if exists:
-            pass
+            original_order_id = str(exists.get("_id"))
         else:
             # Build scheduled orders through the same warehouse-route calculation as
             # one-off orders. A recurring order without a source warehouse cannot
@@ -5086,7 +7568,13 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             quantity = confirmed_quantity
             if quantity <= 0:
                 raise HTTPException(status_code=409, detail=f"Contract {contract.get('contractNumber') or contract['_id']} has no valid scheduled delivery quantity.")
-            order = await _build_order(rfq, offer, quantity, None)
+            occurrence_rfq = dict(rfq)
+            occurrence_rfq.update({
+                "requiredDate": schedule_key,
+                "deliveryDeadline": schedule_key,
+                "deliveryTimeSlot": contract.get("deliveryTimeSlot") or rfq.get("deliveryTimeSlot"),
+            })
+            order = await _build_order(occurrence_rfq, offer, quantity, None)
             order.update({
                 "contractId": contract["_id"],
                 "contractNumber": contract.get("contractNumber"),
@@ -5099,7 +7587,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "pickupWindowEnd": "23:59",
                 "transferDispatchDate": order.get("transferDispatchDate"),
                 "transferTimingRule": "Cross-district: pickup D-2, source processing and transfer by D-1. Same-district: pickup D-1. Dispatch must meet receiving, inspection and final-delivery cutoffs.",
-                "deliveryDeadline": next_at,
+                "deliveryDeadline": order.get("deliveryDeadline") or next_at,
                 "businessUserId": contract["businessUserId"],
                 "farmerId": contract["farmerId"],
                 "rfqId": contract.get("rfqId"),
@@ -5116,6 +7604,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "productSubtotal": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
                 "totalAmount": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
                 "status": ORDER_READY_FOR_PICKUP,
+                "statusHistory": _build_recurring_ready_history(order, confirmation),
                 "paymentStatus": PAYMENT_PENDING,
                 "deliveryMethod": "dedicated_transport",
                 "startedAt": now,
@@ -5124,7 +7613,9 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "deletedAt": None,
             })
             result = await orders_collection.insert_one(order)
-            generated.append({"orderId": str(result.inserted_id), "contractId": str(contract["_id"]), "scheduledDeliveryDate": schedule_key})
+            original_order_id = str(result.inserted_id)
+            generated.append({"orderId": original_order_id, "contractId": str(contract["_id"]), "scheduledDeliveryDate": schedule_key})
+        confirmations[schedule_key]["originalOrderId"] = original_order_id
         frequency = contract.get("frequency") or "monthly"
         interval = int(contract.get("recurrenceInterval") or 1)
         if frequency == "daily":
@@ -5138,5 +7629,10 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
             month = month % 12 + 1
             import calendar
             next_at = next_at.replace(year=year, month=month, day=min(next_at.day, calendar.monthrange(year, month)[1]))
-        await contract_repo.update({"_id": contract["_id"]}, {"nextDeliveryAt": next_at, "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])), "updatedAt": now})
+        await contract_repo.update({"_id": contract["_id"]}, {
+            "nextDeliveryAt": next_at,
+            "generatedScheduleKeys": list(set((contract.get("generatedScheduleKeys") or []) + [schedule_key])),
+            "deliveryConfirmations": confirmations,
+            "updatedAt": now,
+        })
     return {"success": True, "data": {"generated": generated, "count": len(generated)}}

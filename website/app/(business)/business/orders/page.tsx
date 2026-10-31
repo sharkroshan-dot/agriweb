@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck } from "lucide-react";
+import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -55,12 +55,44 @@ function StatusTimeline({ status }: { status: string }) {
 }
 
 function OrderActivityTimeline({ order }: { order: any }) {
-  const events = Array.isArray(order.statusHistory) ? [...order.statusHistory].sort((a: any, b: any) => {
-    const ta = new Date(a.timestamp || a.createdAt || 0).getTime();
-    const tb = new Date(b.timestamp || b.createdAt || 0).getTime();
-    return ta - tb;
-  }) : [];
-  const label = (value: any) => String(value || "Order updated").replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+  // B2B status transitions use action/details. Shared pickup and warehouse
+  // tracking uses eventType/title/description. Both are stored in statusHistory.
+  const rawEvents = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const label = (value: any) => String(value || "Order updated")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
+  const timeValue = (event: any) => event.timestamp || event.createdAt || event.updatedAt || null;
+  const events = rawEvents
+    .filter((event: any) => event && typeof event === "object")
+    .map((event: any, originalIndex: number) => ({ event, originalIndex }))
+    .sort((a: any, b: any) => {
+      const ta = timeValue(a.event) ? new Date(timeValue(a.event)).getTime() : Number.NaN;
+      const tb = timeValue(b.event) ? new Date(timeValue(b.event)).getTime() : Number.NaN;
+      if (Number.isFinite(ta) && Number.isFinite(tb)) return ta - tb || a.originalIndex - b.originalIndex;
+      if (Number.isFinite(ta)) return -1;
+      if (Number.isFinite(tb)) return 1;
+      return a.originalIndex - b.originalIndex;
+    });
+  const metadataLabels: Record<string, string> = {
+    packedQuantityKg: "Packed quantity",
+    availableQuantityKg: "Available stock",
+    collectedQuantityKg: "Collected quantity",
+    receivedQuantityKg: "Received quantity",
+    sourceWarehouseName: "Source warehouse",
+    destinationWarehouseName: "Destination warehouse",
+    warehouseName: "Warehouse",
+    routeNumber: "Route",
+    vehicleNumber: "Vehicle",
+    distanceKm: "Distance (km)",
+    scheduledDate: "Scheduled delivery",
+    deliveryDate: "Delivery date",
+  };
+  const metadataSummary = (metadata: any) => {
+    if (!metadata || typeof metadata !== "object") return [];
+    return Object.entries(metadata)
+      .filter(([key, value]) => metadataLabels[key] && value !== null && value !== undefined && value !== "")
+      .map(([key, value]) => `${metadataLabels[key]}: ${String(value)}`);
+  };
   return (
     <div className="rounded-lg border bg-slate-50 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -68,30 +100,50 @@ function OrderActivityTimeline({ order }: { order: any }) {
         <Badge variant="outline">{events.length} updates</Badge>
       </div>
       {events.length === 0 ? (
-        <p className="text-xs text-slate-500">No additional fulfillment events recorded yet. This timeline will update as farmers, pickup teams, warehouse staff, and delivery partners process the order.</p>
+        <p className="text-xs text-slate-500">No activity has been recorded for this order yet. Future farmer, pickup, warehouse, transfer and delivery actions will appear here.</p>
       ) : (
         <ol className="space-y-3">
-          {events.slice().reverse().map((event: any, index: number) => (
-            <li key={String(event.timestamp || event.createdAt || index) + "-" + index} className="flex gap-3">
-              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <p className="text-sm font-medium text-slate-800">{label(event.action || event.status)}</p>
-                  <time className="text-xs text-slate-500">{event.timestamp || event.createdAt ? new Date(event.timestamp || event.createdAt).toLocaleString() : "Time unavailable"}</time>
+          {events.slice().reverse().map(({ event, originalIndex }: any) => {
+            const eventTimestamp = timeValue(event);
+            const parsedTime = eventTimestamp ? new Date(eventTimestamp) : null;
+            const rawTitle = event.title || event.action || event.eventType || event.status || event.orderStatus;
+            const title = event.isInvalidTransition
+              ? `Ignored invalid update: ${label(rawTitle)}`
+              : rawTitle;
+            const description = event.isInvalidTransition
+              ? (event.reconciliationNote || event.details || event.description || "This stale action was ignored because the order had already reached a terminal stage.")
+              : event.isInconsistentPreviousStatus
+                ? [event.details || event.description || event.note || event.message, event.previousStatusReconciliationNote].filter(Boolean).join(" ")
+                : (event.details || event.description || event.note || event.message);
+            const actor = event.actorRole || event.changedByName || event.actorName;
+            const metadata = metadataSummary(event.metadata);
+            return (
+              <li key={String(event._id || eventTimestamp || originalIndex) + "-" + originalIndex} className="flex gap-3">
+                <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <p className="text-sm font-medium text-slate-800">{label(title)}</p>
+                    <time className="text-xs text-slate-500">
+                      {parsedTime && Number.isFinite(parsedTime.getTime()) ? parsedTime.toLocaleString("en-IN") : "Time unavailable"}
+                    </time>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {event.isInvalidTransition
+                      ? "Lifecycle reconciliation · ignored"
+                      : `${actor ? label(actor) : "AgriConnect"}${event.status || event.orderStatus ? " · " + label(event.status || event.orderStatus) : ""}${event.isInconsistentPreviousStatus ? " · Previous-stage label conflicts with event time" : event.previousStatus ? " · From " + label(event.previousStatus) : ""}`}
+                  </p>
+                  {description ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{description}</p> : null}
+                  {metadata.length ? <p className="mt-1 text-xs text-slate-500">{metadata.join(" · ")}</p> : null}
+                  {event.isDerived ? <p className="mt-1 text-[11px] text-amber-700">Reconstructed from saved order data; the original event was not retained.</p> : null}
                 </div>
-                <p className="text-xs text-slate-500">
-                  {event.actorRole ? label(event.actorRole) : "AgriConnect"}{event.status ? " · " + label(event.status) : ""}
-                </p>
-                {event.details ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{event.details}</p> : null}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ol>
       )}
     </div>
   );
 }
-
 function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["b2b", "invoice", order.id],
@@ -239,6 +291,34 @@ export default function BusinessOrdersPage() {
     refetchOnWindowFocus: true,
   });
 
+  const { data: contractsData } = useQuery({
+    queryKey: ["businessContracts"],
+    queryFn: () => api.get("/b2b/contracts"),
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
+    retry: 1,
+  });
+
+  const shortageReports = (contractsData?.data?.contracts || contractsData?.data || [])
+    .flatMap((contract: any) => {
+      const contractId = String(contract.id || contract._id || "");
+      const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
+      return history
+        .filter((delivery: any) => ["shortage", "backup_required"].includes(String(delivery.status || "").toLowerCase()))
+        .map((delivery: any) => ({
+          contractId,
+          contractNumber: contract.contractNumber || contractId,
+          farmerName: contract.farmerName || "Contract farmer",
+          cropName: contract.cropName || "Produce",
+          scheduledDate: String(delivery.scheduledDate || ""),
+          requestedQuantityKg: Number(delivery.requestedQuantityKg || contract.quantityPerDeliveryKg || 0),
+          availableQuantityKg: Number(delivery.availableQuantityKg || 0),
+          packedQuantityKg: Number(delivery.packedQuantityKg || 0),
+          notes: delivery.notes || delivery.shortageReason || "",
+        }));
+    })
+    .sort((a: any, b: any) => a.scheduledDate.localeCompare(b.scheduledDate));
+
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: any }) => api.put(`/b2b/orders/${id}/status`, payload),
     onSuccess: (res: any) => {
@@ -266,7 +346,7 @@ export default function BusinessOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="business-page-header flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-6 w-6 text-emerald-600" />
           <h1 className="text-2xl font-bold">B2B Purchase Orders</h1>
@@ -285,6 +365,38 @@ export default function BusinessOrdersPage() {
           ))}
         </div>
       </div>
+
+      {shortageReports.length > 0 && (
+        <Card className="border-amber-300 bg-amber-50/60">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div>
+                <h2 className="font-semibold text-amber-950">Recurring delivery shortage reports ({shortageReports.length})</h2>
+                <p className="text-sm text-amber-900">A farmer has reported that a scheduled contract delivery may be short. Review the affected date and arrange a resolution.</p>
+              </div>
+            </div>
+            {shortageReports.map((report: any) => (
+              <div key={report.contractId + ":" + report.scheduledDate} className="rounded-lg border border-amber-200 bg-white p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{report.cropName} · {report.contractNumber}</p>
+                      <Badge variant="warning">Shortage needs decision</Badge>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">Farmer: {report.farmerName} · Delivery date: {report.scheduledDate || "Not specified"}</p>
+                    <p className="text-sm text-slate-700">Required: {report.requestedQuantityKg} kg · Available: {report.availableQuantityKg} kg · Packed: {report.packedQuantityKg} kg · Potential shortage: {Math.max(0, report.requestedQuantityKg - Math.min(report.availableQuantityKg, report.packedQuantityKg))} kg</p>
+                    {report.notes ? <p className="mt-1 text-sm text-slate-600">Farmer note: {report.notes}</p> : null}
+                  </div>
+                  <Button size="sm" onClick={() => window.location.assign("/business/contracts?replacementContractId=" + encodeURIComponent(report.contractId) + "&scheduledDate=" + encodeURIComponent(report.scheduledDate))}>
+                    Review &amp; resolve
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {orders.length === 0 ? (
         <Card>

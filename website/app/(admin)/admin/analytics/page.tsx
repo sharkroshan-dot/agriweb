@@ -37,7 +37,7 @@ export default function AdminAnalyticsPage() {
 
   return (
     <div className="page-container">
-      <div>
+      <div className="admin-page-header">
         <h1 className="text-2xl font-semibold">Analytics</h1>
         <p className="text-sm text-muted-foreground">Platform-wide performance metrics and insights</p>
       </div>

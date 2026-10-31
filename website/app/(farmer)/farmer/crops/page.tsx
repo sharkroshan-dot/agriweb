@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Sprout, Plus, Loader2, Leaf } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
@@ -50,10 +51,7 @@ export default function FarmerCropsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold"><Sprout className="h-6 w-6 text-emerald-600" /> My Crops</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Choose a Master Crop first. Shelf-life and safe-delivery rules are inherited automatically.</p>
-      </div>
+      <FarmerPageHeader title="Crops & growing plans" description="Choose a master crop first so shelf-life and safe-delivery rules remain consistent across harvest and inventory." />
 
       <Card>
         <CardHeader>

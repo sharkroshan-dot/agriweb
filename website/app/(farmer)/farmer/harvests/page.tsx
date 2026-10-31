@@ -16,6 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { formatDate, formatPrice, cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -108,16 +109,12 @@ export default function FarmerHarvestsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Harvest Calendar</h1>
-          <p className="text-gray-500">Publish planned harvests, accept pre-orders, and notify customers.</p>
-        </div>
+      <FarmerPageHeader title="Harvest calendar" description="Publish planned harvests, accept pre-orders and keep customers informed about availability.">
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
           {showForm ? "Cancel" : "New Harvest Plan"}
         </Button>
-      </div>
+      </FarmerPageHeader>
 
       {showForm && (
         <Card>

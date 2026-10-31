@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PackagePlus, Package, AlertTriangle, Loader2, CheckCircle2, ChevronRight } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -76,10 +77,7 @@ export default function FarmerRestockPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Restock &amp; Inventory</h1>
-        <p className="text-gray-500">Monitor stock levels and quickly restock low items.</p>
-      </div>
+      <FarmerPageHeader title="Inventory health" description="Monitor available stock and act early on low or out-of-stock products." actionHref="/farmer/products" actionLabel="Manage products" />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

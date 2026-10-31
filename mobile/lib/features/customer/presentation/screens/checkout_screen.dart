@@ -357,7 +357,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 18),
                 _SectionHeader(title: 'Delivery Address', icon: Icons.location_on_outlined),
                 const SizedBox(height: 12),
                 if (_savedAddresses.isNotEmpty)

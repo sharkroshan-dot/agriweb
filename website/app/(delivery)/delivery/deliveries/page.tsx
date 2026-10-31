@@ -12,6 +12,7 @@ import { api } from "../../../lib/api/client";
 import toast from "react-hot-toast";
 import { useState, useRef, useMemo, useEffect } from "react";
 import { DeliveryPriorityBadge, sortByDeliveryPriority } from "../../../components/delivery/delivery-priority";
+import { DeliveryPageHeader } from "../../../components/delivery/delivery-page-header";
 
 const distanceBetweenKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
   const radians = Math.PI / 180;
@@ -619,11 +620,7 @@ export default function DeliveryDeliveriesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <p className="text-sm font-medium text-primary">Delivery workbench</p>
-        <h1 className="text-3xl font-semibold tracking-tight">My Deliveries</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Orders to deliver — assigned and available.</p>
-      </div>
+      <DeliveryPageHeader title="My delivery queue" description="Assigned jobs stay first. Nearby available orders can be accepted only through the existing permission and distance rules." actionHref="/delivery/route" actionLabel="Open live route" />
 
       <Card className="border-emerald-200 bg-emerald-50/30">
         <CardHeader>

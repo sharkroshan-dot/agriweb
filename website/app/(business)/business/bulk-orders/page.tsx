@@ -51,7 +51,7 @@ export default function CustomerBulkOrdersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="business-page-header flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Sparkles className="h-6 w-6 text-emerald-600" />
           <h1 className="text-2xl font-bold">Bulk &amp; Event Orders</h1>
@@ -63,7 +63,7 @@ export default function CustomerBulkOrdersPage() {
         </Button>
       </div>
       <p className="text-sm text-gray-500">
-        Create a business or institutional bulk order with multiple products and supplier portions. AgriConnect tracks collection, warehouse receipt, quality checks, consolidation, local-hub receipt, and one final delivery.
+        Create a business or institutional bulk order with multiple products and supplier portions. AgriConnect tracks supplier collection, warehouse receipt, quality checks, consolidation, and one final delivery.
       </p>
 
       <div className="flex gap-2">

@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useSession } from "next-auth/react";
 
 
-import { Star, ShoppingCart, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart } from "lucide-react";
+import { Star, ShoppingCart, ArrowLeft, MapPin, Bell, AlertCircle, Package, Minus, Plus, Store, Truck, LogIn, Heart } from "lucide-react";
 import Link from "next/link";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent } from "../../components/ui/card";
@@ -46,7 +46,6 @@ export default function ProductDetailPage() {
   const wishlisted = isWishlisted(productId);
   const [quantity, setQuantity] = useState(1);
   const [userLocation, setUserLocation] = useState<{lat: number; lng: number} | null>(null);
-  const [deliveryEstimate, setDeliveryEstimate] = useState<{minutes: number; confidence: number} | null>(null);
   const connectProductStock = useInventoryStore((state) => state.connectProductStock);
   const setStock = useInventoryStore((state) => state.setStock);
 
@@ -80,34 +79,6 @@ export default function ProductDetailPage() {
       if (stock) setStock(productId, stock);
     }).catch(() => {});
   }, [productId, setStock]);
-
-  useEffect(() => {
-    const apiProduct = (data as any)?.data || data;
-    const coords = apiProduct?.location?.coordinates;
-    if (!userLocation || !Array.isArray(coords) || coords.length < 2 || !isAuthenticated) {
-      setDeliveryEstimate(null);
-      return;
-    }
-    let cancelled = false;
-    api.post("/ai/delivery-time", {
-      originLat: Number(coords[1]),
-      originLng: Number(coords[0]),
-      destinationLat: userLocation.lat,
-      destinationLng: userLocation.lng,
-      vehicleType: "truck",
-      timeOfDay: new Date().getHours(),
-      dayOfWeek: new Date().getDay(),
-    }).then((res: any) => {
-      if (cancelled) return;
-      const body = res?.data || res;
-      if (body?.estimatedMinutes != null) {
-        setDeliveryEstimate({ minutes: Number(body.estimatedMinutes), confidence: Number(body.confidence || 0) });
-      }
-    }).catch(() => {
-      if (!cancelled) setDeliveryEstimate(null);
-    });
-    return () => { cancelled = true; };
-  }, [data, userLocation, isAuthenticated]);
 
   useEffect(() => {
     const disconnect = connectProductStock(productId);
@@ -147,17 +118,10 @@ export default function ProductDetailPage() {
     };
   }, [data, productId, userLocation]);
 
-  const stockLoaded = Boolean(stockInfo);
-  const available = stockLoaded
-    ? Math.max(0, Number(stockInfo?.available_stock ?? 0))
-    : Math.max(0, Number(product.quantity ?? 0));
-  const totalStock = stockLoaded
-    ? Math.max(0, Number(stockInfo?.total_stock ?? 0))
-    : available;
+  const available = stockInfo?.available_stock ?? 0;
+  const totalStock = stockInfo?.total_stock ?? 0;
   const unit = stockInfo?.unit || product.unit || "kg";
-  const isOutOfStock = stockLoaded
-    ? Boolean(stockInfo?.is_out_of_stock) || available <= 0
-    : available <= 0;
+  const isOutOfStock = stockInfo?.is_out_of_stock ?? false;
   const maxQty = Math.max(1, available);
 
   const handleQuantityChange = (delta: number) => {
@@ -345,7 +309,11 @@ export default function ProductDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="role-workspace role-customer mx-auto max-w-7xl space-y-6 p-6">
+      <Link href={backHref} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700">
+        <ArrowLeft className="h-4 w-4" />
+        Back to {backLabel}
+      </Link>
 
       <div className="rounded-3xl border border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-green-50 p-4 shadow-sm shadow-emerald-100/60">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -446,23 +414,7 @@ export default function ProductDetailPage() {
                 {product.farmAddress && (
                   <p className="mt-1 text-xs text-emerald-600">{product.farmAddress}</p>
                 )}
-                {deliveryEstimate && (
-              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                <p className="flex items-center gap-2 text-sm font-medium text-blue-800">
-                  <Truck className="h-4 w-4" /> Estimated delivery
-                </p>
-                <p className="mt-1 text-lg font-bold text-blue-700">
-                  {deliveryEstimate.minutes < 60
-                    ? `About ${Math.round(deliveryEstimate.minutes)} min`
-                    : `About ${Math.floor(deliveryEstimate.minutes / 60)}h ${Math.round(deliveryEstimate.minutes % 60)}m`}
-                </p>
-                {deliveryEstimate.confidence > 0 && (
-                  <p className="text-xs text-blue-600">AI estimate confidence: {Math.round(deliveryEstimate.confidence <= 1 ? deliveryEstimate.confidence * 100 : deliveryEstimate.confidence)}%</p>
-                )}
-              </div>
-            )}
-
-            {product.pickupAvailable && (
+                {product.pickupAvailable && (
                   <p className="mt-1 text-xs text-emerald-600">
                     <Store className="mr-1 inline h-3 w-3" />
                     Visit the farm directly for urgent purchase

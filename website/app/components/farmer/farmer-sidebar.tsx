@@ -113,8 +113,7 @@ const navGroups = [
     items: [
       { name: "Bulk RFQ", href: "/farmer/purchase-requests", icon: FileText },
       { name: "Business RFQs", href: "/farmer/b2b/rfqs", icon: Briefcase },
-      { name: "Business Contracts", href: "/farmer/b2b/contracts", icon: FileSignature },
-      { name: "Supply Preparation", href: "/farmer/b2b/preparation", icon: PackageCheck },
+      { name: "B2B Supply Workspace", href: "/farmer/b2b/contracts", icon: FileSignature },
       { name: "Bulk & B2B Orders", href: "/farmer/bulk-orders", icon: Truck },
     ],
   },
@@ -161,7 +160,7 @@ export function FarmerSidebar() {
   const farmerRatingCount = profileData?.data?.ratingCount ?? 0;
 
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
+    <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
@@ -195,6 +194,7 @@ export function FarmerSidebar() {
                     <Link
                       key={item.name}
                       href={item.href}
+                      aria-current={isActive ? "page" : undefined}
                       className={cn(
                         "flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-colors duration-150",
                         isActive ? "bg-emerald-700 text-white shadow-sm shadow-emerald-900/10" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
