@@ -61,7 +61,20 @@ class PaymentService:
         # Never trust a client-supplied payment amount. The payment intent
         # must be created for the authoritative order total.
         try:
-            expected_amount = round(float(order.get("totalAmount") or order.get("total") or 0), 2)
+            total_amount = round(float(order.get("totalAmount") or order.get("total") or 0), 2)
+            if order.get("businessUserId"):
+                payment_status = str(order.get("paymentStatus") or "pending").lower()
+                if payment_status == "paid":
+                    paid_so_far = total_amount
+                elif order.get("paidAmount") is not None:
+                    paid_so_far = float(order.get("paidAmount") or 0)
+                elif payment_status == "advance":
+                    paid_so_far = float(order.get("advanceAmount") or 0)
+                else:
+                    paid_so_far = 0.0
+                expected_amount = round(max(0.0, total_amount - paid_so_far), 2)
+            else:
+                expected_amount = total_amount
             requested_amount = round(float(amount or 0), 2)
         except (TypeError, ValueError):
             return {"error": "Invalid payment amount"}
@@ -367,7 +380,58 @@ class PaymentService:
                 from app.repositories.base_repository import BaseRepository
                 order_repo_for_payment = BaseRepository("b2b_orders")
                 order = await order_repo_for_payment.get_by_id(str(payment["orderId"]))
-            if order and order.get("orderStatus") != "cancelled":
+            if order and order.get("businessUserId"):
+                total_amount = round(float(order.get("totalAmount") or order.get("total") or 0), 2)
+                existing_status = str(order.get("paymentStatus") or "pending").lower()
+                if existing_status == "paid":
+                    paid_before = total_amount
+                elif order.get("paidAmount") is not None:
+                    paid_before = float(order.get("paidAmount") or 0)
+                elif existing_status == "advance":
+                    paid_before = float(order.get("advanceAmount") or 0)
+                else:
+                    paid_before = 0.0
+                paid_amount = round(min(total_amount, paid_before + float(payment.get("amount") or 0)), 2)
+                fully_paid = paid_amount + 0.01 >= total_amount
+                paid_at = datetime.utcnow()
+                current_status = str(order.get("status") or "confirmed")
+                history = list(order.get("statusHistory") or [])
+                history.append({
+                    "status": current_status,
+                    "previousStatus": current_status,
+                    "action": "payment_received",
+                    "title": "B2B online payment received",
+                    "actorRole": "business",
+                    "actorId": str(payment.get("userId") or order.get("businessUserId") or ""),
+                    "details": (
+                        f"Razorpay payment of ₹{float(payment.get('amount') or 0):.2f} was verified. "
+                        f"Total paid: ₹{paid_amount:.2f} of ₹{total_amount:.2f}."
+                    ),
+                    "timestamp": paid_at,
+                    "metadata": {
+                        "paymentId": payment_id,
+                        "razorpayOrderId": gateway_response.get("razorpay_order_id"),
+                        "razorpayPaymentId": gateway_response.get("razorpay_payment_id"),
+                        "amountPaid": float(payment.get("amount") or 0),
+                        "totalPaid": paid_amount,
+                        "amountDue": round(max(0.0, total_amount - paid_amount), 2),
+                    },
+                })
+                await order_repo_for_payment.update(
+                    {"_id": payment["orderId"]},
+                    {
+                        "paymentStatus": "paid" if fully_paid else "advance",
+                        "paymentMode": "razorpay",
+                        "paidAmount": paid_amount,
+                        "codAmountDue": round(max(0.0, total_amount - paid_amount), 2),
+                        "paymentId": payment_id,
+                        "paymentTransactionId": gateway_response.get("razorpay_payment_id"),
+                        "paidAt": paid_at,
+                        "statusHistory": history,
+                        "updatedAt": paid_at,
+                    },
+                )
+            elif order and order.get("orderStatus") != "cancelled":
                 await order_repo_for_payment.update(
                     {"_id": payment["orderId"]},
                     {"paymentStatus": "paid", "status": "confirmed", "orderStatus": "confirmed"}
@@ -391,7 +455,7 @@ class PaymentService:
         # Warehouse fulfillment starts only after payment is confirmed.
         # Create one incoming-stock work item per order line; the order is
         # deliberately not marked ready for delivery until warehouse dispatch.
-        if order and str(order.get("fulfillmentMethod") or "farmer") == "warehouse" and order.get("warehouseId"):
+        if order and not order.get("businessUserId") and str(order.get("fulfillmentMethod") or "farmer") == "warehouse" and order.get("warehouseId"):
             try:
                 from app.repositories.incoming_stock_repository import incoming_stock_repository
                 existing = await incoming_stock_repository.get_by_warehouse_id(
