@@ -462,3 +462,349 @@
   .agri-page-toolbar:not(.agri-page-toolbar--bare) { padding: .7rem; }
   .agri-page-form-section { gap: .85rem; padding: .9rem; }
 }
+
+
+/* -------------------------------------------------------------------------
+   AgriConnect global header — one shared navigation across every role.
+   The role label and shortcuts change with the session; the layout and
+   navigation pattern remain consistent for all customers and workspaces.
+   ------------------------------------------------------------------------- */
+.agri-site-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 60;
+  height: 64px;
+  border-bottom: 1px solid rgba(220, 234, 225, .92);
+  background: rgba(255, 255, 255, .94);
+  box-shadow: 0 4px 20px rgba(16, 37, 31, .045);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.agri-site-header::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(8,127,91,.22), rgba(37,99,166,.12), transparent);
+  content: "";
+  pointer-events: none;
+}
+.agri-site-header-inner {
+  display: grid;
+  width: 100%;
+  max-width: 1600px;
+  height: 64px;
+  grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+  align-items: center;
+  gap: 1rem;
+  margin: 0 auto;
+  padding-inline: clamp(12px,2.3vw,36px);
+}
+.agri-site-header-leading,
+.agri-header-brand,
+.agri-site-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+.agri-site-header-leading { gap: .7rem; }
+.agri-header-back {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #e2ebe5;
+  border-radius: 11px;
+  background: #fff;
+  color: #52655b;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+.agri-header-back:hover {
+  transform: translateX(-1px);
+  border-color: #c7e5d2;
+  background: #effaf3;
+  color: #087f5b;
+}
+.agri-header-brand { gap: .65rem; text-decoration: none; }
+.agri-header-brand-mark {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,.45);
+  border-radius: 13px;
+  background: linear-gradient(145deg,#12a36f 0%,#087f5b 62%,#066447 100%);
+  box-shadow: 0 5px 13px rgba(8,127,91,.2), inset 0 1px 0 rgba(255,255,255,.22);
+  color: #fff;
+  font-size: 1.2rem;
+  font-weight: 850;
+  letter-spacing: -.04em;
+}
+.agri-header-brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.agri-header-brand-name {
+  color: #10251f;
+  font-size: .96rem;
+  font-weight: 850;
+  line-height: 1.15;
+  letter-spacing: -.035em;
+  white-space: nowrap;
+}
+.agri-header-brand-tagline {
+  color: #71837a;
+  font-size: .59rem;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: .105em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.agri-header-navigation {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .2rem;
+  padding: .26rem;
+  border: 1px solid #edf2ee;
+  border-radius: 14px;
+  background: #f8faf8;
+}
+.agri-header-nav-link {
+  position: relative;
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 .9rem;
+  border-radius: 10px;
+  color: #53665c;
+  font-size: .78rem;
+  font-weight: 680;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.agri-header-nav-link:hover {
+  background: #eff7f1;
+  color: #087f5b;
+}
+.agri-header-nav-link.is-active {
+  background: #fff;
+  color: #087f5b;
+  box-shadow: 0 1px 4px rgba(16,37,31,.09);
+}
+.agri-site-header-actions {
+  justify-content: flex-end;
+  gap: .45rem;
+}
+.agri-header-guest-browse,
+.agri-header-sign-in,
+.agri-header-workspace,
+.agri-header-icon-link {
+  display: inline-flex;
+  min-height: 36px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  border-radius: 11px;
+  font-size: .76rem;
+  font-weight: 720;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.agri-header-guest-browse {
+  padding: 0 .7rem;
+  border: 1px solid #e2ebe5;
+  background: #fff;
+  color: #52655b;
+}
+.agri-header-guest-browse:hover,
+.agri-header-icon-link:hover {
+  border-color: #cce7d5;
+  background: #effaf3;
+  color: #087f5b;
+}
+.agri-header-sign-in {
+  min-width: 78px;
+  padding: 0 .95rem;
+  background: linear-gradient(130deg,#0a9465,#087f5b);
+  box-shadow: 0 4px 10px rgba(8,127,91,.16);
+  color: #fff;
+}
+.agri-header-sign-in:hover {
+  background: linear-gradient(130deg,#087f5b,#066447);
+  box-shadow: 0 5px 14px rgba(8,127,91,.22);
+}
+.agri-header-workspace {
+  padding: 0 .7rem;
+  border: 1px solid #dcece1;
+  background: #f1faf4;
+  color: #08724f;
+}
+.agri-header-workspace:hover {
+  border-color: #bfe1cc;
+  background: #e8f7ed;
+}
+.agri-header-icon-link {
+  position: relative;
+  width: 36px;
+  padding: 0;
+  border: 1px solid transparent;
+  color: #53665c;
+}
+.agri-header-search {
+  width: auto;
+  padding: 0 .65rem;
+  border-color: #e2ebe5;
+  background: #fff;
+}
+.agri-header-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: inline-flex;
+  min-width: 17px;
+  height: 17px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #087f5b;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+}
+.agri-header-count--wishlist { background: #df5266; }
+.agri-header-action-divider {
+  width: 1px;
+  height: 26px;
+  flex: 0 0 auto;
+  margin-inline: .1rem;
+  background: #e7eee9;
+}
+.agri-header-utility {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+}
+.agri-header-profile-trigger {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 42px;
+  align-items: center;
+  gap: .5rem;
+  padding: .2rem .45rem .2rem .25rem;
+  border: 1px solid #e7eee9;
+  border-radius: 13px;
+  background: #fff;
+  color: #253b31;
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+.agri-header-profile-trigger:hover,
+.agri-header-profile-trigger[data-state="open"] {
+  border-color: #cde5d5;
+  background: #fbfefc;
+  box-shadow: 0 2px 8px rgba(16,37,31,.06);
+}
+.agri-header-avatar {
+  display: inline-flex;
+  width: 31px;
+  height: 31px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dcefe3;
+  border-radius: 10px;
+  object-fit: cover;
+}
+.agri-header-avatar--fallback {
+  background: linear-gradient(145deg,#d9f3e3,#b9e6ca);
+  color: #076246;
+  font-size: .8rem;
+  font-weight: 850;
+}
+.agri-header-profile-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+}
+.agri-header-profile-name {
+  max-width: 112px;
+  overflow: hidden;
+  color: #253b31;
+  font-size: .7rem;
+  font-weight: 780;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agri-header-profile-role {
+  color: #7a8c82;
+  font-size: .59rem;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.agri-header-profile-chevron { color: #87968e; flex: 0 0 auto; }
+
+@media (max-width: 1199px) {
+  .agri-site-header-inner { grid-template-columns: minmax(0,1fr) auto; }
+  .agri-header-navigation { display: none; }
+  .agri-header-workspace span { display: none; }
+  .agri-header-workspace { width: 36px; padding: 0; }
+}
+@media (max-width: 767px) {
+  .agri-site-header,
+  .agri-site-header-inner { height: 60px; }
+  .agri-site-header-inner { gap: .45rem; padding-inline: 10px; }
+  .agri-site-header-leading { gap: .4rem; }
+  .agri-header-back { width: 32px; height: 32px; border-radius: 10px; }
+  .agri-header-brand { gap: .45rem; }
+  .agri-header-brand-mark { width: 34px; height: 34px; border-radius: 11px; font-size: 1.05rem; }
+  .agri-header-brand-name { font-size: .84rem; }
+  .agri-header-brand-tagline { font-size: .5rem; letter-spacing: .07em; }
+  .agri-site-header-actions { gap: .18rem; }
+  .agri-header-action-divider { display: none; }
+  .agri-header-profile-trigger { min-height: 38px; gap: .25rem; padding: .15rem; border-color: transparent; }
+  .agri-header-profile-copy,
+  .agri-header-profile-chevron { display: none; }
+  .agri-header-avatar { width: 30px; height: 30px; }
+  .agri-header-icon-link { width: 32px; min-height: 34px; }
+  .agri-header-search { width: 32px; padding: 0; }
+  .agri-header-search span { display: none; }
+  .agri-header-guest-browse { display: none; }
+  .agri-header-sign-in { min-height: 34px; min-width: 66px; padding-inline: .7rem; font-size: .7rem; }
+}
+@media (max-width: 380px) {
+  .agri-header-brand-tagline { display: none; }
+  .agri-header-workspace { width: 32px; min-height: 34px; }
+  .agri-header-icon-link { width: 29px; }
+  .agri-site-header-actions { gap: .1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agri-header-back,
+  .agri-header-nav-link,
+  .agri-header-guest-browse,
+  .agri-header-sign-in,
+  .agri-header-workspace,
+  .agri-header-icon-link,
+  .agri-header-profile-trigger {
+    transition: none;
+  }
+}
