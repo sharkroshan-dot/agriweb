@@ -187,3 +187,91 @@
     border-radius: 20px;
   }
 }
+
+
+/* Shared role navigation surfaces and accessible active states. */
+.role-sidebar {
+  background: rgba(255, 255, 255, 0.97);
+  border-color: #e3ebe6;
+}
+
+.role-sidebar > div {
+  scrollbar-width: thin;
+  scrollbar-color: #d7e3dc transparent;
+}
+
+.role-sidebar nav {
+  min-width: 0;
+}
+
+.role-sidebar nav > div > p,
+.role-sidebar nav section > div:first-child h2 {
+  color: #82928a;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.role-sidebar nav a {
+  min-width: 0;
+  min-height: 42px;
+  border-radius: 11px;
+  transition: background-color .16s ease, color .16s ease, transform .16s ease;
+}
+
+.role-sidebar nav a:not([aria-current="page"]):hover {
+  background: #f0f7f2;
+  color: #075c42;
+}
+
+.role-sidebar nav a[aria-current="page"] {
+  background: linear-gradient(105deg, #087f5b, #09976a);
+  color: #ffffff;
+  box-shadow: 0 5px 12px rgba(8, 127, 91, .14);
+}
+
+.role-sidebar nav a[aria-current="page"] :is(svg, span) {
+  color: inherit;
+}
+
+.role-mobile-nav {
+  position: relative;
+  z-index: 30;
+}
+
+.role-mobile-nav > div {
+  scrollbar-width: thin;
+  scrollbar-color: #d7e3dc transparent;
+}
+
+.role-mobile-nav a {
+  min-height: 40px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.role-mobile-nav a[aria-current="page"] {
+  background: #087f5b;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(8, 127, 91, .14);
+}
+
+@media (max-width: 767px) {
+  .role-mobile-nav {
+    padding-block: .65rem;
+  }
+
+  .role-mobile-nav > div {
+    gap: .45rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-sidebar nav a,
+  .role-mobile-nav a,
+  .marketplace-hub-page .marketplace-mode-card,
+  .marketplace-hub-page .marketplace-product-card {
+    transition: none;
+  }
+}
