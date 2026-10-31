@@ -134,6 +134,17 @@
 .role-workspace :is(.ui-card, .ag-panel, [data-slot="card"]):hover {
   border-color: #d4e4da;
 }
+.role-workspace .group.overflow-hidden.rounded-2xl.border.bg-white:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]) {
+  border-color: var(--agri-page-border);
+  border-radius: var(--agri-page-radius);
+  box-shadow: 0 1px 3px rgba(16, 37, 31, 0.045), 0 8px 22px rgba(16, 37, 31, 0.025);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.role-workspace .group.overflow-hidden.rounded-2xl.border.bg-white:not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-yellow-"]):not([class*="border-blue-"]):not([class*="border-sky-"]):not([class*="border-indigo-"]):not([class*="border-purple-"]):not([class*="border-violet-"]):not([class*="border-orange-"]):not([class*="border-teal-"]):not([class*="border-cyan-"]):hover {
+  border-color: #cfe2d6;
+  box-shadow: 0 4px 14px rgba(16, 37, 31, 0.07), 0 12px 26px rgba(16, 37, 31, 0.035);
+}
 
 .role-workspace .ag-kpi {
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
