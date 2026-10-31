@@ -107,7 +107,7 @@ export function WorkflowGuide({ role, compact = false }: { role: Role; compact?:
               type="button"
               onClick={() => setIsExpanded((expanded) => !expanded)}
               aria-expanded={isExpanded}
-              aria-controls="warehouse-workflow-steps"
+              aria-controls="workflow-guide-steps"
               className="inline-flex min-h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50"
             >
               {isExpanded ? "Hide steps" : "Show steps"}
@@ -118,7 +118,7 @@ export function WorkflowGuide({ role, compact = false }: { role: Role; compact?:
       </div>
 
       <div
-        id="warehouse-workflow-steps"
+        id="workflow-guide-steps"
         className={`p-4 ${compact && !isExpanded ? "hidden" : ""}`}
         aria-hidden={compact && !isExpanded}
       >
