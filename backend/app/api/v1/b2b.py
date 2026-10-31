@@ -663,6 +663,22 @@ def _reconcile_legacy_one_off_ready_order(order: Dict[str, Any], *, now: Optiona
         "destinationReceivedAt", "deliveredAt",
     )):
         return False
+    if any(
+        isinstance(event, dict)
+        and str(event.get("status") or "").lower() in {
+            ORDER_PICKED_UP,
+            ORDER_WAREHOUSE_RECEIVED,
+            ORDER_TRANSFER_IN_TRANSIT,
+            ORDER_DESTINATION_RECEIVED,
+            ORDER_IN_TRANSIT,
+            ORDER_DELIVERED,
+            ORDER_COMPLETED,
+        }
+        for event in (order.get("statusHistory") or [])
+    ):
+        # Do not rewind an order whose later pickup/warehouse/delivery stage is
+        # present in its audit history, even if older status fields are stale.
+        return False
 
     event_time = now or datetime.utcnow()
     created_at = order.get("createdAt") or order.get("startedAt") or event_time

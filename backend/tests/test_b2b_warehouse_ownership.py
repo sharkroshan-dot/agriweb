@@ -296,3 +296,19 @@ def test_legacy_one_off_failed_quality_check_returns_to_quality_check_not_confir
     assert order["qualityCheck"] == "failed"
     assert history[-1]["action"] == "stage_reconciled"
     assert history[-1]["status"] == ORDER_QUALITY_CHECK
+
+
+
+def test_legacy_ready_order_with_pickup_history_is_never_rewound():
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "statusHistory": [{
+            "status": "picked_up",
+            "actorRole": "pickup_team",
+            "details": "Collected from farm",
+        }],
+    }
+
+    assert _reconcile_legacy_one_off_ready_order(order) is False
+    assert order["status"] == ORDER_READY_FOR_PICKUP
