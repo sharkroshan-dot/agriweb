@@ -739,11 +739,11 @@ def _reconcile_legacy_one_off_ready_order(order: Dict[str, Any], *, now: Optiona
     history.append({
         "status": corrected_status,
         "previousStatus": ORDER_READY_FOR_PICKUP,
-        "action": "stage_reconciled",
+        "action": corrected_status,
         "actorRole": "system",
         "actorId": "",
         "details": (
-            f"This legacy order was moved to {corrected_status.replace('_', ' ').title()} "
+            f"Stage corrected from Ready for Pickup to {corrected_status.replace('_', ' ').title()} "
             "because no successful farmer quality-check approval was recorded. "
             "Complete the remaining farmer preparation and quality steps before pickup."
         ),

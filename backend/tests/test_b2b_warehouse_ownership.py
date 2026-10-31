@@ -156,7 +156,7 @@ def test_legacy_one_off_order_without_passed_quality_check_returns_to_confirmed(
     assert history[0]["timestamp"] == created_at
     assert history[1]["status"] == "confirmed"
     assert history[1]["previousStatus"] == ORDER_READY_FOR_PICKUP
-    assert history[1]["action"] == "stage_reconciled"
+    assert history[1]["action"] == "confirmed"
     assert "no successful farmer quality-check approval" in history[1]["details"]
 
 
@@ -294,7 +294,7 @@ def test_legacy_one_off_failed_quality_check_returns_to_quality_check_not_confir
 
     assert order["status"] == ORDER_QUALITY_CHECK
     assert order["qualityCheck"] == "failed"
-    assert history[-1]["action"] == "stage_reconciled"
+    assert history[-1]["action"] == ORDER_QUALITY_CHECK
     assert history[-1]["status"] == ORDER_QUALITY_CHECK
 
 
