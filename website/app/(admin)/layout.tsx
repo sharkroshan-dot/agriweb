@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { AdminSidebar } from "../components/admin/admin-sidebar";
 import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
+import { RolePageFrame } from "../components/shared/role-page-frame";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
@@ -34,7 +35,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex flex-1 overflow-hidden">
         <AdminSidebar />
         <main className="site-main min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="site-content role-workspace role-admin mx-auto w-full max-w-[1440px]"><WorkflowGuide role="admin" compact />{children}</div>
+          <div className="site-content role-workspace role-admin mx-auto w-full max-w-[1440px]"><WorkflowGuide role="admin" compact /><RolePageFrame role="admin">{children}</RolePageFrame></div>
         </main>
       </div>
     </div>

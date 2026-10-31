@@ -385,3 +385,80 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Shared frame and page archetype system. All authenticated role routes use
+   the same boundary; role-specific accents and business workflows remain. */
+.agri-role-page {
+  display: flow-root;
+  width: 100%;
+  min-width: 0;
+  color: var(--agri-page-ink);
+}
+.agri-role-page > * { min-width: 0; }
+.agri-role-page > * + * { margin-block-start: 1.25rem; }
+
+.agri-role-page > :is(.space-y-4,.space-y-5,.space-y-6,.space-y-7,.space-y-8) > :first-child h1,
+.agri-role-page > :is(.space-y-4,.space-y-5,.space-y-6,.space-y-7,.space-y-8) > :first-child > h1 {
+  margin: 0;
+  color: var(--agri-page-ink);
+  font-size: clamp(1.5rem, 2vw, 2rem);
+  font-weight: 800;
+  line-height: 1.18;
+  letter-spacing: -0.035em;
+}
+
+.agri-page-header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--agri-page-border);
+  border-inline-start: 4px solid var(--agri-role-accent);
+  border-radius: var(--agri-page-radius);
+  background: linear-gradient(115deg, var(--agri-role-accent-soft) 0%, #fff 44%);
+  box-shadow: 0 2px 8px rgba(16,37,31,.035);
+}
+.agri-page-heading { min-width: 0; flex: 1 1 auto; }
+.agri-page-eyebrow {
+  display: flex; align-items: center; gap: .45rem;
+  margin: 0 0 .35rem; color: var(--agri-role-accent);
+  font-size: .7rem; font-weight: 800; line-height: 1.3;
+  letter-spacing: .085em; text-transform: uppercase;
+}
+.agri-page-header-icon { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; }
+.agri-page-header .agri-page-title {
+  margin: 0; color: var(--agri-page-ink);
+  font-size: clamp(1.45rem,2.05vw,1.95rem); font-weight: 800;
+  line-height: 1.16; letter-spacing: -.038em;
+}
+.agri-page-description { max-width: 70ch; margin: .4rem 0 0; color: var(--agri-page-muted); font-size: .875rem; line-height: 1.55; }
+.agri-page-meta { margin-top: .55rem; color: var(--agri-page-muted); font-size: .78rem; }
+.agri-page-actions { display: flex; min-width: 0; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; }
+.agri-page-actions > * { min-width: 0; }
+
+.agri-page-toolbar {
+  display: flex; min-width: 0; flex-wrap: wrap; align-items: center;
+  justify-content: space-between; gap: .75rem; padding: .8rem .9rem;
+  border: 1px solid var(--agri-page-border); border-radius: var(--agri-page-radius); background: #fff;
+}
+.agri-page-toolbar--bare { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.agri-page-section { min-width: 0; }
+.agri-page-section-header { display: flex; min-width: 0; align-items: flex-end; justify-content: space-between; gap: .85rem; margin-bottom: .8rem; }
+.agri-page-section-title { margin: 0; color: var(--agri-page-ink); font-size: 1rem; font-weight: 780; line-height: 1.35; }
+.agri-page-section-description,.agri-page-form-section-header p { margin: .25rem 0 0; color: var(--agri-page-muted); font-size: .82rem; line-height: 1.5; }
+.agri-page-section-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.agri-page-section-content,.agri-page-form-section-content { min-width: 0; }
+.agri-page-form-section { display: grid; min-width: 0; gap: 1rem; padding: 1.1rem; border: 1px solid var(--agri-page-border); border-radius: var(--agri-page-radius); background: #fff; }
+.agri-page-form-section-header h2 { margin: 0; color: var(--agri-page-ink); font-size: 1rem; font-weight: 780; }
+
+@media (max-width: 767px) {
+  .agri-role-page > * + * { margin-block-start: 1rem; }
+  .agri-page-header { align-items: stretch; flex-direction: column; gap: .85rem; padding: 1rem; }
+  .agri-page-actions { width: 100%; justify-content: flex-start; }
+  .agri-page-section-header { align-items: stretch; flex-direction: column; }
+  .agri-page-toolbar:not(.agri-page-toolbar--bare) { padding: .7rem; }
+  .agri-page-form-section { gap: .85rem; padding: .9rem; }
+}

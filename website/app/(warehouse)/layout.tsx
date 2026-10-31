@@ -7,6 +7,7 @@ import { WarehouseSidebar } from "../components/warehouse/warehouse-sidebar";
 import { RoleMobileNav } from "../components/shared/role-mobile-nav";
 import { Footer } from "../components/common/footer";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
+import { RolePageFrame } from "../components/shared/role-page-frame";
 import { AppPresence } from "../components/chat/app-presence";
 
 export default function WarehouseLayout({
@@ -49,7 +50,7 @@ export default function WarehouseLayout({
       <div className="flex flex-1 bg-transparent">
         <WarehouseSidebar />
         <main className="site-main warehouse-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-6 sm:py-7 lg:px-9">
-          <div className="site-content role-workspace role-warehouse warehouse-workspace mx-auto w-full max-w-[1520px]"><WorkflowGuide role="warehouse" compact />{children}</div>
+          <div className="site-content role-workspace role-warehouse warehouse-workspace mx-auto w-full max-w-[1520px]"><WorkflowGuide role="warehouse" compact /><RolePageFrame role="warehouse">{children}</RolePageFrame></div>
         </main>
       </div>
       <Footer />

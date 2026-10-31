@@ -13,6 +13,7 @@ import { LiveChatDialog } from "../../../components/delivery/live-chat-dialog";
 import { AICopilotCard } from "../../../components/shared/ai-copilot-card";
 import { useWishlist } from "../../../lib/hooks/use-wishlist";
 import { useSession } from "next-auth/react";
+import { CustomerPageHeader } from "../../../components/customer/customer-page-header";
 
 const statusColors: Record<string, string> = {
   pending: "border-yellow-200 bg-yellow-50 text-yellow-700",
@@ -198,17 +199,12 @@ export default function CustomerDashboardPage() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">Dashboard</h1>
-          <p className="mt-1 text-sm text-slate-600">Welcome back! Here is your overview.</p>
-        </div>
-        <Button asChild>
-          <Link href="/nearby">
-            <ShoppingCart className="mr-2 h-4 w-4" /> Browse Products
-          </Link>
-        </Button>
-      </div>
+      <CustomerPageHeader
+        eyebrow="Shopping overview"
+        title="Dashboard"
+        description="Welcome back! Here is your overview."
+        actions={<Button asChild><Link href="/nearby"><ShoppingCart className="mr-2 h-4 w-4" />Browse Products</Link></Button>}
+      />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Link href="/wishlist">
