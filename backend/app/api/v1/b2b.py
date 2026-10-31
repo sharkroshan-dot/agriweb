@@ -770,7 +770,16 @@ def _build_recurring_ready_history(
     farmer_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Build truthful history for a recurring occurrence the farmer marked ready."""
-    history = list(order.get("statusHistory") or [])
+    history = [
+        event
+        for event in (order.get("statusHistory") or [])
+        if not (
+            isinstance(event, dict)
+            and event.get("isDerived") is True
+            and str(event.get("status") or "").lower() == ORDER_READY_FOR_PICKUP
+            and str(event.get("action") or "").lower() == ORDER_READY_FOR_PICKUP
+        )
+    ]
     created_at = order.get("createdAt") or order.get("startedAt") or datetime.utcnow()
     if not history:
         history.append({
