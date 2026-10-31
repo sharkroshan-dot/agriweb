@@ -779,7 +779,7 @@ def _build_recurring_ready_history(
         })
     if not any(
         isinstance(event, dict)
-        and event.get("action") == "farmer_confirmed_ready_for_pickup"
+        and event.get("action") in {"farmer_confirmed_ready_for_pickup", "ready_for_pickup"}
         for event in history
     ):
         packed = float(confirmation.get("packedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
@@ -797,7 +797,7 @@ def _build_recurring_ready_history(
         history.append({
             "status": ORDER_READY_FOR_PICKUP,
             "previousStatus": ORDER_CONFIRMED,
-            "action": "ready_for_pickup",
+            "action": "farmer_confirmed_ready_for_pickup",
             "actorRole": "farmer",
             "actorId": str(actor),
             "details": details,
@@ -2134,12 +2134,17 @@ async def _enrich_order(o: Dict[str, Any]) -> None:
     previous_quality_check = o.get("qualityCheck")
     previous_history = list(o.get("statusHistory") or [])
 
-    # Recover the real farmer-confirmation event for older recurring orders.
-    # Their contract confirmation is the source of truth for packed quantity,
-    # readiness and who marked this occurrence ready.
+    # Recover the farmer's real recurring-occurrence confirmation even when
+    # an older order already has a partial history (for example, only the
+    # creation event). The contract confirmation is authoritative evidence for
+    # packed quantity, available stock, readiness, actor and timestamp.
+    has_recurring_ready_event = any(
+        isinstance(event, dict)
+        and event.get("action") in {"farmer_confirmed_ready_for_pickup", "ready_for_pickup"}
+        for event in previous_history
+    )
     if (
-        not previous_history
-        and str(o.get("status") or "") == ORDER_READY_FOR_PICKUP
+        not has_recurring_ready_event
         and o.get("contractId")
         and o.get("scheduledDeliveryDate")
     ):
@@ -4401,12 +4406,31 @@ async def update_b2b_warehouse_fulfillment(
             raise HTTPException(status_code=409, detail=f"Consolidation blocked: {len(outstanding)} farmer portion(s) have not reached the required warehouse or have not passed quality inspection")
         now = datetime.utcnow()
         for portion in portions:
-            await order_repo.update({"_id": portion["_id"]}, {
-                "consolidationCompletedAt": now,
-                "consolidationCompletedBy": str(current_user.get("_id")),
+            history = list(portion.get("statusHistory") or [])
+            already_recorded = any(
+                isinstance(event, dict)
+                and event.get("action") == "complete_consolidation"
+                for event in history
+            )
+            update_data = {
+                "consolidationCompletedAt": portion.get("consolidationCompletedAt") or now,
+                "consolidationCompletedBy": portion.get("consolidationCompletedBy") or str(current_user.get("_id")),
                 "consolidationStatus": "completed",
                 "updatedAt": now,
-            })
+            }
+            if not already_recorded:
+                history.append({
+                    "status": str(portion.get("status") or current),
+                    "previousStatus": portion.get("status"),
+                    "action": "complete_consolidation",
+                    "title": "B2B farmer portions consolidated",
+                    "actorRole": role,
+                    "actorId": str(current_user.get("_id") or ""),
+                    "details": "All farmer portions for this RFQ have reached the required warehouse and passed the required quality inspection. Consolidation is complete.",
+                    "timestamp": now,
+                })
+                update_data["statusHistory"] = history
+            await order_repo.update({"_id": portion["_id"]}, update_data)
         return {"success": True, "message": "All required B2B farmer portions are received and quality-passed; consolidation completed", "orderId": str(order["_id"]), "portionCount": len(portions)}
     elif action == "dispatch_to_buyer":
         if role not in allowed_warehouse:
