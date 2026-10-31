@@ -1110,16 +1110,25 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
             (order.get(field) for field in stage_timestamp_fields.get(current_status, ()) if order.get(field)),
             None,
         )
+        uses_last_update_fallback = timestamp is None and bool(order.get("updatedAt"))
+        if uses_last_update_fallback:
+            timestamp = order.get("updatedAt")
+        details = (
+            f"The order's stored current stage is {current_status.replace('_', ' ')}. "
+            "The original activity event and a stage-specific timestamp are unavailable in this legacy record."
+        )
+        if uses_last_update_fallback:
+            details += (
+                " The displayed time is the last saved order-record update, not a verified "
+                "timestamp for this specific stage transition."
+            )
         history.append({
             "status": current_status,
             "previousStatus": None,
             "action": current_status,
             "actorRole": "system",
             "actorId": "",
-            "details": (
-                f"The order's stored current stage is {current_status.replace('_', ' ')}. "
-                "The original activity event and a stage-specific timestamp are unavailable in this legacy record."
-            ),
+            "details": details,
             "timestamp": timestamp,
             "isDerived": True,
         })
