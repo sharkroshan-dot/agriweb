@@ -55,12 +55,44 @@ function StatusTimeline({ status }: { status: string }) {
 }
 
 function OrderActivityTimeline({ order }: { order: any }) {
-  const events = Array.isArray(order.statusHistory) ? [...order.statusHistory].sort((a: any, b: any) => {
-    const ta = new Date(a.timestamp || a.createdAt || 0).getTime();
-    const tb = new Date(b.timestamp || b.createdAt || 0).getTime();
-    return ta - tb;
-  }) : [];
-  const label = (value: any) => String(value || "Order updated").replace(/_/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+  // B2B status transitions use action/details. Shared pickup and warehouse
+  // tracking uses eventType/title/description. Both are stored in statusHistory.
+  const rawEvents = Array.isArray(order.statusHistory) ? order.statusHistory : [];
+  const label = (value: any) => String(value || "Order updated")
+    .replace(/_/g, " ")
+    .replace(/\\b\\w/g, (ch) => ch.toUpperCase());
+  const timeValue = (event: any) => event.timestamp || event.createdAt || event.updatedAt || null;
+  const events = rawEvents
+    .filter((event: any) => event && typeof event === "object")
+    .map((event: any, originalIndex: number) => ({ event, originalIndex }))
+    .sort((a: any, b: any) => {
+      const ta = timeValue(a.event) ? new Date(timeValue(a.event)).getTime() : Number.NaN;
+      const tb = timeValue(b.event) ? new Date(timeValue(b.event)).getTime() : Number.NaN;
+      if (Number.isFinite(ta) && Number.isFinite(tb)) return ta - tb || a.originalIndex - b.originalIndex;
+      if (Number.isFinite(ta)) return -1;
+      if (Number.isFinite(tb)) return 1;
+      return a.originalIndex - b.originalIndex;
+    });
+  const metadataLabels: Record<string, string> = {
+    packedQuantityKg: "Packed quantity",
+    availableQuantityKg: "Available stock",
+    collectedQuantityKg: "Collected quantity",
+    receivedQuantityKg: "Received quantity",
+    sourceWarehouseName: "Source warehouse",
+    destinationWarehouseName: "Destination warehouse",
+    warehouseName: "Warehouse",
+    routeNumber: "Route",
+    vehicleNumber: "Vehicle",
+    distanceKm: "Distance (km)",
+    scheduledDate: "Scheduled delivery",
+    deliveryDate: "Delivery date",
+  };
+  const metadataSummary = (metadata: any) => {
+    if (!metadata || typeof metadata !== "object") return [];
+    return Object.entries(metadata)
+      .filter(([key, value]) => metadataLabels[key] && value !== null && value !== undefined && value !== "")
+      .map(([key, value]) => `${metadataLabels[key]}: ${String(value)}`);
+  };
   return (
     <div className="rounded-lg border bg-slate-50 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -68,30 +100,42 @@ function OrderActivityTimeline({ order }: { order: any }) {
         <Badge variant="outline">{events.length} updates</Badge>
       </div>
       {events.length === 0 ? (
-        <p className="text-xs text-slate-500">No additional fulfillment events recorded yet. This timeline will update as farmers, pickup teams, warehouse staff, and delivery partners process the order.</p>
+        <p className="text-xs text-slate-500">No activity has been recorded for this order yet. Future farmer, pickup, warehouse, transfer and delivery actions will appear here.</p>
       ) : (
         <ol className="space-y-3">
-          {events.slice().reverse().map((event: any, index: number) => (
-            <li key={String(event.timestamp || event.createdAt || index) + "-" + index} className="flex gap-3">
-              <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <p className="text-sm font-medium text-slate-800">{label(event.action || event.status)}</p>
-                  <time className="text-xs text-slate-500">{event.timestamp || event.createdAt ? new Date(event.timestamp || event.createdAt).toLocaleString() : "Time unavailable"}</time>
+          {events.slice().reverse().map(({ event, originalIndex }: any) => {
+            const eventTimestamp = timeValue(event);
+            const parsedTime = eventTimestamp ? new Date(eventTimestamp) : null;
+            const title = event.title || event.action || event.eventType || event.status || event.orderStatus;
+            const description = event.details || event.description || event.note || event.message;
+            const actor = event.actorRole || event.changedByName || event.actorName;
+            const metadata = metadataSummary(event.metadata);
+            return (
+              <li key={String(event._id || eventTimestamp || originalIndex) + "-" + originalIndex} className="flex gap-3">
+                <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <p className="text-sm font-medium text-slate-800">{label(title)}</p>
+                    <time className="text-xs text-slate-500">
+                      {parsedTime && Number.isFinite(parsedTime.getTime()) ? parsedTime.toLocaleString("en-IN") : "Time unavailable"}
+                    </time>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {actor ? label(actor) : "AgriConnect"}{event.status || event.orderStatus ? " · " + label(event.status || event.orderStatus) : ""}
+                    {event.previousStatus ? " · From " + label(event.previousStatus) : ""}
+                  </p>
+                  {description ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{description}</p> : null}
+                  {metadata.length ? <p className="mt-1 text-xs text-slate-500">{metadata.join(" · ")}</p> : null}
+                  {event.isDerived ? <p className="mt-1 text-[11px] text-amber-700">Reconstructed from saved order data; the original event was not retained.</p> : null}
                 </div>
-                <p className="text-xs text-slate-500">
-                  {event.actorRole ? label(event.actorRole) : "AgriConnect"}{event.status ? " · " + label(event.status) : ""}
-                </p>
-                {event.details ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{event.details}</p> : null}
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ol>
       )}
     </div>
   );
 }
-
 function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["b2b", "invoice", order.id],
