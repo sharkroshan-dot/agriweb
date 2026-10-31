@@ -23,6 +23,7 @@ import {
 import { Button } from "../../../components/ui/button";
 import { Badge } from "../../../components/ui/badge";
 import { Progress } from "../../../components/ui/progress";
+import { WarehousePageHeader } from "../../../components/warehouse/warehouse-page-header";
 import { cn } from "../../../lib/utils";
 import { api } from "../../../lib/api/client";
 import {
@@ -73,20 +74,22 @@ export default function WarehouseDashboardPage() {
 
   return (
     <div className="warehouse-dashboard-page space-y-7">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Warehouse Dashboard</h1>
-          <p className="text-muted-foreground">{warehouse.name || "Warehouse"} • {capacityUtilization}% capacity used</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="selection-control flex rounded-lg border">
-            {(["week","month","year"] as const).map((p) => (
-              <button key={p} onClick={() => setPeriod(p)} className={cn("selection-item rounded-md px-3 py-1.5 text-sm font-medium", period === p ? "selection-item-active" : "selection-item-inactive")}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
-            ))}
+      <WarehousePageHeader
+        eyebrow="Warehouse overview"
+        title="Warehouse Dashboard"
+        description="Monitor inventory, storage capacity and today's warehouse operations."
+        meta={<span>{warehouse.name || "Warehouse"} • {capacityUtilization}% capacity used</span>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="selection-control flex rounded-lg border">
+              {(["week","month","year"] as const).map((p) => (
+                <button key={p} onClick={() => setPeriod(p)} className={cn("selection-item rounded-md px-3 py-1.5 text-sm font-medium", period === p ? "selection-item-active" : "selection-item-inactive")}>{p.charAt(0).toUpperCase() + p.slice(1)}</button>
+              ))}
+            </div>
+            <Button variant="outline" size="icon" onClick={() => refetch()} aria-label="Refresh dashboard"><RefreshCw className="h-4 w-4" /></Button>
           </div>
-          <Button variant="outline" size="icon" onClick={() => refetch()}><RefreshCw className="h-4 w-4" /></Button>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
