@@ -112,7 +112,9 @@ function OrderActivityTimeline({ order }: { order: any }) {
               : rawTitle;
             const description = event.isInvalidTransition
               ? (event.reconciliationNote || event.details || event.description || "This stale action was ignored because the order had already reached a terminal stage.")
-              : (event.details || event.description || event.note || event.message);
+              : event.isInconsistentPreviousStatus
+                ? [event.details || event.description || event.note || event.message, event.previousStatusReconciliationNote].filter(Boolean).join(" ")
+                : (event.details || event.description || event.note || event.message);
             const actor = event.actorRole || event.changedByName || event.actorName;
             const metadata = metadataSummary(event.metadata);
             return (
@@ -128,7 +130,7 @@ function OrderActivityTimeline({ order }: { order: any }) {
                   <p className="text-xs text-slate-500">
                     {event.isInvalidTransition
                       ? "Lifecycle reconciliation · ignored"
-                      : `${actor ? label(actor) : "AgriConnect"}${event.status || event.orderStatus ? " · " + label(event.status || event.orderStatus) : ""}${event.previousStatus ? " · From " + label(event.previousStatus) : ""}`}
+                      : `${actor ? label(actor) : "AgriConnect"}${event.status || event.orderStatus ? " · " + label(event.status || event.orderStatus) : ""}${event.isInconsistentPreviousStatus ? " · Previous-stage label conflicts with event time" : event.previousStatus ? " · From " + label(event.previousStatus) : ""}`}
                   </p>
                   {description ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{description}</p> : null}
                   {metadata.length ? <p className="mt-1 text-xs text-slate-500">{metadata.join(" · ")}</p> : null}
