@@ -2539,10 +2539,10 @@ async def update_order_status(
         raise HTTPException(status_code=404, detail="Order not found")
 
     _ensure_b2b_order_activity_history(order)
-    if data.paymentStatus == PAYMENT_PAID:
+    if data.paymentStatus is not None:
         raise HTTPException(
             status_code=400,
-            detail="Payment can only be marked paid after verified online collection or verified COD settlement.",
+            detail="Payment status cannot be changed through the order-status endpoint. Use verified payment checkout or COD settlement.",
         )
     role = current_user.get("role")
     if role == "farmer" and str(order.get("farmerId")) != str(current_user["_id"]):
