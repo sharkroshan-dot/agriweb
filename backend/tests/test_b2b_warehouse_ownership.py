@@ -401,3 +401,34 @@ def test_legacy_recurring_order_does_not_receive_one_off_preparing_or_quality_ev
     assert "quality_check" not in actions
     assert actions.count("ready_for_pickup") == 1
 
+def test_tracking_snapshot_does_not_hide_missing_current_stage_transition():
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "createdAt": "2026-10-31T08:00:00",
+        "statusHistory": [
+            {
+                "status": "confirmed",
+                "action": "order_created",
+                "actorRole": "system",
+                "timestamp": "2026-10-31T08:00:00",
+            },
+            {
+                "status": ORDER_READY_FOR_PICKUP,
+                "eventType": "collection_en_route",
+                "title": "Collection partner en route",
+                "description": "The pickup partner started travelling to the farm.",
+                "actorRole": "delivery",
+                "timestamp": "2026-10-31T10:00:00",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert any(
+        event.get("action") == ORDER_READY_FOR_PICKUP and event.get("isDerived") is True
+        for event in history
+    )
+    assert any(event.get("eventType") == "collection_en_route" for event in history)
+
