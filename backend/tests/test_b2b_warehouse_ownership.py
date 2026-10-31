@@ -651,3 +651,30 @@ def test_warehouse_event_after_completion_is_flagged_as_invalid_regression():
     receive_event = next(event for event in history if event.get("action") == "receive_stock")
     assert receive_event["isInvalidTransition"] is True
 
+def test_stale_status_does_not_demote_completed_when_only_delivered_at_is_available():
+    order = {
+        "status": ORDER_COMPLETED,
+        "deliveredAt": "2026-10-28T09:00:00",
+        "statusHistory": [],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_COMPLETED
+    assert any(event.get("action") == "completed" for event in history)
+
+
+def test_completion_timestamp_promotes_stale_delivered_status_to_completed():
+    order = {
+        "status": ORDER_DELIVERED,
+        "deliveredAt": "2026-10-28T09:00:00",
+        "completedAt": "2026-10-28T14:40:52",
+        "statusHistory": [],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_COMPLETED
+    completion = next(event for event in history if event.get("action") == "complete_order")
+    assert completion["timestamp"] == "2026-10-28T14:40:52"
+
