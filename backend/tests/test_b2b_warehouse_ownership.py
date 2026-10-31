@@ -678,3 +678,29 @@ def test_completion_timestamp_promotes_stale_delivered_status_to_completed():
     completion = next(event for event in history if event.get("action") == "complete_order")
     assert completion["timestamp"] == "2026-10-28T14:40:52"
 
+def test_completed_order_reconstructs_delivery_and_completion_in_correct_order():
+    order = {
+        "status": ORDER_COMPLETED,
+        "deliveredAt": "2026-10-28T14:20:00",
+        "completedAt": "2026-10-28T14:40:52",
+        "deliveredBy": "delivery-user",
+        "completedBy": "business-user",
+        "deliveryProof": "Received by business manager",
+        "createdAt": "2026-10-27T08:00:00",
+        "statusHistory": [{
+            "status": "confirmed",
+            "action": "order_created",
+            "timestamp": "2026-10-27T08:00:00",
+        }],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    delivered = next(event for event in history if event.get("action") == "confirm_delivery")
+    completed = next(event for event in history if event.get("action") == "complete_order")
+    assert delivered["timestamp"] == "2026-10-28T14:20:00"
+    assert delivered["actorId"] == "delivery-user"
+    assert completed["timestamp"] == "2026-10-28T14:40:52"
+    assert completed["actorRole"] == "business"
+    assert delivered["timestamp"] < completed["timestamp"]
+
