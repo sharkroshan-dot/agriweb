@@ -607,3 +607,47 @@ def test_delivered_at_reconstructs_delivery_handover_event_with_proof():
     assert delivered["actorId"] == "delivery-user"
     assert delivered["details"] == "Received by business manager"
 
+def test_warehouse_event_before_completion_remains_valid_when_status_was_overwritten():
+    order = {
+        "status": ORDER_WAREHOUSE_RECEIVED,
+        "completedAt": "2026-10-28T14:40:52",
+        "statusHistory": [
+            {
+                "status": ORDER_WAREHOUSE_RECEIVED,
+                "previousStatus": "picked_up",
+                "action": "receive_stock",
+                "actorRole": "warehouse",
+                "timestamp": "2026-10-27T11:57:27",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_COMPLETED
+    receive_event = next(event for event in history if event.get("action") == "receive_stock")
+    assert receive_event.get("isInvalidTransition") is not True
+    assert any(event.get("action") == "complete_order" for event in history)
+
+
+def test_warehouse_event_after_completion_is_flagged_as_invalid_regression():
+    order = {
+        "status": ORDER_WAREHOUSE_RECEIVED,
+        "completedAt": "2026-10-28T14:40:52",
+        "statusHistory": [
+            {
+                "status": ORDER_WAREHOUSE_RECEIVED,
+                "previousStatus": ORDER_COMPLETED,
+                "action": "receive_stock",
+                "actorRole": "warehouse",
+                "timestamp": "2026-10-29T09:00:00",
+            },
+        ],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_COMPLETED
+    receive_event = next(event for event in history if event.get("action") == "receive_stock")
+    assert receive_event["isInvalidTransition"] is True
+
