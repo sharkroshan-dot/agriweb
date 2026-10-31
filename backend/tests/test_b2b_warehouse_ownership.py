@@ -351,3 +351,53 @@ def test_recurring_confirmation_is_recovered_when_order_history_is_only_partial(
     assert history[1]["timestamp"] == confirmed_at
     assert "25 kg packed from 30 kg available" in history[1]["details"]
 
+def test_legacy_one_off_ready_order_recovers_preparation_when_packed_quantity_exists():
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "passed",
+        "packedQuantityKg": 12,
+        "quantityKg": 12,
+        "createdAt": "2026-10-31T08:00:00",
+        "updatedAt": "2026-10-31T10:00:00",
+        "statusHistory": [{
+            "status": "confirmed",
+            "action": "order_created",
+            "actorRole": "system",
+            "timestamp": "2026-10-31T08:00:00",
+        }],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    stages = [event.get("status") for event in history if event.get("action") in {
+        "order_created", "preparing", "quality_check", "ready_for_pickup"
+    }]
+    assert stages == ["confirmed", "preparing", "quality_check", "ready_for_pickup"]
+    preparing = next(event for event in history if event.get("action") == "preparing")
+    assert preparing["isDerived"] is True
+    assert "12 kg" in preparing["details"]
+
+
+def test_legacy_recurring_order_does_not_receive_one_off_preparing_or_quality_events():
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "contractId": "contract-789",
+        "scheduledDeliveryDate": "2026-11-01",
+        "packedQuantityKg": 10,
+        "createdAt": "2026-10-31T08:00:00",
+        "statusHistory": [{
+            "status": "confirmed",
+            "action": "order_created",
+            "actorRole": "system",
+            "timestamp": "2026-10-31T08:00:00",
+        }],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    actions = [event.get("action") for event in history]
+    assert "preparing" not in actions
+    assert "quality_check" not in actions
+    assert actions.count("ready_for_pickup") == 1
+
