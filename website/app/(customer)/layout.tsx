@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { CustomerSidebar } from "../components/customer/customer-sidebar";
 import { CustomerChatNotifications } from "../components/customer/customer-chat-notifications";
@@ -12,20 +12,24 @@ import { AppPresence } from "../components/chat/app-presence";
 import { WorkflowGuide } from "../components/shared/workflow-guide";
 import { RolePageFrame } from "../components/shared/role-page-frame";
 
-
 export default function CustomerLayout({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const pathname = usePathname();
+  // Product search is a public discovery page. Account, order and checkout
+  // routes remain protected by the existing customer authentication redirect.
+  const isPublicSearchPage = pathname === "/search";
+  const isSignedInCustomer = session?.user?.role === "customer";
 
   useEffect(() => {
-    if (status === "unauthenticated") {
+    if (status === "unauthenticated" && !isPublicSearchPage) {
       const callbackUrl = `${window.location.pathname}${window.location.search}`;
       router.replace(`/login?role=customer&callbackUrl=${encodeURIComponent(callbackUrl)}`);
     }
     if (session?.user?.role && session.user.role !== "customer") {
       router.push(`/${session.user.role}/dashboard`);
     }
-  }, [status, session, router]);
+  }, [status, session, router, isPublicSearchPage]);
 
   if (status === "loading") {
     return (
@@ -37,17 +41,24 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
 
   return (
     <div className="flex min-h-screen flex-col">
-      <AppPresence />
+      {isSignedInCustomer && <AppPresence />}
       <div className="flex flex-1 bg-transparent">
-        <CustomerSidebar />
+        {isSignedInCustomer && <CustomerSidebar />}
         <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-5 sm:px-5 sm:py-6 lg:px-8">
-          <div className="site-content role-workspace role-customer mx-auto w-full max-w-[1440px]"><WorkflowGuide role="customer" compact /><RolePageFrame role="customer">{children}</RolePageFrame></div>
+          <div className="site-content role-workspace role-customer mx-auto w-full max-w-[1440px]">
+            {isSignedInCustomer && <WorkflowGuide role="customer" compact />}
+            <RolePageFrame role="customer">{children}</RolePageFrame>
+          </div>
         </main>
       </div>
       <Footer />
-      <CustomerChatNotifications />
-      <BottomNav />
-      <ChatWidget />
+      {isSignedInCustomer && (
+        <>
+          <CustomerChatNotifications />
+          <BottomNav />
+          <ChatWidget />
+        </>
+      )}
     </div>
   );
 }

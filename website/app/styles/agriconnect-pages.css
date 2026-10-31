@@ -808,3 +808,129 @@
     transition: none;
   }
 }
+
+
+/* Header product search: connects directly to the existing /search?q= flow. */
+.agri-site-header-inner.has-product-search {
+  grid-template-columns: minmax(170px,220px) minmax(185px,250px) minmax(250px,1fr) auto;
+  gap: clamp(.55rem,1.05vw,1rem);
+}
+.agri-header-search-form {
+  display: flex;
+  min-width: 0;
+  height: 39px;
+  align-items: center;
+  gap: .55rem;
+  padding: 3px 4px 3px 12px;
+  border: 1px solid #dce9e0;
+  border-radius: 13px;
+  background: #f8fbf9;
+  box-shadow: inset 0 1px 2px rgba(16,37,31,.025);
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+.agri-header-search-form:focus-within {
+  border-color: #8ecbaa;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(8,127,91,.09), 0 2px 8px rgba(16,37,31,.035);
+}
+.agri-header-search-leading-icon {
+  flex: 0 0 auto;
+  color: #82948a;
+}
+.agri-header-search-form input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #21392e;
+  font-size: .77rem;
+  font-weight: 530;
+  box-shadow: none;
+}
+.agri-header-search-form input:focus,
+.agri-header-search-form input:focus-visible {
+  border: 0;
+  outline: 0;
+  box-shadow: none;
+}
+.agri-header-search-form input::placeholder {
+  color: #8a9a91;
+  opacity: 1;
+}
+.agri-header-search-form input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+.agri-header-search-form button {
+  display: inline-flex;
+  min-width: 76px;
+  height: 31px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: .38rem;
+  padding: 0 .7rem;
+  border: 0;
+  border-radius: 9px;
+  background: linear-gradient(130deg,#0a9465,#087f5b);
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 760;
+  box-shadow: 0 2px 6px rgba(8,127,91,.14);
+  transition: background 150ms ease, box-shadow 150ms ease;
+}
+.agri-header-search-form button:hover {
+  background: linear-gradient(130deg,#087f5b,#066447);
+  box-shadow: 0 3px 9px rgba(8,127,91,.2);
+}
+.agri-header-search-form button:focus-visible {
+  outline: 3px solid rgba(8,127,91,.25);
+  outline-offset: 2px;
+}
+@media (max-width: 1199px) {
+  .agri-site-header-inner.has-product-search {
+    grid-template-columns: minmax(0,1fr) minmax(220px,360px) auto;
+  }
+}
+@media (max-width: 767px) {
+  .agri-site-header-inner.has-product-search {
+    grid-template-columns: minmax(0,1fr) auto auto;
+    gap: .3rem;
+  }
+  .agri-header-search-form {
+    width: 35px;
+    height: 35px;
+    justify-content: center;
+    padding: 0;
+    border-radius: 11px;
+    background: #fff;
+  }
+  .agri-header-search-form input,
+  .agri-header-search-leading-icon,
+  .agri-header-search-form button span {
+    display: none;
+  }
+  .agri-header-search-form button {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #087f5b;
+    box-shadow: none;
+  }
+  .agri-header-search-form button:hover {
+    background: #effaf3;
+    color: #066447;
+    box-shadow: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agri-header-search-form,
+  .agri-header-search-form button {
+    transition: none;
+  }
+}

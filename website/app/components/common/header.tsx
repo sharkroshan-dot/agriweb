@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   User,
   LogOut,
@@ -49,11 +49,13 @@ export function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const [liveAvatar, setLiveAvatar] = useState<string | null | undefined>(undefined);
+  const [globalSearch, setGlobalSearch] = useState("");
 
   const role = (session?.user as any)?.role as string | undefined;
   const dashboardHref = role ? `/${role}/dashboard` : "/customer/dashboard";
   const roleLabel = role ? roleLabels[role] || "Workspace" : null;
   const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
+  const canSearchProducts = !session?.user || role === "customer";
   const { items: wishlistItems } = useWishlist();
   const cartCount = useCartStore((s: any) =>
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
@@ -67,11 +69,28 @@ export function Header() {
     router.push(session?.user ? dashboardHref : "/");
   };
 
+  const handleProductSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const query = globalSearch.trim();
+    router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
+  };
+
   useEffect(() => {
     const handler = (event: CustomEvent) => setLiveAvatar(event.detail);
     window.addEventListener("avatar-updated" as any, handler as any);
     return () => window.removeEventListener("avatar-updated" as any, handler as any);
   }, []);
+
+  useEffect(() => {
+    const syncSearchFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      setGlobalSearch(params.get("q") || "");
+    };
+
+    syncSearchFromUrl();
+    window.addEventListener("popstate", syncSearchFromUrl);
+    return () => window.removeEventListener("popstate", syncSearchFromUrl);
+  }, [pathname]);
 
   const avatarSrc = liveAvatar ?? session?.user?.image;
   const showBackButton = pathname !== "/";
@@ -80,7 +99,7 @@ export function Header() {
 
   return (
     <header className="agri-site-header" data-role={role || "guest"}>
-      <div className="agri-site-header-inner">
+      <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
           {showBackButton && (
             <button
@@ -116,15 +135,27 @@ export function Header() {
           ))}
         </nav>
 
+        {canSearchProducts && (
+          <form className="agri-header-search-form" role="search" aria-label="Search fresh products" onSubmit={handleProductSearch}>
+            <Search className="agri-header-search-leading-icon h-[18px] w-[18px]" aria-hidden="true" />
+            <input
+              type="search"
+              name="q"
+              aria-label="Search products"
+              placeholder="Search vegetables, fruits, grains..."
+              value={globalSearch}
+              onChange={(event) => setGlobalSearch(event.target.value)}
+            />
+            <button type="submit" aria-label="Submit product search" title="Search products">
+              <Search className="h-[17px] w-[17px]" aria-hidden="true" />
+              <span>Search</span>
+            </button>
+          </form>
+        )}
+
         <div className="agri-site-header-actions">
           {!session?.user ? (
-            <>
-              <Link href="/search" className="agri-header-guest-browse">
-                <Search className="h-4 w-4" />
-                <span>Browse</span>
-              </Link>
-              <Link href="/login" className="agri-header-sign-in">Sign in</Link>
-            </>
+            <Link href="/login" className="agri-header-sign-in">Sign in</Link>
           ) : (
             <>
               {roleLabel && (
@@ -136,10 +167,6 @@ export function Header() {
 
               {role === "customer" && (
                 <>
-                  <Link href="/search" aria-label="Search products" title="Search products" className="agri-header-icon-link agri-header-search">
-                    <Search className="h-[18px] w-[18px]" />
-                    <span>Search</span>
-                  </Link>
                   <Link href="/cart" aria-label={`Cart, ${cartCount} items`} title="Cart" className="agri-header-icon-link agri-header-count-link">
                     <ShoppingCart className="h-[18px] w-[18px]" />
                     {cartCount > 0 && <span className="agri-header-count">{cartCount > 99 ? "99+" : cartCount}</span>}
