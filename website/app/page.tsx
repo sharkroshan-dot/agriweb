@@ -175,7 +175,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900">
+    <div className="role-workspace role-customer min-h-screen bg-white text-slate-900">
       {/* Hero Banner */}
       <section className="relative overflow-hidden bg-gradient-to-br from-emerald-900 via-emerald-800 to-green-900">
         <div className="absolute inset-0 bg-[url('/images/hero-pattern.svg')] opacity-10" />

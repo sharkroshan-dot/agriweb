@@ -309,7 +309,7 @@ export default function ProductDetailPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-6">
+    <div className="role-workspace role-customer mx-auto max-w-7xl space-y-6 p-6">
       <Link href={backHref} className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700">
         <ArrowLeft className="h-4 w-4" />
         Back to {backLabel}
