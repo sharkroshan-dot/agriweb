@@ -3106,11 +3106,30 @@ async def update_my_pickup_route_status(
                 "deliveryDispatchStatus": "in_transit_to_warehouse",
                 "deliveryDispatchAt": datetime.utcnow(),
             })
+        ignore_terminal_b2b_update = False
         if is_b2b_collection and ObjectId.is_valid(b2b_order_id):
-            # This is the exact collection read by /b2b/warehouse/fulfillment.
-            updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
-            if not updated_b2b:
-                logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
+            # Pickup routes can be replayed or updated late. Never let an old
+            # collection message reopen a delivered/completed/cancelled B2B order.
+            current_b2b = await b2b_order_repository.get_by_id(b2b_order_id)
+            ignore_terminal_b2b_update = bool(
+                current_b2b
+                and (
+                    str(current_b2b.get("status") or "").lower() in {"delivered", "completed", "cancelled"}
+                    or current_b2b.get("deliveredAt")
+                    or current_b2b.get("completedAt")
+                    or current_b2b.get("cancelledAt")
+                )
+            )
+            if ignore_terminal_b2b_update:
+                logger.warning(
+                    "Ignoring stale pickup progress for terminal B2B order %s (status=%s, route=%s, collection=%s)",
+                    b2b_order_id, current_b2b.get("status"), route_id, collection_status,
+                )
+            else:
+                # This is the exact collection read by /b2b/warehouse/fulfillment.
+                updated_b2b = await b2b_order_repository.update({"_id": ObjectId(b2b_order_id)}, order_update)
+                if not updated_b2b:
+                    logger.warning("Pickup route %s: B2B order %s was not updated for stage %s", route_id, b2b_order_id, collection_status)
             # A separate customer order may be linked; keep it synchronized only
             # when it is a distinct, valid ID.
             if ObjectId.is_valid(linked_order_id) and linked_order_id != b2b_order_id:
@@ -3118,6 +3137,8 @@ async def update_my_pickup_route_status(
         else:
             for candidate_order_id in order_ids:
                 await order_repository.update({"_id": ObjectId(candidate_order_id)}, order_update)
+        if ignore_terminal_b2b_update:
+            return
         titles = {
             "en_route": ("Collection partner en route", "The assigned pickup partner has started travelling to collect the shipment."),
             "arrived_at_farm": ("Pickup partner arrived at farm", "The pickup partner has arrived at the farm and is checking the shipment."),
