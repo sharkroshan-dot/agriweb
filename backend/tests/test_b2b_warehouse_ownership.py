@@ -627,6 +627,7 @@ def test_warehouse_event_before_completion_remains_valid_when_status_was_overwri
     assert order["status"] == ORDER_COMPLETED
     receive_event = next(event for event in history if event.get("action") == "receive_stock")
     assert receive_event.get("isInvalidTransition") is not True
+    assert receive_event["isInconsistentPreviousStatus"] is True
     assert any(event.get("action") == "complete_order" for event in history)
 
 
