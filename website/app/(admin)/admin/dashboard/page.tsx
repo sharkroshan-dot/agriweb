@@ -29,6 +29,7 @@ import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Progress } from "../../../components/ui/progress";
+import { AdminPageHeader } from "../../../components/admin/admin-page-header";
 
 interface DashboardStats {
   totalUsers: number;
@@ -237,23 +238,20 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="admin-page-header flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-sm font-medium text-primary">Operations overview</p>
-          <h1 className="text-3xl font-semibold tracking-tight">Administrator command center</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Monitor platform performance, operational health, and growth signals from one place.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button asChild variant="outline">
-            <Link href="/admin/reports">Export Report</Link>
-          </Button>
-          <Button asChild>
-            <Link href="/admin/alerts">Review Alerts</Link>
-          </Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        eyebrow="Operations overview"
+        title="Administrator command center"
+        description="Monitor platform performance, operational health, and growth signals from one place."
+      >
+        <Button asChild variant="outline">
+          <Link href="/admin/reports">Export Report</Link>
+        </Button>
+        <Button asChild>
+          <Link href="/admin/alerts">Review Alerts</Link>
+        </Button>
+      </AdminPageHeader>
 
-      <div className="admin-action-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="admin-action-banner<div className="admin-action-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div><p className="font-semibold text-blue-950">Control room priorities</p><p className="text-sm text-blue-900">Review alerts, settlement exceptions, verification queues and delivery health before routine reporting.</p></div>
         <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/admin/settlements">Review settlements</Link></Button><Button asChild size="sm" variant="outline"><Link href="/admin/users">Manage users</Link></Button></div>
       </div>
