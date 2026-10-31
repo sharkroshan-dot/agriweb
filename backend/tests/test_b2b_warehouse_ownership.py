@@ -705,3 +705,25 @@ def test_completed_order_reconstructs_delivery_and_completion_in_correct_order()
     assert completed["actorRole"] == "business"
     assert delivered["timestamp"] < completed["timestamp"]
 
+def test_legacy_completed_stage_uses_last_update_only_with_clear_timestamp_warning():
+    order = {
+        "status": ORDER_COMPLETED,
+        "updatedAt": "2026-10-28T14:40:52",
+        "createdAt": "2026-10-27T12:00:00",
+        "statusHistory": [{
+            "status": "confirmed",
+            "action": "order_created",
+            "timestamp": "2026-10-27T12:00:00",
+        }],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    completed = next(
+        event for event in history
+        if event.get("action") == ORDER_COMPLETED and event.get("isDerived") is True
+    )
+    assert completed["timestamp"] == "2026-10-28T14:40:52"
+    assert "last saved order-record update" in completed["details"]
+    assert "not a verified timestamp" in completed["details"]
+
