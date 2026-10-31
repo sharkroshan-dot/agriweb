@@ -81,7 +81,7 @@ export function RoleMobileNav({ role }: { role: Role }) {
   return (
     <nav
       aria-label={`${role} quick navigation`}
-      className="border-b border-slate-200 bg-white px-3 py-2 md:hidden"
+      className="role-mobile-nav border-b border-slate-200 bg-white px-3 py-2 md:hidden"
     >
       <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
         {navigation[role].map((item) => {
