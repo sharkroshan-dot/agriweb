@@ -12,6 +12,7 @@ import {
   Heart,
   ShoppingCart,
   ArrowLeft,
+  Search,
 } from "lucide-react";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
@@ -184,6 +185,15 @@ export function Header() {
             <>
               {role === "customer" && (
                 <>
+                  <Link
+                    href="/search"
+                    aria-label="Search products"
+                    title="Search products"
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
+                  >
+                    <Search className="h-4 w-4" />
+                    <span className="hidden lg:inline">Search</span>
+                  </Link>
                   <Link
                     href="/cart"
                     className="relative flex h-9 w-9 items-center justify-center rounded-full transition hover:bg-slate-100"
