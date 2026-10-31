@@ -60,7 +60,7 @@ function OrderActivityTimeline({ order }: { order: any }) {
   const rawEvents = Array.isArray(order.statusHistory) ? order.statusHistory : [];
   const label = (value: any) => String(value || "Order updated")
     .replace(/_/g, " ")
-    .replace(/\\b\\w/g, (ch) => ch.toUpperCase());
+    .replace(/\b\w/g, (ch) => ch.toUpperCase());
   const timeValue = (event: any) => event.timestamp || event.createdAt || event.updatedAt || null;
   const events = rawEvents
     .filter((event: any) => event && typeof event === "object")
