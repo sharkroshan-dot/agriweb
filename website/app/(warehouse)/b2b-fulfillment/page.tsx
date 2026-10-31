@@ -10,6 +10,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
 import { WarehousePageHeader } from "../../components/warehouse/warehouse-page-header";
+import { PageToolbar } from "../../components/common/page-primitives";
 
 const label = (value: string) => String(value || "unknown").replace(/_/g, " ");
 export default function B2BFulfillmentPage() {
@@ -89,10 +90,12 @@ export default function B2BFulfillmentPage() {
       meta={<Badge variant="outline">District routing enforced</Badge>}
       actions={<Button variant="outline" onClick={() => { query.refetch(); teamsQuery.refetch(); }}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>}
     />
-    <div className="flex flex-wrap gap-2">
-      <Button variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")}>Active fulfillment ({orders.length})</Button>
-      <Button variant={view === "completed" ? "default" : "outline"} onClick={() => setView("completed")}>Completed orders ({completedOrders.length})</Button>
-    </div>
+    <PageToolbar variant="bare" aria-label="B2B fulfillment views">
+      <div className="flex flex-wrap gap-2">
+        <Button variant={view === "active" ? "default" : "outline"} onClick={() => setView("active")}>Active fulfillment ({orders.length})</Button>
+        <Button variant={view === "completed" ? "default" : "outline"} onClick={() => setView("completed")}>Completed orders ({completedOrders.length})</Button>
+      </div>
+    </PageToolbar>
     {view === "completed" && <p className="text-sm text-slate-600">Read-only archive of B2B orders that have reached the configured terminal workflow stage. Archived orders have no pickup, receipt, routing, transfer, or dispatch actions.</p>}
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
       { label: "Ready for Farm Pickup", key: "readyForFarmPickup" },
