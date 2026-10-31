@@ -1038,7 +1038,7 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
 
     # Reconstruct delivery/completion using their own persisted facts, rather
     # than inventing the event at the order's unrelated last-updated time.
-    if current_status == ORDER_DELIVERED and order.get("deliveredAt") and not has_stage_event(ORDER_DELIVERED):
+    if current_status in (ORDER_DELIVERED, ORDER_COMPLETED) and order.get("deliveredAt") and not has_stage_event(ORDER_DELIVERED):
         history.append({
             "status": ORDER_DELIVERED,
             "previousStatus": ORDER_IN_TRANSIT,
@@ -2369,7 +2369,10 @@ def payment_repo_for_b2b():
 async def _enrich_order(o: Dict[str, Any]) -> None:
     previous_status = o.get("status")
     previous_quality_check = o.get("qualityCheck")
-    previous_history = list(o.get("statusHistory") or [])
+    previous_history = [
+        dict(event) if isinstance(event, dict) else event
+        for event in (o.get("statusHistory") or [])
+    ]
 
     # Recover the farmer's real recurring-occurrence confirmation even when
     # an older order already has a partial history (for example, only the
