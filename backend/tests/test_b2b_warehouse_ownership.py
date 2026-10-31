@@ -433,3 +433,51 @@ def test_tracking_snapshot_does_not_hide_missing_current_stage_transition():
     )
     assert any(event.get("eventType") == "collection_en_route" for event in history)
 
+def test_real_recurring_confirmation_replaces_derived_ready_placeholder():
+    from datetime import datetime
+
+    created_at = datetime(2026, 10, 30, 8, 0)
+    confirmed_at = datetime(2026, 10, 31, 17, 45)
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "contractId": "contract-derived",
+        "scheduledDeliveryDate": "2026-11-01",
+        "quantityKg": 3,
+        "createdAt": created_at,
+        "statusHistory": [
+            {
+                "status": "confirmed",
+                "action": "order_created",
+                "actorRole": "system",
+                "timestamp": created_at,
+            },
+            {
+                "status": ORDER_READY_FOR_PICKUP,
+                "action": ORDER_READY_FOR_PICKUP,
+                "actorRole": "system",
+                "details": "Legacy derived current-stage placeholder",
+                "timestamp": confirmed_at,
+                "isDerived": True,
+            },
+        ],
+    }
+    confirmation = {
+        "scheduledDate": "2026-11-01",
+        "availableQuantityKg": 4,
+        "packedQuantityKg": 3,
+        "readyForPickup": True,
+        "confirmedBy": "farmer-789",
+        "confirmedAt": confirmed_at,
+    }
+
+    history = _build_recurring_ready_history(order, confirmation)
+
+    ready_events = [
+        event for event in history
+        if event.get("status") == ORDER_READY_FOR_PICKUP
+    ]
+    assert len(ready_events) == 1
+    assert ready_events[0]["action"] == "farmer_confirmed_ready_for_pickup"
+    assert ready_events[0]["actorRole"] == "farmer"
+    assert ready_events[0]["actorId"] == "farmer-789"
+
