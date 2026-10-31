@@ -763,6 +763,16 @@ def _reconcile_legacy_one_off_ready_order(order: Dict[str, Any], *, now: Optiona
     return True
 
 
+def _is_primary_recurring_occurrence(order: Dict[str, Any], contract: Dict[str, Any]) -> bool:
+    """Whether this order is the original contracted farmer's scheduled occurrence."""
+    return bool(
+        order.get("contractId")
+        and order.get("scheduledDeliveryDate")
+        and not order.get("isReplacementSupply")
+        and str(order.get("farmerId") or "") == str(contract.get("farmerId") or "")
+    )
+
+
 def _build_recurring_ready_history(
     order: Dict[str, Any],
     confirmation: Dict[str, Any],
@@ -827,34 +837,108 @@ def _build_recurring_ready_history(
     return history
 
 
+def _reconcile_terminal_b2b_status(order: Dict[str, Any], history: List[Dict[str, Any]]) -> bool:
+    """Restore a terminal B2B status when a legacy action later regressed it.
+
+    Delivered/completed/cancelled orders cannot be reopened by a stale pickup or
+    warehouse action. If an old history entry explicitly records a transition
+    from a terminal stage back to an earlier stage, preserve that attempted
+    action as an ignored audit entry and restore the terminal stage.
+    """
+    current = str(order.get("status") or "").strip().lower()
+    terminal = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
+    if current in terminal:
+        return False
+
+    candidates = []
+    for index, event in enumerate(history):
+        if not isinstance(event, dict):
+            continue
+        previous = str(event.get("previousStatus") or "").strip().lower()
+        target = str(event.get("status") or "").strip().lower()
+        if previous not in terminal or target != current:
+            continue
+        allowed = previous == ORDER_DELIVERED and target == ORDER_COMPLETED
+        if allowed:
+            continue
+        candidates.append((index, event, previous))
+
+    if candidates:
+        _, event, restored_status = candidates[-1]
+        event["isInvalidTransition"] = True
+        event["isIgnoredForLifecycle"] = True
+        event["reconciliationNote"] = (
+            f"This recorded {str(event.get('action') or 'operation').replace('_', ' ')} "
+            f"attempt occurred after the order had already reached {restored_status.replace('_', ' ')}. "
+            "The backward transition is ignored and the terminal order status is restored."
+        )
+        order["status"] = restored_status
+        return True
+
+    # Persisted terminal timestamps are stronger evidence than a later stale
+    # current-stage field. Prefer completion, then business delivery.
+    if order.get("completedAt"):
+        order["status"] = ORDER_COMPLETED
+        return True
+    if order.get("deliveredAt"):
+        order["status"] = ORDER_DELIVERED
+        return True
+    if order.get("cancelledAt"):
+        order["status"] = ORDER_CANCELLED
+        return True
+    return False
+
+
 def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Ensure the timeline contains every milestone supported by saved evidence."""
+    """Ensure the timeline contains milestones supported by persisted evidence."""
+    history = order.get("statusHistory")
+    if not isinstance(history, list):
+        history = []
+    order["statusHistory"] = history
+
+    _reconcile_terminal_b2b_status(order, history)
     _reconcile_legacy_one_off_ready_order(order)
 
-    def has_stage_event(stage: str) -> bool:
+    terminal = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
+
+    def has_stage_event(stage: str, *, include_derived: bool = True) -> bool:
         for event in history:
-            if not isinstance(event, dict):
+            if not isinstance(event, dict) or event.get("isInvalidTransition") is True:
                 continue
             action = str(event.get("action") or "").strip().lower()
             event_type = str(event.get("eventType") or "").strip().lower()
             event_status = str(event.get("status") or "").strip().lower()
+            details = str(event.get("details") or "")
+            if (
+                include_derived is False
+                and event.get("isDerived") is True
+            ):
+                continue
+            # Remove the older generic current-stage placeholder from the
+            # evidence check; a real stage transition supersedes it.
+            if event.get("isDerived") is True and details.startswith("The order's stored current stage is "):
+                continue
             if action == stage or event_type == stage:
                 return True
-            # A tracking event's status is only a snapshot of the order stage
-            # at that moment. It is not itself the stage transition.
-            if event_status == stage and not event_type and (
+            # Tracking events carry the current status as a snapshot. They do
+            # not prove that the order entered that stage.
+            if event_status != stage or event_type:
+                continue
+            previous = str(event.get("previousStatus") or "").strip().lower()
+            if previous and previous != stage:
+                # A terminal order cannot move backwards to a non-terminal stage.
+                if previous in terminal and stage not in terminal:
+                    continue
+                return True
+            if not previous and (
                 not action
-                or action == stage
                 or (stage == ORDER_CONFIRMED and action == "order_created")
                 or (stage == ORDER_READY_FOR_PICKUP and action == "farmer_confirmed_ready_for_pickup")
             ):
                 return True
         return False
-    history = order.get("statusHistory")
-    if not isinstance(history, list):
-        history = []
 
-    created_at = order.get("createdAt") or order.get("startedAt") or order.get("updatedAt")
+    created_at = order.get("createdAt") or order.get("startedAt")
     if not any(
         isinstance(event, dict)
         and (
@@ -862,6 +946,7 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
             or (
                 str(event.get("status") or "").lower() == ORDER_CONFIRMED
                 and not event.get("eventType")
+                and not event.get("isInvalidTransition")
             )
         )
         for event in history
@@ -877,14 +962,17 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
             "isDerived": True,
         })
 
-    current_status = str(order.get("status") or "")
-    is_recurring_occurrence = bool(order.get("contractId") and order.get("scheduledDeliveryDate"))
+    current_status = str(order.get("status") or "").strip().lower()
+    is_recurring_occurrence = bool(
+        order.get("contractId")
+        and order.get("scheduledDeliveryDate")
+        and not order.get("isReplacementSupply")
+    )
     current_stage_index = ORDER_FLOW.index(current_status) if current_status in ORDER_FLOW else -1
     packed_quantity = float(order.get("packedQuantityKg") or 0)
 
-    # For one-off orders, packed quantity is persisted when farmer preparation
-    # is completed and the order moves into quality_check. When an older record
-    # lost the matching timeline event, recover only that evidenced milestone.
+    # A replacement farmer uses the one-off preparation and inspection flow,
+    # even though the order remains linked to the recurring contract schedule.
     if (
         not is_recurring_occurrence
         and current_stage_index >= ORDER_FLOW.index(ORDER_QUALITY_CHECK)
@@ -907,7 +995,6 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
                 or order.get("preparedAt")
                 or order.get("qualityCheckedAt")
                 or order.get("readyForPickupAt")
-                or order.get("updatedAt")
                 or created_at
             ),
             "isDerived": True,
@@ -924,18 +1011,74 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
             "previousStatus": ORDER_PREPARING,
             "action": "quality_check",
             "actorRole": "farmer",
-            "actorId": "",
+            "actorId": str(order.get("farmerId") or ""),
             "details": "The order record confirms that the farmer quality check passed; the original quality-check activity entry is unavailable.",
-            "timestamp": order.get("qualityCheckedAt") or order.get("updatedAt") or created_at,
+            "timestamp": order.get("qualityCheckedAt") or order.get("readyForPickupAt") or created_at,
             "isDerived": True,
         })
 
-    if current_status and not has_stage_event(current_status.lower()):
-        timestamp = (
-            order.get("readyForPickupAt")
-            or order.get("stageUpdatedAt")
-            or order.get("updatedAt")
-            or created_at
+    # Reconstruct delivery/completion using their own persisted facts, rather
+    # than inventing the event at the order's unrelated last-updated time.
+    if current_status == ORDER_DELIVERED and order.get("deliveredAt") and not has_stage_event(ORDER_DELIVERED):
+        history.append({
+            "status": ORDER_DELIVERED,
+            "previousStatus": ORDER_IN_TRANSIT,
+            "action": "confirm_delivery",
+            "title": "Business delivery confirmed",
+            "actorRole": "delivery",
+            "actorId": str(order.get("deliveredBy") or ""),
+            "details": (
+                str(order.get("deliveryProof") or order.get("deliveryNotes") or "").strip()
+                or "The order record confirms that the delivery partner completed handover to the business. The original delivery activity event is unavailable."
+            ),
+            "timestamp": order.get("deliveredAt"),
+            "isDerived": True,
+        })
+
+    if current_status == ORDER_COMPLETED and order.get("completedAt") and not has_stage_event(ORDER_COMPLETED):
+        history.append({
+            "status": ORDER_COMPLETED,
+            "previousStatus": ORDER_DELIVERED,
+            "action": "complete_order",
+            "title": "Business confirmed receipt and completed the order",
+            "actorRole": "business",
+            "actorId": str(order.get("completedBy") or ""),
+            "details": "The saved completion timestamp confirms that the business completed this delivered order. The original completion activity event is unavailable.",
+            "timestamp": order.get("completedAt"),
+            "isDerived": True,
+        })
+
+    # Remove old generic current-stage placeholders when an actual transition is
+    # now present. Keep all genuine tracking activity and derived evidence.
+    if current_status and has_stage_event(current_status):
+        history = [
+            event for event in history
+            if not (
+                isinstance(event, dict)
+                and event.get("isDerived") is True
+                and str(event.get("action") or "").lower() == current_status
+                and str(event.get("details") or "").startswith("The order's stored current stage is ")
+            )
+        ]
+
+    if current_status and not has_stage_event(current_status):
+        stage_timestamp_fields = {
+            ORDER_CONFIRMED: ("createdAt", "startedAt"),
+            ORDER_PREPARING: ("preparationStartedAt", "preparingAt", "preparedAt"),
+            ORDER_QUALITY_CHECK: ("qualityCheckedAt",),
+            ORDER_READY_FOR_PICKUP: ("readyForPickupAt",),
+            ORDER_PICKED_UP: ("pickedUpAt", "collectedAt"),
+            ORDER_WAREHOUSE_RECEIVED: ("warehouseReceivedAt", "receivedAt"),
+            ORDER_TRANSFER_IN_TRANSIT: ("transferDispatchedAt",),
+            ORDER_DESTINATION_RECEIVED: ("destinationReceivedAt", "destinationWarehouseReceivedAt"),
+            ORDER_IN_TRANSIT: ("finalDeliveryAssignedAt", "finalDeliveryStartedAt"),
+            ORDER_DELIVERED: ("deliveredAt",),
+            ORDER_COMPLETED: ("completedAt",),
+            ORDER_CANCELLED: ("cancelledAt",),
+        }
+        timestamp = next(
+            (order.get(field) for field in stage_timestamp_fields.get(current_status, ()) if order.get(field)),
+            None,
         )
         history.append({
             "status": current_status,
@@ -945,7 +1088,7 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
             "actorId": "",
             "details": (
                 f"The order's stored current stage is {current_status.replace('_', ' ')}. "
-                "The original activity event is unavailable in this legacy record."
+                "The original activity event and a stage-specific timestamp are unavailable in this legacy record."
             ),
             "timestamp": timestamp,
             "isDerived": True,
@@ -2229,6 +2372,7 @@ async def _enrich_order(o: Dict[str, Any]) -> None:
         not has_recurring_ready_event
         and o.get("contractId")
         and o.get("scheduledDeliveryDate")
+        and not o.get("isReplacementSupply")
     ):
         try:
             contract_oid = ObjectId(str(o.get("contractId")))
@@ -2236,11 +2380,14 @@ async def _enrich_order(o: Dict[str, Any]) -> None:
             contract_oid = None
         if contract_oid:
             contract = await contract_repo.find_one({"_id": contract_oid, "deletedAt": None})
-            confirmations = (contract or {}).get("deliveryConfirmations") or {}
-            key = str(o.get("scheduledDeliveryDate"))[:10]
-            confirmation = confirmations.get(key) if isinstance(confirmations, dict) else None
-            if isinstance(confirmation, dict) and confirmation.get("readyForPickup") is True:
-                o["statusHistory"] = _build_recurring_ready_history(o, confirmation)
+            # Never attach one farmer's contract confirmation to a replacement
+            # order created for another farmer for the same occurrence.
+            if contract and _is_primary_recurring_occurrence(o, contract):
+                confirmations = (contract or {}).get("deliveryConfirmations") or {}
+                key = str(o.get("scheduledDeliveryDate"))[:10]
+                confirmation = confirmations.get(key) if isinstance(confirmations, dict) else None
+                if isinstance(confirmation, dict) and confirmation.get("readyForPickup") is True:
+                    o["statusHistory"] = _build_recurring_ready_history(o, confirmation)
 
     _ensure_b2b_order_activity_history(o)
     if (
@@ -2346,6 +2493,7 @@ async def update_order_status(
         history.append({
             "status": event_status or data.status,
             "previousStatus": current,
+            "action": event_status or data.status,
             "actorRole": str(role or "unknown"),
             "actorId": actor_id,
             "details": details or data.qualityNotes or "",
@@ -2674,11 +2822,17 @@ async def update_order_status(
     if data.status == ORDER_COMPLETED:
         if current != ORDER_DELIVERED:
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
-        update["completedAt"] = datetime.utcnow()
+        update["completedAt"] = event_time
+        update["completedBy"] = actor_id
         if data.paymentStatus in (PAYMENT_PAID, PAYMENT_ADVANCE):
             update["paymentStatus"] = data.paymentStatus
         else:
             update["paymentStatus"] = PAYMENT_PAID
+        add_status_history(
+            update,
+            event_status=ORDER_COMPLETED,
+            details="Business confirmed receipt and marked the delivered B2B order completed.",
+        )
         await order_repo.update({"_id": order["_id"]}, update)
         await NotificationService.create_in_app_notification(
             str(order.get("farmerId")), NotificationType.ORDER, "Order completed & settled ✅",
