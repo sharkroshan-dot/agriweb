@@ -110,6 +110,27 @@ ACTIVE_ORDER_STATUSES = [ORDER_CONFIRMED, ORDER_PREPARING, ORDER_QUALITY_CHECK, 
 PAYMENT_PENDING = "pending"
 PAYMENT_PAID = "paid"
 PAYMENT_ADVANCE = "advance"
+
+
+def _b2b_paid_amount(order: Dict[str, Any]) -> float:
+    """Return the amount actually collected for a B2B order."""
+    total = max(0.0, float(order.get("totalAmount") or order.get("total") or 0))
+    status = str(order.get("paymentStatus") or PAYMENT_PENDING).lower()
+    if status == PAYMENT_PAID:
+        return total
+    if order.get("paidAmount") is not None:
+        return min(total, max(0.0, float(order.get("paidAmount") or 0)))
+    if status == PAYMENT_ADVANCE:
+        return min(total, max(0.0, float(order.get("advanceAmount") or 0)))
+    return 0.0
+
+
+def _b2b_amount_due(order: Dict[str, Any]) -> float:
+    """Return the outstanding balance without trusting client-supplied values."""
+    total = max(0.0, float(order.get("totalAmount") or order.get("total") or 0))
+    return round(max(0.0, total - _b2b_paid_amount(order)), 2)
+
+
 DELIVERY_METHODS = ["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"]
 VISIBILITY = ["nearby", "district", "state", "national"]
 QUALITY_GRADES = ["Grade A", "Grade B", "Grade C", "Premium", "Organic", "Standard"]
@@ -2341,12 +2362,15 @@ async def create_b2b_payment_intent(
     order = await order_repo.get_by_id(order_id)
     if not order or str(order.get("businessUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="B2B order not found")
-    if order.get("paymentStatus") == PAYMENT_PAID:
-        raise HTTPException(status_code=400, detail="B2B order is already paid")
+    amount_due = _b2b_amount_due(order)
+    if amount_due <= 0:
+        raise HTTPException(status_code=400, detail="B2B order has no outstanding payment balance")
     if order.get("status") == ORDER_CANCELLED:
         raise HTTPException(status_code=400, detail="Cancelled orders cannot be paid")
+    if payment_method not in ("razorpay", "card", "upi", "netbanking"):
+        raise HTTPException(status_code=400, detail="Choose UPI, card, net banking or Razorpay for online payment")
     result = await PaymentService.create_payment_intent(
-        order_id, float(order.get("totalAmount") or 0), payment_method
+        order_id, amount_due, payment_method
     )
     if result.get("error"):
         raise HTTPException(status_code=400, detail=result["error"])
@@ -2369,8 +2393,13 @@ async def verify_b2b_payment(
     if not order or str(order.get("businessUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="B2B order not found")
     payment = await payment_repo_for_b2b().get_by_id(payment_id)
-    if not payment or str(payment.get("userId")) != str(current_user["_id"]):
-        raise HTTPException(status_code=400, detail="Payment verification failed")
+    if (
+        not payment
+        or str(payment.get("userId")) != str(current_user["_id"])
+        or str(payment.get("orderId") or "") != str(order.get("_id"))
+        or str(payment.get("transactionId") or "") != str(razorpay_order_id)
+    ):
+        raise HTTPException(status_code=400, detail="Payment verification failed for this B2B order")
     verified = await PaymentService.verify_razorpay_payment(
         payment_id, razorpay_order_id, razorpay_payment_id, razorpay_signature
     )
@@ -2510,6 +2539,11 @@ async def update_order_status(
         raise HTTPException(status_code=404, detail="Order not found")
 
     _ensure_b2b_order_activity_history(order)
+    if data.paymentStatus == PAYMENT_PAID:
+        raise HTTPException(
+            status_code=400,
+            detail="Payment can only be marked paid after verified online collection or verified COD settlement.",
+        )
     role = current_user.get("role")
     if role == "farmer" and str(order.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your order")
@@ -2866,10 +2900,8 @@ async def update_order_status(
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
         update["completedAt"] = event_time
         update["completedBy"] = actor_id
-        if data.paymentStatus in (PAYMENT_PAID, PAYMENT_ADVANCE):
-            update["paymentStatus"] = data.paymentStatus
-        else:
-            update["paymentStatus"] = PAYMENT_PAID
+        # Completing receipt is not proof of payment collection. Payment state
+        # remains unchanged until verified online payment or COD settlement.
         add_status_history(
             update,
             event_status=ORDER_COMPLETED,
@@ -5358,13 +5390,10 @@ async def list_b2b_payments(current_user: dict = Depends(get_current_user)):
         ps = o.get("paymentStatus") or PAYMENT_PENDING
         if o.get("startedAt") and o["startedAt"] >= month_start:
             total_month += total
-        if ps == PAYMENT_PAID:
-            paid += total
-        elif ps == PAYMENT_ADVANCE:
-            paid += float(o.get("advanceAmount") or 0)
-            pending += total - float(o.get("advanceAmount") or 0)
-        else:
-            pending += total
+        paid_for_order = _b2b_paid_amount(o)
+        due_for_order = _b2b_amount_due(o)
+        paid += paid_for_order
+        pending += due_for_order
         farmer = await farmer_repository.find_one({"userId": str(o.get("farmerId"))})
         payments.append({
             "orderId": str(o["_id"]),
@@ -5375,6 +5404,8 @@ async def list_b2b_payments(current_user: dict = Depends(get_current_user)):
             "paymentStatus": ps,
             "paymentMode": o.get("paymentMode"),
             "advanceAmount": round(float(o.get("advanceAmount") or 0), 2),
+            "paidAmount": round(paid_for_order, 2),
+            "amountDue": round(due_for_order, 2),
             "farmName": (farmer or {}).get("farmName") or "Farm",
             "startedAt": o.get("startedAt").isoformat() if o.get("startedAt") else None,
         })
