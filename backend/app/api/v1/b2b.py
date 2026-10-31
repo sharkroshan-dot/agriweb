@@ -623,6 +623,41 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
     return rfq
 
 
+def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Ensure the timeline reflects the order's stored fulfillment stage.
+
+    Older recurring-order generators and legacy records can have a valid
+    ready_for_pickup status but no statusHistory array. For that authoritative
+    state, expose one clearly identified creation event using the persisted
+    order timestamp; never fabricate preparation, quality, pickup, or
+    warehouse actions that were not recorded.
+    """
+    history = order.get("statusHistory")
+    if isinstance(history, list) and history:
+        return history
+
+    if str(order.get("status") or "") == ORDER_READY_FOR_PICKUP:
+        timestamp = order.get("createdAt") or order.get("startedAt") or order.get("updatedAt")
+        history = [{
+            "status": ORDER_READY_FOR_PICKUP,
+            "previousStatus": None,
+            "action": "order_created",
+            "actorRole": "system",
+            "actorId": "",
+            "details": (
+                "This order was created in the Ready for Pickup stage. "
+                "Further farmer, pickup, and warehouse actions will appear here as they are recorded."
+            ),
+            "timestamp": timestamp,
+            "isDerived": True,
+        }]
+    else:
+        history = []
+
+    order["statusHistory"] = history
+    return history
+
+
 async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, accept: Optional["OfferAccept"]) -> Dict[str, Any]:
     # Calculate delivery using Farm -> Source Warehouse -> Destination Warehouse -> Business.
     # Resolve the farmer across legacy identifier shapes and profile collections:
@@ -776,6 +811,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         preparation_deadline = None
         planned_pickup_deadline = None
         planned_transfer_dispatch = None
+    created_at = datetime.utcnow()
     order = {
         "orderNumber": await _next_number("B2B", order_repo),
         "rfqId": rfq["_id"],
@@ -839,11 +875,20 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "status": ORDER_READY_FOR_PICKUP,
         "qualityCheck": "pending",
         "notes": (accept.notes if accept else None) or offer.get("message"),
-        "startedAt": datetime.utcnow(),
+        "startedAt": created_at,
         "deliveredAt": None,
         "completedAt": None,
-        "createdAt": datetime.utcnow(),
+        "createdAt": created_at,
     }
+    order["statusHistory"] = [{
+        "status": ORDER_READY_FOR_PICKUP,
+        "previousStatus": None,
+        "action": "order_created",
+        "actorRole": "system",
+        "actorId": "",
+        "details": "B2B order created in the Ready for Pickup stage.",
+        "timestamp": created_at,
+    }]
     return order
 
 # ================== BUSINESS PROFILE ==================
@@ -1863,6 +1908,7 @@ def payment_repo_for_b2b():
 # ================== ORDERS ==================
 
 async def _enrich_order(o: Dict[str, Any]) -> None:
+    _ensure_b2b_order_activity_history(o)
     o["id"] = str(o["_id"])
     o["farmerId"] = str(o.get("farmerId"))
     if o.get("businessUserId"):
@@ -1929,6 +1975,7 @@ async def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    _ensure_b2b_order_activity_history(order)
     role = current_user.get("role")
     if role == "farmer" and str(order.get("farmerId")) != str(current_user["_id"]):
         raise HTTPException(status_code=403, detail="Not your order")
@@ -3647,6 +3694,7 @@ async def update_b2b_warehouse_fulfillment(
     order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
     if not order:
         raise HTTPException(status_code=404, detail="B2B order not found")
+    _ensure_b2b_order_activity_history(order)
     current = order.get("status")
     update: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
     action = data.action
@@ -6494,6 +6542,15 @@ async def resolve_contract_delivery_shortage(
             "farmerId": replacement_offer.get("farmerId"), "businessUserId": contract.get("businessUserId"),
             "productName": contract.get("cropName") or replacement_order.get("productName"),
             "quantityKg": missing, "status": ORDER_CONFIRMED,
+            "statusHistory": [{
+                "status": ORDER_CONFIRMED,
+                "previousStatus": None,
+                "action": "replacement_order_created",
+                "actorRole": "business",
+                "actorId": str(current_user.get("_id") or ""),
+                "details": f"Replacement supply order created for {missing:g} kg. Farmer preparation and quality checks are pending.",
+                "timestamp": now,
+            }],
             "packedQuantityKg": 0, "qualityCheck": "pending",
             "requiredDate": replacement_order.get("requiredDate"),
             # Preserve route-derived preparation/pickup/transfer dates and the
@@ -6542,6 +6599,7 @@ async def resolve_contract_delivery_shortage(
             })
             if original_order:
                 cancelled_original_order_id = str(original_order.get("_id"))
+                _ensure_b2b_order_activity_history(original_order)
                 history = list(original_order.get("statusHistory") or [])
                 history.append({
                     "status": ORDER_CANCELLED,
