@@ -1,12 +1,15 @@
 from app.api.v1.b2b import (
     ORDER_DESTINATION_RECEIVED,
     ORDER_IN_TRANSIT,
+    ORDER_QUALITY_CHECK,
     ORDER_READY_FOR_PICKUP,
     ORDER_TRANSFER_IN_TRANSIT,
     _b2b_farm_district_in_coverage,
     _district_from_doc,
     _b2b_order_visible_to_warehouse,
     _ensure_b2b_order_activity_history,
+    _reconcile_legacy_one_off_ready_order,
+    _build_recurring_ready_history,
 )
 
 
@@ -133,27 +136,34 @@ def test_destination_owns_receipt_and_final_delivery_after_transfer():
 
 
 
-def test_ready_for_pickup_order_without_legacy_history_gets_one_derived_creation_event():
+def test_legacy_one_off_order_without_passed_quality_check_returns_to_confirmed():
     from datetime import datetime
 
     created_at = datetime(2026, 10, 31, 10, 30)
     order = {
         "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
         "createdAt": created_at,
     }
 
     history = _ensure_b2b_order_activity_history(order)
 
-    assert len(history) == 1
-    assert history[0]["status"] == ORDER_READY_FOR_PICKUP
+    assert order["status"] == "confirmed"
+    assert order["qualityCheck"] == "pending"
+    assert len(history) == 2
+    assert history[0]["status"] == "confirmed"
     assert history[0]["action"] == "order_created"
-    assert history[0]["actorRole"] == "system"
     assert history[0]["timestamp"] == created_at
-    assert history[0]["isDerived"] is True
-    assert "created in the Ready for Pickup stage" in history[0]["details"]
+    assert history[1]["status"] == "confirmed"
+    assert history[1]["previousStatus"] == ORDER_READY_FOR_PICKUP
+    assert history[1]["action"] == "stage_reconciled"
+    assert "no successful farmer quality-check approval" in history[1]["details"]
 
 
-def test_existing_b2b_order_activity_history_is_preserved():
+def test_existing_b2b_order_activity_history_is_preserved_and_creation_is_added():
+    from datetime import datetime
+
+    created_at = datetime(2026, 10, 31, 9, 0)
     existing_event = {
         "status": "quality_check",
         "action": "quality_check",
@@ -162,16 +172,25 @@ def test_existing_b2b_order_activity_history_is_preserved():
     }
     order = {
         "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "createdAt": created_at,
         "statusHistory": [existing_event],
     }
 
     history = _ensure_b2b_order_activity_history(order)
 
-    assert history == [existing_event]
-    assert history[0] is existing_event
+    assert len(history) == 3
+    assert history[0]["action"] == "order_created"
+    assert history[0]["status"] == "confirmed"
+    assert history[0]["timestamp"] == created_at
+    assert history[1] is existing_event
+    assert history[2]["status"] == ORDER_READY_FOR_PICKUP
+    assert history[2]["isDerived"] is True
+    assert order["status"] == ORDER_READY_FOR_PICKUP
+    assert order["qualityCheck"] == "passed"
 
 
-def test_missing_history_for_other_b2b_status_does_not_invent_fulfillment_events():
+def test_confirmed_order_without_history_gets_truthful_creation_event_only():
     order = {
         "status": "confirmed",
         "createdAt": "2026-10-31T10:30:00",
@@ -179,5 +198,101 @@ def test_missing_history_for_other_b2b_status_does_not_invent_fulfillment_events
 
     history = _ensure_b2b_order_activity_history(order)
 
-    assert history == []
-    assert order["statusHistory"] == []
+    assert len(history) == 1
+    assert history[0]["status"] == "confirmed"
+    assert history[0]["action"] == "order_created"
+    assert history[0]["isDerived"] is True
+
+
+
+def test_recurring_ready_occurrence_is_not_rewound_and_shows_farmer_confirmation():
+    from datetime import datetime
+
+    created_at = datetime(2026, 10, 30, 8, 0)
+    confirmed_at = datetime(2026, 10, 31, 17, 45)
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "contractId": "contract-123",
+        "scheduledDeliveryDate": "2026-11-01",
+        "quantityKg": 25,
+        "createdAt": created_at,
+    }
+    confirmation = {
+        "scheduledDate": "2026-11-01",
+        "availableQuantityKg": 30,
+        "packedQuantityKg": 25,
+        "readyForPickup": True,
+        "confirmedBy": "farmer-123",
+        "confirmedAt": confirmed_at,
+    }
+
+    assert _reconcile_legacy_one_off_ready_order(order) is False
+    history = _build_recurring_ready_history(order, confirmation)
+    order["statusHistory"] = history
+    _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_READY_FOR_PICKUP
+    assert len(history) == 2
+    assert history[0]["status"] == "confirmed"
+    assert history[1]["status"] == ORDER_READY_FOR_PICKUP
+    assert history[1]["action"] == "farmer_confirmed_ready_for_pickup"
+    assert history[1]["actorRole"] == "farmer"
+    assert history[1]["actorId"] == "farmer-123"
+    assert history[1]["timestamp"] == confirmed_at
+    assert "25 kg packed from 30 kg available" in history[1]["details"]
+
+
+def test_one_off_order_with_real_quality_pass_history_remains_ready():
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "pending",
+        "statusHistory": [{
+            "status": ORDER_QUALITY_CHECK,
+            "action": "quality_check",
+            "actorRole": "farmer",
+            "details": "Quality check passed",
+        }],
+    }
+
+    assert _reconcile_legacy_one_off_ready_order(order) is False
+    assert order["status"] == ORDER_READY_FOR_PICKUP
+    assert order["qualityCheck"] == "passed"
+
+
+
+def test_legacy_preparing_order_gets_a_current_stage_event_without_fake_quality_pass():
+    order = {
+        "status": "preparing",
+        "qualityCheck": "pending",
+        "createdAt": "2026-10-31T10:30:00",
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert [event["status"] for event in history] == ["confirmed", "preparing"]
+    assert history[-1]["action"] == "preparing"
+    assert history[-1]["isDerived"] is True
+    assert order["qualityCheck"] == "pending"
+
+
+
+def test_legacy_one_off_failed_quality_check_returns_to_quality_check_not_confirmed():
+    order = {
+        "status": ORDER_READY_FOR_PICKUP,
+        "qualityCheck": "failed",
+        "packedQuantityKg": 5,
+        "statusHistory": [{
+            "status": ORDER_QUALITY_CHECK,
+            "action": "quality_check",
+            "actorRole": "farmer",
+            "details": "Quality check failed; reinspection required",
+        }],
+    }
+
+    history = _ensure_b2b_order_activity_history(order)
+
+    assert order["status"] == ORDER_QUALITY_CHECK
+    assert order["qualityCheck"] == "failed"
+    assert history[-1]["action"] == "stage_reconciled"
+    assert history[-1]["status"] == ORDER_QUALITY_CHECK

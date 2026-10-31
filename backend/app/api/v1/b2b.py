@@ -623,36 +623,242 @@ async def _stringify_rfq(rfq: Dict[str, Any]) -> Dict[str, Any]:
     return rfq
 
 
-def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Ensure the timeline reflects the order's stored fulfillment stage.
+def _b2b_order_has_passed_quality_check(order: Dict[str, Any]) -> bool:
+    if str(order.get("qualityCheck") or "").strip().lower() == "passed":
+        return True
+    for event in order.get("statusHistory") or []:
+        if not isinstance(event, dict) or str(event.get("status") or "").lower() != ORDER_QUALITY_CHECK:
+            continue
+        result = str(event.get("qualityCheck") or event.get("result") or "").strip().lower()
+        if result == "passed":
+            return True
+        details = str(event.get("details") or "").casefold()
+        if "failed" in details or "not passed" in details or "did not pass" in details:
+            continue
+        if re.search(r"\bpassed\b", details):
+            return True
+    return False
 
-    Older recurring-order generators and legacy records can have a valid
-    ready_for_pickup status but no statusHistory array. For that authoritative
-    state, expose one clearly identified creation event using the persisted
-    order timestamp; never fabricate preparation, quality, pickup, or
-    warehouse actions that were not recorded.
+
+def _reconcile_legacy_one_off_ready_order(order: Dict[str, Any], *, now: Optional[datetime] = None) -> bool:
+    """Restore a legacy one-off order to the latest stage supported by evidence.
+
+    Earlier versions could create a one-off order as ready_for_pickup without a
+    successful quality check. Do not roll back recurring contract occurrences,
+    replacement supply orders, or orders already assigned/collected by pickup.
+    For a one-off order with no successful quality evidence, recover the last
+    legitimate farmer stage from the recorded quality result, packed quantity,
+    and existing activity history.
     """
-    history = order.get("statusHistory")
-    if isinstance(history, list) and history:
-        return history
+    if str(order.get("status") or "") != ORDER_READY_FOR_PICKUP:
+        return False
+    if order.get("contractId") or order.get("scheduledDeliveryDate") or order.get("isReplacementSupply"):
+        return False
+    if _b2b_order_has_passed_quality_check(order):
+        order["qualityCheck"] = "passed"
+        return False
+    if any(order.get(key) for key in (
+        "pickupTeam", "pickedUpAt", "warehouseReceivedAt",
+        "warehouseCollectionStatus", "warehouseFulfillmentStage",
+        "destinationReceivedAt", "deliveredAt",
+    )):
+        return False
 
-    if str(order.get("status") or "") == ORDER_READY_FOR_PICKUP:
-        timestamp = order.get("createdAt") or order.get("startedAt") or order.get("updatedAt")
-        history = [{
-            "status": ORDER_READY_FOR_PICKUP,
+    event_time = now or datetime.utcnow()
+    created_at = order.get("createdAt") or order.get("startedAt") or event_time
+    previous_history = list(order.get("statusHistory") or [])
+
+    # Remove the earlier compatibility patch's synthetic "created directly at
+    # ready for pickup" event. It described the bad stage, not a real action.
+    history = [
+        event for event in previous_history
+        if not (
+            isinstance(event, dict)
+            and event.get("action") == "order_created"
+            and (
+                event.get("isDerived") is True
+                or (
+                    str(event.get("status") or "") == ORDER_READY_FOR_PICKUP
+                    and "created in the Ready for Pickup stage" in str(event.get("details") or "")
+                )
+            )
+        )
+    ]
+
+    # Decide the furthest stage supported by real evidence. A failed/pending
+    # quality inspection belongs at quality_check; a prior preparation event
+    # or recorded packed quantity belongs at preparing; otherwise it is confirmed.
+    has_quality_event = any(
+        isinstance(event, dict) and str(event.get("status") or "").lower() == ORDER_QUALITY_CHECK
+        for event in history
+    )
+    has_preparing_event = any(
+        isinstance(event, dict) and str(event.get("status") or "").lower() == ORDER_PREPARING
+        for event in history
+    )
+    quality_value = str(order.get("qualityCheck") or "").strip().lower()
+    packed_quantity = float(order.get("packedQuantityKg") or 0)
+    if has_quality_event or quality_value == "failed" or packed_quantity > 0:
+        corrected_status = ORDER_QUALITY_CHECK
+    elif has_preparing_event:
+        corrected_status = ORDER_PREPARING
+    else:
+        corrected_status = ORDER_CONFIRMED
+
+    if not history or not any(
+        isinstance(event, dict)
+        and (event.get("action") == "order_created" or str(event.get("status") or "") == ORDER_CONFIRMED)
+        for event in history
+    ):
+        history.insert(0, {
+            "status": ORDER_CONFIRMED,
             "previousStatus": None,
             "action": "order_created",
             "actorRole": "system",
             "actorId": "",
+            "details": "Business accepted the farmer quote. The order entered the farmer preparation workflow.",
+            "timestamp": created_at,
+        })
+
+    history.append({
+        "status": corrected_status,
+        "previousStatus": ORDER_READY_FOR_PICKUP,
+        "action": "stage_reconciled",
+        "actorRole": "system",
+        "actorId": "",
+        "details": (
+            f"This legacy order was moved to {corrected_status.replace('_', ' ').title()} "
+            "because no successful farmer quality-check approval was recorded. "
+            "Complete the remaining farmer preparation and quality steps before pickup."
+        ),
+        "timestamp": event_time,
+    })
+    order.update({
+        "status": corrected_status,
+        "qualityCheck": "failed" if quality_value == "failed" else "pending",
+        "statusHistory": history,
+        "updatedAt": event_time,
+    })
+    return True
+
+
+def _build_recurring_ready_history(
+    order: Dict[str, Any],
+    confirmation: Dict[str, Any],
+    *,
+    farmer_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Build truthful history for a recurring occurrence the farmer marked ready."""
+    history = list(order.get("statusHistory") or [])
+    created_at = order.get("createdAt") or order.get("startedAt") or datetime.utcnow()
+    if not history:
+        history.append({
+            "status": ORDER_CONFIRMED,
+            "previousStatus": None,
+            "action": "order_created",
+            "actorRole": "system",
+            "actorId": "",
+            "details": "Scheduled B2B delivery occurrence created for farmer preparation.",
+            "timestamp": created_at,
+        })
+    if not any(
+        isinstance(event, dict)
+        and event.get("action") == "farmer_confirmed_ready_for_pickup"
+        for event in history
+    ):
+        packed = float(confirmation.get("packedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
+        available = float(confirmation.get("availableQuantityKg") or order.get("availableQuantityKg") or packed)
+        scheduled_date = str(confirmation.get("scheduledDate") or order.get("scheduledDeliveryDate") or "")
+        notes = str(confirmation.get("notes") or "").strip()
+        details = (
+            f"Farmer confirmed {packed:g} kg packed from {available:g} kg available"
+            + (f" for scheduled delivery {scheduled_date}" if scheduled_date else "")
+            + " and marked the occurrence ready for pickup."
+        )
+        if notes:
+            details += f" Farmer note: {notes}"
+        actor = confirmation.get("confirmedBy") or farmer_id or order.get("farmerId") or ""
+        history.append({
+            "status": ORDER_READY_FOR_PICKUP,
+            "previousStatus": ORDER_CONFIRMED,
+            "action": "ready_for_pickup",
+            "actorRole": "farmer",
+            "actorId": str(actor),
+            "details": details,
+            "timestamp": confirmation.get("confirmedAt") or confirmation.get("updatedAt") or created_at,
+        })
+    return history
+
+
+def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Ensure the timeline contains order creation and the stored current stage."""
+    _reconcile_legacy_one_off_ready_order(order)
+    history = order.get("statusHistory")
+    if not isinstance(history, list):
+        history = []
+
+    created_at = order.get("createdAt") or order.get("startedAt") or order.get("updatedAt")
+    if not any(
+        isinstance(event, dict)
+        and (event.get("action") == "order_created" or str(event.get("status") or "") == ORDER_CONFIRMED)
+        for event in history
+    ):
+        history.insert(0, {
+            "status": ORDER_CONFIRMED,
+            "previousStatus": None,
+            "action": "order_created",
+            "actorRole": "system",
+            "actorId": "",
+            "details": "B2B order created after the business accepted the farmer quote.",
+            "timestamp": created_at,
+            "isDerived": True,
+        })
+
+    current_status = str(order.get("status") or "")
+    if (
+        current_status == ORDER_READY_FOR_PICKUP
+        and str(order.get("qualityCheck") or "").lower() == "passed"
+        and not any(
+            isinstance(event, dict)
+            and str(event.get("status") or "").lower() == ORDER_QUALITY_CHECK
+            for event in history
+        )
+    ):
+        history.append({
+            "status": ORDER_QUALITY_CHECK,
+            "previousStatus": ORDER_PREPARING,
+            "action": "quality_check",
+            "actorRole": "farmer",
+            "actorId": "",
+            "details": "The order record confirms that the farmer quality check passed; the original quality-check activity entry is unavailable.",
+            "timestamp": order.get("qualityCheckedAt") or order.get("updatedAt") or created_at,
+            "isDerived": True,
+        })
+
+    if current_status and not any(
+        isinstance(event, dict)
+        and str(event.get("status") or "").lower() == current_status.lower()
+        for event in history
+    ):
+        timestamp = (
+            order.get("readyForPickupAt")
+            or order.get("stageUpdatedAt")
+            or order.get("updatedAt")
+            or created_at
+        )
+        history.append({
+            "status": current_status,
+            "previousStatus": None,
+            "action": current_status,
+            "actorRole": "system",
+            "actorId": "",
             "details": (
-                "This order was created in the Ready for Pickup stage. "
-                "Further farmer, pickup, and warehouse actions will appear here as they are recorded."
+                f"The order's stored current stage is {current_status.replace('_', ' ')}. "
+                "The original activity event is unavailable in this legacy record."
             ),
             "timestamp": timestamp,
             "isDerived": True,
-        }]
-    else:
-        history = []
+        })
 
     order["statusHistory"] = history
     return history
@@ -872,7 +1078,7 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "paymentMode": (accept.paymentMode if accept and accept.paymentMode else "cod"),
         "advanceAmount": float(accept.advanceAmount) if accept and accept.advanceAmount else 0.0,
         "paymentStatus": PAYMENT_PENDING,
-        "status": ORDER_READY_FOR_PICKUP,
+        "status": ORDER_CONFIRMED,
         "qualityCheck": "pending",
         "notes": (accept.notes if accept else None) or offer.get("message"),
         "startedAt": created_at,
@@ -881,12 +1087,12 @@ async def _build_order(rfq: Dict[str, Any], offer: Dict[str, Any], qty: float, a
         "createdAt": created_at,
     }
     order["statusHistory"] = [{
-        "status": ORDER_READY_FOR_PICKUP,
+        "status": ORDER_CONFIRMED,
         "previousStatus": None,
         "action": "order_created",
         "actorRole": "system",
         "actorId": "",
-        "details": "B2B order created in the Ready for Pickup stage.",
+        "details": "Business accepted the farmer quote. Order is awaiting farmer preparation.",
         "timestamp": created_at,
     }]
     return order
@@ -1908,7 +2114,43 @@ def payment_repo_for_b2b():
 # ================== ORDERS ==================
 
 async def _enrich_order(o: Dict[str, Any]) -> None:
+    previous_status = o.get("status")
+    previous_quality_check = o.get("qualityCheck")
+    previous_history = list(o.get("statusHistory") or [])
+
+    # Recover the real farmer-confirmation event for older recurring orders.
+    # Their contract confirmation is the source of truth for packed quantity,
+    # readiness and who marked this occurrence ready.
+    if (
+        not previous_history
+        and str(o.get("status") or "") == ORDER_READY_FOR_PICKUP
+        and o.get("contractId")
+        and o.get("scheduledDeliveryDate")
+    ):
+        try:
+            contract_oid = ObjectId(str(o.get("contractId")))
+        except Exception:
+            contract_oid = None
+        if contract_oid:
+            contract = await contract_repo.find_one({"_id": contract_oid, "deletedAt": None})
+            confirmations = (contract or {}).get("deliveryConfirmations") or {}
+            key = str(o.get("scheduledDeliveryDate"))[:10]
+            confirmation = confirmations.get(key) if isinstance(confirmations, dict) else None
+            if isinstance(confirmation, dict) and confirmation.get("readyForPickup") is True:
+                o["statusHistory"] = _build_recurring_ready_history(o, confirmation)
+
     _ensure_b2b_order_activity_history(o)
+    if (
+        str(o.get("status") or "") != str(previous_status or "")
+        or str(o.get("qualityCheck") or "") != str(previous_quality_check or "")
+        or o.get("statusHistory") != previous_history
+    ):
+        await order_repo.update({"_id": o["_id"]}, {
+            "status": o.get("status"),
+            "qualityCheck": o.get("qualityCheck"),
+            "statusHistory": o.get("statusHistory") or [],
+            "updatedAt": o.get("updatedAt") or datetime.utcnow(),
+        })
     o["id"] = str(o["_id"])
     o["farmerId"] = str(o.get("farmerId"))
     if o.get("businessUserId"):
@@ -2550,6 +2792,15 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
             if order.get(key) is not None:
                 order[key] = str(order[key])
 
+    # A legacy order corrected from Ready for Pickup back to Confirmed
+    # must not remain visible in an actionable warehouse queue.
+    orders = [
+        order for order in orders
+        if str(order.get("status") or "") in statuses
+        or str(order.get("warehouseCollectionStatus") or "").lower() in ("collected", "departed_farm", "arrived_warehouse", "warehouse_arrived")
+        or str(order.get("warehouseFulfillmentStage") or "").lower() in ("collected", "collection_departed", "warehouse_arrived")
+    ]
+
     # Warehouse queue ownership is stage-based. Farm pickup is district-scoped:
     # only the warehouse in the farmer's registered district can claim it.
     # Once a source warehouse owns the order, its ID controls processing; transfer
@@ -2595,6 +2846,8 @@ async def list_b2b_warehouse_fulfillment(current_user: dict = Depends(get_curren
         if not pickup_id or pickup_id in existing_order_ids:
             continue
         await _enrich_order(pickup_order)
+        if pickup_order.get("status") != ORDER_READY_FOR_PICKUP:
+            continue
         pickup_order["id"] = pickup_id
         pickup_order["b2bFarmerCount"] = 1
         for key in ("_id", "businessUserId", "farmerId", "rfqId", "offerId", "sourceWarehouseId", "destinationWarehouseId", "pickupAssignedBy", "warehouseReceivedBy", "destinationReceivedBy", "finalDeliveryAssignedBy", "deliveredBy"):
@@ -3694,7 +3947,15 @@ async def update_b2b_warehouse_fulfillment(
     order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
     if not order:
         raise HTTPException(status_code=404, detail="B2B order not found")
+    original_stage = order.get("status")
     _ensure_b2b_order_activity_history(order)
+    if order.get("status") != original_stage:
+        await order_repo.update({"_id": order["_id"]}, {
+            "status": order.get("status"),
+            "qualityCheck": order.get("qualityCheck"),
+            "statusHistory": order.get("statusHistory") or [],
+            "updatedAt": order.get("updatedAt") or datetime.utcnow(),
+        })
     current = order.get("status")
     update: Dict[str, Any] = {"updatedAt": datetime.utcnow()}
     action = data.action
@@ -5919,6 +6180,11 @@ async def confirm_contract_delivery_stock(
                 "productSubtotal": round(order_quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
                 "totalAmount": round(order_quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
                 "status": ORDER_READY_FOR_PICKUP,
+                # This explicit farmer confirmation includes actual available and
+                # packed quantities plus a ready-for-pickup decision for the occurrence.
+                "statusHistory": _build_recurring_ready_history(
+                    order, record, farmer_id=str(current_user.get("_id") or "")
+                ),
                 "paymentStatus": PAYMENT_PENDING,
                 "deliveryMethod": "dedicated_transport",
                 "startedAt": datetime.utcnow(),
@@ -6887,6 +7153,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                     "productSubtotal": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
                     "totalAmount": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
                     "status": ORDER_READY_FOR_PICKUP,
+                    "statusHistory": _build_recurring_ready_history(order, occurrence_confirmation),
                     "paymentStatus": PAYMENT_PENDING,
                     "deliveryMethod": "dedicated_transport",
                     "farmerPrepareBy": order.get("farmerPrepareBy") or datetime.combine(occurrence_day - timedelta(days=1), datetime.min.time()).replace(hour=16),
@@ -7019,6 +7286,7 @@ async def generate_due_supply_orders(current_user: dict = Depends(get_current_us
                 "productSubtotal": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0), 2),
                 "totalAmount": round(quantity * float(contract.get("pricePerKg") or offer.get("pricePerKg") or 0) + float(order.get("deliveryCharge") or 0) + float(order.get("taxAmount") or 0) + float(order.get("otherCharges") or 0), 2),
                 "status": ORDER_READY_FOR_PICKUP,
+                "statusHistory": _build_recurring_ready_history(order, confirmation),
                 "paymentStatus": PAYMENT_PENDING,
                 "deliveryMethod": "dedicated_transport",
                 "startedAt": now,
