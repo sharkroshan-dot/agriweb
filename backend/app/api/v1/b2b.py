@@ -779,7 +779,14 @@ def _build_recurring_ready_history(
         })
     if not any(
         isinstance(event, dict)
-        and event.get("action") in {"farmer_confirmed_ready_for_pickup", "ready_for_pickup"}
+        and event.get("isDerived") is not True
+        and (
+            event.get("action") == "farmer_confirmed_ready_for_pickup"
+            or (
+                event.get("action") == "ready_for_pickup"
+                and str(event.get("actorRole") or "").lower() == "farmer"
+            )
+        )
         for event in history
     ):
         packed = float(confirmation.get("packedQuantityKg") or order.get("packedQuantityKg") or order.get("quantityKg") or 0)
@@ -807,8 +814,23 @@ def _build_recurring_ready_history(
 
 
 def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Ensure the timeline contains order creation and the stored current stage."""
+    """Ensure the timeline contains every milestone supported by saved evidence."""
     _reconcile_legacy_one_off_ready_order(order)
+
+    def has_stage_event(stage: str) -> bool:
+        for event in history:
+            if not isinstance(event, dict):
+                continue
+            action = str(event.get("action") or "").strip().lower()
+            event_type = str(event.get("eventType") or "").strip().lower()
+            event_status = str(event.get("status") or "").strip().lower()
+            if action == stage or event_type == stage:
+                return True
+            # A tracking event's status is only a snapshot of the order stage
+            # at that moment. It is not itself the stage transition.
+            if event_status == stage and not event_type:
+                return True
+        return False
     history = order.get("statusHistory")
     if not isinstance(history, list):
         history = []
@@ -816,7 +838,13 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
     created_at = order.get("createdAt") or order.get("startedAt") or order.get("updatedAt")
     if not any(
         isinstance(event, dict)
-        and (event.get("action") == "order_created" or str(event.get("status") or "") == ORDER_CONFIRMED)
+        and (
+            event.get("action") == "order_created"
+            or (
+                str(event.get("status") or "").lower() == ORDER_CONFIRMED
+                and not event.get("eventType")
+            )
+        )
         for event in history
     ):
         history.insert(0, {
@@ -831,14 +859,46 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
         })
 
     current_status = str(order.get("status") or "")
+    is_recurring_occurrence = bool(order.get("contractId") and order.get("scheduledDeliveryDate"))
+    current_stage_index = ORDER_FLOW.index(current_status) if current_status in ORDER_FLOW else -1
+    packed_quantity = float(order.get("packedQuantityKg") or 0)
+
+    # For one-off orders, packed quantity is persisted when farmer preparation
+    # is completed and the order moves into quality_check. When an older record
+    # lost the matching timeline event, recover only that evidenced milestone.
     if (
-        current_status == ORDER_READY_FOR_PICKUP
+        not is_recurring_occurrence
+        and current_stage_index >= ORDER_FLOW.index(ORDER_QUALITY_CHECK)
+        and packed_quantity > 0
+        and not has_stage_event(ORDER_PREPARING)
+    ):
+        history.append({
+            "status": ORDER_PREPARING,
+            "previousStatus": ORDER_CONFIRMED,
+            "action": ORDER_PREPARING,
+            "actorRole": "farmer",
+            "actorId": str(order.get("farmerId") or ""),
+            "details": (
+                f"The saved packed quantity ({packed_quantity:g} kg) confirms that farmer preparation was completed. "
+                "The original preparation activity event is unavailable in this legacy record."
+            ),
+            "timestamp": (
+                order.get("preparationStartedAt")
+                or order.get("preparingAt")
+                or order.get("preparedAt")
+                or order.get("qualityCheckedAt")
+                or order.get("readyForPickupAt")
+                or order.get("updatedAt")
+                or created_at
+            ),
+            "isDerived": True,
+        })
+
+    if (
+        not is_recurring_occurrence
+        and current_stage_index >= ORDER_FLOW.index(ORDER_READY_FOR_PICKUP)
         and str(order.get("qualityCheck") or "").lower() == "passed"
-        and not any(
-            isinstance(event, dict)
-            and str(event.get("status") or "").lower() == ORDER_QUALITY_CHECK
-            for event in history
-        )
+        and not has_stage_event(ORDER_QUALITY_CHECK)
     ):
         history.append({
             "status": ORDER_QUALITY_CHECK,
@@ -2140,7 +2200,14 @@ async def _enrich_order(o: Dict[str, Any]) -> None:
     # packed quantity, available stock, readiness, actor and timestamp.
     has_recurring_ready_event = any(
         isinstance(event, dict)
-        and event.get("action") in {"farmer_confirmed_ready_for_pickup", "ready_for_pickup"}
+        and event.get("isDerived") is not True
+        and (
+            event.get("action") == "farmer_confirmed_ready_for_pickup"
+            or (
+                event.get("action") == "ready_for_pickup"
+                and str(event.get("actorRole") or "").lower() == "farmer"
+            )
+        )
         for event in previous_history
     )
     if (
