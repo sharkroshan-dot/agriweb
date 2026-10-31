@@ -658,10 +658,15 @@ def _reconcile_legacy_one_off_ready_order(order: Dict[str, Any], *, now: Optiona
         order["qualityCheck"] = "passed"
         return False
     if any(order.get(key) for key in (
-        "pickupTeam", "pickedUpAt", "warehouseReceivedAt",
+        "pickupTeam", "pickupAssignedAt", "pickupAssignment",
+        "pickedUpAt", "warehouseReceivedAt",
         "warehouseCollectionStatus", "warehouseFulfillmentStage",
         "destinationReceivedAt", "deliveredAt",
-    )):
+    )) or any(
+        isinstance(event, dict)
+        and str(event.get("eventType") or "").strip().lower().startswith(("collection_", "pickup_"))
+        for event in (order.get("statusHistory") or [])
+    ):
         return False
     if any(
         isinstance(event, dict)
