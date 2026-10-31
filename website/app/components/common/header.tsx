@@ -156,7 +156,7 @@ export function Header() {
                   <span className="agri-header-avatar agri-header-avatar--fallback" aria-hidden="true">
                     {userLabel.charAt(0).toUpperCase()}
                   </span>
-                </DropdownMenuTrigger>downMenuTrigger>
+                </DropdownMenuTrigger>
 
                 <DropdownMenuContent align="end" className="min-w-56">
                   <DropdownMenuLabel>
