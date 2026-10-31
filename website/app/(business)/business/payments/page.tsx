@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { formatPrice } from "../../../lib/utils";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
+import toast from "react-hot-toast";
 
 const statusVariant: Record<string, any> = {
   paid: "success",
