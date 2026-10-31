@@ -1,0 +1,376 @@
+/*
+ * AgriConnect all-page experience system.
+ * Imported after the legacy and role-experience layers so all authenticated
+ * role routes share the same polished, responsive page primitives.
+ *
+ * This stylesheet is intentionally presentation-only. It does not change
+ * workflow state, API data, permissions, validation or business rules.
+ */
+
+:root {
+  --agri-page-ink: #10251f;
+  --agri-page-muted: #64756e;
+  --agri-page-border: #e3ebe6;
+  --agri-page-surface: #ffffff;
+  --agri-page-canvas: #f6f9f7;
+  --agri-page-radius: 16px;
+  --agri-page-radius-sm: 11px;
+  --agri-page-shadow: 0 2px 7px rgba(16, 37, 31, 0.045), 0 12px 28px rgba(16, 37, 31, 0.025);
+  --agri-page-focus: rgba(8, 127, 91, 0.2);
+}
+
+/* Explicit workspace identity: shared structure, subtle role accents. */
+.role-workspace {
+  --agri-role-accent: #087f5b;
+  --agri-role-accent-soft: #effaf4;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--agri-page-ink);
+  isolation: isolate;
+}
+
+.role-customer {
+  --agri-role-accent: #087f5b;
+  --agri-role-accent-soft: #effaf4;
+}
+
+.role-farmer {
+  --agri-role-accent: #177245;
+  --agri-role-accent-soft: #eff9f1;
+}
+
+.role-business {
+  --agri-role-accent: #2563a6;
+  --agri-role-accent-soft: #eff6ff;
+}
+
+.role-warehouse {
+  --agri-role-accent: #087f77;
+  --agri-role-accent-soft: #effaf9;
+}
+
+.role-delivery {
+  --agri-role-accent: #315fa8;
+  --agri-role-accent-soft: #eff5ff;
+}
+
+.role-admin {
+  --agri-role-accent: #475569;
+  --agri-role-accent-soft: #f1f5f9;
+}
+
+.site-main,
+.site-content,
+.role-workspace,
+.role-workspace :is(.grid, .flex, [class*="grid-cols-"]) > * {
+  min-width: 0;
+}
+
+.role-workspace :is(img, video, canvas, svg) {
+  max-width: 100%;
+}
+
+.role-workspace :is(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+.role-workspace h1 {
+  color: var(--agri-page-ink);
+  font-size: clamp(1.55rem, 2.05vw, 2.05rem);
+  font-weight: 780;
+  line-height: 1.17;
+  letter-spacing: -0.038em;
+}
+
+.role-workspace h2 {
+  color: var(--agri-page-ink);
+  font-size: clamp(1.02rem, 1.3vw, 1.2rem);
+  font-weight: 740;
+  line-height: 1.32;
+  letter-spacing: -0.022em;
+}
+
+.role-workspace h3 {
+  color: #243b33;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.role-workspace :is(p, li) {
+  text-wrap: pretty;
+}
+
+.role-workspace :is(small, .text-xs) {
+  line-height: 1.45;
+}
+
+/* Standardize the opening title area used across existing legacy pages. */
+.role-workspace > :is(.space-y-4, .space-y-5, .space-y-6, .space-y-7, .space-y-8) > :first-child h1,
+.role-workspace > :is(.space-y-4, .space-y-5, .space-y-6, .space-y-7, .space-y-8) > :first-child > h1,
+.role-workspace > :is(.space-y-4, .space-y-5, .space-y-6, .space-y-7, .space-y-8) > :first-child > div:first-child h1 {
+  margin: 0;
+  font-size: clamp(1.55rem, 2.05vw, 2.05rem);
+  font-weight: 780;
+  line-height: 1.17;
+  letter-spacing: -0.038em;
+}
+
+/* Reusable card surfaces. Avoid touching semantic status or alert containers. */
+.role-workspace :is(
+  .ui-card,
+  .ag-panel,
+  .ag-kpi,
+  [data-slot="card"]
+) {
+  min-width: 0;
+  border-color: var(--agri-page-border);
+  border-radius: var(--agri-page-radius);
+  background: var(--agri-page-surface);
+  box-shadow: var(--agri-page-shadow);
+}
+
+.role-workspace :is(.ui-card, .ag-panel, [data-slot="card"]):hover {
+  border-color: #d4e4da;
+}
+
+.role-workspace .ag-kpi {
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.role-workspace .ag-kpi:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 16px rgba(16, 37, 31, 0.065);
+}
+
+.role-workspace :is(.card, [class~="rounded-xl"][class~="border"][class~="bg-white"], [class~="rounded-2xl"][class~="border"][class~="bg-white"]) {
+  min-width: 0;
+}
+
+/* Data tables: calmer headers, consistent row rhythm and scroll-safe wrappers. */
+.role-workspace :is(.ag-table-wrap, .overflow-x-auto, [data-table-scroll]) {
+  width: 100%;
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd8d0 transparent;
+}
+
+.role-workspace table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.role-workspace :is(th, [role="columnheader"]) {
+  color: #53655d;
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.role-workspace :is(td, th) {
+  vertical-align: middle;
+}
+
+.role-workspace tbody tr:not([data-status]):hover {
+  background-color: #f8fbf9;
+}
+
+.role-workspace tbody tr:last-child td {
+  border-bottom-color: transparent;
+}
+
+/* Forms: reliable spacing, readable labels and visible keyboard focus. */
+.role-workspace :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+  max-width: 100%;
+  min-width: 0;
+  border-radius: 0.75rem;
+}
+
+.role-workspace :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus-visible {
+  outline: 3px solid var(--agri-page-focus);
+  outline-offset: 1px;
+}
+
+.role-workspace textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.role-workspace label {
+  color: #33483f;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.role-workspace :is(input, select, textarea)::placeholder {
+  color: #94a39b;
+  opacity: 1;
+}
+
+.role-workspace :is(fieldset, .form-section, [data-form-section]) {
+  min-width: 0;
+}
+
+/* Keep action controls predictable without overriding compact icon/link buttons. */
+.role-workspace :is(button, [role="button"], input[type="submit"]) {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.role-workspace button:focus-visible,
+.role-workspace a:focus-visible,
+.role-workspace [role="button"]:focus-visible {
+  outline: 3px solid var(--agri-page-focus);
+  outline-offset: 2px;
+}
+
+.role-workspace :is([role="tab"], [role="option"], [role="menuitem"]) {
+  min-width: 0;
+}
+
+/* Standardized page toolbars and filters. */
+.role-workspace :is(.ag-toolbar, .page-toolbar, [data-page-toolbar]) {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid var(--agri-page-border);
+  border-radius: var(--agri-page-radius);
+  background: #fff;
+  padding: 0.85rem 1rem;
+}
+
+.role-workspace :is(.ag-filter-row, [data-filter-row]) {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Useful empty/loading/error states without inventing data. */
+.role-workspace :is(.ag-empty-state, .empty-state, [data-empty-state]) {
+  min-width: 0;
+  border-radius: var(--agri-page-radius);
+}
+
+.role-workspace :is(.ag-empty-title, .empty-state h2, .empty-state h3) {
+  color: var(--agri-page-ink);
+  font-weight: 750;
+}
+
+.role-workspace :is(.ag-empty-description, .empty-state p) {
+  color: var(--agri-page-muted);
+  line-height: 1.55;
+}
+
+.role-workspace :is(.animate-pulse, [data-loading="true"]) {
+  animation-duration: 1.5s;
+}
+
+/* Responsive dashboard grids account for the permanent role sidebar. */
+@media (min-width: 768px) and (max-width: 1439px) {
+  .role-workspace :is(
+    [class~="lg:grid-cols-3"],
+    [class~="lg:grid-cols-4"],
+    [class~="xl:grid-cols-3"],
+    [class~="xl:grid-cols-4"],
+    [class~="2xl:grid-cols-4"]
+  ) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .role-workspace :is([class~="lg:col-span-2"], [class~="xl:col-span-2"]) {
+    grid-column: span 2 / span 2;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .role-workspace :is(
+    [class~="md:grid-cols-3"],
+    [class~="md:grid-cols-4"],
+    [class~="lg:grid-cols-3"],
+    [class~="lg:grid-cols-4"],
+    [class~="xl:grid-cols-3"],
+    [class~="xl:grid-cols-4"]
+  ) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .site-main {
+    padding-inline: 0.75rem;
+  }
+
+  .role-workspace {
+    padding-bottom: 1.25rem;
+  }
+
+  .role-workspace :is(
+    .ag-page-header,
+    .ag-toolbar,
+    .page-toolbar,
+    [data-page-toolbar]
+  ) {
+    align-items: stretch;
+  }
+
+  .role-workspace :is(.flex.items-center.justify-between, .flex.justify-between) {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .role-workspace [class~="sm:grid-cols-2"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .role-workspace :is(.ag-table-wrap, .overflow-x-auto, [data-table-scroll]) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .role-workspace table {
+    min-width: 600px;
+  }
+
+  .role-workspace :is(.ag-toolbar, .page-toolbar, [data-page-toolbar]) {
+    padding: 0.75rem;
+  }
+
+  .role-workspace :is(button, [role="button"]) {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 479px) {
+  .role-workspace h1 {
+    font-size: 1.45rem;
+  }
+
+  .role-workspace h2 {
+    font-size: 1rem;
+  }
+
+  .role-workspace :is(.ag-filter-row, [data-filter-row]) > * {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .role-workspace *,
+  .role-workspace *::before,
+  .role-workspace *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
