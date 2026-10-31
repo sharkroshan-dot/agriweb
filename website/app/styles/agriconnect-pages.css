@@ -1100,3 +1100,84 @@
     padding-inline: .55rem;
   }
 }
+
+
+/* Final shared-header fixes requested from live dashboard QA:
+   - no floating Back control in the site header;
+   - avatar-only account trigger (first initial);
+   - real content clearance below the fixed 64px navigation. */
+.agri-header-back {
+  display: none !important;
+}
+
+.agri-header-profile-trigger {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  justify-content: center;
+  padding: 1px;
+  border: 1px solid #dcebe1;
+  border-radius: 50%;
+  background: #f4faf6;
+  box-shadow: 0 1px 3px rgba(16,37,31,.05);
+}
+
+.agri-header-profile-trigger:hover,
+.agri-header-profile-trigger[data-state="open"] {
+  border-color: #a9d7ba;
+  background: #eaf7ee;
+  box-shadow: 0 0 0 3px rgba(8,127,91,.08);
+}
+
+.agri-header-avatar,
+.agri-header-avatar--fallback {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(145deg,#d8f2e2,#b7e4c8);
+  color: #076246;
+  font-size: .9rem;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.agri-site-header-actions {
+  gap: .55rem;
+}
+
+/* The header is fixed and removed from normal document flow. Offset every
+   role workspace so its first card/guide never sits underneath navigation. */
+.site-main {
+  padding-top: 84px !important;
+}
+
+@media (max-width: 767px) {
+  .agri-header-profile-trigger {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .agri-header-avatar,
+  .agri-header-avatar--fallback {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+  }
+
+  .site-main {
+    padding-top: 78px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agri-header-profile-trigger {
+    transition: none;
+  }
+}

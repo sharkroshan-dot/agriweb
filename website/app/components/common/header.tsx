@@ -11,9 +11,7 @@ import {
   Settings,
   Heart,
   ShoppingCart,
-  ArrowLeft,
   Search,
-  ChevronDown,
 } from "lucide-react";
 import { useWishlist } from "../../lib/hooks/use-wishlist";
 import { useCartStore } from "../../lib/store/cart-store";
@@ -48,7 +46,6 @@ export function Header() {
   const { data: session } = useSession();
   const pathname = usePathname();
   const router = useRouter();
-  const [liveAvatar, setLiveAvatar] = useState<string | null | undefined>(undefined);
   const [globalSearch, setGlobalSearch] = useState("");
 
   const role = (session?.user as any)?.role as string | undefined;
@@ -61,25 +58,11 @@ export function Header() {
     s.items.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0)
   );
 
-  const handleBack = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
-      return;
-    }
-    router.push(session?.user ? dashboardHref : "/");
-  };
-
   const handleProductSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const query = globalSearch.trim();
     router.push(query ? `/search?q=${encodeURIComponent(query)}` : "/search");
   };
-
-  useEffect(() => {
-    const handler = (event: CustomEvent) => setLiveAvatar(event.detail);
-    window.addEventListener("avatar-updated" as any, handler as any);
-    return () => window.removeEventListener("avatar-updated" as any, handler as any);
-  }, []);
 
   useEffect(() => {
     const syncSearchFromUrl = () => {
@@ -92,8 +75,6 @@ export function Header() {
     return () => window.removeEventListener("popstate", syncSearchFromUrl);
   }, [pathname]);
 
-  const avatarSrc = liveAvatar ?? session?.user?.image;
-  const showBackButton = pathname !== "/";
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname?.startsWith(`${href}/`);
 
@@ -101,18 +82,6 @@ export function Header() {
     <header className="agri-site-header" data-role={role || "guest"}>
       <div className={`agri-site-header-inner${canSearchProducts ? " has-product-search" : ""}`}>
         <div className="agri-site-header-leading">
-          {showBackButton && (
-            <button
-              type="button"
-              onClick={handleBack}
-              aria-label="Go back to the previous page"
-              title="Go back"
-              className="agri-header-back"
-            >
-              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            </button>
-          )}
-
           <Link href="/" className="agri-header-brand" aria-label="AgriConnect home">
             <span className="agri-header-brand-mark" aria-hidden="true">A</span>
             <span className="agri-header-brand-copy">
@@ -183,20 +152,11 @@ export function Header() {
               <div className="agri-header-utility"><NotificationBell /></div>
 
               <DropdownMenu>
-                <DropdownMenuTrigger className="agri-header-profile-trigger" aria-label="Open account menu">
-                  {avatarSrc ? (
-                    <img src={avatarSrc} alt="" className="agri-header-avatar" />
-                  ) : (
-                    <span className="agri-header-avatar agri-header-avatar--fallback">
-                      {userLabel.charAt(0).toUpperCase()}
-                    </span>
-                  )}
-                  <span className="agri-header-profile-copy">
-                    <span className="agri-header-profile-name">{userLabel}</span>
-                    <span className="agri-header-profile-role">{roleLabel || "Account"}</span>
+                <DropdownMenuTrigger className="agri-header-profile-trigger" aria-label={`Open ${roleLabel || "account"} menu for ${userLabel}`} title={userLabel}>
+                  <span className="agri-header-avatar agri-header-avatar--fallback" aria-hidden="true">
+                    {userLabel.charAt(0).toUpperCase()}
                   </span>
-                  <ChevronDown className="agri-header-profile-chevron h-4 w-4" aria-hidden="true" />
-                </DropdownMenuTrigger>
+                </DropdownMenuTrigger>downMenuTrigger>
 
                 <DropdownMenuContent align="end" className="min-w-56">
                   <DropdownMenuLabel>
