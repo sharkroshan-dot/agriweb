@@ -934,3 +934,169 @@
     transition: none;
   }
 }
+
+
+/* Header spacing refinement — reserve room for the brand and keep the
+   navigation, search field and account actions visually distinct. */
+.agri-site-header-inner.has-product-search {
+  grid-template-columns:
+    minmax(245px, 270px)
+    minmax(300px, 350px)
+    minmax(320px, 440px)
+    auto;
+  justify-content: space-between;
+  gap: clamp(12px, 1.15vw, 18px);
+}
+
+.agri-site-header-leading,
+.agri-header-brand {
+  min-width: 0;
+}
+
+.agri-header-brand {
+  gap: .7rem;
+  max-width: 100%;
+}
+
+.agri-header-brand-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.agri-header-brand-name,
+.agri-header-brand-tagline {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agri-header-brand-tagline {
+  font-size: .55rem;
+  letter-spacing: .075em;
+}
+
+.agri-header-navigation {
+  width: 100%;
+  min-width: 0;
+  justify-content: space-between;
+  gap: .1rem;
+}
+
+.agri-header-nav-link {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding-inline: clamp(.45rem, .75vw, .78rem);
+  font-size: .76rem;
+}
+
+.agri-header-search-form {
+  width: 100%;
+  max-width: 440px;
+  justify-self: end;
+  height: 42px;
+  gap: .6rem;
+  padding: 4px 5px 4px 13px;
+  border-color: #d8e6dd;
+  background: #fff;
+}
+
+.agri-header-search-form input {
+  font-size: .8rem;
+}
+
+.agri-header-search-form button {
+  min-width: 82px;
+  height: 32px;
+  font-size: .73rem;
+}
+
+.agri-site-header-actions {
+  min-width: max-content;
+  gap: .5rem;
+}
+
+.agri-header-sign-in {
+  min-width: 82px;
+  min-height: 38px;
+  border-radius: 10px;
+}
+
+@media (min-width: 1200px) and (max-width: 1499px) {
+  .agri-site-header-inner.has-product-search {
+    grid-template-columns:
+      minmax(220px, 245px)
+      minmax(270px, 320px)
+      minmax(280px, 380px)
+      auto;
+    gap: clamp(10px, .9vw, 14px);
+  }
+
+  .agri-header-nav-link {
+    padding-inline: .48rem;
+    font-size: .73rem;
+  }
+
+  .agri-header-search-form {
+    max-width: 380px;
+  }
+}
+
+@media (max-width: 1199px) {
+  .agri-site-header-inner.has-product-search {
+    grid-template-columns: minmax(190px, 1fr) minmax(260px, 390px) auto;
+    gap: clamp(10px, 1.4vw, 18px);
+  }
+
+  .agri-header-brand-tagline {
+    font-size: .53rem;
+  }
+
+  .agri-header-search-form {
+    max-width: 390px;
+  }
+}
+
+@media (max-width: 767px) {
+  .agri-site-header-inner.has-product-search {
+    grid-template-columns: minmax(0, 1fr) 36px auto;
+    gap: .45rem;
+  }
+
+  .agri-header-brand {
+    max-width: 100%;
+  }
+
+  .agri-header-search-form {
+    width: 36px;
+    max-width: 36px;
+    height: 36px;
+    justify-self: center;
+    border-color: #dce9e0;
+    background: #f8fbf9;
+  }
+
+  .agri-header-sign-in {
+    min-width: 70px;
+  }
+}
+
+@media (max-width: 380px) {
+  .agri-site-header-inner.has-product-search {
+    grid-template-columns: minmax(0, 1fr) 32px auto;
+    gap: .25rem;
+  }
+
+  .agri-header-brand {
+    gap: .35rem;
+  }
+
+  .agri-header-brand-name {
+    font-size: .78rem;
+  }
+
+  .agri-header-sign-in {
+    min-width: 62px;
+    padding-inline: .55rem;
+  }
+}
