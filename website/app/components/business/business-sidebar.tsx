@@ -32,7 +32,6 @@ const navGroups = [
     items: [
       { name: "Create RFQ", href: "/business/rfqs/new", icon: PlusCircle },
       { name: "My RFQs", href: "/business/rfqs", icon: FileText },
-      { name: "Farmer Quotes", href: "/business/quotes", icon: MessagesSquare },
       { name: "Messages", href: "/business/messages", icon: MessagesSquare },
       { name: "Supply Contracts", href: "/business/contracts", icon: FileSignature },
     ],

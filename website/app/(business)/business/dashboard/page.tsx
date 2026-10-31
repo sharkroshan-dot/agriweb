@@ -123,7 +123,7 @@ export default function BusinessDashboard() {
 
       <div className="business-task-banner flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div><p className="font-semibold text-blue-950">Procurement command centre</p><p className="text-sm text-blue-900">Review open quotes, confirm upcoming delivery dates and resolve supply risks before they become missed orders.</p></div>
-        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/business/quotes">Compare quotes</Link></Button><Button asChild size="sm" variant="outline"><Link href="/business/orders">Track orders</Link></Button></div>
+        <div className="flex flex-wrap gap-2"><Button asChild size="sm" variant="outline"><Link href="/business/rfqs">Review RFQ quotes</Link></Button><Button asChild size="sm" variant="outline"><Link href="/business/orders">Track orders</Link></Button></div>
       </div>
 
       <section className="space-y-3">
