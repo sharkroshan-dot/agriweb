@@ -178,6 +178,7 @@ function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
                   <p className="text-xs font-medium text-gray-400">Seller</p>
                   <p className="font-medium">{inv.seller?.name || "—"}</p>
                   <p className="text-xs text-gray-500">{inv.seller?.city}{inv.seller?.rating ? ` · ★ ${Number(inv.seller.rating).toFixed(1)}` : ""}</p>
+                  {inv.seller?.gstin ? <p className="text-xs text-gray-500">GSTIN: {inv.seller.gstin}</p> : null}
                 </div>
               </div>
               <table className="mt-4 w-full text-sm">
@@ -210,7 +211,7 @@ function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
                 <div className="flex justify-between font-semibold text-amber-800"><span>Balance due</span><span>{formatPrice(inv.amountDue || 0)}</span></div>
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-                <span className="capitalize">Payment: {inv.paymentMode || "—"} · {inv.paymentStatus || "pending"}</span>
+                <span className="capitalize">Method: {inv.paymentMode || "—"} · Terms: {String(inv.paymentTerms || "—").replace(/_/g, " ")} · {inv.paymentStatus || "pending"}</span>
                 <span>Issued {inv.issuedAt ? new Date(inv.issuedAt).toLocaleString("en-IN") : "—"}</span>
                 <Button
                   size="sm"
