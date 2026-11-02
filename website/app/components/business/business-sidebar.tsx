@@ -17,6 +17,9 @@ import {
   BarChart3,
   Store,
   FileSignature,
+  MapPin,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { api } from "../../lib/api/client";
@@ -73,19 +76,52 @@ export function BusinessSidebar() {
     retry: false,
   });
 
-  const displayName = profileData?.data?.businessName || businessName;
+  const businessProfile = profileData?.data || {};
+  const displayName = businessProfile.businessName || businessName;
+  const businessTypeLabel = String(businessProfile.businessType || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const businessLocation = [businessProfile.city || businessProfile.district, businessProfile.state]
+    .filter(Boolean)
+    .join(", ");
+  const isVerified = businessProfile.isVerified === true;
 
   return (
     <aside className="role-sidebar hidden w-64 shrink-0 border-r border-slate-200/80 bg-white md:block">
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
-        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
-          <div className="flex min-w-0 items-start gap-3">
+        <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3.5 shadow-sm">
+          <div className="flex min-w-0 items-start gap-2.5">
             <span className="agri-header-avatar agri-header-avatar--fallback" aria-hidden="true">
               {userLabel.charAt(0).toUpperCase()}
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-900" title={displayName}>{displayName}</p>
-              <p className="mt-0.5 truncate text-[11px] text-slate-500">Procurement Console</p>
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className="truncate text-sm font-semibold leading-5 text-slate-900" title={displayName}>{displayName}</p>
+              <p className="mt-0.5 text-[11px] font-medium text-slate-500">Procurement Console</p>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-2 border-t border-emerald-100 pt-3">
+            {businessTypeLabel ? (
+              <p className="text-xs font-medium text-slate-700">{businessTypeLabel}</p>
+            ) : null}
+            {businessLocation ? (
+              <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-slate-600">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-emerald-700" />
+                <span className="truncate" title={businessLocation}>{businessLocation}</span>
+              </div>
+            ) : null}
+            <div className="flex items-center gap-1.5">
+              {isVerified ? (
+                <>
+                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-700" />
+                  <span className="text-[11px] font-semibold text-emerald-800">Verified Business</span>
+                </>
+              ) : (
+                <>
+                  <ShieldAlert className="h-3.5 w-3.5 text-amber-700" />
+                  <span className="text-[11px] font-semibold text-amber-800">Unverified Business</span>
+                </>
+              )}
             </div>
           </div>
         </div>
