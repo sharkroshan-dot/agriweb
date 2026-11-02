@@ -319,7 +319,7 @@ export default function BusinessRfqsPage() {
                     </div>
                     <div className="flex items-start gap-2">
                       <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-                      <div><p className="text-xs text-slate-500">Published payment terms</p><p className="text-sm font-semibold text-slate-800">{String(r.paymentTerms || (r.recurring ? "net_7" : "cod")).replace(/_/g, " ").replace(/^./, (v: string) => v.toUpperCase())}</p></div>
+                      <div><p className="text-xs text-slate-500">Published payment terms</p><p className="text-sm font-semibold text-slate-800">{r.paymentTerms ? String(r.paymentTerms).replace(/_/g, " ").replace(/^./, (v: string) => v.toUpperCase()) : "Not selected"}</p></div>
                     </div>
                   </div>
 
