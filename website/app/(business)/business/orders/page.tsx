@@ -91,151 +91,193 @@ function getPaidAmount(order: any) {
 }
 
 function StatusTimeline({ status }: { status: string }) {
-  const steps = [
-    { label: "Confirmed", index: 0 },
-    { label: "Farmer prep", index: 1 },
-    { label: "Farm pickup", index: 2 },
-    { label: "Warehouse", index: 3 },
-    { label: "Final delivery", index: 4 },
-    { label: "Delivered", index: 5 },
-    { label: "Completed", index: 6 },
+  // Restore the original detailed, one-marker-per-stage fulfillment tracker.
+  // The native title tooltip appears when the pointer hovers over each marker.
+  const flow = [
+    "confirmed",
+    "preparing",
+    "quality_check",
+    "ready_for_pickup",
+    "picked_up",
+    "warehouse_received",
+    "transfer_in_transit",
+    "destination_warehouse_received",
+    "in_transit",
+    "delivered",
+    "completed",
   ];
-  const stageIndex: Record<string, number> = {
-    confirmed: 0,
-    preparing: 1,
-    quality_check: 1,
-    ready_for_pickup: 1,
-    picked_up: 2,
-    warehouse_received: 3,
-    transfer_in_transit: 3,
-    destination_warehouse_received: 4,
-    dispatched: 4,
-    in_transit: 4,
-    delivered: 5,
-    completed: 6,
+  const labels: Record<string, string> = {
+    confirmed: "Order placed",
+    preparing: "Farmer preparing produce",
+    quality_check: "Quality inspection",
+    ready_for_pickup: "Ready for farm pickup",
+    picked_up: "Collected from farm",
+    warehouse_received: "Received at source warehouse",
+    transfer_in_transit: "Warehouse transfer in transit",
+    destination_warehouse_received: "Received at destination warehouse",
+    in_transit: "Final delivery to business",
+    delivered: "Delivered to business",
+    completed: "Business confirmed receipt — order completed",
   };
+  const descriptions: Record<string, string> = {
+    confirmed: "The business accepted the farmer quote and the order was created.",
+    preparing: "The farmer is preparing and packing the requested produce.",
+    quality_check: "The packed produce is being inspected for quality and quantity.",
+    ready_for_pickup: "The farmer confirmed that the produce is ready for collection.",
+    picked_up: "The pickup team collected the produce from the farm.",
+    warehouse_received: "The source warehouse received and checked the collected stock.",
+    transfer_in_transit: "The order is travelling from the source warehouse to the destination warehouse.",
+    destination_warehouse_received: "The destination warehouse received the transferred stock.",
+    in_transit: "The final delivery partner is taking the order to the business.",
+    delivered: "The order was handed over to the business.",
+    completed: "The business confirmed receipt and completed the order.",
+  };
+
   if (status === "cancelled") {
-    return <p className="text-xs font-medium text-red-600">This order was cancelled.</p>;
+    return <p className="text-xs font-medium text-red-600">Cancelled</p>;
   }
-  const current = stageIndex[status] ?? 0;
+
+  // "dispatched" is a legacy/API alias for the final delivery journey.
+  const normalizedStatus = status === "dispatched" ? "in_transit" : status;
+  const idx = flow.indexOf(normalizedStatus);
+
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-1.5" aria-label={"Order progress: " + (STATUS_LABELS[status] || status)}>
-        {steps.map((step, index) => (
-          <div key={step.label} className="flex min-w-0 flex-1 items-center">
-            <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + (index < current ? "bg-emerald-500" : index === current ? "bg-emerald-700 ring-4 ring-emerald-100" : "bg-slate-200")} />
-            {index < steps.length - 1 ? <span className={"h-0.5 min-w-1 flex-1 " + (index < current ? "bg-emerald-500" : "bg-slate-200")} /> : null}
-          </div>
-        ))}
+    <div className="space-y-1.5">
+      <div
+        className="flex items-center gap-1"
+        aria-label={"Order progress: " + (labels[normalizedStatus] || status)}
+      >
+        {flow.map((stage, index) => {
+          const reached = idx >= 0 && index <= idx;
+          const current = idx >= 0 && index === idx;
+          const tooltip = labels[stage] + ". " + descriptions[stage];
+          return (
+            <div key={stage} className="flex min-w-0 flex-1 items-center">
+              <span
+                role="img"
+                aria-label={tooltip}
+                title={tooltip}
+                className={
+                  "h-2.5 w-2.5 shrink-0 cursor-help rounded-full transition-shadow hover:ring-4 hover:ring-emerald-100 " +
+                  (reached
+                    ? current
+                      ? "bg-emerald-600 ring-2 ring-emerald-200"
+                      : "bg-emerald-500"
+                    : "bg-gray-200")
+                }
+              />
+              {index < flow.length - 1 && (
+                <span
+                  aria-hidden="true"
+                  className={
+                    "h-0.5 min-w-1 flex-1 " +
+                    (idx >= 0 && index < idx ? "bg-emerald-500" : "bg-gray-200")
+                  }
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-semibold text-slate-700">Current stage: {STATUS_LABELS[status] || String(status || "Unknown").replace(/_/g, " ")}</p>
-        <p className="text-[11px] text-slate-400">{steps[current]?.label || "Order progress"}</p>
-      </div>
+      <p className="text-xs font-medium text-slate-600">
+        Current stage: {labels[normalizedStatus] || String(status || "Unknown").replace(/_/g, " ")}
+      </p>
     </div>
   );
 }
 
-function DetailValue({ label, value, icon: Icon }: { label: string; value: any; icon?: any }) {
-  return (
-    <div className="min-w-0 rounded-xl border border-slate-200 bg-white px-3.5 py-3">
-      <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-        {Icon ? <Icon className="h-3.5 w-3.5" /> : null}{label}
-      </p>
-      <p className="mt-1 break-words text-sm font-medium text-slate-800">{value || "Not available"}</p>
-    </div>
-  );
-}
 function OrderActivityTimeline({ order }: { order: any }) {
-  // B2B status transitions use action/details. Shared pickup and warehouse
-  // tracking uses eventType/title/description. Both are stored in statusHistory.
-  const rawEvents = Array.isArray(order.statusHistory) ? order.statusHistory : [];
-  const label = (value: any) => String(value || "Order updated")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-  const timeValue = (event: any) => event.timestamp || event.createdAt || event.updatedAt || null;
-  const events = rawEvents
-    .filter((event: any) => event && typeof event === "object")
-    .map((event: any, originalIndex: number) => ({ event, originalIndex }))
-    .sort((a: any, b: any) => {
-      const ta = timeValue(a.event) ? new Date(timeValue(a.event)).getTime() : Number.NaN;
-      const tb = timeValue(b.event) ? new Date(timeValue(b.event)).getTime() : Number.NaN;
-      if (Number.isFinite(ta) && Number.isFinite(tb)) return ta - tb || a.originalIndex - b.originalIndex;
-      if (Number.isFinite(ta)) return -1;
-      if (Number.isFinite(tb)) return 1;
-      return a.originalIndex - b.originalIndex;
-    });
-  const metadataLabels: Record<string, string> = {
-    packedQuantityKg: "Packed quantity",
-    availableQuantityKg: "Available stock",
-    collectedQuantityKg: "Collected quantity",
-    receivedQuantityKg: "Received quantity",
-    sourceWarehouseName: "Source warehouse",
-    destinationWarehouseName: "Destination warehouse",
-    warehouseName: "Warehouse",
-    routeNumber: "Route",
-    vehicleNumber: "Vehicle",
-    distanceKm: "Distance (km)",
-    scheduledDate: "Scheduled delivery",
-    deliveryDate: "Delivery date",
-  };
-  const metadataSummary = (metadata: any) => {
-    if (!metadata || typeof metadata !== "object") return [];
-    return Object.entries(metadata)
-      .filter(([key, value]) => metadataLabels[key] && value !== null && value !== undefined && value !== "")
-      .map(([key, value]) => `${metadataLabels[key]}: ${String(value)}`);
-  };
+  // Keep the original compact chronological activity timeline. The event
+  // fallbacks also support warehouse/pickup tracking events stored as
+  // title/description/eventType, as well as B2B action/details events.
+  const events = Array.isArray(order.statusHistory)
+    ? [...order.statusHistory]
+        .filter((event: any) => event && typeof event === "object")
+        .sort((a: any, b: any) => {
+          const ta = new Date(a.timestamp || a.createdAt || 0).getTime();
+          const tb = new Date(b.timestamp || b.createdAt || 0).getTime();
+          return ta - tb;
+        })
+    : [];
+
+  const label = (value: any) =>
+    String(value || "Order updated")
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase());
+
   return (
     <div className="rounded-lg border bg-slate-50 p-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-800">Order activity & fulfillment updates</p>
+        <p className="text-sm font-semibold text-slate-800">
+          Order activity & fulfillment updates
+        </p>
         <Badge variant="outline">{events.length} updates</Badge>
       </div>
       {events.length === 0 ? (
-        <p className="text-xs text-slate-500">No activity has been recorded for this order yet. Future farmer, pickup, warehouse, transfer and delivery actions will appear here.</p>
+        <p className="text-xs text-slate-500">
+          No additional fulfillment events recorded yet. This timeline will update
+          as farmers, pickup teams, warehouse staff, and delivery partners
+          process the order.
+        </p>
       ) : (
         <ol className="space-y-3">
-          {events.slice().reverse().map(({ event, originalIndex }: any) => {
-            const eventTimestamp = timeValue(event);
-            const parsedTime = eventTimestamp ? new Date(eventTimestamp) : null;
-            const rawTitle = event.title || event.action || event.eventType || event.status || event.orderStatus;
-            const title = event.isInvalidTransition
-              ? `Ignored invalid update: ${label(rawTitle)}`
-              : rawTitle;
-            const description = event.isInvalidTransition
-              ? (event.reconciliationNote || event.details || event.description || "This stale action was ignored because the order had already reached a terminal stage.")
-              : event.isInconsistentPreviousStatus
-                ? [event.details || event.description || event.note || event.message, event.previousStatusReconciliationNote].filter(Boolean).join(" ")
-                : (event.details || event.description || event.note || event.message);
-            const actor = event.actorRole || event.changedByName || event.actorName;
-            const metadata = metadataSummary(event.metadata);
-            return (
-              <li key={String(event._id || eventTimestamp || originalIndex) + "-" + originalIndex} className="flex gap-3">
-                <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <p className="text-sm font-medium text-slate-800">{label(title)}</p>
-                    <time className="text-xs text-slate-500">
-                      {parsedTime && Number.isFinite(parsedTime.getTime()) ? parsedTime.toLocaleString("en-IN") : "Time unavailable"}
-                    </time>
+          {events
+            .slice()
+            .reverse()
+            .map((event: any, index: number) => {
+              const timestamp = event.timestamp || event.createdAt;
+              const parsedTime = timestamp ? new Date(timestamp) : null;
+              const eventTitle =
+                event.isInvalidTransition
+                  ? "Ignored update: " + (event.title || event.action || event.eventType || event.status)
+                  : event.title || event.action || event.eventType || event.status;
+              const details =
+                event.isInvalidTransition
+                  ? event.reconciliationNote || event.details || event.description
+                  : event.details || event.description || event.note || event.message;
+
+              return (
+                <li
+                  key={String(timestamp || event._id || index) + "-" + index}
+                  className="flex gap-3"
+                >
+                  <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-600 ring-2 ring-emerald-100" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <p className="text-sm font-medium text-slate-800">
+                        {label(eventTitle)}
+                      </p>
+                      <time className="text-xs text-slate-500">
+                        {parsedTime && Number.isFinite(parsedTime.getTime())
+                          ? parsedTime.toLocaleString("en-IN")
+                          : "Time unavailable"}
+                      </time>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {event.isInvalidTransition
+                        ? "Lifecycle reconciliation · ignored"
+                        : event.actorRole
+                          ? label(event.actorRole)
+                          : "AgriConnect"}
+                      {event.status || event.orderStatus
+                        ? " · " + label(event.status || event.orderStatus)
+                        : ""}
+                    </p>
+                    {details ? (
+                      <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">
+                        {details}
+                      </p>
+                    ) : null}
                   </div>
-                  <p className="text-xs text-slate-500">
-                    {event.isInvalidTransition
-                      ? "Lifecycle reconciliation · ignored"
-                      : `${actor ? label(actor) : "AgriConnect"}${event.status || event.orderStatus ? " · " + label(event.status || event.orderStatus) : ""}${event.isInconsistentPreviousStatus ? " · Previous-stage label conflicts with event time" : event.previousStatus ? " · From " + label(event.previousStatus) : ""}`}
-                  </p>
-                  {description ? <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700">{description}</p> : null}
-                  {metadata.length ? <p className="mt-1 text-xs text-slate-500">{metadata.join(" · ")}</p> : null}
-                  {event.isDerived ? <p className="mt-1 text-[11px] text-amber-700">Reconstructed from saved order data; the original event was not retained.</p> : null}
-                </div>
-              </li>
-            );
-          })}
+                </li>
+              );
+            })}
         </ol>
       )}
     </div>
   );
 }
+
 function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ["b2b", "invoice", order.id],
