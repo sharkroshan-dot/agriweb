@@ -218,6 +218,7 @@ function QuoteForm({ rfq, onDone }: { rfq: any; onDone: () => void }) {
 function FarmerGoodsReceiptDisputeCard({ order }: { order: any }) {
   const queryClient = useQueryClient();
   const receipt = order.goodsReceipt || {};
+  const canRespond = String(receipt.status || "").toLowerCase() === "dispute_open";
   const [proposal, setProposal] = useState("replacement");
   const [notes, setNotes] = useState("");
   const [evidenceUrls, setEvidenceUrls] = useState("");
@@ -263,7 +264,7 @@ function FarmerGoodsReceiptDisputeCard({ order }: { order: any }) {
         ) : null}
         <div className="space-y-1">
           <label className="text-sm font-semibold text-slate-800">Your proposed resolution</label>
-          <select value={proposal} onChange={(event) => setProposal(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm">
+          <select disabled={!canRespond} value={proposal} onChange={(event) => setProposal(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm disabled:bg-slate-100 disabled:text-slate-500">
             <option value="replacement">Send replacement produce</option>
             <option value="credit_or_refund">Offer a credit / refund for business agreement</option>
             <option value="explanation">Provide an explanation or clarification</option>
@@ -272,21 +273,21 @@ function FarmerGoodsReceiptDisputeCard({ order }: { order: any }) {
         </div>
         <div className="space-y-1">
           <label className="text-sm font-semibold text-slate-800">Response details</label>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} maxLength={3000} placeholder="Explain what happened and how you propose to resolve the issue…" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+          <textarea disabled={!canRespond} value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} maxLength={3000} placeholder={canRespond ? "Explain what happened and how you propose to resolve the issue…" : "Your response has been sent. Waiting for the business to review it."} className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100" />
         </div>
         <div className="space-y-1">
           <label className="text-sm font-semibold text-slate-800">Supporting evidence links (optional)</label>
-          <textarea value={evidenceUrls} onChange={(event) => setEvidenceUrls(event.target.value)} rows={2} placeholder="One HTTP or HTTPS link per line" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+          <textarea disabled={!canRespond} value={evidenceUrls} onChange={(event) => setEvidenceUrls(event.target.value)} rows={2} placeholder="One HTTP or HTTPS link per line" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-100" />
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="max-w-md text-xs text-slate-500">Your response is sent to the buyer. It does not automatically change the order payment or invoice.</p>
-          <Button size="sm" disabled={!notes.trim() || responseMutation.isPending} onClick={() => responseMutation.mutate({
+          <Button size="sm" disabled={!canRespond || !notes.trim() || responseMutation.isPending} onClick={() => responseMutation.mutate({
             proposal,
             notes,
             evidenceUrls: evidenceUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
           })}>
             {responseMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            {responseMutation.isPending ? "Sending…" : receipt.farmerResponse ? "Update response" : "Send response"}
+            {responseMutation.isPending ? "Sending…" : canRespond ? "Send response" : "Response sent · awaiting buyer"}
           </Button>
         </div>
       </CardContent>
