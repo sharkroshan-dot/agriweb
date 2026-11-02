@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { PackagePlus, Package, AlertTriangle, Loader2, CheckCircle2, ChevronRight } from "lucide-react";
+import { PackagePlus, Package, AlertTriangle, Loader2, CheckCircle2, ChevronRight, Search, X } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { cn } from "../../../lib/utils";
@@ -31,6 +31,7 @@ export default function FarmerRestockPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [qty, setQty] = useState<Record<string, string>>({});
+  const [searchQuery, setSearchQuery] = useState("");
 
   const { data, isLoading } = useQuery({
     queryKey: ["farmerInventorySummary"],
@@ -48,6 +49,12 @@ export default function FarmerRestockPage() {
   const sortedItems = [...items].sort(
     (a, b) => Number(a.available_stock ?? a.total_stock ?? 0) - Number(b.available_stock ?? b.total_stock ?? 0)
   );
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const filteredItems = sortedItems.filter((item) => {
+    if (!normalizedSearch) return true;
+    return [item.product_name, item.product_id, item.product_slug]
+      .some((value) => String(value || "").toLocaleLowerCase().includes(normalizedSearch));
+  });
 
   const placeholderImage = "/images/placeholder-product.jpg";
 
@@ -114,12 +121,50 @@ export default function FarmerRestockPage() {
         </Card>
       ) : (
         <Card className="overflow-hidden border-slate-200 shadow-sm">
-          <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
-            <CardTitle className="text-lg font-semibold text-slate-900">Stock levels</CardTitle>
-            <CardDescription className="mt-1 text-sm text-slate-500">Review available inventory and add quantities when needed.</CardDescription>
+          <CardHeader className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="text-lg font-semibold text-slate-900">Stock levels</CardTitle>
+              <CardDescription className="mt-1 text-sm text-slate-500">
+                Showing {filteredItems.length} of {items.length} products. Search by product name or ID.
+              </CardDescription>
+            </div>
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <Input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search products..."
+                aria-label="Search inventory by product name or ID"
+                className="h-11 w-full border-slate-200 bg-white pl-10 pr-10 text-sm shadow-sm placeholder:text-slate-400 focus-visible:ring-emerald-600"
+              />
+              {searchQuery ? (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Clear product search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3 p-4 sm:p-5">
-            {sortedItems.map((item) => (
+            {filteredItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-12 text-center">
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm">
+                  <Search className="h-5 w-5" />
+                </span>
+                <p className="mt-3 text-sm font-semibold text-slate-800">No products found</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {normalizedSearch ? `No inventory product matches "${searchQuery.trim()}". Try another name or product ID.` : "There are no products to display."}
+                </p>
+                {normalizedSearch ? (
+                  <Button type="button" variant="outline" size="sm" className="mt-4" onClick={() => setSearchQuery("")}>Clear search</Button>
+                ) : null}
+              </div>
+            ) : filteredItems.map((item) => (
               <div key={item.product_id} className="group flex min-w-0 flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-emerald-300 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
