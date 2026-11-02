@@ -4998,6 +4998,8 @@ async def get_order_invoice(
         )
 
     profile = await profile_repo.find_one({"_id": order.get("businessProfileId")}) if order.get("businessProfileId") else None
+    if not profile:
+        profile = await profile_repo.find_one({"userId": str(order.get("businessUserId") or "")})
     farmer = await farmer_repository.find_one({"userId": str(order.get("farmerId"))})
     invoice = _build_b2b_invoice_snapshot(order, profile, farmer)
     invoice["buyer"]["contact"] = (
@@ -5523,9 +5525,19 @@ async def list_b2b_invoices(current_user: dict = Depends(get_current_user)):
     )
     invoices: List[Dict[str, Any]] = []
     for order in orders:
+        profile = await profile_repo.find_one({"_id": order.get("businessProfileId")}) if order.get("businessProfileId") else None
+        if not profile:
+            profile = await profile_repo.find_one({"userId": str(order.get("businessUserId") or current_user["_id"])})
         farmer = await farmer_repository.find_one({"userId": str(order.get("farmerId"))})
-        invoice = _build_b2b_invoice_snapshot(order, None, farmer)
+        invoice = _build_b2b_invoice_snapshot(order, profile, farmer)
         invoice["farmName"] = (farmer or {}).get("farmName") or "Farm"
+        invoice["buyerContact"] = (
+            (profile or {}).get("phone")
+            or (profile or {}).get("contactNumber")
+            or current_user.get("phone")
+            or current_user.get("email")
+            or ""
+        )
         invoices.append(invoice)
 
     return {"success": True, "data": {"invoices": invoices, "count": len(invoices)}}
@@ -5699,7 +5711,9 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
         flow.append(Spacer(1, 5 * mm))
 
     flow.append(Paragraph(
-        "This is a system-generated procurement invoice for record and accounting purposes. "
+        "This is a system-generated B2B procurement invoice for the order record. "
+        "It is not a substitute for a statutory GST tax invoice where one is required. "
+        "The registered supplier must issue the applicable tax invoice with all required statutory particulars. "
         "For queries contact support via the AgriConnect platform.",
         small))
     doc.build(flow)
