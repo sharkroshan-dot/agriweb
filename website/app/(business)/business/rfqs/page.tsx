@@ -409,7 +409,7 @@ export default function BusinessRfqsPage() {
                                         items: selected.map((offer: any) => ({ offerId: offer.id, quantityKg: Number(selectedQuantities[offer.id] || 0) })),
                                         idempotencyKey,
                                         deliveryMethod: "dedicated_transport",
-                                        paymentMode: "cod",
+                                        paymentMode: String(r.paymentTerms || (r.recurring ? "net_7" : "cod")).toLowerCase() === "cod" ? "cod" : "online",
                                         advanceAmount: 0,
                                         notes: "",
                                       });
