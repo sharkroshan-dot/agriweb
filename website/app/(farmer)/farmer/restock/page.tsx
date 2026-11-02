@@ -141,11 +141,11 @@ export default function FarmerRestockPage() {
                         {item.product_name || item.product_id}
                       </p>
                       {item.is_out_of_stock ? (
-                        <Badge variant="destructive" className="px-1.5 text-[10px]">Out of stock</Badge>
+                        <Badge variant="destructive" className="px-2 py-0.5 text-xs font-semibold">Out of stock</Badge>
                       ) : (item.available_stock ?? 0) <= 5 ? (
-                        <Badge variant="warning" className="px-1.5 text-[10px]">Low stock</Badge>
+                        <Badge variant="warning" className="px-2 py-0.5 text-xs font-semibold">Low stock</Badge>
                       ) : (
-                        <Badge variant="success" className="px-1.5 text-[10px]">In stock</Badge>
+                        <Badge variant="success" className="px-2 py-0.5 text-xs font-semibold">In stock</Badge>
                       )}
                     </div>
                     <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
@@ -162,7 +162,7 @@ export default function FarmerRestockPage() {
                   </div>
                   <ChevronRight className="h-5 w-5 shrink-0 text-slate-300 transition-colors group-hover:text-emerald-600" />
                 </button>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
                   <Input
                     type="number"
                     min={1}
