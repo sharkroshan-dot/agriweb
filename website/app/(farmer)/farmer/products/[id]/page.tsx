@@ -21,9 +21,7 @@ import {
   Boxes,
   Sprout,
   Warehouse,
-  ShieldCheck,
   Info,
-  Truck,
 } from "lucide-react";
 import {
   Card,
@@ -139,7 +137,7 @@ export default function ProductDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-7xl space-y-6 pb-8">
+      <div className="farmer-product-detail-page w-full max-w-none space-y-5 pb-8">
         <div className="h-5 w-32 animate-pulse rounded bg-slate-200" />
         <div className="h-28 animate-pulse rounded-2xl bg-slate-200" />
         <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
@@ -210,7 +208,7 @@ export default function ProductDetailPage() {
     : null;
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 pb-10">
+    <div className="farmer-product-detail-page w-full max-w-none space-y-5 pb-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="ghost" className="-ml-2 text-slate-600 hover:text-emerald-700">
           <Link href="/farmer/products"><ArrowLeft className="mr-2 h-4 w-4" />Back to products</Link>
@@ -234,11 +232,11 @@ export default function ProductDetailPage() {
         </div>
       </section>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.85fr)]">
+      <div className="grid w-full min-w-0 items-start gap-5 lg:gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,0.85fr)]">
         <div className="min-w-0 space-y-5">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardContent className="p-0">
-              <div className="relative aspect-[16/9] min-h-[260px] bg-slate-100 sm:aspect-[16/8]">
+              <div className="relative aspect-[16/10] min-h-[280px] max-h-[520px] bg-slate-100 sm:aspect-[16/9] xl:aspect-[16/8]">
                 {activeImage ? (
                   <Image src={activeImage} alt={product.name || "Product image"} fill priority className="object-cover" sizes="(max-width: 1280px) 100vw, 65vw" />
                 ) : (
