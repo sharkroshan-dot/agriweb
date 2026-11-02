@@ -16,7 +16,6 @@ import {
   Users,
   BarChart3,
   Store,
-  Briefcase,
   FileSignature,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
@@ -64,6 +63,7 @@ export function BusinessSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const accessToken = (session as any)?.accessToken;
+  const userLabel = (session?.user?.name || session?.user?.email || "Account").trim();
   const businessName = (session?.user as any)?.name || "Business";
 
   const { data: profileData } = useQuery({
@@ -80,9 +80,9 @@ export function BusinessSidebar() {
       <div className="sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto p-4 lg:p-5">
         <div className="mb-6 overflow-hidden rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 shadow-sm">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
-              <Briefcase className="h-5 w-5 text-emerald-600" />
-            </div>
+            <span className="agri-header-avatar agri-header-avatar--fallback" aria-hidden="true">
+              {userLabel.charAt(0).toUpperCase()}
+            </span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-900" title={displayName}>{displayName}</p>
               <p className="mt-0.5 truncate text-[11px] text-slate-500">Procurement Console</p>
