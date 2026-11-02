@@ -1111,35 +1111,38 @@
 }
 
 .agri-header-profile-trigger {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  justify-content: center;
-  padding: 1px;
-  border: 1px solid #dcebe1;
-  border-radius: 50%;
-  background: #f4faf6;
-  box-shadow: 0 1px 3px rgba(16,37,31,.05);
-}
-
-.agri-header-profile-trigger:hover,
-.agri-header-profile-trigger[data-state="open"] {
-  border-color: #a9d7ba;
-  background: #eaf7ee;
-  box-shadow: 0 0 0 3px rgba(8,127,91,.08);
-}
-
-.agri-header-avatar,
-.agri-header-avatar--fallback {
   width: 36px;
   height: 36px;
   min-width: 36px;
   min-height: 36px;
+  justify-content: center;
+  padding: 0;
   border: 0;
   border-radius: 50%;
-  background: linear-gradient(145deg,#d8f2e2,#b7e4c8);
-  color: #076246;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agri-header-profile-trigger:hover,
+.agri-header-profile-trigger[data-state="open"] {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.agri-header-avatar,
+.agri-header-avatar--fallback {
+  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: #087f5b;
+  color: #ffffff;
   font-size: .9rem;
   font-weight: 850;
   line-height: 1;
