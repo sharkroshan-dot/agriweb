@@ -90,6 +90,22 @@ function getPaidAmount(order: any) {
   return Math.min(total, Math.max(0, Number(paid || 0)));
 }
 
+function DetailValue({ label, value, icon: Icon }: { label: string; value: any; icon: any }) {
+  const displayValue = value === null || value === undefined || value === "" ? "Not available" : value;
+  return (
+    <div className="flex min-w-0 items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-600">
+        <Icon className="h-4 w-4" aria-hidden="true" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+        <div className="mt-1 break-words text-sm font-semibold text-slate-800">{displayValue}</div>
+      </div>
+    </div>
+  );
+}
+
+
 function StatusTimeline({ status }: { status: string }) {
   // Restore the original detailed, one-marker-per-stage fulfillment tracker.
   // The native title tooltip appears when the pointer hovers over each marker.
@@ -1234,7 +1250,7 @@ export default function BusinessOrdersPage() {
                               </div>
                             )}
 
-                            {order.goodsReceipt?.issueTypes?.length ? (
+                            {Array.isArray(order.goodsReceipt?.issueTypes) && order.goodsReceipt.issueTypes.length > 0 ? (
                               <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Inspection issues</p>
                                 <div className="mt-2 flex flex-wrap gap-2">
@@ -1243,7 +1259,7 @@ export default function BusinessOrdersPage() {
                                   ))}
                                 </div>
                                 <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{order.goodsReceipt.notes || "No additional notes."}</p>
-                                {(order.goodsReceipt.evidenceUrls || []).map((url: string) => (
+                                {(Array.isArray(order.goodsReceipt.evidenceUrls) ? order.goodsReceipt.evidenceUrls : []).map((url: string) => (
                                   <a key={url} href={url} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-emerald-700 underline">Open inspection evidence</a>
                                 ))}
                               </div>
@@ -1253,7 +1269,7 @@ export default function BusinessOrdersPage() {
                               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900">Supplier response · {String(order.goodsReceipt.farmerResponse.proposal || "").replace(/_/g, " ")}</p>
                                 <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{order.goodsReceipt.farmerResponse.notes}</p>
-                                {(order.goodsReceipt.farmerResponse.evidenceUrls || []).map((url: string) => (
+                                {(Array.isArray(order.goodsReceipt.farmerResponse.evidenceUrls) ? order.goodsReceipt.farmerResponse.evidenceUrls : []).map((url: string) => (
                                   <a key={url} href={url} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-emerald-700 underline">Open supplier evidence</a>
                                 ))}
                               </div>
