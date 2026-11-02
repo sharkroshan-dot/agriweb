@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle, CreditCard, Download, Search, CalendarDays, Truck, Package, ChevronDown, ChevronUp, Wallet, RefreshCw, Clock3, ArrowUpRight } from "lucide-react";
+import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle, CreditCard, Download, Search, CalendarDays, Truck, Package, ChevronDown, ChevronUp, Wallet, RefreshCw, Clock3, ArrowUpRight, ClipboardCheck } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
