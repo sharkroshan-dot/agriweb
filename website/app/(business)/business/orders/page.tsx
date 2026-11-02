@@ -1066,7 +1066,7 @@ export default function BusinessOrdersPage() {
                         {order.requiredDate && !order.scheduledDeliveryDate ? <span>Required {displayDate(order.requiredDate)}</span> : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        {order.status !== "cancelled" && due > 0 ? (
+                        {order.status !== "cancelled" && due > 0 && !["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "")) ? (
                           <Button size="sm" disabled={payingId === order.id} onClick={() => payB2BOrder(order)}>
                             {payingId === order.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
                             {payingId === order.id ? "Processing…" : "Pay online"}
@@ -1166,7 +1166,7 @@ export default function BusinessOrdersPage() {
                               <DetailValue label="Payment status" value={paymentState} icon={Wallet} />
                               <DetailValue label="Payment transaction" value={order.paymentTransactionId || order.paymentId || "No verified transaction"} icon={FileText} />
                             </div>
-                            {due > 0 && order.status !== "cancelled" ? (
+                            {due > 0 && order.status !== "cancelled" && !["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "")) ? (
                               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3.5">
                                 <div><p className="text-sm font-semibold text-amber-950">Outstanding balance</p><p className="text-xs text-amber-800">Pay the remaining amount through the secure online checkout.</p></div>
                                 <Button size="sm" disabled={payingId === order.id} onClick={() => payB2BOrder(order)}>
