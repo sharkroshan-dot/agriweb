@@ -39,9 +39,8 @@ const navGroups = [
   {
     label: "Orders",
     items: [
-      { name: "B2B Orders", href: "/business/orders", icon: ShoppingCart },
+      { name: "Orders & Deliveries", href: "/business/orders", icon: ShoppingCart },
       { name: "Bulk Fulfillment", href: "/business/bulk-orders", icon: Truck },
-      { name: "Deliveries", href: "/business/deliveries", icon: Truck },
     ],
   },
   {
