@@ -1092,7 +1092,7 @@ export default function BusinessOrdersPage() {
                             <FileText className="h-4 w-4" /> Invoice
                           </Button>
                         ) : null}
-                        {order.status === "delivered" ? (
+                        {order.status === "completed" ? (
                           <Button size="sm" variant="outline" onClick={() => setRateFor(order)}>
                             <Star className="h-4 w-4" /> Rate supplier
                           </Button>
