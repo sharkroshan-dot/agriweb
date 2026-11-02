@@ -15,7 +15,10 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
   const offerAvailable = Number(offer.availableQuantityKg ?? offer.minOrderKg ?? 0);
   const maxAcceptable = Math.min(remaining > 0 ? remaining : offerAvailable, offerAvailable);
   const [qty, setQty] = useState(String(maxAcceptable > 0 ? maxAcceptable : ""));
-  const [paymentMode, setPaymentMode] = useState("cod");
+  const publishedPaymentTerms = String(rfq.paymentTerms || (rfq.recurring ? "net_7" : "cod")).toLowerCase();
+  const [paymentMode, setPaymentMode] = useState(
+    publishedPaymentTerms === "advance" ? "advance" : publishedPaymentTerms === "cod" ? "cod" : "online",
+  );
   const [advance, setAdvance] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -96,7 +99,8 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
             {paymentMode === "advance" && (
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Advance amount (₹)</label>
-                <Input type="number" min="0" value={advance} onChange={(e) => setAdvance(e.target.value)} />
+                <Input type="number" min="0.01" max={totalPayable} step="0.01" value={advance} onChange={(e) => setAdvance(e.target.value)} />
+                <p className="text-xs text-slate-500">Enter an advance greater than ₹0 and no more than the order total of ₹{money(totalPayable)}.</p>
               </div>
             )}
             <div className="space-y-1">
@@ -107,7 +111,7 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
               <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
               <Button
                 className="flex-1"
-                disabled={!qty || Number(qty) <= 0 || Number(qty) > maxAcceptable || deliveryLocationMissing || accept.isPending}
+                disabled={!qty || Number(qty) <= 0 || Number(qty) > maxAcceptable || deliveryLocationMissing || (paymentMode === "advance" && (!advance || Number(advance) <= 0 || Number(advance) > totalPayable)) || accept.isPending}
                 onClick={() =>
                   accept.mutate({
                     quantityKg: Number(qty),
