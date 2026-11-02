@@ -334,6 +334,7 @@ export default function FarmerB2bRfqsPage() {
               <p className="text-lg font-semibold">{r.productName}</p>
               {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
               {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
+              <Badge variant="outline">Payment: {String(r.paymentTerms || (r.recurring ? "net_7" : "cod")).replace(/_/g, " ")}</Badge>
               {r.replacementSourcingOpen ? <Badge variant="success">Replacement quote requested</Badge> : null}
             </div>
             <p className="mt-1 text-sm text-gray-700">
@@ -365,10 +366,6 @@ export default function FarmerB2bRfqsPage() {
                   <div>
                     <p className="text-xs text-slate-500">Quality requirement</p>
                     <p className="font-medium text-slate-800">{r.qualityGrade || "Standard"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Payment terms</p>
-                    <p className="font-medium text-slate-800">{String(r.paymentTerms || "To be agreed").replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())}</p>
                   </div>
                   <div>
                     <p className="text-xs text-slate-500">Delivery time</p>
