@@ -210,7 +210,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-600">Category *</label>
-                <select value={line.category} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, category: e.target.value } : row))} className="h-9 w-full rounded-md border border-gray-200 bg-white px-2 text-sm">
+                <select value={line.category} onChange={(e) => setProductLines((rows) => rows.map((row, i) => i === index ? { ...row, category: e.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
                   <option value="">Select category</option>
                   {PRODUCT_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
                 </select>
@@ -255,7 +255,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Delivery frequency *</label>
-              <select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
+              <select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10">
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
                 <option value="monthly">Monthly</option>
@@ -284,7 +284,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <select
             value={form.qualityGrade}
             onChange={(e) => set("qualityGrade", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
           >
             {QUALITY_GRADES.map((q) => <option key={q} value={q}>{q}</option>)}
           </select>
@@ -295,7 +295,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
             value={form.paymentTerms}
             onChange={(e) => set("paymentTerms", e.target.value)}
             required
-            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
           >
             <option value="" disabled>Select a payment method</option>
             <option value="advance">Advance payment</option>
@@ -356,7 +356,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <select
             value={form.visibility}
             onChange={(e) => set("visibility", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 pr-10 text-sm text-slate-900 shadow-sm outline-none transition hover:border-slate-300 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
           >
             {VISIBILITY.map((v) => <option key={v} value={v}>{v[0].toUpperCase() + v.slice(1)}</option>)}
           </select>
