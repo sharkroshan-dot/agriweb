@@ -78,6 +78,13 @@ export function AcceptOfferDialog({ offer, rfq, onClose }: { offer: any; rfq: an
               <p className="text-xs text-slate-500">Delivery uses AgriConnect base fee + distance rate + weight rate. The server recalculates the authoritative total. Tax and other charges are only included when configured.</p>
               {deliveryLocationMissing ? <p className="text-xs font-medium text-red-600">Automatic delivery pricing needs valid farm and delivery-address coordinates. Add the missing location data before accepting this quote.</p> : null}
             </div>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-medium text-slate-500">Published RFQ payment terms</p>
+              <p className="mt-1 text-sm font-semibold text-slate-800">
+                {String(rfq.paymentTerms || (rfq.recurring ? "net_7" : "cod")).replace(/_/g, " ").replace(/^./, (value: string) => value.toUpperCase())}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">These are the agreed payment due terms. Choose the collection mode separately below.</p>
+            </div>
             <div className="space-y-1">
               <label className="text-xs font-medium text-gray-500">Payment mode</label>
               <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
