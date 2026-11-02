@@ -1012,26 +1012,61 @@ def _reconcile_terminal_b2b_status(order: Dict[str, Any], history: List[Dict[str
             latest_timestamp,
         )
         terminal_statuses = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
-        for event in history:
+        previous_stage_timestamps = {
+            ORDER_PREPARING: ("preparationStartedAt", "preparingAt", "preparedAt"),
+            ORDER_QUALITY_CHECK: ("qualityCheckedAt",),
+            ORDER_READY_FOR_PICKUP: ("readyForPickupAt",),
+            ORDER_PICKED_UP: ("pickedUpAt", "collectedAt"),
+            ORDER_WAREHOUSE_RECEIVED: ("warehouseReceivedAt", "receivedAt"),
+            ORDER_TRANSFER_IN_TRANSIT: ("transferDispatchedAt",),
+            ORDER_DESTINATION_RECEIVED: ("destinationReceivedAt", "destinationWarehouseReceivedAt"),
+            ORDER_IN_TRANSIT: ("finalDeliveryAssignedAt", "finalDeliveryStartedAt"),
+        }
+        for event_index, event in enumerate(history):
             if not isinstance(event, dict) or event.get("isInvalidTransition") is True:
                 continue
             previous = str(event.get("previousStatus") or "").strip().lower()
             target = str(event.get("status") or "").strip().lower()
-            if previous not in terminal_statuses or target in terminal_statuses:
+            if target in terminal_statuses:
                 continue
             event_timestamp = parse_event_time(event.get("timestamp") or event.get("createdAt"))
             if not event_timestamp:
                 continue
             if event_timestamp < authoritative_timestamp:
-                # The operational event predates the terminal timestamp. Keep
-                # it as real history, but do not trust a stale previousStatus
-                # snapshot claiming that the order was already terminal.
-                event["isInconsistentPreviousStatus"] = True
-                event["previousStatusReconciliationNote"] = (
-                    f"The saved previous-stage label ({previous.replace('_', ' ')}) conflicts with this event's timestamp. "
-                    f"This action happened before the recorded {authoritative_status.replace('_', ' ')} time; "
-                    "the action is retained, but the previous-stage label is not reliable."
+                earlier_history_supports_previous = any(
+                    isinstance(prior, dict)
+                    and prior.get("isInvalidTransition") is not True
+                    and (
+                        str(prior.get("status") or "").strip().lower() == previous
+                        or str(prior.get("action") or "").strip().lower() == previous
+                        or str(prior.get("eventType") or "").strip().lower() == previous
+                    )
+                    for prior in history[:event_index]
                 )
+                timestamp_supports_previous = any(
+                    order.get(field)
+                    for field in previous_stage_timestamps.get(previous, ())
+                )
+                # The event itself predates completion/delivery, so preserve it.
+                # Flag only a previous-stage label that cannot be supported by
+                # an earlier activity event or a saved timestamp. "confirmed"
+                # is the known initial stage and its creation event may be
+                # synthesized just after this reconciliation pass.
+                if (
+                    previous in terminal_statuses
+                    or (
+                        previous
+                        and previous != ORDER_CONFIRMED
+                        and not earlier_history_supports_previous
+                        and not timestamp_supports_previous
+                    )
+                ):
+                    event["isInconsistentPreviousStatus"] = True
+                    event["previousStatusReconciliationNote"] = (
+                        f"The saved previous-stage label ({previous.replace('_', ' ')}) could not be verified "
+                        f"against earlier activity for this event. The action happened before the recorded "
+                        f"{authoritative_status.replace('_', ' ')} time, so it is retained as valid history."
+                    )
                 continue
             event["isInvalidTransition"] = True
             event["isIgnoredForLifecycle"] = True
@@ -1139,7 +1174,7 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
         and packed_quantity > 0
         and not has_stage_event(ORDER_PREPARING)
     ):
-        history.append({
+        preparing_event = {
             "status": ORDER_PREPARING,
             "previousStatus": ORDER_CONFIRMED,
             "action": ORDER_PREPARING,
@@ -1158,7 +1193,26 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
                 or created_at
             ),
             "isDerived": True,
-        })
+        }
+        # Preparation must precede inspection in the timeline. For a failed
+        # inspection, appending the reconstructed preparation event would
+        # incorrectly make it appear that the farmer prepared the order again
+        # after the failure.
+        quality_event_index = next(
+            (
+                index for index, event in enumerate(history)
+                if isinstance(event, dict)
+                and (
+                    str(event.get("status") or "").strip().lower() == ORDER_QUALITY_CHECK
+                    or str(event.get("action") or "").strip().lower() == "quality_check"
+                )
+            ),
+            None,
+        )
+        if quality_event_index is None:
+            history.append(preparing_event)
+        else:
+            history.insert(quality_event_index, preparing_event)
 
     if (
         not is_recurring_occurrence
