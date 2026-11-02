@@ -24,7 +24,7 @@ const emptyForm = {
   recurrenceInterval: 1,
   scheduleStartDate: "",
   scheduleEndDate: "",
-  paymentTerms: "net_7",
+  paymentTerms: "cod",
   cancellationTerms: "",
   qualityGrade: "Grade A",
   requiredDate: "",
@@ -237,7 +237,11 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 key={String(o.key)}
                 type="button"
                 aria-pressed={form.recurring === o.key}
-                onClick={() => set("recurring", o.key)}
+                onClick={() => setForm((current) => ({
+                  ...current,
+                  recurring: o.key,
+                  paymentTerms: current.recurring === o.key ? current.paymentTerms : (o.key ? "net_7" : "cod"),
+                }))}
                 className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                   form.recurring === o.key
                     ? "bg-emerald-600 text-white shadow-sm"
