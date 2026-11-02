@@ -76,26 +76,26 @@ export default function FarmerRestockPage() {
   const out = items.filter((i) => i.is_out_of_stock && (i.available_stock ?? 0) > 5);
 
   return (
-    <div className="space-y-6">
+    <div className="farmer-restock-page w-full min-w-0 space-y-5 pb-8">
       <FarmerPageHeader title="Inventory health" description="Monitor available stock and act early on low or out-of-stock products." actionHref="/farmer/products" actionLabel="Manage products" />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardContent className="p-5">
-            <p className="text-xs text-gray-500 flex items-center gap-1"><Package className="h-3 w-3" /> Total products</p>
-            <p className="text-2xl font-bold">{summary?.total_products ?? items.length}</p>
+          <CardContent className="flex items-center justify-between p-5">
+            <div className="space-y-1.5"><p className="flex items-center gap-2 text-sm font-medium text-slate-600"><Package className="h-4 w-4 text-slate-500" />Total products</p><p className="text-2xl font-bold tracking-tight text-slate-950">{summary?.total_products ?? items.length}</p></div>
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-slate-700"><Package className="h-5 w-5" /></span>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="p-5">
-            <p className="text-xs text-gray-500 flex items-center gap-1"><CheckCircle2 className="h-3 w-3 text-emerald-600" /> Total stock</p>
-            <p className="text-2xl font-bold">{summary?.total_stock ?? "—"} kg</p>
+          <CardContent className="flex items-center justify-between p-5">
+            <div className="space-y-1.5"><p className="flex items-center gap-2 text-sm font-medium text-slate-600"><CheckCircle2 className="h-4 w-4 text-emerald-600" />Total stock</p><p className="text-2xl font-bold tracking-tight text-slate-950">{summary?.total_stock ?? "—"} kg</p></div>
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Package className="h-5 w-5" /></span>
           </CardContent>
         </Card>
         <Card className={cn(out.length > 0 && "border-red-200 bg-red-50/40")}>
-          <CardContent className="p-5">
-            <p className="text-xs text-gray-500 flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-amber-500" /> Low / out of stock</p>
-            <p className="text-2xl font-bold text-amber-600">{lowStock.length + out.length}</p>
+          <CardContent className="flex items-center justify-between p-5">
+            <div className="space-y-1.5"><p className="flex items-center gap-2 text-sm font-medium text-slate-600"><AlertTriangle className="h-4 w-4 text-amber-600" />Low / out of stock</p><p className="text-2xl font-bold tracking-tight text-amber-700">{lowStock.length + out.length}</p></div>
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><AlertTriangle className="h-5 w-5" /></span>
           </CardContent>
         </Card>
       </div>
@@ -113,21 +113,21 @@ export default function FarmerRestockPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Stock levels</CardTitle>
-            <CardDescription>Add quantity to restock a product.</CardDescription>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
+            <CardTitle className="text-lg font-semibold text-slate-900">Stock levels</CardTitle>
+            <CardDescription className="mt-1 text-sm text-slate-500">Review available inventory and add quantities when needed.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 p-4 sm:p-5">
             {sortedItems.map((item) => (
-              <div key={item.product_id} className="flex flex-wrap items-center gap-3 rounded-lg border p-3">
+              <div key={item.product_id} className="group flex min-w-0 flex-col gap-4 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-emerald-300 hover:shadow-sm sm:flex-row sm:items-center sm:justify-between">
                 <button
                   type="button"
                   onClick={() => router.push(`/farmer/products/${item.product_id}/edit`)}
-                  className="group flex min-w-0 flex-1 items-center gap-3 rounded-md text-left"
+                  className="group flex min-w-0 w-full flex-1 items-center gap-4 rounded-lg text-left"
                   title="Open product page"
                 >
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-md border bg-gray-100">
+                  <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={item.images?.[0] || placeholderImage}
@@ -137,7 +137,7 @@ export default function FarmerRestockPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="truncate font-medium group-hover:text-emerald-700 group-hover:underline">
+                      <p className="truncate text-base font-semibold text-slate-900 transition-colors group-hover:text-emerald-700">
                         {item.product_name || item.product_id}
                       </p>
                       {item.is_out_of_stock ? (
@@ -148,31 +148,33 @@ export default function FarmerRestockPage() {
                         <Badge variant="success" className="px-1.5 text-[10px]">In stock</Badge>
                       )}
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                    <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
                       <span>
                         Available:{" "}
-                        <b className="text-slate-700">{item.available_stock ?? 0} {item.unit || "kg"}</b>
+                        <b className="ml-1 font-semibold text-slate-900">{item.available_stock ?? 0} {item.unit || "kg"}</b>
                       </span>
-                      <span>Reserved: {item.reserved_stock ?? 0} {item.unit || "kg"}</span>
-                      <span>Sold: {item.sold_stock ?? 0} {item.unit || "kg"}</span>
+                      <span>Reserved <b className="ml-1 font-semibold text-slate-800">{item.reserved_stock ?? 0} {item.unit || "kg"}</b></span>
+                      <span>Sold <b className="ml-1 font-semibold text-slate-800">{item.sold_stock ?? 0} {item.unit || "kg"}</b></span>
                       {typeof item.price === "number" && (
-                        <span className="text-emerald-700">₹{item.price}/{item.unit || "kg"}</span>
+                        <span className="font-semibold text-emerald-700">₹{item.price}/{item.unit || "kg"}</span>
                       )}
                     </div>
                   </div>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 group-hover:text-emerald-600" />
+                  <ChevronRight className="h-5 w-5 shrink-0 text-slate-300 transition-colors group-hover:text-emerald-600" />
                 </button>
                 <div className="flex items-center gap-2">
                   <Input
                     type="number"
                     min={1}
-                    placeholder="qty"
-                    className="h-9 w-24"
+                    placeholder="Qty to add"
+                    aria-label={`Quantity to add for ${item.product_name || "product"}`}
+                    className="h-10 min-w-0 flex-1 text-sm sm:w-32 sm:flex-none"
                     value={qty[item.product_id] ?? ""}
                     onChange={(e) => setQty({ ...qty, [item.product_id]: e.target.value })}
                   />
                   <Button
-                    size="sm"
+                    size="default"
+                    className="h-10 shrink-0 px-4 text-sm font-semibold"
                     disabled={restockMutation.isPending}
                     onClick={() => doRestock(item)}
                   >
