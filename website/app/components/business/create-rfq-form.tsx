@@ -260,7 +260,6 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Repeat every *</label><Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} /></div>
           <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule start date *</label><Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} /></div>
           <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule end date *</label><Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} /></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Payment terms</label><select value={form.paymentTerms} onChange={(e) => set("paymentTerms", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="advance">Advance</option><option value="cod">Cash on delivery</option><option value="net_7">Net 7 days</option><option value="net_15">Net 15 days</option><option value="net_30">Net 30 days</option></select></div>
           <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label><Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" /></div>
           </>
         ) : (
@@ -269,6 +268,23 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
             <Input type="number" min="1" value={form.quantityKg} onChange={(e) => set("quantityKg", Number(e.target.value))} />
           </div>
         )}
+        <div className="space-y-1 sm:col-span-2">
+          <label className="text-xs font-medium text-gray-500">Payment terms *</label>
+          <select
+            value={form.paymentTerms}
+            onChange={(e) => set("paymentTerms", e.target.value)}
+            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+          >
+            <option value="advance">Advance payment</option>
+            <option value="cod">Cash on delivery</option>
+            <option value="net_7">Payment within 7 days</option>
+            <option value="net_15">Payment within 15 days</option>
+            <option value="net_30">Payment within 30 days</option>
+          </select>
+          <p className="text-xs text-slate-500">
+            These agreed payment terms are published with the RFQ so farmers can review them before quoting. The actual payment channel (Razorpay, UPI, card or COD collection) is selected when the quote is accepted or the order is paid.
+          </p>
+        </div>
         <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Quality grade</label>
           <select
@@ -491,7 +507,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 scheduleStartDate: form.recurring && form.scheduleStartDate ? new Date(form.scheduleStartDate).toISOString() : null,
                 scheduleEndDate: form.recurring && form.scheduleEndDate ? new Date(form.scheduleEndDate).toISOString() : null,
                 contractRequired: form.recurring,
-                paymentTerms: form.recurring ? form.paymentTerms : null,
+                paymentTerms: form.paymentTerms || "cod",
                 cancellationTerms: form.recurring ? form.cancellationTerms : null,
               })
             }
