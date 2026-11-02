@@ -2564,12 +2564,6 @@ async def verify_b2b_payment(
     order = await order_repo.get_by_id(order_id)
     if not order or str(order.get("businessUserId")) != str(current_user["_id"]):
         raise HTTPException(status_code=404, detail="B2B order not found")
-    receipt_status = str((order.get("goodsReceipt") or {}).get("status") or "").lower()
-    if receipt_status in ("dispute_open", "response_received"):
-        raise HTTPException(
-            status_code=409,
-            detail="Payment verification is paused while the goods-receipt dispute is unresolved. Contact support if a payment was already authorized.",
-        )
     payment = await payment_repo_for_b2b().get_by_id(payment_id)
     if (
         not payment
