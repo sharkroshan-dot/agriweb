@@ -3124,10 +3124,11 @@ async def update_order_status(
         if current != ORDER_DELIVERED:
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
         receipt = order.get("goodsReceipt") or {}
-        if str(receipt.get("status") or "").lower() in ("dispute_open", "response_received"):
+        receipt_status = str(receipt.get("status") or "").lower()
+        if receipt_status not in ("accepted", "resolved"):
             raise HTTPException(
                 status_code=409,
-                detail="This order has an unresolved goods-receipt dispute. Record the agreed resolution before completing the order.",
+                detail="Record and accept the delivered goods receipt before completing this order. Open a dispute first if quantity or quality does not match.",
             )
         update["completedAt"] = event_time
         update["invoiceIssuedAt"] = order.get("invoiceIssuedAt") or event_time
@@ -3266,7 +3267,12 @@ async def submit_b2b_goods_receipt(
             "timestamp": now,
         })
 
-    saved = await order_repo.update({"_id": order_oid, "status": ORDER_DELIVERED}, update)
+    saved = await order_repo.update({
+        "_id": order_oid,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "status": ORDER_DELIVERED,
+        "goodsReceipt": {"$exists": False},
+    }, update)
     if not saved:
         raise HTTPException(status_code=409, detail="The order changed while goods receipt was being saved. Refresh and try again.")
 
@@ -3353,7 +3359,12 @@ async def respond_to_b2b_goods_receipt_dispute(
         details=f"Supplier response: {data.proposal.replace('_', ' ')}. {farmer_response['notes']}",
         timestamp=now,
     )
-    saved = await order_repo.update({"_id": order_oid, "status": ORDER_DELIVERED}, {
+    saved = await order_repo.update({
+        "_id": order_oid,
+        "farmerId": ObjectId(current_user["_id"]),
+        "status": ORDER_DELIVERED,
+        "goodsReceipt.status": "dispute_open",
+    }, {
         "goodsReceipt": receipt,
         "statusHistory": history,
         "updatedAt": now,
@@ -3434,7 +3445,12 @@ async def resolve_b2b_goods_receipt_dispute(
         details=f"Business recorded dispute resolution: {data.resolution.replace('_', ' ')}. {data.notes.strip()}",
         timestamp=now,
     )
-    saved = await order_repo.update({"_id": order_oid, "status": ORDER_DELIVERED}, {
+    saved = await order_repo.update({
+        "_id": order_oid,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "status": ORDER_DELIVERED,
+        "goodsReceipt.status": receipt.get("status"),
+    }, {
         "goodsReceipt": receipt,
         "statusHistory": history,
         "updatedAt": now,
