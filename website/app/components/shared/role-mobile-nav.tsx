@@ -60,8 +60,7 @@ const navigation: Record<Role, Item[]> = {
   business: [
     { label: "Dashboard", href: "/business/dashboard", icon: LayoutDashboard },
     { label: "RFQs", href: "/business/rfqs", icon: ClipboardList },
-    { label: "Orders", href: "/business/orders", icon: ShoppingCart },
-    { label: "Deliveries", href: "/business/deliveries", icon: Truck },
+    { label: "Orders & Deliveries", href: "/business/orders", icon: ShoppingCart },
     { label: "Suppliers", href: "/business/suppliers", icon: Users },
     { label: "Analytics", href: "/business/analytics", icon: BarChart3 },
   ],
