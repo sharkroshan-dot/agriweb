@@ -22,7 +22,7 @@ const emptyForm = {
   recurrenceInterval: 1,
   scheduleStartDate: "",
   scheduleEndDate: "",
-  paymentTerms: "cod",
+  paymentTerms: "",
   cancellationTerms: "",
   qualityGrade: "Grade A",
   requiredDate: "",
@@ -238,7 +238,6 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 onClick={() => setForm((current) => ({
                   ...current,
                   recurring: o.key,
-                  paymentTerms: current.recurring === o.key ? current.paymentTerms : (o.key ? "net_7" : "cod"),
                 }))}
                 className={`flex flex-1 items-center justify-center rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
                   form.recurring === o.key
@@ -295,8 +294,10 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <select
             value={form.paymentTerms}
             onChange={(e) => set("paymentTerms", e.target.value)}
+            required
             className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
           >
+            <option value="" disabled>Select a payment method</option>
             <option value="advance">Advance payment</option>
             <option value="cod">Cash on delivery</option>
             <option value="net_7">Payment within 7 days</option>
@@ -491,7 +492,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
 
         <div className="sm:col-span-2">
           <Button
-            disabled={productLines.some((line) => !line.productName.trim() || !line.category || (form.recurring ? line.quantityPerDeliveryKg <= 0 : line.quantityKg <= 0)) || new Set(productLines.map((line) => line.productName.trim().toLowerCase())).size !== productLines.length || createMutation.isPending || (form.recurring && (!form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim()}
+            disabled={productLines.some((line) => !line.productName.trim() || !line.category || (form.recurring ? line.quantityPerDeliveryKg <= 0 : line.quantityKg <= 0)) || new Set(productLines.map((line) => line.productName.trim().toLowerCase())).size !== productLines.length || createMutation.isPending || (form.recurring && (!form.scheduleStartDate || !form.scheduleEndDate || form.scheduleEndDate < form.scheduleStartDate || !form.recurrenceFrequency || form.recurrenceInterval < 1)) || !form.deliveryCity.trim() || !form.deliveryAddress.trim() || !form.paymentTerms}
             onClick={() =>
               createMutation.mutate({
                 ...form,
@@ -519,7 +520,7 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
                 scheduleStartDate: form.recurring && form.scheduleStartDate ? new Date(form.scheduleStartDate).toISOString() : null,
                 scheduleEndDate: form.recurring && form.scheduleEndDate ? new Date(form.scheduleEndDate).toISOString() : null,
                 contractRequired: form.recurring,
-                paymentTerms: form.paymentTerms || "cod",
+                paymentTerms: form.paymentTerms,
                 cancellationTerms: form.recurring ? form.cancellationTerms : null,
               })
             }
