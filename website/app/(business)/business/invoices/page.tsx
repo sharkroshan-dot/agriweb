@@ -48,15 +48,22 @@ function InvoiceModal({ invoice, onClose }: { invoice: any; onClose: () => void 
 
             <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
               <div>
+                <p className="text-xs font-medium text-gray-400">Buyer</p>
+                <p className="font-medium">{invoice.buyer?.name || invoice.buyerName || "—"}</p>
+                <p className="text-xs text-gray-500">{invoice.buyer?.city || invoice.buyerLocation || "—"}</p>
+                {invoice.buyer?.gstin ? <p className="text-xs text-gray-500">GSTIN: {invoice.buyer.gstin}</p> : null}
+              </div>
+              <div>
                 <p className="text-xs font-medium text-gray-400">Supplier</p>
-                <p className="font-medium">{invoice.farmName || "—"}</p>
+                <p className="font-medium">{invoice.seller?.name || invoice.farmName || "—"}</p>
+                <p className="text-xs text-gray-500">{invoice.seller?.city || invoice.farmerLocation || "—"}</p>
+                {invoice.seller?.gstin ? <p className="text-xs text-gray-500">GSTIN: {invoice.seller.gstin}</p> : null}
               </div>
-              <div className="text-right">
-                <p className="text-xs font-medium text-gray-400">Status</p>
-                <Badge variant={invoice.paymentStatus === "paid" ? "success" : "warning"} className="capitalize">
-                  {invoice.paymentStatus}
-                </Badge>
-              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-600">
+              <span>Payment status: <strong className="capitalize">{invoice.paymentStatus || "pending"}</strong></span>
+              <span>Method: <strong className="capitalize">{invoice.paymentMode || "—"}</strong></span>
+              <span>Terms: <strong className="capitalize">{String(invoice.paymentTerms || "—").replace(/_/g, " ")}</strong></span>
             </div>
 
             <table className="mt-4 w-full text-sm">
@@ -89,9 +96,9 @@ function InvoiceModal({ invoice, onClose }: { invoice: any; onClose: () => void 
             </div>
 
             <div className="mt-4 flex items-center justify-between gap-2 text-xs text-gray-500">
-              <span className="capitalize">Payment: {invoice.paymentMode || "—"} · {invoice.paymentStatus || "pending"}</span>
+              <span className="capitalize">Invoice issued {invoice.invoiceIssuedAtEstimated ? "(estimated date)" : ""}</span>
               <div className="flex items-center gap-2">
-                <span>Issued {invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleString() : "—"}</span>
+                <span>Issued {invoice.issuedAt ? new Date(invoice.issuedAt).toLocaleString("en-IN") : "—"}</span>
                 <Button variant="outline" size="sm" onClick={() => downloadInvoice(invoice)}>
                   <Download className="mr-1 h-3.5 w-3.5" /> Download
                 </Button>
