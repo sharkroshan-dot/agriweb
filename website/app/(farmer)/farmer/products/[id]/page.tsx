@@ -204,7 +204,7 @@ export default function ProductDetailPage() {
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${longitude! - 0.01}%2C${latitude! - 0.01}%2C${longitude! + 0.01}%2C${latitude! + 0.01}&layer=mapnik&marker=${latitude}%2C${longitude}`
     : null;
   const mapLink = hasCoordinates
-    ? `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}&zoom=15`
+    ? `https://www.google.com/maps/search/?api=1&query=${latitude}%2C${longitude}`
     : null;
 
   return (
@@ -321,7 +321,7 @@ export default function ProductDetailPage() {
                   <iframe title="Product location map" width="100%" height="250" loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="block w-full" src={mapUrl!} />
                 </div>
                 <a href={mapLink!} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline">
-                  Open location in OpenStreetMap <span className="ml-1" aria-hidden="true">↗</span>
+                  Open location in Google Maps <span className="ml-1" aria-hidden="true">↗</span>
                 </a>
               </CardContent>
             </Card>
