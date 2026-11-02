@@ -317,6 +317,10 @@ export default function BusinessRfqsPage() {
                       <Clock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                       <div><p className="text-xs text-slate-500">Quote deadline</p><p className="text-sm font-semibold text-slate-800">{formatRfqDeadline(r) || r.closingIn || "No deadline specified"}</p></div>
                     </div>
+                    <div className="flex items-start gap-2">
+                      <FileText className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                      <div><p className="text-xs text-slate-500">Published payment terms</p><p className="text-sm font-semibold text-slate-800">{String(r.paymentTerms || (r.recurring ? "net_7" : "cod")).replace(/_/g, " ").replace(/^./, (v: string) => v.toUpperCase())}</p></div>
+                    </div>
                   </div>
 
                   {r.notes ? <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2"><p className="text-xs font-medium text-amber-900">Additional requirements</p><p className="mt-1 whitespace-pre-wrap text-sm text-amber-900">{r.notes}</p></div> : null}
