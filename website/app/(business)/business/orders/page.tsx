@@ -158,7 +158,7 @@ function StatusTimeline({ status }: { status: string }) {
                 aria-label={tooltip}
                 title={tooltip}
                 className={
-                  "h-2.5 w-2.5 shrink-0 cursor-help rounded-full transition-shadow hover:ring-4 hover:ring-emerald-100 " +
+                  "h-2.5 w-2.5 shrink-0 cursor-default rounded-full transition-shadow hover:ring-4 hover:ring-emerald-100 " +
                   (reached
                     ? current
                       ? "bg-emerald-600 ring-2 ring-emerald-200"
