@@ -18,8 +18,6 @@ const emptyForm = {
   productName: "",
   category: "",
   recurring: false,
-  quantityKg: 500,
-  quantityPerWeekKg: 50,
   recurrenceFrequency: "weekly",
   recurrenceInterval: 1,
   scheduleStartDate: "",
@@ -254,25 +252,45 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           </div>
         </div>
 
-        {form.recurring ? (
+        {form.recurring && (
           <>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Quantity (kg/week) *</label>
-            <Input type="number" min="1" value={form.quantityPerWeekKg} onChange={(e) => set("quantityPerWeekKg", Number(e.target.value))} />
-          </div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Delivery frequency *</label><select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Repeat every *</label><Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} /></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule start date *</label><Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} /></div>
-          <div className="space-y-1"><label className="text-xs font-medium text-gray-500">Schedule end date *</label><Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} /></div>
-          <div className="space-y-1 sm:col-span-2"><label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label><Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" /></div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Delivery frequency *</label>
+              <select value={form.recurrenceFrequency} onChange={(e) => set("recurrenceFrequency", e.target.value)} className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Repeat every *</label>
+              <Input type="number" min="1" max="12" value={form.recurrenceInterval} onChange={(e) => set("recurrenceInterval", Number(e.target.value))} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Schedule start date *</label>
+              <Input type="date" value={form.scheduleStartDate} onChange={(e) => set("scheduleStartDate", e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-gray-500">Schedule end date *</label>
+              <Input type="date" min={form.scheduleStartDate || undefined} value={form.scheduleEndDate} onChange={(e) => set("scheduleEndDate", e.target.value)} />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-gray-500">Cancellation / quality terms</label>
+              <Input value={form.cancellationTerms} onChange={(e) => set("cancellationTerms", e.target.value)} placeholder="Quality checks, notice period, cancellation rules" />
+            </div>
           </>
-        ) : (
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Quantity (kg) *</label>
-            <Input type="number" min="1" value={form.quantityKg} onChange={(e) => set("quantityKg", Number(e.target.value))} />
-          </div>
         )}
-        <div className="space-y-1 sm:col-span-2">
+        <div className="space-y-1">
+          <label className="text-xs font-medium text-gray-500">Quality grade</label>
+          <select
+            value={form.qualityGrade}
+            onChange={(e) => set("qualityGrade", e.target.value)}
+            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
+          >
+            {QUALITY_GRADES.map((q) => <option key={q} value={q}>{q}</option>)}
+          </select>
+        </div>
+        <div className="space-y-1">
           <label className="text-xs font-medium text-gray-500">Payment terms *</label>
           <select
             value={form.paymentTerms}
@@ -288,16 +306,6 @@ export function CreateRfqForm({ onDone }: { onDone?: () => void }) {
           <p className="text-xs text-slate-500">
             These agreed payment terms are published with the RFQ so farmers can review them before quoting. The actual payment channel (Razorpay, UPI, card or COD collection) is selected when the quote is accepted or the order is paid.
           </p>
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-gray-500">Quality grade</label>
-          <select
-            value={form.qualityGrade}
-            onChange={(e) => set("qualityGrade", e.target.value)}
-            className="h-9 w-full rounded-md border border-gray-200 px-2 text-sm"
-          >
-            {QUALITY_GRADES.map((q) => <option key={q} value={q}>{q}</option>)}
-          </select>
         </div>
 
         {!form.recurring && (
