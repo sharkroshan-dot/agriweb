@@ -334,7 +334,7 @@ export default function FarmerB2bRfqsPage() {
               <p className="text-lg font-semibold">{r.productName}</p>
               {r.qualityGrade ? <Badge variant="outline">{r.qualityGrade}</Badge> : null}
               {r.recurring ? <Badge variant="outline">recurring</Badge> : <Badge variant="outline">one-off</Badge>}
-              <Badge variant="outline">Payment: {String(r.paymentTerms || (r.recurring ? "net_7" : "cod")).replace(/_/g, " ")}</Badge>
+              <Badge variant="outline">Payment: {r.paymentTerms ? String(r.paymentTerms).replace(/_/g, " ") : "Not selected"}</Badge>
               {r.replacementSourcingOpen ? <Badge variant="success">Replacement quote requested</Badge> : null}
             </div>
             <p className="mt-1 text-sm text-gray-700">
