@@ -1571,7 +1571,9 @@ async def create_rfq(
             raise HTTPException(status_code=400, detail="Schedule end date must be on or after the start date")
         if start_date < datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0):
             raise HTTPException(status_code=400, detail="Schedule start date cannot be in the past")
-    if data.paymentTerms and data.paymentTerms not in ("advance", "cod", "net_7", "net_15", "net_30"):
+    if not data.paymentTerms:
+        raise HTTPException(status_code=400, detail="Select payment terms before publishing the RFQ")
+    if data.paymentTerms not in ("advance", "cod", "net_7", "net_15", "net_30"):
         raise HTTPException(status_code=400, detail="Unsupported payment terms")
     if not data.recurring and not data.quantityKg:
         raise HTTPException(status_code=400, detail="quantityKg is required for one-off RFQs")
@@ -1613,7 +1615,7 @@ async def create_rfq(
         "scheduleStartDate": data.scheduleStartDate if data.recurring else None,
         "scheduleEndDate": data.scheduleEndDate if data.recurring else None,
         "contractRequired": bool(data.recurring and data.contractRequired),
-        "paymentTerms": data.paymentTerms or ("net_7" if data.recurring else "cod"),
+        "paymentTerms": data.paymentTerms,
         "cancellationTerms": data.cancellationTerms if data.recurring else None,
         "deadline": deadline,
         "visibility": data.visibility,
