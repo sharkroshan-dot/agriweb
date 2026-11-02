@@ -1156,6 +1156,7 @@ export default function BusinessOrdersPage() {
                           {[
                             { key: "activity", label: "Activity", icon: Clock3 },
                             { key: "delivery", label: "Delivery", icon: Truck },
+                            { key: "goodsReceipt", label: "Goods Receipt", icon: ClipboardCheck },
                             { key: "payment", label: "Payment", icon: Wallet },
                             { key: "invoice", label: "Invoice", icon: FileText },
                           ].map((tab) => (
@@ -1188,6 +1189,108 @@ export default function BusinessOrdersPage() {
                               {order.deliveryTimeSlot ? <p className="mt-1 text-xs text-slate-500">Preferred time: {order.deliveryTimeSlot}</p> : null}
                             </div>
                             <p className="text-xs text-slate-500">Pickup, warehouse and transfer actions are recorded against the same B2B order. Use Activity to review the full timestamped history.</p>
+                          </div>
+                        ) : null}
+
+                        {activeTab === "goodsReceipt" ? (
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                              <div className="flex min-w-0 items-start gap-3">
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-emerald-700">
+                                  <ClipboardCheck className="h-5 w-5" />
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-slate-900">Goods receipt & quality inspection</p>
+                                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                                    Record the physical quantity received, the quantity accepted after inspection, and any shortage, damage or quality issue.
+                                  </p>
+                                </div>
+                              </div>
+                              <Badge variant={
+                                order.goodsReceipt?.status === "accepted" ? "success" :
+                                order.goodsReceipt?.status === "resolved" ? "outline" :
+                                ["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "")) ? "warning" :
+                                order.status === "delivered" ? "warning" : "secondary"
+                              }>
+                                {order.goodsReceipt?.status === "accepted" ? "Accepted" :
+                                 order.goodsReceipt?.status === "resolved" ? "Resolved · final receipt pending" :
+                                 order.goodsReceipt?.status === "dispute_open" ? "Dispute open" :
+                                 order.goodsReceipt?.status === "response_received" ? "Supplier responded" :
+                                 order.status === "completed" ? "Completed" :
+                                 order.status === "delivered" ? "Awaiting inspection" : "Available after delivery"}
+                              </Badge>
+                            </div>
+
+                            {order.goodsReceipt ? (
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <DetailValue label="Ordered quantity" value={`${order.goodsReceipt.requestedQuantityKg ?? order.quantityKg ?? 0} kg`} icon={Package} />
+                                <DetailValue label="Received quantity" value={`${order.goodsReceipt.receivedQuantityKg ?? "—"} kg`} icon={Truck} />
+                                <DetailValue label="Accepted quantity" value={`${order.goodsReceipt.acceptedQuantityKg ?? "—"} kg`} icon={CheckCircle} />
+                              </div>
+                            ) : (
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <DetailValue label="Ordered quantity" value={`${order.quantityKg || 0} kg`} icon={Package} />
+                                <DetailValue label="Current order stage" value={STATUS_LABELS[order.status] || String(order.status || "Unknown").replace(/_/g, " ")} icon={Truck} />
+                              </div>
+                            )}
+
+                            {order.goodsReceipt?.issueTypes?.length ? (
+                              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">Inspection issues</p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {order.goodsReceipt.issueTypes.map((issue: string) => (
+                                    <Badge key={issue} variant="warning">{issue.replace(/_/g, " ")}</Badge>
+                                  ))}
+                                </div>
+                                <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{order.goodsReceipt.notes || "No additional notes."}</p>
+                                {(order.goodsReceipt.evidenceUrls || []).map((url: string) => (
+                                  <a key={url} href={url} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-emerald-700 underline">Open inspection evidence</a>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {order.goodsReceipt?.farmerResponse ? (
+                              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-900">Supplier response · {String(order.goodsReceipt.farmerResponse.proposal || "").replace(/_/g, " ")}</p>
+                                <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{order.goodsReceipt.farmerResponse.notes}</p>
+                                {(order.goodsReceipt.farmerResponse.evidenceUrls || []).map((url: string) => (
+                                  <a key={url} href={url} target="_blank" rel="noreferrer" className="mt-1 block text-xs font-semibold text-emerald-700 underline">Open supplier evidence</a>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {order.status !== "delivered" && order.status !== "completed" ? (
+                              <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
+                                Goods inspection becomes available after the final delivery partner marks this order as delivered to your business.
+                              </p>
+                            ) : null}
+
+                            {order.status === "delivered" && !order.goodsReceipt ? (
+                              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                <div><p className="text-sm font-semibold text-amber-950">Delivery is ready for inspection</p><p className="text-xs text-amber-800">Check the goods and record the quantity and quality received.</p></div>
+                                <Button size="sm" onClick={() => setGoodsReceiptFor(order)}><ClipboardCheck className="h-4 w-4" /> Inspect delivery</Button>
+                              </div>
+                            ) : null}
+
+                            {order.status === "delivered" && ["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "")) ? (
+                              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                                <div><p className="text-sm font-semibold text-amber-950">A goods receipt issue needs review</p><p className="text-xs text-amber-800">{order.goodsReceipt.status === "response_received" ? "The supplier has replied. Review the response and record the agreed resolution." : "Waiting for the supplier response, or record an agreed outcome when ready."}</p></div>
+                                <Button size="sm" variant="outline" onClick={() => setGoodsReceiptDisputeFor(order)}><AlertTriangle className="h-4 w-4" /> {order.goodsReceipt.status === "response_received" ? "Review response" : "Review dispute"}</Button>
+                              </div>
+                            ) : null}
+
+                            {order.status === "delivered" && order.goodsReceipt?.status === "resolved" ? (
+                              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                                <div><p className="text-sm font-semibold text-emerald-950">Dispute resolution recorded</p><p className="text-xs text-emerald-800">Confirm final receipt to complete this order and make its invoice available.</p></div>
+                                <Button size="sm" disabled={updateMutation.isPending} onClick={() => updateMutation.mutate({ id: order.id, payload: { status: "completed" } })}><CheckCircle className="h-4 w-4" /> Confirm final receipt</Button>
+                              </div>
+                            ) : null}
+
+                            {order.status === "completed" ? (
+                              <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 text-sm text-emerald-900">
+                                Goods receipt is complete. {order.goodsReceipt?.acceptedQuantityKg ?? order.quantityKg ?? 0} kg accepted. The final invoice is available in the Invoice tab.
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
 
