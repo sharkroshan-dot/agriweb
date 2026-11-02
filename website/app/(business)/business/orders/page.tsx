@@ -446,6 +446,212 @@ function RateFarmerModal({ order, onClose }: { order: any; onClose: () => void }
 }
 
 
+function GoodsReceiptModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const orderedQuantity = Math.max(0, Number(order.quantityKg || 0));
+  const [receivedQuantity, setReceivedQuantity] = useState(String(orderedQuantity));
+  const [acceptedQuantity, setAcceptedQuantity] = useState(String(orderedQuantity));
+  const [issues, setIssues] = useState<string[]>([]);
+  const [notes, setNotes] = useState("");
+  const [evidenceUrls, setEvidenceUrls] = useState("");
+  const submit = useMutation({
+    mutationFn: (payload: any) => api.post(`/b2b/orders/${encodeURIComponent(order.id)}/goods-receipt`, payload),
+    onSuccess: async (response: any) => {
+      toast.success(response?.data?.message || "Goods receipt saved");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["b2b", "orders"] }),
+        queryClient.invalidateQueries({ queryKey: ["b2b", "payments"] }),
+        queryClient.invalidateQueries({ queryKey: ["b2b", "analytics"] }),
+      ]);
+      onClose();
+    },
+    onError: (error: any) => toast.error(error?.message || "Could not save goods receipt"),
+  });
+
+  const issueOptions = [
+    { key: "missing_quantity", label: "Missing quantity" },
+    { key: "rejected_quantity", label: "Quantity rejected" },
+    { key: "quality_issue", label: "Quality does not meet requirements" },
+    { key: "damaged_goods", label: "Produce damaged during handling" },
+    { key: "wrong_product", label: "Wrong product delivered" },
+    { key: "packaging_issue", label: "Packaging problem" },
+  ];
+  const received = Number(receivedQuantity);
+  const accepted = Number(acceptedQuantity);
+  const valid = receivedQuantity.trim() !== "" && acceptedQuantity.trim() !== ""
+    && Number.isFinite(received) && Number.isFinite(accepted)
+    && received >= 0 && received <= orderedQuantity
+    && accepted >= 0 && accepted <= received;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3 sm:p-5" onClick={onClose}>
+      <Card className="max-h-[92vh] w-full max-w-2xl overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+        <CardContent className="space-y-5 p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-bold text-slate-950">Goods receipt & inspection</p>
+              <p className="mt-1 text-sm text-slate-500">{order.orderNumber} · {order.productName || "B2B produce"} · Supplier {order.farmerInfo?.farmName || "Farm"}</p>
+            </div>
+            <Badge variant="outline">Delivered</Badge>
+          </div>
+          <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-3">
+            <div><p className="text-xs text-slate-500">Ordered quantity</p><p className="text-lg font-bold">{orderedQuantity} kg</p></div>
+            <div><p className="text-xs text-slate-500">Order value</p><p className="text-lg font-bold">{formatPrice(order.totalAmount || 0)}</p></div>
+            <div className="col-span-2 sm:col-span-1"><p className="text-xs text-slate-500">Payment status</p><p className="text-sm font-semibold capitalize">{String(order.paymentStatus || "pending").replace(/_/g, " ")}</p></div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label className="text-sm font-semibold text-slate-800">Quantity received (kg)</label>
+              <Input inputMode="decimal" value={receivedQuantity} onChange={(event) => {
+                setReceivedQuantity(event.target.value);
+                const nextReceived = Number(event.target.value);
+                if (Number.isFinite(nextReceived) && nextReceived >= 0) setAcceptedQuantity((current) => String(Math.min(Number(current || 0), nextReceived)));
+              }} />
+              <p className="text-xs text-slate-500">Enter the physical quantity delivered to your business.</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-semibold text-slate-800">Quantity accepted (kg)</label>
+              <Input inputMode="decimal" value={acceptedQuantity} onChange={(event) => setAcceptedQuantity(event.target.value)} />
+              <p className="text-xs text-slate-500">Enter the quantity accepted after quality inspection.</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-slate-800">Inspection issues</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {issueOptions.map((issue) => (
+                <label key={issue.key} className="flex items-center gap-2 rounded-lg border border-slate-200 p-2.5 text-sm text-slate-700">
+                  <input type="checkbox" checked={issues.includes(issue.key)} onChange={(event) => setIssues((current) => event.target.checked ? [...current, issue.key] : current.filter((value) => value !== issue.key))} />
+                  {issue.label}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-semibold text-slate-800">Inspection notes</label>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} maxLength={3000} placeholder="Describe the condition, shortage, damaged quantity or quality problem…" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-semibold text-slate-800">Evidence links (optional)</label>
+            <textarea value={evidenceUrls} onChange={(event) => setEvidenceUrls(event.target.value)} rows={2} placeholder="Paste one image/document URL per line (HTTP or HTTPS)" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+            <p className="text-xs text-slate-500">Add up to five links to inspection photographs or supporting documents.</p>
+          </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+            Full accepted quantity completes the order and makes the invoice available. A shortage or quality issue opens a supplier dispute. This inspection does not automatically charge, refund or change the payment balance.
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button disabled={!valid || submit.isPending} onClick={() => submit.mutate({
+              receivedQuantityKg: received,
+              acceptedQuantityKg: accepted,
+              issues,
+              notes,
+              evidenceUrls: evidenceUrls.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+            })}>
+              {submit.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+              {submit.isPending ? "Saving inspection…" : "Submit goods receipt"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
+function GoodsReceiptDisputeModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const receipt = order.goodsReceipt || {};
+  const [resolution, setResolution] = useState("accept_as_is");
+  const [notes, setNotes] = useState("");
+  const [replacementQuantity, setReplacementQuantity] = useState(String(Math.max(0, Number(receipt.requestedQuantityKg || order.quantityKg || 0) - Number(receipt.acceptedQuantityKg || 0))));
+
+  const mutation = useMutation({
+    mutationFn: (payload: any) => api.post(`/b2b/orders/${encodeURIComponent(order.id)}/goods-receipt/resolve`, payload),
+    onSuccess: async (response: any) => {
+      toast.success(response?.data?.message || "Dispute resolution saved");
+      await queryClient.invalidateQueries({ queryKey: ["b2b", "orders"] });
+      onClose();
+    },
+    onError: (error: any) => toast.error(error?.message || "Could not resolve goods receipt dispute"),
+  });
+
+  const resolutionOptions = [
+    { key: "replacement_received", label: "Replacement produce received" },
+    { key: "accept_as_is", label: "Accept the received quantity as-is" },
+    { key: "credit_or_refund_agreed", label: "Credit / refund agreed separately" },
+    { key: "withdrawn", label: "Withdraw the dispute" },
+  ];
+  const evidence = Array.isArray(receipt.evidenceUrls) ? receipt.evidenceUrls : [];
+  const farmerEvidence = Array.isArray(receipt.farmerResponse?.evidenceUrls) ? receipt.farmerResponse.evidenceUrls : [];
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3 sm:p-5" onClick={onClose}>
+      <Card className="max-h-[92vh] w-full max-w-2xl overflow-y-auto" onClick={(event) => event.stopPropagation()}>
+        <CardContent className="space-y-5 p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-bold text-slate-950">Goods receipt dispute</p>
+              <p className="mt-1 text-sm text-slate-500">{order.orderNumber} · {order.productName || "B2B produce"} · {order.farmerInfo?.farmName || "Supplier"}</p>
+            </div>
+            <Badge variant={receipt.status === "response_received" ? "success" : "warning"}>{receipt.status === "response_received" ? "Supplier responded" : "Awaiting supplier"}</Badge>
+          </div>
+          <div className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center">
+            <div><p className="text-xs text-slate-500">Ordered</p><p className="font-bold">{receipt.requestedQuantityKg ?? order.quantityKg} kg</p></div>
+            <div><p className="text-xs text-slate-500">Received</p><p className="font-bold">{receipt.receivedQuantityKg ?? "—"} kg</p></div>
+            <div><p className="text-xs text-slate-500">Accepted</p><p className="font-bold">{receipt.acceptedQuantityKg ?? "—"} kg</p></div>
+          </div>
+          <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+            <p className="text-sm font-semibold text-amber-950">Business inspection report</p>
+            <p className="text-xs text-slate-700">Issues: {(receipt.issueTypes || []).map((value: string) => value.replace(/_/g, " ")).join(", ") || "Not specified"}</p>
+            <p className="whitespace-pre-wrap text-sm text-slate-700">{receipt.notes || "No inspection notes supplied."}</p>
+            {evidence.length ? <div className="flex flex-wrap gap-2">{evidence.map((url: string) => <a key={url} href={url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-700 underline">Open buyer evidence</a>)}</div> : null}
+          </div>
+          {receipt.farmerResponse ? (
+            <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+              <p className="text-sm font-semibold text-emerald-950">Supplier response · {String(receipt.farmerResponse.proposal || "").replace(/_/g, " ")}</p>
+              <p className="whitespace-pre-wrap text-sm text-slate-700">{receipt.farmerResponse.notes}</p>
+              {farmerEvidence.length ? <div className="flex flex-wrap gap-2">{farmerEvidence.map((url: string) => <a key={url} href={url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-700 underline">Open supplier evidence</a>)}</div> : null}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">The supplier has not responded yet. You may wait for their response or record an agreed resolution when ready.</p>
+          )}
+          <div className="space-y-1">
+            <label className="text-sm font-semibold text-slate-800">Resolution</label>
+            <select value={resolution} onChange={(event) => setResolution(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm">
+              {resolutionOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+            </select>
+          </div>
+          {resolution === "replacement_received" ? (
+            <div className="space-y-1">
+              <label className="text-sm font-semibold text-slate-800">Replacement quantity received (kg)</label>
+              <Input inputMode="decimal" value={replacementQuantity} onChange={(event) => setReplacementQuantity(event.target.value)} />
+            </div>
+          ) : null}
+          <div className="space-y-1">
+            <label className="text-sm font-semibold text-slate-800">Resolution notes</label>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} maxLength={3000} placeholder="Record the agreed outcome and any supporting details…" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" />
+          </div>
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+            Recording an agreed credit/refund does not move money or alter the paid balance. Process any financial adjustment separately. Once resolved, confirm final receipt to complete the order and issue its invoice.
+          </p>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="outline" onClick={onClose}>Close</Button>
+            <Button disabled={!notes.trim() || mutation.isPending || (resolution === "replacement_received" && (!Number.isFinite(Number(replacementQuantity)) || Number(replacementQuantity) <= 0))} onClick={() => mutation.mutate({
+              resolution,
+              notes,
+              replacementReceivedQuantityKg: resolution === "replacement_received" ? Number(replacementQuantity) : 0,
+            })}>
+              {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+              {mutation.isPending ? "Saving resolution…" : "Save resolution"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
 export default function BusinessOrdersPage() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState("all");
@@ -454,6 +660,8 @@ export default function BusinessOrdersPage() {
   const [detailTabs, setDetailTabs] = useState<Record<string, string>>({});
   const [invoiceFor, setInvoiceFor] = useState<any>(null);
   const [rateFor, setRateFor] = useState<any>(null);
+  const [goodsReceiptFor, setGoodsReceiptFor] = useState<any>(null);
+  const [goodsReceiptDisputeFor, setGoodsReceiptDisputeFor] = useState<any>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -812,6 +1020,9 @@ export default function BusinessOrdersPage() {
                           <span className="text-sm font-bold text-slate-950">{order.orderNumber || order.id}</span>
                           <Badge variant="outline">{typeLabel}</Badge>
                           <Badge variant={statusVariant[order.status] || "secondary"}>{STATUS_LABELS[order.status] || String(order.status || "Unknown").replace(/_/g, " ")}</Badge>
+                          {order.goodsReceipt?.status === "dispute_open" ? <Badge variant="warning">Goods receipt dispute</Badge> : null}
+                          {order.goodsReceipt?.status === "response_received" ? <Badge variant="success">Supplier responded</Badge> : null}
+                          {order.goodsReceipt?.status === "resolved" && order.status === "delivered" ? <Badge variant="outline">Resolution recorded · confirm receipt</Badge> : null}
                           {order.isReplacementSupply ? <Badge variant="warning">Replacement supply</Badge> : null}
                           {order.farmerInfo?.isVerified ? <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700"><ShieldCheck className="h-3.5 w-3.5" /> Verified supplier</span> : null}
                         </div>
@@ -861,9 +1072,19 @@ export default function BusinessOrdersPage() {
                             {payingId === order.id ? "Processing…" : "Pay online"}
                           </Button>
                         ) : null}
-                        {order.status === "delivered" ? (
+                        {order.status === "delivered" && !order.goodsReceipt ? (
+                          <Button size="sm" onClick={() => setGoodsReceiptFor(order)}>
+                            <ClipboardCheck className="h-4 w-4" /> Inspect delivery
+                          </Button>
+                        ) : null}
+                        {order.status === "delivered" && ["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "")) ? (
+                          <Button size="sm" variant="outline" onClick={() => setGoodsReceiptDisputeFor(order)}>
+                            <AlertTriangle className="h-4 w-4" /> {order.goodsReceipt?.status === "response_received" ? "Review supplier response" : "Review dispute"}
+                          </Button>
+                        ) : null}
+                        {order.status === "delivered" && order.goodsReceipt?.status === "resolved" ? (
                           <Button size="sm" disabled={updateMutation.isPending} onClick={() => updateMutation.mutate({ id: order.id, payload: { status: "completed" } })}>
-                            <CheckCircle className="h-4 w-4" /> Confirm receipt
+                            <CheckCircle className="h-4 w-4" /> Confirm final receipt
                           </Button>
                         ) : null}
                         {order.status === "completed" ? (
@@ -984,6 +1205,8 @@ export default function BusinessOrdersPage() {
 
       {invoiceFor ? <InvoiceModal order={invoiceFor} onClose={() => setInvoiceFor(null)} /> : null}
       {rateFor ? <RateFarmerModal order={rateFor} onClose={() => setRateFor(null)} /> : null}
+      {goodsReceiptFor ? <GoodsReceiptModal order={goodsReceiptFor} onClose={() => setGoodsReceiptFor(null)} /> : null}
+      {goodsReceiptDisputeFor ? <GoodsReceiptDisputeModal order={goodsReceiptDisputeFor} onClose={() => setGoodsReceiptDisputeFor(null)} /> : null}
     </div>
   );
 }
