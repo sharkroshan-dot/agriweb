@@ -17,7 +17,6 @@ import {
   CalendarDays,
   Leaf,
   CheckCircle2,
-  Copy,
   Boxes,
   Sprout,
   Warehouse,
@@ -399,7 +398,7 @@ export default function ProductDetailPage() {
 
           <div className="grid grid-cols-2 gap-2">
             <Button onClick={handleEdit} className="w-full"><Edit className="mr-2 h-4 w-4" />Edit product</Button>
-            <Button variant="outline" onClick={handleShare} className="w-full"><Copy className="mr-2 h-4 w-4" />Copy link</Button>
+            <Button variant="outline" onClick={handleShare} className="w-full"><Share2 className="mr-2 h-4 w-4" />Share</Button>
           </div>
         </aside>
       </div>
