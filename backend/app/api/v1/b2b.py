@@ -2692,6 +2692,65 @@ class OrderStatusUpdate(BaseModel):
     qualityNotes: Optional[str] = None
 
 
+class GoodsReceiptSubmit(BaseModel):
+    receivedQuantityKg: float = Field(ge=0)
+    acceptedQuantityKg: float = Field(ge=0)
+    issues: List[str] = Field(default_factory=list)
+    notes: Optional[str] = Field(None, max_length=3000)
+    evidenceUrls: List[str] = Field(default_factory=list)
+
+
+class GoodsReceiptFarmerResponse(BaseModel):
+    proposal: str
+    notes: str = Field(min_length=3, max_length=3000)
+    evidenceUrls: List[str] = Field(default_factory=list)
+
+
+class GoodsReceiptResolution(BaseModel):
+    resolution: str
+    notes: str = Field(min_length=3, max_length=3000)
+    replacementReceivedQuantityKg: float = Field(0, ge=0)
+
+
+def _validate_goods_receipt_evidence_urls(urls: List[str]) -> List[str]:
+    if len(urls) > 5:
+        raise HTTPException(status_code=400, detail="Attach no more than five evidence links.")
+    clean_urls = []
+    for raw_url in urls:
+        url = str(raw_url or "").strip()
+        if not url:
+            continue
+        if len(url) > 2048 or not re.match(r"^https?://", url, re.IGNORECASE):
+            raise HTTPException(status_code=400, detail="Evidence links must be valid HTTP or HTTPS URLs.")
+        clean_urls.append(url)
+    return clean_urls
+
+
+def _append_goods_receipt_history(
+    order: Dict[str, Any],
+    *,
+    action: str,
+    actor_role: str,
+    actor_id: str,
+    details: str,
+    timestamp: datetime,
+) -> List[Dict[str, Any]]:
+    history = _ensure_b2b_order_activity_history(order)
+    history.append({
+        "status": str(order.get("status") or ORDER_DELIVERED),
+        "previousStatus": str(order.get("status") or ORDER_DELIVERED),
+        "action": action,
+        "eventType": action,
+        "title": action.replace("_", " ").title(),
+        "description": details,
+        "details": details,
+        "actorRole": actor_role,
+        "actorId": actor_id,
+        "timestamp": timestamp,
+    })
+    return history
+
+
 @router.put("/orders/{order_id}/status")
 async def update_order_status(
     order_id: str,
@@ -3064,6 +3123,12 @@ async def update_order_status(
     if data.status == ORDER_COMPLETED:
         if current != ORDER_DELIVERED:
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
+        receipt = order.get("goodsReceipt") or {}
+        if str(receipt.get("status") or "").lower() in ("dispute_open", "response_received"):
+            raise HTTPException(
+                status_code=409,
+                detail="This order has an unresolved goods-receipt dispute. Record the agreed resolution before completing the order.",
+            )
         update["completedAt"] = event_time
         update["invoiceIssuedAt"] = order.get("invoiceIssuedAt") or event_time
         update["completedBy"] = actor_id
@@ -3085,6 +3150,324 @@ async def update_order_status(
     raise HTTPException(status_code=400, detail="Business buyers can only complete or cancel orders")
 
 
+@router.post("/orders/{order_id}/goods-receipt")
+async def submit_b2b_goods_receipt(
+    order_id: str,
+    data: GoodsReceiptSubmit,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record business-side quantity and quality inspection for a delivered B2B order.
+
+    A clean, full receipt completes the order. A discrepancy opens a dispute and
+    deliberately keeps the order delivered until both parties record a resolution.
+    Payment balances are never changed by this endpoint.
+    """
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the purchasing business can inspect a B2B delivery")
+    try:
+        order_oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+
+    order = await order_repo.find_one({
+        "_id": order_oid,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    if str(order.get("status") or "").lower() != ORDER_DELIVERED:
+        raise HTTPException(status_code=409, detail="Goods receipt can be recorded only after the order is delivered")
+    if order.get("goodsReceipt"):
+        raise HTTPException(status_code=409, detail="A goods receipt or quality dispute has already been recorded for this order")
+
+    requested_quantity = float(order.get("quantityKg") or order.get("quantity") or 0)
+    received_quantity = float(data.receivedQuantityKg)
+    accepted_quantity = float(data.acceptedQuantityKg)
+    if requested_quantity <= 0:
+        raise HTTPException(status_code=409, detail="The saved order quantity is missing; contact support before recording receipt")
+    if received_quantity > requested_quantity + 1e-6:
+        raise HTTPException(status_code=400, detail=f"Received quantity cannot exceed the ordered quantity ({requested_quantity:g} kg)")
+    if accepted_quantity > received_quantity + 1e-6:
+        raise HTTPException(status_code=400, detail="Accepted quantity cannot exceed the received quantity")
+
+    allowed_issues = {
+        "missing_quantity",
+        "rejected_quantity",
+        "quality_issue",
+        "damaged_goods",
+        "wrong_product",
+        "packaging_issue",
+    }
+    issues = list(dict.fromkeys(str(issue).strip().lower() for issue in data.issues if str(issue).strip()))
+    unsupported = [issue for issue in issues if issue not in allowed_issues]
+    if unsupported:
+        raise HTTPException(status_code=400, detail=f"Unsupported goods-receipt issue: {unsupported[0]}")
+    if received_quantity + 1e-6 < requested_quantity:
+        issues.append("missing_quantity") if "missing_quantity" not in issues else None
+    if accepted_quantity + 1e-6 < received_quantity:
+        issues.append("rejected_quantity") if "rejected_quantity" not in issues else None
+    if accepted_quantity + 1e-6 < requested_quantity and not issues:
+        issues.append("quantity_discrepancy")
+
+    evidence_urls = _validate_goods_receipt_evidence_urls(data.evidenceUrls)
+    now = datetime.utcnow()
+    actor_id = str(current_user.get("_id") or "")
+    has_discrepancy = bool(issues) or accepted_quantity + 1e-6 < requested_quantity
+    receipt_status = "dispute_open" if has_discrepancy else "accepted"
+    receipt = {
+        "status": receipt_status,
+        "requestedQuantityKg": round(requested_quantity, 2),
+        "receivedQuantityKg": round(received_quantity, 2),
+        "acceptedQuantityKg": round(accepted_quantity, 2),
+        "issueTypes": issues,
+        "notes": str(data.notes or "").strip(),
+        "evidenceUrls": evidence_urls,
+        "submittedBy": actor_id,
+        "submittedAt": now,
+        "updatedAt": now,
+    }
+    update: Dict[str, Any] = {
+        "goodsReceipt": receipt,
+        "updatedAt": now,
+    }
+    history = _append_goods_receipt_history(
+        order,
+        action="goods_receipt_dispute_reported" if has_discrepancy else "goods_receipt_accepted",
+        actor_role="business",
+        actor_id=actor_id,
+        details=(
+            f"Business received {received_quantity:g} kg and accepted {accepted_quantity:g} kg "
+            f"from {requested_quantity:g} kg ordered."
+            + (f" Issues: {', '.join(issues)}." if issues else " Quantity and quality accepted in full.")
+            + (f" Notes: {receipt['notes']}" if receipt["notes"] else "")
+        ),
+        timestamp=now,
+    )
+    update["statusHistory"] = history
+
+    if not has_discrepancy:
+        update.update({
+            "status": ORDER_COMPLETED,
+            "completedAt": now,
+            "invoiceIssuedAt": order.get("invoiceIssuedAt") or now,
+            "completedBy": actor_id,
+        })
+        history.append({
+            "status": ORDER_COMPLETED,
+            "previousStatus": ORDER_DELIVERED,
+            "action": "complete_order",
+            "eventType": "goods_receipt_completed",
+            "title": "Business confirmed receipt",
+            "description": "Full quantity and quality accepted. The B2B order was completed and its invoice is now available.",
+            "details": "Business confirmed full goods receipt and completed the delivered B2B order.",
+            "actorRole": "business",
+            "actorId": actor_id,
+            "timestamp": now,
+        })
+
+    saved = await order_repo.update({"_id": order_oid, "status": ORDER_DELIVERED}, update)
+    if not saved:
+        raise HTTPException(status_code=409, detail="The order changed while goods receipt was being saved. Refresh and try again.")
+
+    farmer_id = str(order.get("farmerId") or "")
+    if farmer_id:
+        try:
+            await NotificationService.create_in_app_notification(
+                farmer_id,
+                NotificationType.ORDER,
+                "B2B delivery inspection recorded",
+                (
+                    f"The business accepted the full delivery for {order.get('orderNumber')}."
+                    if not has_discrepancy
+                    else f"The business reported a quantity or quality issue for {order.get('orderNumber')}. Open your B2B orders and respond to the goods-receipt dispute."
+                ),
+                {"orderId": order_id, "type": "b2b", "goodsReceipt": True},
+                NotificationPriority.HIGH,
+                mandatory=True,
+            )
+        except Exception:
+            logger.exception("Could not notify farmer about B2B goods receipt for order %s", order_id)
+
+    return {
+        "success": True,
+        "message": (
+            "Goods receipt accepted. The order is completed and the invoice is available."
+            if not has_discrepancy
+            else "Goods receipt saved. The order remains delivered while the supplier responds to the dispute."
+        ),
+        "data": {
+            "goodsReceipt": receipt,
+            "orderStatus": ORDER_COMPLETED if not has_discrepancy else ORDER_DELIVERED,
+            "paymentStatus": order.get("paymentStatus") or PAYMENT_PENDING,
+            "amountDue": _b2b_amount_due(order),
+        },
+    }
+
+
+@router.post("/orders/{order_id}/goods-receipt/respond")
+async def respond_to_b2b_goods_receipt_dispute(
+    order_id: str,
+    data: GoodsReceiptFarmerResponse,
+    current_user: dict = Depends(get_current_user),
+):
+    """Let the supplying farmer respond to the buyer's documented discrepancy."""
+    if current_user.get("role") != "farmer":
+        raise HTTPException(status_code=403, detail="Only the supplying farmer can respond to this goods-receipt dispute")
+    try:
+        order_oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    order = await order_repo.find_one({
+        "_id": order_oid,
+        "farmerId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    receipt = dict(order.get("goodsReceipt") or {})
+    if str(order.get("status") or "").lower() != ORDER_DELIVERED or receipt.get("status") != "dispute_open":
+        raise HTTPException(status_code=409, detail="There is no open goods-receipt dispute to respond to")
+    if data.proposal not in {"replacement", "credit_or_refund", "explanation", "contest"}:
+        raise HTTPException(status_code=400, detail="Choose a supported dispute response")
+    evidence_urls = _validate_goods_receipt_evidence_urls(data.evidenceUrls)
+    now = datetime.utcnow()
+    actor_id = str(current_user.get("_id") or "")
+    farmer_response = {
+        "proposal": data.proposal,
+        "notes": data.notes.strip(),
+        "evidenceUrls": evidence_urls,
+        "submittedBy": actor_id,
+        "submittedAt": now,
+    }
+    receipt.update({
+        "status": "response_received",
+        "farmerResponse": farmer_response,
+        "updatedAt": now,
+    })
+    history = _append_goods_receipt_history(
+        order,
+        action="goods_receipt_farmer_response",
+        actor_role="farmer",
+        actor_id=actor_id,
+        details=f"Supplier response: {data.proposal.replace('_', ' ')}. {farmer_response['notes']}",
+        timestamp=now,
+    )
+    saved = await order_repo.update({"_id": order_oid, "status": ORDER_DELIVERED}, {
+        "goodsReceipt": receipt,
+        "statusHistory": history,
+        "updatedAt": now,
+    })
+    if not saved:
+        raise HTTPException(status_code=409, detail="The dispute changed while the response was being saved. Refresh and try again.")
+
+    try:
+        await NotificationService.create_in_app_notification(
+            str(order.get("businessUserId")),
+            NotificationType.ORDER,
+            "Supplier responded to goods-receipt dispute",
+            f"The supplier responded to the inspection for {order.get('orderNumber')}. Review the response in Orders & Deliveries.",
+            {"orderId": order_id, "type": "b2b", "goodsReceipt": True},
+            NotificationPriority.HIGH,
+            mandatory=True,
+        )
+    except Exception:
+        logger.exception("Could not notify business about B2B goods receipt response for order %s", order_id)
+
+    return {"success": True, "message": "Your response was sent to the business", "data": {"goodsReceipt": receipt}}
+
+
+@router.post("/orders/{order_id}/goods-receipt/resolve")
+async def resolve_b2b_goods_receipt_dispute(
+    order_id: str,
+    data: GoodsReceiptResolution,
+    current_user: dict = Depends(get_current_user),
+):
+    """Record the buyer-agreed outcome. This does not post a refund or change payment balances."""
+    if current_user.get("role") != "business":
+        raise HTTPException(status_code=403, detail="Only the purchasing business can resolve this goods-receipt dispute")
+    try:
+        order_oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    order = await order_repo.find_one({
+        "_id": order_oid,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    receipt = dict(order.get("goodsReceipt") or {})
+    if str(order.get("status") or "").lower() != ORDER_DELIVERED or receipt.get("status") not in ("dispute_open", "response_received"):
+        raise HTTPException(status_code=409, detail="There is no unresolved goods-receipt dispute for this order")
+    if data.resolution not in {"replacement_received", "accept_as_is", "credit_or_refund_agreed", "withdrawn"}:
+        raise HTTPException(status_code=400, detail="Choose a supported goods-receipt resolution")
+
+    requested = float(receipt.get("requestedQuantityKg") or order.get("quantityKg") or 0)
+    accepted = float(receipt.get("acceptedQuantityKg") or 0)
+    replacement_quantity = float(data.replacementReceivedQuantityKg or 0)
+    if data.resolution == "replacement_received":
+        if accepted + replacement_quantity + 1e-6 < requested:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Replacement received must cover the remaining {max(0, requested - accepted):g} kg shortfall.",
+            )
+        receipt["replacementReceivedQuantityKg"] = round(replacement_quantity, 2)
+        receipt["acceptedQuantityKg"] = round(min(requested, accepted + replacement_quantity), 2)
+        receipt["receivedQuantityKg"] = round(float(receipt.get("receivedQuantityKg") or 0) + replacement_quantity, 2)
+
+    now = datetime.utcnow()
+    actor_id = str(current_user.get("_id") or "")
+    receipt.update({
+        "status": "resolved",
+        "resolution": data.resolution,
+        "resolutionNotes": data.notes.strip(),
+        "resolvedBy": actor_id,
+        "resolvedAt": now,
+        "updatedAt": now,
+    })
+    history = _append_goods_receipt_history(
+        order,
+        action="goods_receipt_dispute_resolved",
+        actor_role="business",
+        actor_id=actor_id,
+        details=f"Business recorded dispute resolution: {data.resolution.replace('_', ' ')}. {data.notes.strip()}",
+        timestamp=now,
+    )
+    saved = await order_repo.update({"_id": order_oid, "status": ORDER_DELIVERED}, {
+        "goodsReceipt": receipt,
+        "statusHistory": history,
+        "updatedAt": now,
+    })
+    if not saved:
+        raise HTTPException(status_code=409, detail="The dispute changed while the resolution was being saved. Refresh and try again.")
+
+    try:
+        await NotificationService.create_in_app_notification(
+            str(order.get("farmerId")),
+            NotificationType.ORDER,
+            "B2B goods-receipt dispute resolved",
+            f"The business recorded a resolution for {order.get('orderNumber')}: {data.resolution.replace('_', ' ')}.",
+            {"orderId": order_id, "type": "b2b", "goodsReceipt": True},
+            NotificationPriority.HIGH,
+            mandatory=True,
+        )
+    except Exception:
+        logger.exception("Could not notify farmer about B2B goods receipt resolution for order %s", order_id)
+
+    return {
+        "success": True,
+        "message": (
+            "Resolution saved. Confirm final receipt when ready."
+            if data.resolution != "credit_or_refund_agreed"
+            else "Resolution saved. Any agreed credit/refund must be processed separately; the payment balance was not changed."
+        ),
+        "data": {
+            "goodsReceipt": receipt,
+            "paymentStatus": order.get("paymentStatus") or PAYMENT_PENDING,
+            "amountDue": _b2b_amount_due(order),
+        },
+    }
 
 
 class B2BLogisticsAction(BaseModel):
