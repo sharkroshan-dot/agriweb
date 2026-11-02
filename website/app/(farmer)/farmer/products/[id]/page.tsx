@@ -209,7 +209,7 @@ export default function ProductDetailPage() {
 
   return (
     <div className="farmer-product-detail-page w-full max-w-none space-y-5 pb-10">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
         <Button asChild variant="ghost" className="-ml-2 text-slate-600 hover:text-emerald-700">
           <Link href="/farmer/products"><ArrowLeft className="mr-2 h-4 w-4" />Back to products</Link>
         </Button>
@@ -232,17 +232,28 @@ export default function ProductDetailPage() {
         </div>
       </section>
 
-      <div className="grid w-full min-w-0 items-start gap-5 lg:gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(340px,0.85fr)]">
-        <div className="min-w-0 space-y-5">
+      <div className="grid w-full min-w-0 items-start gap-5 lg:gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.9fr)]">
+        <div className="min-w-0 space-y-4">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardContent className="p-0">
-              <div className="relative aspect-[16/10] min-h-[280px] max-h-[520px] bg-slate-100 sm:aspect-[16/9] xl:aspect-[16/8]">
+              <div className="relative h-[clamp(300px,32vw,500px)] w-full overflow-hidden bg-slate-100">
                 {activeImage ? (
-                  <Image src={activeImage} alt={product.name || "Product image"} fill priority className="object-cover" sizes="(max-width: 1280px) 100vw, 65vw" />
+                  <Image
+                    src={activeImage}
+                    alt={product.name || "Product image"}
+                    width={1600}
+                    height={1200}
+                    priority
+                    className="block h-full w-full object-cover"
+                    sizes="(max-width: 1024px) 100vw, 65vw"
+                  />
                 ) : (
-                  <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-2 text-slate-400">
-                    <Package className="h-12 w-12" />
-                    <span className="text-sm font-medium">No product image uploaded</span>
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-slate-50 to-slate-100 text-slate-400">
+                    <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white shadow-sm">
+                      <Package className="h-8 w-8" />
+                    </span>
+                    <span className="text-sm font-semibold text-slate-600">No product image uploaded</span>
+                    <span className="text-xs text-slate-400">Add photos from Edit Product to improve your listing</span>
                   </div>
                 )}
                 <div className="absolute left-4 top-4 flex flex-wrap gap-2">
@@ -266,7 +277,7 @@ export default function ProductDetailPage() {
                       aria-pressed={activeImageIndex === index}
                       className={`relative h-16 w-20 shrink-0 overflow-hidden rounded-lg border-2 transition-colors ${activeImageIndex === index ? "border-emerald-600" : "border-transparent hover:border-slate-300"}`}
                     >
-                      <Image src={image} alt="" fill className="object-cover" sizes="80px" />
+                      <Image src={image} alt="" width={160} height={120} className="block h-full w-full object-cover" sizes="80px" />
                     </button>
                   ))}
                 </div>
@@ -317,7 +328,7 @@ export default function ProductDetailPage() {
           ) : null}
         </div>
 
-        <aside className="min-w-0 space-y-5 xl:sticky xl:top-24">
+        <aside className="min-w-0 space-y-4 xl:sticky xl:top-24">
           <Card className="overflow-hidden border-emerald-200 shadow-sm">
             <div className="border-b border-emerald-100 bg-emerald-50/70 p-5">
               <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Selling price</p>
