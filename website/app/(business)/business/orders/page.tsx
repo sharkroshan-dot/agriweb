@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle, CreditCard } from "lucide-react";
+import { ShoppingCart, Loader2, MapPin, Star, FileText, CheckCircle, XCircle, Star as StarIcon, ShieldCheck, AlertTriangle, CreditCard, Download } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { Card, CardContent } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -160,8 +160,11 @@ function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
             <div className="p-5">
               <div className="flex items-center justify-between border-b pb-3">
                 <div>
-                  <p className="text-lg font-bold">B2B INVOICE</p>
+                  <p className="text-lg font-bold">B2B PROCUREMENT INVOICE</p>
                   <p className="text-xs text-gray-500">{inv.invoiceNumber} · Order {inv.orderNumber}</p>
+                  {inv.recurring && inv.scheduledDeliveryDate ? (
+                    <p className="text-xs text-gray-500">Contract {inv.contractNumber || "—"} · Delivery {String(inv.scheduledDeliveryDate).slice(0, 10)}</p>
+                  ) : null}
                 </div>
                 <FileText className="h-8 w-8 text-emerald-600" />
               </div>
@@ -198,15 +201,44 @@ function InvoiceModal({ order, onClose }: { order: any; onClose: () => void }) {
                 </tbody>
               </table>
               <div className="mt-3 space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>₹{inv.subtotal}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Delivery</span><span>₹{inv.deliveryCharge}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Taxes</span><span>₹{inv.taxes}</span></div>
-                <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Total</span><span>₹{inv.total}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Subtotal</span><span>{formatPrice(inv.subtotal)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Delivery</span><span>{formatPrice(inv.deliveryCharge)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Other charges</span><span>{formatPrice(inv.otherCharges || 0)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Taxes ({Number(inv.taxRate || 0)}%)</span><span>{formatPrice(inv.taxes || 0)}</span></div>
+                <div className="flex justify-between border-t pt-2 text-base font-bold"><span>Invoice total</span><span>{formatPrice(inv.total)}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Amount paid</span><span>{formatPrice(inv.paidAmount || 0)}</span></div>
+                <div className="flex justify-between font-semibold text-amber-800"><span>Balance due</span><span>{formatPrice(inv.amountDue || 0)}</span></div>
               </div>
-              <div className="mt-3 flex items-center justify-between rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
-                <span>Payment: {inv.paymentMode} · {inv.paymentStatus}</span>
-                <span>Issued {new Date(inv.issuedAt).toLocaleString()}</span>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 p-3 text-xs text-gray-500">
+                <span className="capitalize">Payment: {inv.paymentMode || "—"} · {inv.paymentStatus || "pending"}</span>
+                <span>Issued {inv.issuedAt ? new Date(inv.issuedAt).toLocaleString("en-IN") : "—"}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch(`/api/invoice-pdf/${order.id}`, { credentials: "include" });
+                      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+                      const blob = await response.blob();
+                      const url = URL.createObjectURL(blob);
+                      const link = document.createElement("a");
+                      link.href = url;
+                      link.download = `${inv.invoiceNumber || "invoice"}.pdf`;
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+                    } catch (error: any) {
+                      toast.error(error?.message || "Could not download invoice");
+                    }
+                  }}
+                >
+                  <Download className="mr-1.5 h-4 w-4" /> Download PDF
+                </Button>
               </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Procurement invoice for order records. A statutory GST tax invoice, where applicable, must be issued by the registered supplier.
+              </p>
             </div>
           ) : (
             <p className="p-10 text-center text-sm text-gray-400">Could not load invoice.</p>
@@ -536,7 +568,7 @@ export default function BusinessOrdersPage() {
                       </Button>
                     </>
                   )}
-                  {(o.status === "delivered" || o.status === "completed") && (
+                  {o.status === "completed" && (
                     <Button size="sm" variant="outline" onClick={() => setInvoiceFor(o)}>
                       <FileText className="mr-1.5 h-4 w-4" /> Invoice
                     </Button>
