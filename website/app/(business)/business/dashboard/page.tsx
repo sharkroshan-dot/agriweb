@@ -173,6 +173,7 @@ export default function BusinessDashboard() {
     })),
     ...orders.filter((order: any) =>
       String(order.status || "").toLowerCase() !== "cancelled" &&
+      !["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "").toLowerCase()) &&
       Math.max(0, Number(order.totalAmount || 0) - Number(order.paidAmount || (order.paymentStatus === "paid" ? order.totalAmount : order.paymentStatus === "advance" ? order.advanceAmount : 0))) > 0
     ).map((order: any) => ({
       key: "payment-" + order.id,
