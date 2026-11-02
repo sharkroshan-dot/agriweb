@@ -254,7 +254,11 @@ export default function BusinessProfilePage() {
             </div>
             <Input
               value={form.address}
-              onChange={(e) => setForm((current) => ({ ...current, address: e.target.value }))}
+              onChange={(e) => setForm((current) => ({
+                ...current,
+                address: e.target.value,
+                location: null,
+              }))}
               placeholder="Enter your business address or use live location"
             />
             {form.location ? (
