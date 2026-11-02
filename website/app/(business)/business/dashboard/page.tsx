@@ -89,6 +89,10 @@ export default function BusinessDashboard() {
   const goodsReceiptDisputes = orders.filter((order: any) =>
     ["dispute_open", "response_received"].includes(String(order.goodsReceipt?.status || "").toLowerCase())
   );
+  const ordersAwaitingFinalConfirmation = orders.filter((order: any) =>
+    String(order.status || "").toLowerCase() === "delivered"
+    && String(order.goodsReceipt?.status || "").toLowerCase() === "resolved"
+  );
   const openQuoteRfqs = rfqs.filter((rfq: any) =>
     String(rfq.status || "").toLowerCase() === "open" && Number(rfq.offerCount || 0) > 0
   );
@@ -117,6 +121,22 @@ export default function BusinessDashboard() {
       description: order.orderNumber + " · " + (order.productName || "Produce") + " · " + (order.quantityKg || 0) + " kg received for inspection",
       href: "/business/orders",
       action: "Record goods receipt",
+      tone: "warning" as const,
+    })),
+    ...ordersAwaitingFinalConfirmation.map((order: any) => ({
+      key: "receipt-final-" + order.id,
+      title: "Final receipt confirmation is pending",
+      description: order.orderNumber + " · " + (order.productName || "Produce") + " · Dispute resolution recorded",
+      href: "/business/orders",
+      action: "Confirm final receipt",
+      tone: "warning" as const,
+    })),
+    ...awaitingConfirmations.map((contract: any) => ({
+      key: "confirmation-" + (contract.id || contract.contractNumber),
+      title: "Today's recurring delivery confirmation is missing",
+      description: (contract.contractNumber || "Supply contract") + " · " + (contract.farmerName || "Supplier") + " · " + (contract.cropName || "Produce"),
+      href: "/business/contracts",
+      action: "Follow up",
       tone: "warning" as const,
     })),
     ...shortageDeliveries.map((delivery: any, index: number) => ({
