@@ -391,11 +391,16 @@ export default function BusinessRfqsPage() {
                                 <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Selected quantity</p><p className="text-lg font-semibold">{selectedKg.toLocaleString("en-IN")} kg</p></div>
                                 <div className="rounded-lg bg-white p-3"><p className="text-xs text-slate-500">Remaining after selection</p><p className="text-lg font-semibold">{Math.max(0, remainingBeforeSelection - selectedKg).toLocaleString("en-IN")} kg</p></div>
                               </div>
+                              {String(r.paymentTerms || "").toLowerCase() === "advance" ? (
+                                <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                                  This RFQ requires an advance. Accept each farmer quote individually so you can review the final order total and enter the agreed advance amount before creating the order.
+                                </p>
+                              ) : null}
                               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-emerald-200 pt-3">
                                 <div><p className="text-xs text-slate-600">Estimated selected amount</p><p className="text-xl font-bold text-emerald-800">₹{selectedAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
                                 <div className="flex gap-2">
                                   <Button variant="outline" size="sm" disabled={selected.length === 0 || acceptingSelected} onClick={() => setSelectedQuantities({})}>Clear selection</Button>
-                                  <Button size="sm" disabled={selected.length === 0 || selectedKg <= 0 || selectedKg > remainingBeforeSelection || acceptingSelected} onClick={async () => {
+                                  <Button size="sm" disabled={selected.length === 0 || selectedKg <= 0 || selectedKg > remainingBeforeSelection || acceptingSelected || String(r.paymentTerms || "").toLowerCase() === "advance"} onClick={async () => {
                                     const allocationLines = selected.map((offer: any) => `${offer.farmerInfo?.farmName || "Farmer"}: ${selectedQuantities[offer.id]} kg × ₹${offer.pricePerKg}/kg = ₹${(Number(selectedQuantities[offer.id]) * Number(offer.pricePerKg || 0)).toLocaleString("en-IN")}`).join("\\n");
                                     const remainingAfter = Math.max(0, remainingBeforeSelection - selectedKg);
                                     const confirmed = window.confirm(`Review procurement before creating orders\\n\\n${allocationLines}\\n\\nTotal selected: ${selectedKg} kg\\nEstimated subtotal: ₹${selectedAmount.toLocaleString("en-IN")}\\nRemaining after selection: ${remainingAfter} kg\\n\\nCreate one B2B order per selected farmer?`);
