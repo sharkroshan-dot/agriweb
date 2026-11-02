@@ -182,6 +182,7 @@ async def test_business_can_resolve_dispute_without_changing_payment_balance(mon
         return order
 
     async def update(query, data):
+        assert query["goodsReceipt.status"] == "response_received"
         saved_updates.update(data)
         return True
 
