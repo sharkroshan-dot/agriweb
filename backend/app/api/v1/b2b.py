@@ -131,6 +131,109 @@ def _b2b_amount_due(order: Dict[str, Any]) -> float:
     return round(max(0.0, total - _b2b_paid_amount(order)), 2)
 
 
+def _build_b2b_invoice_snapshot(
+    order: Dict[str, Any],
+    profile: Optional[Dict[str, Any]] = None,
+    farmer: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a stable procurement invoice view from the accepted B2B order.
+
+    Final invoices are available only after the buyer confirms receipt. Pricing
+    comes from the saved order totals, never from a fresh recalculation using
+    current RFQ/quote values.
+    """
+    profile = profile or {}
+    farmer = farmer or {}
+    quantity = round(float(order.get("quantityKg") or 0), 2)
+    rate = round(float(order.get("pricePerKg") or 0), 2)
+    subtotal = round(float(
+        order.get("productSubtotal")
+        if order.get("productSubtotal") is not None
+        else quantity * rate
+    ), 2)
+    delivery = round(float(order.get("deliveryCharge") or 0), 2)
+    taxes = round(float(order.get("taxAmount") or 0), 2)
+    other_charges = round(float(order.get("otherCharges") or 0), 2)
+    calculated_total = round(subtotal + delivery + taxes + other_charges, 2)
+    total = round(float(
+        order.get("totalAmount")
+        if order.get("totalAmount") is not None
+        else calculated_total
+    ), 2)
+    paid = round(_b2b_paid_amount(order), 2)
+    amount_due = round(max(0.0, total - paid), 2)
+    order_number = order.get("orderNumber") or f"B2B-{str(order.get('_id') or '')[-6:]}"
+    issued_at = order.get("invoiceIssuedAt") or order.get("completedAt") or order.get("updatedAt")
+    delivery_address = order.get("deliveryAddress") or {}
+    if not isinstance(delivery_address, dict):
+        delivery_address = {"address": delivery_address}
+
+    return {
+        "orderId": str(order.get("_id") or ""),
+        "invoiceNumber": order.get("invoiceNumber") or f"INV-{order_number}",
+        "invoiceType": "B2B procurement invoice",
+        "orderNumber": order_number,
+        "issuedAt": issued_at,
+        "invoiceIssuedAtEstimated": not bool(order.get("invoiceIssuedAt") or order.get("completedAt")),
+        "buyer": {
+            "name": profile.get("businessName") or profile.get("companyName") or "Business",
+            "type": profile.get("businessType"),
+            "gstin": profile.get("gstin"),
+            "city": profile.get("city"),
+            "address": profile.get("address"),
+        },
+        "seller": {
+            "name": farmer.get("farmName") or "Farm",
+            "phone": farmer.get("phone") or farmer.get("contactNumber"),
+            "city": farmer.get("city") or farmer.get("district"),
+            "gstin": farmer.get("gstin") or farmer.get("GSTIN"),
+        },
+        "items": [{
+            "product": order.get("productName") or "Product",
+            "quality": order.get("qualityGrade"),
+            "quantityKg": quantity,
+            "ratePerKg": rate,
+            "amount": subtotal,
+        }],
+        "productName": order.get("productName"),
+        "quantityKg": quantity,
+        "qualityGrade": order.get("qualityGrade"),
+        "subtotal": subtotal,
+        "deliveryCharge": delivery,
+        "taxRate": round(float(order.get("taxRate") or 0), 2),
+        "taxes": taxes,
+        "otherCharges": other_charges,
+        "total": total,
+        "paidAmount": paid,
+        "amountDue": amount_due,
+        "paymentStatus": order.get("paymentStatus") or PAYMENT_PENDING,
+        "paymentMode": order.get("paymentMode"),
+        "paymentTerms": order.get("paymentTerms"),
+        "advanceAmount": round(float(order.get("advanceAmount") or 0), 2),
+        "paymentTransactionId": order.get("paymentTransactionId"),
+        "farmName": farmer.get("farmName") or "Farm",
+        "farmerContact": farmer.get("phone") or farmer.get("contactNumber") or "",
+        "farmerLocation": " · ".join(filter(None, [
+            farmer.get("village") or farmer.get("addressLine1"),
+            farmer.get("city") or farmer.get("district"),
+        ])),
+        "buyerName": profile.get("companyName") or profile.get("businessName") or "Business",
+        "buyerContact": "",
+        "buyerLocation": " · ".join(filter(None, [profile.get("city"), profile.get("state")])),
+        "deliveryAddress": delivery_address,
+        "deliveryCity": order.get("deliveryCity"),
+        "deliveryState": order.get("deliveryState"),
+        "deliveryMethod": order.get("deliveryMethod"),
+        "status": order.get("status"),
+        "notes": order.get("notes"),
+        "recurring": bool(order.get("recurring")),
+        "contractNumber": order.get("contractNumber"),
+        "scheduledDeliveryDate": order.get("scheduledDeliveryDate"),
+    }
+
+
+
+
 DELIVERY_METHODS = ["farmer_delivery", "delivery_partner", "dedicated_transport", "buyer_pickup"]
 VISIBILITY = ["nearby", "district", "state", "national"]
 QUALITY_GRADES = ["Grade A", "Grade B", "Grade C", "Premium", "Organic", "Standard"]
@@ -2902,6 +3005,7 @@ async def update_order_status(
         if current != ORDER_DELIVERED:
             raise HTTPException(status_code=400, detail="You can mark the order completed only after delivery")
         update["completedAt"] = event_time
+        update["invoiceIssuedAt"] = order.get("invoiceIssuedAt") or event_time
         update["completedBy"] = actor_id
         # Completing receipt is not proof of payment collection. Payment state
         # remains unchanged until verified online payment or COD settlement.
@@ -4871,56 +4975,37 @@ async def get_order_invoice(
     order_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """B2B invoice for procurement records."""
-    order = await order_repo.find_one({"_id": ObjectId(order_id), "deletedAt": None})
+    """Return the final B2B procurement invoice after buyer receipt confirmation."""
+    try:
+        oid = ObjectId(order_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    order = await order_repo.find_one({"_id": oid, "deletedAt": None})
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+
     role = current_user.get("role")
-    if role not in ("admin", "super_admin") and str(order.get("businessUserId")) != str(current_user["_id"]) and str(order.get("farmerId")) != str(current_user["_id"]):
+    is_business_owner = role == "business" and str(order.get("businessUserId")) == str(current_user["_id"])
+    is_supplier = role == "farmer" and str(order.get("farmerId")) == str(current_user["_id"])
+    if role not in ("admin", "super_admin") and not (is_business_owner or is_supplier):
         raise HTTPException(status_code=403, detail="Not allowed to view this invoice")
+
+    if str(order.get("status") or "").lower() != ORDER_COMPLETED:
+        raise HTTPException(
+            status_code=409,
+            detail="The final invoice becomes available after the business confirms receipt and completes the order.",
+        )
 
     profile = await profile_repo.find_one({"_id": order.get("businessProfileId")}) if order.get("businessProfileId") else None
     farmer = await farmer_repository.find_one({"userId": str(order.get("farmerId"))})
-
-    qty = float(order.get("quantityKg") or 0)
-    rate = float(order.get("pricePerKg") or 0)
-    subtotal = round(qty * rate, 2)
-    delivery = float(order.get("deliveryCharge") or 0)
-    order_no = order.get("orderNumber") or f"B2B-{str(order['_id'])[-6:]}"
-    invoice = {
-        "invoiceNumber": f"INV-{order_no.split('-')[-1]}",
-        "orderNumber": order_no,
-        "issuedAt": datetime.utcnow().isoformat(),
-        "buyer": {
-            "name": (profile or {}).get("businessName"),
-            "type": (profile or {}).get("businessType"),
-            "gstin": (profile or {}).get("gstin"),
-            "city": (profile or {}).get("city"),
-            "address": (profile or {}).get("address"),
-        },
-        "seller": {
-            "name": (farmer or {}).get("farmName"),
-            "phone": (farmer or {}).get("phone"),
-            "city": (farmer or {}).get("city"),
-            "rating": (farmer or {}).get("rating"),
-        },
-        "items": [{
-            "product": order.get("productName"),
-            "quality": order.get("qualityGrade"),
-            "quantityKg": qty,
-            "ratePerKg": rate,
-            "amount": subtotal,
-        }],
-        "subtotal": subtotal,
-        "deliveryCharge": delivery,
-        "taxes": 0.0,
-        "total": round(subtotal + delivery, 2),
-        "paymentStatus": order.get("paymentStatus"),
-        "paymentMode": order.get("paymentMode"),
-        "advanceAmount": float(order.get("advanceAmount") or 0),
-        "status": order.get("status"),
-    }
+    invoice = _build_b2b_invoice_snapshot(order, profile, farmer)
+    invoice["buyer"]["contact"] = (
+        (current_user or {}).get("phone") or (current_user or {}).get("email") or ""
+    ) if is_business_owner else invoice["buyer"].get("contact", "")
     return {"success": True, "data": {"invoice": invoice}}
+
+
 
 
 # ================== TWO-WAY RATINGS ==================
@@ -5423,36 +5508,29 @@ async def list_b2b_payments(current_user: dict = Depends(get_current_user)):
 
 @router.get("/invoices")
 async def list_b2b_invoices(current_user: dict = Depends(get_current_user)):
-    """All invoices for the current business buyer's orders."""
+    """List final invoices for completed one-off and recurring B2B orders."""
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business buyers have B2B invoices")
 
-    orders = await order_repo.find_many({"businessUserId": ObjectId(current_user["_id"]), "deletedAt": None}, sort=[("startedAt", -1)], limit=500)
+    orders = await order_repo.find_many(
+        {
+            "businessUserId": ObjectId(current_user["_id"]),
+            "deletedAt": None,
+            "status": ORDER_COMPLETED,
+        },
+        sort=[("invoiceIssuedAt", -1), ("completedAt", -1)],
+        limit=500,
+    )
     invoices: List[Dict[str, Any]] = []
-    for o in orders:
-        farmer = await farmer_repository.find_one({"userId": str(o.get("farmerId"))})
-        qty = float(o.get("quantityKg") or 0)
-        rate = float(o.get("pricePerKg") or 0)
-        subtotal = round(qty * rate, 2)
-        delivery = float(o.get("deliveryCharge") or 0)
-        order_no = o.get("orderNumber") or f"B2B-{str(o['_id'])[-6:]}"
-        invoices.append({
-            "orderId": str(o["_id"]),
-            "invoiceNumber": f"INV-{order_no.split('-')[-1]}",
-            "orderNumber": order_no,
-            "productName": o.get("productName"),
-            "quantityKg": qty,
-            "subtotal": subtotal,
-            "deliveryCharge": round(delivery, 2),
-            "total": round(subtotal + delivery, 2),
-            "paymentStatus": o.get("paymentStatus") or PAYMENT_PENDING,
-            "paymentMode": o.get("paymentMode"),
-            "farmName": (farmer or {}).get("farmName") or "Farm",
-            "status": o.get("status"),
-            "issuedAt": o.get("completedAt") or o.get("startedAt"),
-        })
+    for order in orders:
+        farmer = await farmer_repository.find_one({"userId": str(order.get("farmerId"))})
+        invoice = _build_b2b_invoice_snapshot(order, None, farmer)
+        invoice["farmName"] = (farmer or {}).get("farmName") or "Farm"
+        invoices.append(invoice)
 
     return {"success": True, "data": {"invoices": invoices, "count": len(invoices)}}
+
+
 
 
 def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
@@ -5479,7 +5557,9 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
     delivery = float(inv.get("deliveryCharge") or 0)
     total = float(inv.get("total") or 0)
     rate = round(subtotal / qty, 2) if qty else 0
-    paid = (inv.get("paymentStatus") or "").lower() == PAYMENT_PAID
+    paid_amount = round(float(inv.get("paidAmount") or 0), 2)
+    amount_due = round(float(inv.get("amountDue") if inv.get("amountDue") is not None else max(0.0, total - paid_amount)), 2)
+    payment_label = "PAID IN FULL" if amount_due <= 0 else ("PARTIALLY PAID" if paid_amount > 0 else "PAYMENT DUE")
     addr = inv.get("deliveryAddress") or {}
     if not isinstance(addr, dict):
         addr = {"address": addr}
@@ -5515,7 +5595,7 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
         f"ORDER STATUS: {esc((inv.get('status') or '—').replace('_', ' ').upper())}</font> &nbsp;&nbsp;",
         ParagraphStyle("subhead", parent=small, fontSize=8)))
     flow.append(Paragraph(
-        "PAID" if paid else "UNPAID",
+        payment_label,
         ParagraphStyle("badge", parent=body, fontSize=9,
             textColor=colors.HexColor("#166534") if paid else colors.HexColor("#92400e"),
             backColor=colors.HexColor("#dcfce7") if paid else colors.HexColor("#fef3c7"))))
@@ -5524,8 +5604,8 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
     # --- Parties: Supplier | Buyer ---
     parties = Table([
         [Paragraph("SUPPLIER", label), Paragraph("BILL TO", label)],
-        [Paragraph(f"<b>{esc(inv.get('farmName') or 'Farm')}</b>", body),
-         Paragraph(f"<b>{esc(inv.get('buyerName') or 'Business')}</b>", body)],
+        [Paragraph(f"<b>{esc(inv.get('farmName') or 'Farm')}</b><br/>{esc(inv.get('seller', {}).get('gstin') or '')}", body),
+         Paragraph(f"<b>{esc(inv.get('buyerName') or 'Business')}</b><br/>{esc(inv.get('buyer', {}).get('gstin') or '')}", body)],
         [Paragraph(esc(inv.get("farmerContact") or ""), body_sm),
          Paragraph(esc(inv.get("buyerContact") or ""), body_sm)],
         [Paragraph(esc(inv.get("farmerLocation") or ""), body_sm),
@@ -5551,7 +5631,9 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
         [Paragraph("Quantity", label), Paragraph(f"<b>{qty:g} kg</b>", body),
          Paragraph("Rate", label), Paragraph(f"<b>{num(rate)}/kg</b>", body)],
         [Paragraph("Delivery Method", label), Paragraph(f"<b>{esc((inv.get('deliveryMethod') or '—').replace('_', ' ').upper())}</b>", body),
-         Paragraph("Payment Mode", label), Paragraph(f"<b>{esc(inv.get('paymentMode') or '—').upper()}</b>", body)],
+         Paragraph("Payment Method", label), Paragraph(f"<b>{esc(inv.get('paymentMode') or '—').upper()}</b>", body)],
+        [Paragraph("Payment Terms", label), Paragraph(f"<b>{esc(inv.get('paymentTerms') or '—').replace('_', ' ').upper()}</b>", body),
+         Paragraph("Invoice Type", label), Paragraph("<b>B2B PROCUREMENT</b>", body)],
         [Paragraph("Delivery City", label), Paragraph(f"<b>{esc(city)}</b>", body),
          Paragraph("Delivery State", label), Paragraph(f"<b>{esc(state_pin)}</b>", body)],
     ]
@@ -5592,13 +5674,17 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
     totals = Table([
         [Paragraph("Subtotal", right), Paragraph(num(subtotal), right)],
         [Paragraph("Delivery charge", right), Paragraph(num(delivery), right)],
-        [Paragraph("Taxes", right), Paragraph("₹0.00", right)],
-        [Paragraph("<b>Total</b>", ParagraphStyle("gt", parent=right, fontSize=12, textColor=colors.HexColor("#059669"))),
+        [Paragraph("Other charges", right), Paragraph(num(inv.get("otherCharges")), right)],
+        [Paragraph(f"Tax ({float(inv.get('taxRate') or 0):g}%)", right), Paragraph(num(inv.get("taxes")), right)],
+        [Paragraph("<b>Invoice total</b>", ParagraphStyle("gt", parent=right, fontSize=12, textColor=colors.HexColor("#059669"))),
          Paragraph(f"<b>{num(total)}</b>", ParagraphStyle("gtn", parent=right, fontSize=12, textColor=colors.HexColor("#059669")))],
+        [Paragraph("Amount paid", right), Paragraph(num(paid_amount), right)],
+        [Paragraph("<b>Balance due</b>", ParagraphStyle("bd", parent=right, fontSize=11, textColor=colors.HexColor("#92400e"))),
+         Paragraph(f"<b>{num(amount_due)}</b>", ParagraphStyle("bdn", parent=right, fontSize=11, textColor=colors.HexColor("#92400e")))],
     ], colWidths=[126 * mm, 48 * mm], hAlign="RIGHT")
     totals.setStyle(TableStyle([
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
-        ("LINEABOVE", (0, 3), (-1, 3), 1, colors.HexColor("#059669")),
+        ("LINEABOVE", (0, 4), (-1, 4), 1, colors.HexColor("#059669")),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
@@ -5623,7 +5709,7 @@ def _build_invoice_pdf(inv: Dict[str, Any]) -> BytesIO:
 
 @router.get("/invoices/{order_id}/pdf")
 async def download_b2b_invoice_pdf(order_id: str, current_user: dict = Depends(get_current_user)):
-    """Download a B2B procurement invoice as a PDF."""
+    """Download the final procurement invoice after the buyer completes receipt."""
     if current_user.get("role") != "business":
         raise HTTPException(status_code=403, detail="Only business buyers have B2B invoices")
 
@@ -5632,52 +5718,36 @@ async def download_b2b_invoice_pdf(order_id: str, current_user: dict = Depends(g
     except Exception:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    order = await order_repo.find_one({"_id": oid, "businessUserId": ObjectId(current_user["_id"]), "deletedAt": None})
+    order = await order_repo.find_one({
+        "_id": oid,
+        "businessUserId": ObjectId(current_user["_id"]),
+        "deletedAt": None,
+    })
     if not order:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    if str(order.get("status") or "").lower() != ORDER_COMPLETED:
+        raise HTTPException(
+            status_code=409,
+            detail="The final invoice is available after the business confirms receipt and completes the order.",
+        )
 
     farmer = await farmer_repository.find_one({"userId": str(order.get("farmerId"))})
     farmer_user = await user_repository.get_by_id(str(order.get("farmerId")))
     business = await profile_repo.find_one({"userId": str(current_user["_id"])})
-    qty = float(order.get("quantityKg") or 0)
-    rate = float(order.get("pricePerKg") or 0)
-    subtotal = round(qty * rate, 2)
-    delivery = float(order.get("deliveryCharge") or 0)
-    order_no = order.get("orderNumber") or f"B2B-{str(order['_id'])[-6:]}"
-    inv = {
-        "invoiceNumber": f"INV-{order_no.split('-')[-1]}",
-        "orderNumber": order_no,
-        "productName": order.get("productName"),
-        "quantityKg": qty,
-        "qualityGrade": order.get("qualityGrade"),
-        "subtotal": subtotal,
-        "deliveryCharge": round(delivery, 2),
-        "total": round(subtotal + delivery, 2),
-        "paymentStatus": order.get("paymentStatus") or PAYMENT_PENDING,
-        "paymentMode": order.get("paymentMode"),
-        "farmName": (farmer or {}).get("farmName") or "Farm",
-        "farmerContact": (farmer_user or {}).get("phone") or (farmer or {}).get("contactNumber") or "",
-        "farmerLocation": " · ".join(filter(None, [
-            (farmer or {}).get("village") or (farmer or {}).get("addressLine1"),
-            (farmer or {}).get("city") or (farmer or {}).get("district"),
-        ])),
-        "buyerName": (business or {}).get("companyName") or (current_user or {}).get("name") or "Business",
-        "buyerContact": (current_user or {}).get("phone") or (current_user or {}).get("email") or "",
-        "buyerLocation": " · ".join(filter(None, [
-            (business or {}).get("city"),
-            (business or {}).get("state"),
-        ])),
-        "deliveryAddress": order.get("deliveryAddress") or {},
-        "deliveryCity": order.get("deliveryCity"),
-        "deliveryState": order.get("deliveryState"),
-        "deliveryMethod": order.get("deliveryMethod"),
-        "status": order.get("status"),
-        "notes": order.get("notes"),
-        "issuedAt": order.get("completedAt") or order.get("startedAt"),
-    }
+    invoice = _build_b2b_invoice_snapshot(order, business, farmer)
+    invoice["buyerContact"] = (current_user or {}).get("phone") or (current_user or {}).get("email") or ""
+    invoice["farmerContact"] = (farmer_user or {}).get("phone") or (farmer or {}).get("contactNumber") or ""
+    invoice["farmerLocation"] = " · ".join(filter(None, [
+        (farmer or {}).get("village") or (farmer or {}).get("addressLine1"),
+        (farmer or {}).get("city") or (farmer or {}).get("district"),
+    ]))
+    invoice["buyerLocation"] = " · ".join(filter(None, [
+        (business or {}).get("city"),
+        (business or {}).get("state"),
+    ]))
 
-    pdf = _build_invoice_pdf(inv)
-    filename = f"{inv['invoiceNumber']}.pdf"
+    pdf = _build_invoice_pdf(invoice)
+    filename = f"{invoice['invoiceNumber']}.pdf"
     return StreamingResponse(
         pdf,
         media_type="application/pdf",
