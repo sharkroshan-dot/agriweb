@@ -12,6 +12,7 @@ from app.api.v1.b2b import (
     _build_recurring_ready_history,
     _b2b_paid_amount,
     _b2b_amount_due,
+    _build_b2b_invoice_snapshot,
     RFQCreate,
 )
 
@@ -780,4 +781,97 @@ def test_one_off_rfq_payment_terms_accept_cash_on_delivery():
         paymentTerms="cod",
     )
     assert rfq.paymentTerms == "cod"
+
+def test_b2b_invoice_uses_saved_order_totals_and_actual_paid_balance():
+    order = {
+        "_id": "order-123",
+        "orderNumber": "B2B-00123",
+        "status": "completed",
+        "completedAt": "2026-11-02T10:30:00",
+        "quantityKg": 20,
+        "pricePerKg": 50,
+        "productSubtotal": 1000,
+        "deliveryCharge": 100,
+        "taxRate": 5,
+        "taxAmount": 50,
+        "otherCharges": 20,
+        "totalAmount": 1170,
+        "paymentStatus": "advance",
+        "paidAmount": 300,
+        "paymentMode": "razorpay",
+        "paymentTerms": "advance",
+    }
+
+    invoice = _build_b2b_invoice_snapshot(
+        order,
+        {"businessName": "Buyer Pvt Ltd", "gstin": "BUYER-GST"},
+        {"farmName": "Supplier Farm", "gstin": "FARM-GST"},
+    )
+
+    assert invoice["invoiceNumber"] == "INV-B2B-00123"
+    assert invoice["issuedAt"] == order["completedAt"]
+    assert invoice["buyer"]["name"] == "Buyer Pvt Ltd"
+    assert invoice["buyer"]["gstin"] == "BUYER-GST"
+    assert invoice["seller"]["name"] == "Supplier Farm"
+    assert invoice["seller"]["gstin"] == "FARM-GST"
+    assert invoice["subtotal"] == 1000
+    assert invoice["deliveryCharge"] == 100
+    assert invoice["taxes"] == 50
+    assert invoice["otherCharges"] == 20
+    assert invoice["total"] == 1170
+    assert invoice["paidAmount"] == 300
+    assert invoice["amountDue"] == 870
+
+
+def test_recurring_b2b_invoice_is_scoped_to_its_delivery_occurrence():
+    order = {
+        "_id": "occurrence-1a",
+        "orderNumber": "B2B-00011-1A",
+        "status": "completed",
+        "completedAt": "2026-11-02T09:00:00",
+        "recurring": True,
+        "contractId": "contract-1",
+        "contractNumber": "SC-00001",
+        "scheduledDeliveryDate": "2026-11-02",
+        "quantityKg": 5,
+        "pricePerKg": 40,
+        "productSubtotal": 200,
+        "deliveryCharge": 30,
+        "taxAmount": 0,
+        "otherCharges": 0,
+        "totalAmount": 230,
+        "paymentStatus": "paid",
+        "paidAmount": 230,
+    }
+
+    invoice = _build_b2b_invoice_snapshot(order)
+
+    assert invoice["invoiceNumber"] == "INV-B2B-00011-1A"
+    assert invoice["recurring"] is True
+    assert invoice["contractNumber"] == "SC-00001"
+    assert invoice["scheduledDeliveryDate"] == "2026-11-02"
+    assert invoice["total"] == 230
+    assert invoice["amountDue"] == 0
+
+
+def test_legacy_b2b_invoice_falls_back_to_quantity_times_rate_without_changing_saved_total():
+    order = {
+        "_id": "legacy-1",
+        "orderNumber": "B2B-00077",
+        "status": "completed",
+        "updatedAt": "2026-11-01T10:00:00",
+        "quantityKg": 4,
+        "pricePerKg": 25,
+        "deliveryCharge": 10,
+        "taxAmount": 0,
+        "totalAmount": 110,
+        "paymentStatus": "pending",
+    }
+
+    invoice = _build_b2b_invoice_snapshot(order)
+
+    assert invoice["subtotal"] == 100
+    assert invoice["total"] == 110
+    assert invoice["amountDue"] == 110
+    assert invoice["invoiceIssuedAtEstimated"] is True
 
