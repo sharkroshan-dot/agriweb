@@ -1052,6 +1052,12 @@ def _ensure_b2b_order_activity_history(order: Dict[str, Any]) -> List[Dict[str, 
 
     _reconcile_terminal_b2b_status(order, history)
     _reconcile_legacy_one_off_ready_order(order)
+    # Legacy reconciliation may replace statusHistory with a corrected copy.
+    # Rebind the working list so later timeline normalization never discards
+    # those persisted correction events.
+    reconciled_history = order.get("statusHistory")
+    if isinstance(reconciled_history, list) and reconciled_history is not history:
+        history = reconciled_history
 
     terminal = {ORDER_DELIVERED, ORDER_COMPLETED, ORDER_CANCELLED}
 
