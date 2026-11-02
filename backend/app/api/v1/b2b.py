@@ -3445,6 +3445,7 @@ async def resolve_b2b_goods_receipt_dispute(
         receipt["acceptedQuantityKg"] = round(min(requested, accepted + replacement_quantity), 2)
         receipt["receivedQuantityKg"] = round(float(receipt.get("receivedQuantityKg") or 0) + replacement_quantity, 2)
 
+    expected_receipt_status = str(receipt.get("status") or "")
     now = datetime.utcnow()
     actor_id = str(current_user.get("_id") or "")
     receipt.update({
@@ -3467,7 +3468,7 @@ async def resolve_b2b_goods_receipt_dispute(
         "_id": order_oid,
         "businessUserId": ObjectId(current_user["_id"]),
         "status": ORDER_DELIVERED,
-        "goodsReceipt.status": receipt.get("status"),
+        "goodsReceipt.status": expected_receipt_status,
     }, {
         "goodsReceipt": receipt,
         "statusHistory": history,
