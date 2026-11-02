@@ -12,6 +12,7 @@ from app.api.v1.b2b import (
     _build_recurring_ready_history,
     _b2b_paid_amount,
     _b2b_amount_due,
+    RFQCreate,
 )
 
 
@@ -759,4 +760,24 @@ def test_b2b_paid_order_has_no_outstanding_balance():
     }
     assert _b2b_paid_amount(order) == 1200
     assert _b2b_amount_due(order) == 0
+
+def test_one_off_rfq_can_publish_payment_terms():
+    rfq = RFQCreate(
+        recurring=False,
+        productName="Brinjal",
+        quantityKg=50,
+        paymentTerms="net_15",
+    )
+    assert rfq.recurring is False
+    assert rfq.paymentTerms == "net_15"
+
+
+def test_one_off_rfq_payment_terms_accept_cash_on_delivery():
+    rfq = RFQCreate(
+        recurring=False,
+        productName="Tomato",
+        quantityKg=20,
+        paymentTerms="cod",
+    )
+    assert rfq.paymentTerms == "cod"
 
