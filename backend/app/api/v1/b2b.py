@@ -3418,10 +3418,16 @@ async def resolve_b2b_goods_receipt_dispute(
     accepted = float(receipt.get("acceptedQuantityKg") or 0)
     replacement_quantity = float(data.replacementReceivedQuantityKg or 0)
     if data.resolution == "replacement_received":
-        if accepted + replacement_quantity + 1e-6 < requested:
+        remaining_shortfall = max(0.0, requested - accepted)
+        if replacement_quantity + 1e-6 < remaining_shortfall:
             raise HTTPException(
                 status_code=400,
-                detail=f"Replacement received must cover the remaining {max(0, requested - accepted):g} kg shortfall.",
+                detail=f"Replacement received must cover the remaining {remaining_shortfall:g} kg shortfall.",
+            )
+        if replacement_quantity > remaining_shortfall + 1e-6:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Replacement received cannot exceed the remaining {remaining_shortfall:g} kg shortfall.",
             )
         receipt["replacementReceivedQuantityKg"] = round(replacement_quantity, 2)
         receipt["acceptedQuantityKg"] = round(min(requested, accepted + replacement_quantity), 2)
