@@ -329,19 +329,34 @@ export default function FarmerPackingPage() {
           </CardContent>
         </Card>
 
-        <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-900">Packing queue</h2>
-            <p className="mt-0.5 text-xs text-slate-500">{visibleOrders.length} order{visibleOrders.length === 1 ? "" : "s"} in this view</p>
+        <section className="grid w-full gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-[minmax(180px,0.7fr)_minmax(0,2fr)] sm:items-center sm:p-5">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Packing queue</h2>
+            <p className="mt-1 text-sm text-slate-500">{visibleOrders.length} order{visibleOrders.length === 1 ? "" : "s"} in this view</p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
             {([
-              ["to_pack", `To Pack · ${toPack.length}`],
-              ["packed", `Packed · ${packed.length}`],
-              ["shortage", `Shortage · ${shortage.length}`],
-            ] as const).map(([value, label]) => (
-              <Button key={value} size="sm" variant={tab === value ? "default" : "outline"} onClick={() => setTab(value)} className={tab === value ? "bg-emerald-700 hover:bg-emerald-800" : "border-slate-200"}>
-                {label}
+              ["to_pack", "To Pack", toPack.length],
+              ["packed", "Packed", packed.length],
+              ["shortage", "Shortage", shortage.length],
+            ] as const).map(([value, label, count]) => (
+              <Button
+                key={value}
+                size="default"
+                variant={tab === value ? "default" : "outline"}
+                onClick={() => setTab(value)}
+                aria-pressed={tab === value}
+                className={tab === value
+                  ? "h-12 w-full justify-between border-emerald-700 bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
+                  : "h-12 w-full justify-between border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}
+              >
+                <span>{label}</span>
+                <span className={tab === value
+                  ? "inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-white/20 px-2 text-sm font-bold tabular-nums text-white"
+                  : "inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-slate-100 px-2 text-sm font-bold tabular-nums text-slate-700"}
+                >
+                  {count}
+                </span>
               </Button>
             ))}
           </div>
