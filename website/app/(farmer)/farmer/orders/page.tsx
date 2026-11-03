@@ -729,183 +729,158 @@ export default function FarmerOrdersPage() {
             ).map((order: any) => {
                   const orderId = String(order.id || order._id || "");
                   const status = getStatus(order);
+                  const primaryItem = Array.isArray(order.items) ? order.items[0] || {} : {};
+                  const itemCount = Array.isArray(order.items) ? order.items.length : 0;
+                  const productName = primaryItem.productName || primaryItem.name || (itemCount > 1 ? `${itemCount} products` : "Order items");
+                  const productGrade = primaryItem.qualityGrade || primaryItem.grade || primaryItem.quality || "";
+                  const productQuantity = primaryItem.quantity ?? primaryItem.quantityKg ?? primaryItem.orderedQuantity ?? "—";
+                  const productUnit = primaryItem.unit || primaryItem.unitName || "kg";
+                  const productUnitPrice = primaryItem.unitPrice ?? primaryItem.pricePerUnit ?? primaryItem.price;
+                  const rawProductImage = [
+                    primaryItem.productImageUrl,
+                    primaryItem.imageUrl,
+                    primaryItem.productImage,
+                    primaryItem.image,
+                    primaryItem.product?.imageUrl,
+                    primaryItem.product?.image,
+                  ].find((value) => typeof value === "string" && (value.startsWith("https://") || value.startsWith("http://") || value.startsWith("/")));
+                  const isReadyForPickup = status === "ready_for_pickup" || String(order.fulfillmentStage || "").toLowerCase() === "ready_for_pickup";
                   const progressStages = [
-                    { key: "pending", label: "Pending" },
                     { key: "confirmed", label: "Confirmed" },
                     { key: "processing", label: "Processing" },
-                    { key: "ready", label: status === "ready_for_pickup" ? "Ready for pickup" : "Ready" },
-                    { key: "transit", label: status === "dispatched" ? "Dispatched" : "In transit" },
+                    { key: "ready", label: status === "dispatched" ? "Dispatched" : isReadyForPickup ? "Ready for pickup" : "Ready" },
+                    { key: "transit", label: "In transit" },
                     { key: "delivered", label: "Delivered" },
                   ];
-                  const progressIndex = status === "pending" ? 0
-                    : status === "confirmed" ? 1
-                    : status === "processing" ? 2
-                    : ["ready_for_delivery", "ready_for_pickup", "dispatched"].includes(status) ? 3
-                    : status === "in_transit" ? 4
-                    : ["delivered", "picked_up"].includes(status) ? 5
+                  const progressIndex = status === "pending" ? -1
+                    : status === "confirmed" ? 0
+                    : status === "processing" ? (isReadyForPickup ? 2 : 1)
+                    : ["ready_for_delivery", "ready_for_pickup", "dispatched"].includes(status) ? 2
+                    : status === "in_transit" ? 3
+                    : ["delivered", "picked_up"].includes(status) ? 4
                     : -1;
                   return (
                   <Card key={orderId} className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm transition-all duration-200 hover:border-emerald-200 hover:shadow-md">
                     <CardContent className="p-0">
-                      <div className="flex flex-col lg:flex-row">
-                        <div className="min-w-0 flex-1 p-4 sm:p-5">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Link href={`/farmer/orders/${orderId}`} className="text-base font-bold tracking-tight text-slate-950 hover:text-emerald-700">
-                                  #{order.orderNumber || String(orderId).slice(-8)}
-                                </Link>
-                                <Badge variant="outline" className={cn("rounded-full px-2.5 py-0.5 text-xs", statusColors[status] || "bg-slate-50 text-slate-600 border-slate-200")}>
-                                  {statusLabels[status] || status}
-                                </Badge>
-                                {order.paymentStatus === "paid" && <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-xs">Paid</Badge>}
-                                {order.isBulkOrder && (
-                                  <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
-                                    <ShoppingBag className="mr-1 h-3 w-3" />Bulk
-                                  </Badge>
-                                )}
-                                {order.selfDelivery && (
-                                  <Badge variant="outline" className="rounded-full border-purple-200 bg-purple-50 text-purple-700">
-                                    <UserCheck className="mr-1 h-3 w-3" />Self Delivery
-                                  </Badge>
-                                )}
-                                {(order.deliveryPartnerId || order.partnerRequested) && (
-                                  <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
-                                    <Truck className="mr-1 h-3 w-3" />Delivery Partner
-                                  </Badge>
-                                )}
+                      <div className="grid min-w-0 grid-cols-1 xl:grid-cols-[minmax(170px,0.85fr)_minmax(210px,1fr)_minmax(270px,1.25fr)_minmax(245px,1fr)]">
+                        <div className="min-w-0 border-b border-slate-100 p-4 sm:p-5 xl:border-b-0 xl:border-r">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link href={`/farmer/orders/${orderId}`} className="text-sm font-bold tracking-tight text-slate-950 hover:text-emerald-700">
+                              #{order.orderNumber || String(orderId).slice(-8)}
+                            </Link>
+                            {order.isBulkOrder ? <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">Bulk</Badge> : <Badge variant="secondary">Individual order</Badge>}
+                          </div>
+                          <p className="mt-2 text-xs text-slate-500">Placed: {formatDate(order.orderDate)}</p>
+                          <div className="mt-4 space-y-3 border-t border-slate-100 pt-3">
+                            <div className="flex items-start gap-2.5">
+                              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><User className="h-3.5 w-3.5" /></span>
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Customer</p>
+                                <p className="mt-0.5 truncate text-sm font-semibold text-slate-800">{order.customerName || order.customer?.name || "Customer"}</p>
+                                {order.customerPhone ? <p className="mt-0.5 text-xs text-slate-500">{order.customerPhone}</p> : null}
                               </div>
-                              <p className="mt-1 text-sm text-muted-foreground">{formatDate(order.orderDate)}</p>
                             </div>
-
-                            <div className="text-left sm:text-right">
-                              <p className="text-xl font-bold tracking-tight text-slate-950">{formatPrice(order.totalAmount)}</p>
-                              {paymentBadge(order.paymentMethod).label && (
-                                <span className={cn(
-                                  "mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold",
-                                  paymentBadge(order.paymentMethod).cod
-                                    ? "border-amber-200 bg-amber-50 text-amber-700"
-                                    : "border-blue-200 bg-blue-50 text-blue-700"
-                                )}>
-                                  {paymentBadge(order.paymentMethod).label}
-                                </span>
-                              )}
+                            <div className="flex items-start gap-2.5">
+                              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600"><MapPin className="h-3.5 w-3.5" /></span>
+                              <div className="min-w-0">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Delivery</p>
+                                <p className="mt-0.5 truncate text-sm font-semibold text-slate-800">{order.deliveryType === "pickup" ? "Customer pickup" : order.deliveryAddress?.city || "Home delivery"}</p>
+                              </div>
                             </div>
                           </div>
+                        </div>
 
-                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-lg bg-slate-50 p-3">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Customer</p>
-                              <p className="mt-1 truncate text-sm font-medium text-slate-900">{order.customerName || "Customer"}</p>
+                        <div className="min-w-0 border-b border-slate-100 p-4 sm:p-5 xl:border-b-0 xl:border-r">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className="flex h-[68px] w-[68px] shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 text-emerald-700"
+                              style={rawProductImage ? { backgroundImage: `url("${rawProductImage}")`, backgroundPosition: "center", backgroundSize: "cover" } : undefined}
+                              aria-label={rawProductImage ? `${productName} image` : "Product image unavailable"}
+                            >
+                              {!rawProductImage ? <Package className="h-7 w-7" /> : null}
                             </div>
-                            <div className="rounded-lg bg-slate-50 p-3">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Items</p>
-                              <p className="mt-1 text-sm font-medium text-slate-900">{(order.items || []).length} item{(order.items || []).length === 1 ? "" : "s"}</p>
-                            </div>
-                            <div className="rounded-lg bg-slate-50 p-3">
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Delivery</p>
-                              <p className="mt-1 truncate text-sm font-medium text-slate-900">
-                                {order.deliveryType === "pickup" ? "Customer Pickup" : (order.deliveryAddress?.city || "Home delivery")}
-                              </p>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-bold text-slate-950">{productName}</p>
+                              {productGrade ? <p className="mt-0.5 text-xs text-slate-500">Grade {productGrade}</p> : <p className="mt-0.5 text-xs text-slate-500">{itemCount} item{itemCount === 1 ? "" : "s"} in order</p>}
+                              {itemCount > 1 ? <p className="mt-1 text-[11px] font-medium text-emerald-700">+{itemCount - 1} more product{itemCount === 2 ? "" : "s"}</p> : null}
                             </div>
                           </div>
-
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {(order.items || []).slice(0, 2).map((item: any, idx: number) => (
-                              <span key={idx} className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700">
-                                {item.productName} · {item.quantity}
-                              </span>
-                            ))}
-                            {(order.items || []).length > 2 && (
-                              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                                +{(order.items || []).length - 2} more
-                              </span>
-                            )}
+                          <div className="mt-4 grid grid-cols-2 gap-2">
+                            <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Quantity</p>
+                              <p className="mt-1 text-sm font-bold text-slate-900">{productQuantity} {productUnit}</p>
+                            </div>
+                            <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Unit price</p>
+                              <p className="mt-1 text-sm font-bold text-emerald-700">{productUnitPrice != null ? formatPrice(productUnitPrice) : "—"}{productUnitPrice != null ? `/${productUnit}` : ""}</p>
+                            </div>
                           </div>
+                          <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
+                            <span className="text-xs font-medium text-slate-500">Order total</span>
+                            <div className="text-right">
+                              <p className="text-lg font-bold tracking-tight text-slate-950">{formatPrice(order.totalAmount)}</p>
+                              {paymentBadge(order.paymentMethod).label ? <span className={cn("text-[10px] font-semibold", paymentBadge(order.paymentMethod).cod ? "text-amber-700" : "text-blue-700")}>{paymentBadge(order.paymentMethod).label}{order.paymentStatus === "paid" ? " · Paid" : ""}</span> : null}
+                            </div>
+                          </div>
+                        </div>
 
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {order.fulfillmentMethod === "farmer" && (
-                              <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 text-emerald-700">
-                                <UserCheck className="mr-1 h-3 w-3" />Farmer Fulfillment
-                              </Badge>
-                            )}
-                            {order.fulfillmentMethod === "warehouse" && (
-                              <>
-                                <Badge variant="outline" className="rounded-full border-blue-200 bg-blue-50 text-blue-700">
-                                  <Store className="mr-1 h-3 w-3" />Warehouse Fulfillment
-                                </Badge>
-                                {order.warehouse?.name && (
-                                  <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
-                                    <MapPin className="mr-1 h-3 w-3" />
-                                    {order.warehouse.name}
-                                    {Number.isFinite(Number(order.warehouse.distanceKm)) ? " · " + Number(order.warehouse.distanceKm).toFixed(1) + " km" : ""}
-                                  </Badge>
-                                )}
-                              </>
-                            )}
-                            {status === "processing" && order.fulfillmentRouteSelected !== true && (
-                              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
-                                Fulfillment Selection Required
-                              </Badge>
-                            )}
-                            {order.deliveryPartnerRoute === "long_distance" && (
-                              <Badge variant="outline" className="rounded-full border-amber-200 bg-amber-50 text-amber-700">
-                                <Truck className="mr-1 h-3 w-3" />Long-Distance · Warehouse Transfer
-                              </Badge>
-                            )}
-                            {order.deliveryPartnerRoute === "nearby" && (
-                              <Badge variant="outline" className="rounded-full border-green-200 bg-green-50 text-green-700">
-                                <Navigation className="mr-1 h-3 w-3" />Nearby Delivery
-                              </Badge>
-                            )}
-                            {order.deliveryPartnerName && (
-                              <Badge variant="outline" className="rounded-full border-indigo-200 bg-indigo-50 text-indigo-700">
-                                Partner: {order.deliveryPartnerName}
-                              </Badge>
-                            )}
-                            {order.pickedBy && (
-                              <Badge variant="outline" className="rounded-full border-slate-200 bg-white text-slate-600">
-                                Picked by: {order.pickedBy}
-                              </Badge>
-                            )}
+                        <div className="min-w-0 p-4 sm:p-5">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-slate-800">Fulfillment progress</p>
+                            <span className="text-[11px] font-semibold text-emerald-700">{statusLabels[status] || status}</span>
                           </div>
                           {progressIndex >= 0 ? (
-                            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
-                              <div className="mb-3 flex items-center justify-between gap-2">
-                                <span className="text-xs font-semibold text-slate-800">Order progress</span>
-                                <span className="text-[11px] font-medium text-emerald-700">{progressStages[progressIndex].label}</span>
-                              </div>
-                              <div className="flex items-start">
-                                {progressStages.map((step, index) => {
-                                  const complete = index <= progressIndex;
-                                  const current = index === progressIndex;
-                                  return (
-                                    <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center">
-                                      <div className="flex w-full items-center">
-                                        {index > 0 ? <span className={cn("h-0.5 flex-1", index <= progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
-                                        <span className={cn(
-                                          "flex h-3 w-3 shrink-0 rounded-full border-2",
-                                          complete ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white",
-                                          current && "ring-4 ring-emerald-100"
-                                        )} />
-                                        {index < progressStages.length - 1 ? <span className={cn("h-0.5 flex-1", index < progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
-                                      </div>
-                                      <span className={cn(
-                                        "mt-2 max-w-full text-center text-[9px] leading-3 sm:text-[10px]",
-                                        current ? "font-bold text-emerald-800" : complete ? "font-medium text-slate-700" : "text-slate-400"
-                                      )}>{step.label}</span>
+                            <div className="flex items-start">
+                              {progressStages.map((step, index) => {
+                                const complete = index <= progressIndex;
+                                const current = index === progressIndex;
+                                return (
+                                  <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center">
+                                    <div className="flex w-full items-center">
+                                      {index > 0 ? <span className={cn("h-0.5 flex-1", index <= progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
+                                      <span className={cn("flex h-3 w-3 shrink-0 rounded-full border-2", complete ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white", current && "ring-4 ring-emerald-100")} />
+                                      {index < progressStages.length - 1 ? <span className={cn("h-0.5 flex-1", index < progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
                                     </div>
-                                  );
-                                })}
-                              </div>
+                                    <span className={cn("mt-2 max-w-full text-center text-[9px] leading-3 sm:text-[10px]", current ? "font-bold text-emerald-800" : complete ? "font-medium text-slate-700" : "text-slate-400")}>{step.label}</span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : (
-                            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-                              {statusLabels[status] || status}
-                            </div>
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">Awaiting order confirmation</div>
                           )}
+
+                          <div className="mt-4 flex flex-wrap gap-1.5">
+                            {order.fulfillmentMethod === "farmer" ? <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700"><UserCheck className="mr-1 h-3 w-3" />Farmer fulfillment</Badge> : null}
+                            {order.fulfillmentMethod === "warehouse" ? <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700"><Store className="mr-1 h-3 w-3" />Warehouse fulfillment</Badge> : null}
+                            {order.deliveryPartnerRoute === "long_distance" ? <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">Long distance transfer</Badge> : null}
+                            {order.deliveryPartnerRoute === "nearby" ? <Badge variant="outline" className="border-green-200 bg-green-50 text-green-700">Nearby delivery</Badge> : null}
+                          </div>
+                          {order.deliveryPartnerName || order.warehouse?.name || order.warehouseCollectionStatus ? (
+                            <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-800">Delivery update</p>
+                              <p className="mt-0.5 text-xs leading-5 text-emerald-900">
+                                {order.deliveryPartnerName ? `Partner: ${order.deliveryPartnerName}` : order.warehouse?.name ? `Warehouse: ${order.warehouse.name}` : String(order.warehouseCollectionStatus || "").replace(/_/g, " ")}
+                              </p>
+                              {order.warehouseCollectionStatus ? <p className="mt-0.5 text-[10px] text-emerald-800">Farm collection: {String(order.warehouseCollectionStatus).replace(/_/g, " ")}</p> : null}
+                            </div>
+                          ) : null}
                         </div>
-                        <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 lg:w-[320px] lg:border-l lg:border-t-0">
+                        <div className="min-w-0 border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 xl:border-l xl:border-t-0">
+                          <div className="mb-3 flex items-center justify-between gap-2">
+                            <Badge variant="outline" className={cn("rounded-full px-2.5 py-1 text-xs font-semibold", statusColors[status] || "border-slate-200 bg-white text-slate-700")}>{statusLabels[status] || status}</Badge>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" aria-label={`More actions for order ${order.orderNumber || orderId}`}>
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem asChild><Link href={`/farmer/orders/${orderId}`}><Eye className="mr-2 h-4 w-4" />View full order</Link></DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}><Navigation className="mr-2 h-4 w-4" />Open in order map</DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                           <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
                             <div className="flex items-start justify-between gap-2">
                               <div>
