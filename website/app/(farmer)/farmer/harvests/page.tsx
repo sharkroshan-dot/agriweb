@@ -478,7 +478,7 @@ export default function FarmerHarvestsPage() {
                           )}>{date.getDate()}</span>
                           <div className="flex min-w-0 flex-col gap-1">
                             {dayPlans.slice(0, 2).map((plan) => (
-                              <span key={plan.id} className={cn("block overflow-hidden rounded-md border px-1.5 py-1 text-[9px] font-semibold leading-3 sm:text-[10px] sm:leading-4", harvestEventClass(plan, today)}>
+                              <span key={plan.id} className={cn("block overflow-hidden rounded-md border px-1.5 py-1 text-[9px] font-semibold leading-3 sm:text-[10px] sm:leading-4", harvestEventClass(plan, today))}>
                                 <span className="block truncate">{plan.cropName} Harvest</span>
                                 <span className="block truncate opacity-80">{plan.expectedQuantityKg} kg</span>
                               </span>
