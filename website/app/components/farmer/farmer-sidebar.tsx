@@ -205,7 +205,17 @@ export function FarmerSidebar() {
                         <span>{item.name}</span>
                       </div>
                       {item.name === "Orders" && orderCount > 0 && (
-                        <Badge variant={isActive ? "secondary" : "default"} className="px-2 py-0 text-xs">
+                        <Badge
+                          variant="default"
+                          aria-label={`${orderCount} orders`}
+                          title={`${orderCount} orders`}
+                          className={cn(
+                            "inline-flex h-6 min-w-[32px] shrink-0 items-center justify-center rounded-md px-2 text-xs font-extrabold leading-none tabular-nums tracking-normal shadow-sm",
+                            isActive
+                              ? "border border-white/70 bg-white text-emerald-800 ring-1 ring-inset ring-emerald-900/5"
+                              : "border border-emerald-700 bg-emerald-600 text-white"
+                          )}
+                        >
                           {orderCount}
                         </Badge>
                       )}
