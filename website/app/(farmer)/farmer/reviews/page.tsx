@@ -235,7 +235,7 @@ export default function FarmerReviewsPage() {
                             aria-valuemax={5}
                             aria-valuenow={average}
                           >
-                            <div className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500" style={{ width: ratingWidth }} />
+                            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-700" style={{ width: ratingWidth }} />
                           </div>
                           <Stars value={average} className="mt-2" />
                         </div>
