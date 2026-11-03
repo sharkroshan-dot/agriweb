@@ -481,7 +481,7 @@ export default function FarmerOrdersPage() {
               </Button>
             </div>
           </div>
-          <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
+          <div className="flex w-full flex-wrap items-stretch gap-2">
             {[
               { value: "all", label: "All orders", count: orderStats.total },
               { value: "pending", label: "Pending", count: orderStats.pending },
@@ -499,7 +499,7 @@ export default function FarmerOrdersPage() {
                 onClick={() => setStatusFilter(tab.value)}
                 title={`${tab.label}: ${tab.count}`}
                 className={cn(
-                  "inline-flex h-10 min-w-0 w-full items-center justify-between gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition-colors sm:px-2.5 xl:px-2",
+                  "inline-flex h-10 min-w-[112px] flex-1 items-center justify-between gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors",
                   statusFilter === tab.value
                     ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
                     : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
