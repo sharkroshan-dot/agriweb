@@ -43,13 +43,15 @@ interface HarvestPlan {
 type CalendarView = "month" | "week" | "list";
 
 function parseHarvestDate(value: string): Date {
-  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(value)) {
-    const [year, month, day] = value.split("-").map(Number);
-    return new Date(year, month - 1, day);
+  // Harvest dates are calendar dates, not timestamps. Keep YYYY-MM-DD in the
+  // farmer's local calendar even when the API serializes the value as UTC ISO.
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return new Date(Number(year), Number(month) - 1, Number(day));
   }
   return new Date(value);
 }
-
 function atLocalDayStart(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -449,7 +451,7 @@ export default function FarmerHarvestsPage() {
                       <div key={day} className={cn("py-2 text-center text-xs font-bold uppercase tracking-wide", index === 0 || index === 6 ? "text-emerald-700" : "text-slate-500")}>{day}</div>
                     ))}
                   </div>
-                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-l border-slate-200", calendarView === "week" ? "grid-rows-1" : "grid-rows-6")}>
+                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-l border-slate-200", calendarView === "week" ? "min-h-[160px] grid-rows-1" : "min-h-[630px] grid-rows-6")}>
                     {calendarDays.map((date) => {
                       const dayPlans = filteredPlans
                         .filter((plan) => sameCalendarDay(parseHarvestDate(plan.expectedHarvestDate), date) && plan.status !== "cancelled")
