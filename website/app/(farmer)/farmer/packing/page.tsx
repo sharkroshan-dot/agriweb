@@ -23,6 +23,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui
 import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 
 type Tab = "to_pack" | "packed" | "shortage";
+type DateView = "all" | "today" | "yesterday";
+
+function isOrderInDateView(order: any, view: DateView): boolean {
+  if (view === "all") return true;
+  const timestamp = orderTime(order);
+  if (!timestamp) return false;
+  const orderDate = new Date(timestamp);
+  const targetDate = new Date();
+  if (view === "yesterday") targetDate.setDate(targetDate.getDate() - 1);
+  return orderDate.getFullYear() === targetDate.getFullYear()
+    && orderDate.getMonth() === targetDate.getMonth()
+    && orderDate.getDate() === targetDate.getDate();
+}
 
 function extractOrders(response: any): any[] {
   const candidates = [response?.orders, response?.data?.orders, response?.data, response];
@@ -53,6 +66,7 @@ function formatAddress(order: any) {
 
 export default function FarmerPackingPage() {
   const [tab, setTab] = useState<Tab>("to_pack");
+  const [dateView, setDateView] = useState<DateView>("all");
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [packedQuantities, setPackedQuantities] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -89,22 +103,35 @@ export default function FarmerPackingPage() {
       items.some((item: any) => Number(item?.packedQuantity ?? item?.actualPackedQuantity ?? item?.quantity) < Number(item?.quantity ?? 0));
   };
 
-  const toPack = orders.filter((o: any) => {
-    const stage = String(o?.fulfillmentStage || "pending").toLowerCase();
-    return !isPackingCancelled(o) && !["packed", "dispatched"].includes(stage) && !o?.packingComplete;
+  const isToPack = (order: any) => {
+    const stage = String(order?.fulfillmentStage || "pending").toLowerCase();
+    return !isPackingCancelled(order) && !["packed", "dispatched"].includes(stage) && !order?.packingComplete;
+  };
+
+  const toPack = orders.filter((order: any) =>
+    isToPack(order) && (isOrderInDateView(order, "today") || isOrderInDateView(order, "yesterday"))
+  );
+
+  const packed = orders.filter((order: any) => {
+    const stage = String(order?.fulfillmentStage || "").toLowerCase();
+    return !isPackingCancelled(order) && (stage === "packed" || stage === "dispatched" || order?.packingComplete);
   });
 
-  const packed = orders.filter((o: any) => {
-    const stage = String(o?.fulfillmentStage || "").toLowerCase();
-    return !isPackingCancelled(o) && (stage === "packed" || stage === "dispatched" || o?.packingComplete);
-  });
+  const shortage = orders.filter((order: any) => hasPackingShortage(order));
 
-  const shortage = orders.filter((o: any) => hasPackingShortage(o));
+  const overviewOrders = dateView === "all" ? orders : orders.filter((order: any) => isOrderInDateView(order, dateView));
+  const overviewToPack = overviewOrders.filter(isToPack);
+  const overviewPacked = overviewOrders.filter((order: any) => packed.includes(order));
+  const overviewShortage = overviewOrders.filter((order: any) => shortage.includes(order));
+  const packedForDate = packed.filter((order: any) => isOrderInDateView(order, dateView));
+  const shortageForDate = shortage.filter((order: any) => isOrderInDateView(order, dateView));
 
-  const visibleOrders = tab === "to_pack" ? toPack : tab === "packed" ? packed : shortage;
-  const total = orders.length;
-  const progress = total ? Math.round((packed.length / total) * 100) : 0;
-  const allPacked = total > 0 && packed.length >= total;
+  // The To Pack queue intentionally combines only today's and yesterday's unpacked orders.
+  // Packed and Shortage history follows the selected date filter.
+  const visibleOrders = tab === "to_pack" ? toPack : tab === "packed" ? packedForDate : shortageForDate;
+  const total = overviewOrders.length;
+  const progress = total ? Math.round((overviewPacked.length / total) * 100) : 0;
+  const allPacked = total > 0 && overviewPacked.length >= total;
 
   const packingPreview = useMemo(() => {
     if (!selectedOrder) return { shortageLines: 0, shortageValue: 0, finalAmount: 0 };
@@ -292,12 +319,40 @@ export default function FarmerPackingPage() {
           </Button>
         </section>
 
+        <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Order date</h2>
+            <p className="mt-0.5 text-xs text-slate-500">Filter summary cards and Packed / Shortage orders.</p>
+          </div>
+          <div className="grid w-full grid-cols-3 gap-2 sm:w-auto">
+            {([
+              ["all", "All"],
+              ["today", "Today"],
+              ["yesterday", "Yesterday"],
+            ] as const).map(([value, label]) => (
+              <Button
+                key={value}
+                type="button"
+                size="default"
+                variant={dateView === value ? "default" : "outline"}
+                aria-pressed={dateView === value}
+                onClick={() => setDateView(value)}
+                className={dateView === value
+                  ? "h-10 min-w-24 bg-emerald-700 px-5 text-sm font-semibold text-white hover:bg-emerald-800"
+                  : "h-10 min-w-24 border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+        </section>
+
         <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
           {[
             { label: "Farmer orders", value: total, icon: Package, tone: "bg-slate-100 text-slate-700" },
-            { label: "To pack", value: toPack.length, icon: ClipboardCheck, tone: "bg-amber-50 text-amber-700" },
-            { label: "Packed", value: packed.length, icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-700" },
-            { label: "Shortage", value: shortage.length, icon: AlertTriangle, tone: "bg-red-50 text-red-700" },
+            { label: "To pack", value: overviewToPack.length, icon: ClipboardCheck, tone: "bg-amber-50 text-amber-700" },
+            { label: "Packed", value: overviewPacked.length, icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-700" },
+            { label: "Shortage", value: overviewShortage.length, icon: AlertTriangle, tone: "bg-red-50 text-red-700" },
           ].map((stat) => (
             <Card key={stat.label} className="border-slate-200 shadow-sm">
               <CardContent className="flex items-center justify-between gap-3 p-4 sm:p-5">
@@ -318,7 +373,7 @@ export default function FarmerPackingPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Packing progress</p>
-                <p className="text-xs text-slate-500">{packed.length} of {total} orders packed</p>
+                <p className="text-xs text-slate-500">{overviewPacked.length} of {total} orders packed</p>
               </div>
               <span className="text-sm font-semibold text-emerald-700">{progress}%</span>
             </div>
@@ -332,13 +387,17 @@ export default function FarmerPackingPage() {
         <section className="grid w-full gap-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-[minmax(180px,0.7fr)_minmax(0,2fr)] sm:items-center sm:p-5">
           <div className="min-w-0">
             <h2 className="text-base font-bold tracking-tight text-slate-900">Packing queue</h2>
-            <p className="mt-1 text-sm text-slate-500">{visibleOrders.length} order{visibleOrders.length === 1 ? "" : "s"} in this view</p>
+            <p className="mt-1 text-sm text-slate-500">
+              {tab === "to_pack"
+                ? `${visibleOrders.length} outstanding order(s) from today and yesterday`
+                : `${visibleOrders.length} ${tab === "packed" ? "packed" : "shortage"} order(s) · ${dateView === "all" ? "all dates" : dateView}`}
+            </p>
           </div>
           <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-3">
             {([
               ["to_pack", "To Pack", toPack.length],
-              ["packed", "Packed", packed.length],
-              ["shortage", "Shortage", shortage.length],
+              ["packed", "Packed", packedForDate.length],
+              ["shortage", "Shortage", shortageForDate.length],
             ] as const).map(([value, label, count]) => (
               <Button
                 key={value}
