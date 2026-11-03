@@ -744,6 +744,21 @@ export default function FarmerOrdersPage() {
             ).map((order: any) => {
                   const orderId = String(order.id || order._id || "");
                   const status = getStatus(order);
+                  const progressStages = [
+                    { key: "pending", label: "Pending" },
+                    { key: "confirmed", label: "Confirmed" },
+                    { key: "processing", label: "Processing" },
+                    { key: "ready", label: status === "ready_for_pickup" ? "Ready for pickup" : "Ready" },
+                    { key: "transit", label: status === "dispatched" ? "Dispatched" : "In transit" },
+                    { key: "delivered", label: "Delivered" },
+                  ];
+                  const progressIndex = status === "pending" ? 0
+                    : status === "confirmed" ? 1
+                    : status === "processing" ? 2
+                    : ["ready_for_delivery", "ready_for_pickup", "dispatched"].includes(status) ? 3
+                    : status === "in_transit" ? 4
+                    : ["delivered", "picked_up"].includes(status) ? 5
+                    : -1;
                   return (
                   <Card key={orderId} className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm transition-all duration-200 hover:border-emerald-200 hover:shadow-md">
                     <CardContent className="p-0">
@@ -869,6 +884,41 @@ export default function FarmerOrdersPage() {
                               </Badge>
                             )}
                           </div>
+                          {progressIndex >= 0 ? (
+                            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+                              <div className="mb-3 flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-slate-800">Order progress</span>
+                                <span className="text-[11px] font-medium text-emerald-700">{progressStages[progressIndex].label}</span>
+                              </div>
+                              <div className="flex items-start">
+                                {progressStages.map((step, index) => {
+                                  const complete = index <= progressIndex;
+                                  const current = index === progressIndex;
+                                  return (
+                                    <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center">
+                                      <div className="flex w-full items-center">
+                                        {index > 0 ? <span className={cn("h-0.5 flex-1", index <= progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
+                                        <span className={cn(
+                                          "flex h-3 w-3 shrink-0 rounded-full border-2",
+                                          complete ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white",
+                                          current && "ring-4 ring-emerald-100"
+                                        )} />
+                                        {index < progressStages.length - 1 ? <span className={cn("h-0.5 flex-1", index < progressIndex ? "bg-emerald-500" : "bg-slate-200")} /> : <span className="h-0.5 flex-1 bg-transparent" />}
+                                      </div>
+                                      <span className={cn(
+                                        "mt-2 max-w-full text-center text-[9px] leading-3 sm:text-[10px]",
+                                        current ? "font-bold text-emerald-800" : complete ? "font-medium text-slate-700" : "text-slate-400"
+                                      )}>{step.label}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                              {statusLabels[status] || status}
+                            </div>
+                          )}
                         </div>
                         <div className="border-t border-slate-100 bg-slate-50/60 p-4 sm:p-5 lg:w-[320px] lg:border-l lg:border-t-0">
                           <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3">
