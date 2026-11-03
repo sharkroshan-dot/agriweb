@@ -347,13 +347,13 @@ export default function FarmerPackingPage() {
                 onClick={() => setTab(value)}
                 aria-pressed={tab === value}
                 className={tab === value
-                  ? "h-12 w-full justify-between border-emerald-700 bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800"
-                  : "h-12 w-full justify-between border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-emerald-300 hover:bg-emerald-50"}
+                  ? "h-12 w-full justify-between border-emerald-700 bg-emerald-700 px-4 text-base font-bold leading-none text-white shadow-sm hover:bg-emerald-800"
+                  : "h-12 w-full justify-between border-slate-200 bg-white px-4 text-base font-bold leading-none text-slate-800 hover:border-emerald-300 hover:bg-emerald-50"}
               >
                 <span>{label}</span>
                 <span className={tab === value
-                  ? "inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-white/20 px-2 text-sm font-bold tabular-nums text-white"
-                  : "inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-slate-100 px-2 text-sm font-bold tabular-nums text-slate-700"}
+                  ? "inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-white/20 px-2 text-base font-extrabold leading-none tabular-nums text-white"
+                  : "inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-slate-100 px-2 text-base font-extrabold leading-none tabular-nums text-slate-800"}
                 >
                   {count}
                 </span>
