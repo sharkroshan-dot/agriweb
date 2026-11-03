@@ -139,20 +139,16 @@ export function FarmerSidebar() {
     enabled: Boolean(accessToken),
   });
 
-  const { data: ordersData } = useQuery({
-    queryKey: ["farmerOrderCount"],
-    queryFn: () => api.get("/farmers/me/orders", { params: { limit: 1 } }),
-    enabled: Boolean(accessToken),
-  });
-
   const { data: todayData } = useQuery({
     queryKey: ["farmerTodaySummary"],
     queryFn: () => api.get("/farmers/me/dashboard", { params: { period: "today" } }),
     enabled: Boolean(accessToken),
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
-  const orderCount = (ordersData as any)?.data?.pagination?.total ?? 0;
   const todayStats = (todayData as any)?.stats ?? {};
+  const orderCount = Math.max(0, Number(todayStats?.totalOrders?.value ?? 0));
   const todayRevenue = todayStats?.totalRevenue?.value ?? 0;
   const displayName = profileData?.data?.farmName || profileData?.data?.ownerName || farmerName;
   const farmerEmail = (session?.user as any)?.email || profileData?.data?.email || "";
@@ -205,9 +201,18 @@ export function FarmerSidebar() {
                         <span>{item.name}</span>
                       </div>
                       {item.name === "Orders" && orderCount > 0 && (
-                        <Badge variant={isActive ? "secondary" : "default"} className="px-2 py-0 text-xs">
+                        <span
+                          aria-label={`${orderCount} orders today`}
+                          title={`${orderCount} orders today`}
+                          className={cn(
+                            "inline-flex h-5 min-w-6 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none tabular-nums",
+                            isActive
+                              ? "bg-white text-emerald-800 ring-1 ring-inset ring-white/70"
+                              : "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-100"
+                          )}
+                        >
                           {orderCount}
-                        </Badge>
+                        </span>
                       )}
                     </Link>
                   );
