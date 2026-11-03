@@ -235,41 +235,86 @@ export default function FarmerPackingPage() {
   };
 
   if (ordersQuery.isLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading packing orders...</div>;
+    return (
+      <div className="w-full min-w-0 space-y-5 pb-8" aria-label="Loading packing workspace">
+        <div className="h-28 animate-pulse rounded-2xl border border-slate-200 bg-white" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-xl border border-slate-200 bg-white" />)}
+        </div>
+        <div className="h-28 animate-pulse rounded-xl border border-slate-200 bg-white" />
+        <div className="grid gap-4 xl:grid-cols-2">
+          {[0, 1].map((item) => <div key={item} className="h-64 animate-pulse rounded-2xl border border-slate-200 bg-white" />)}
+        </div>
+      </div>
+    );
+  }
+
+  if (ordersQuery.isError) {
+    return (
+      <div className="w-full min-w-0 space-y-5 pb-8">
+        <FarmerPageHeader title="Packing & quality check" description="Review Farmer Fulfillment orders and complete packing." />
+        <Card className="border-red-200 shadow-sm">
+          <CardContent className="flex flex-col items-center p-10 text-center">
+            <AlertTriangle className="h-10 w-10 text-red-600" />
+            <h2 className="mt-3 text-base font-semibold text-slate-900">Unable to load packing orders</h2>
+            <p className="mt-1 max-w-lg text-sm text-slate-600">{(ordersQuery.error as any)?.response?.data?.detail || (ordersQuery.error as any)?.message || "Please check your connection and try again."}</p>
+            <Button className="mt-4 bg-emerald-700 hover:bg-emerald-800" onClick={() => void ordersQuery.refetch()}>
+              <Truck className="mr-2 h-4 w-4" />Try again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/70 p-4 sm:p-6">
-      <div className="mx-auto max-w-7xl space-y-5">
-        <FarmerPageHeader title="Packing & quality check" description="Verify each Farmer Fulfillment order, record actual packed quantities, resolve shortages, and hand off ready orders." actionHref={allPacked ? "/farmer/order-map?delivery=required" : undefined} actionLabel={allPacked ? "Open order map" : undefined}>
+    <div className="w-full min-w-0 space-y-5 pb-8">
+        <FarmerPageHeader eyebrow="Farmer fulfillment" title="Packing & quality check" description="Record actual packed quantities, resolve shortages and prepare eligible orders for delivery." actionHref={allPacked ? "/farmer/order-map?delivery=required" : undefined} actionLabel={allPacked ? "Open order map" : undefined}>
           <Button asChild variant="outline"><Link href="/farmer/orders"><ArrowLeft className="mr-1.5 h-4 w-4" /> Orders</Link></Button>
         </FarmerPageHeader>
 
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-emerald-950">Packing is preparation only</p>
-            <p className="mt-1 text-xs text-emerald-800">
-              After Confirm Packed, the order becomes Ready for Delivery. Select orders, group physical stops, calculate distance, and choose Self Delivery or the delivery-partner route only in the Farmer Order Map.
-            </p>
+        <section className="flex flex-col gap-4 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
+              <ClipboardCheck className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-emerald-950">Packing and delivery are separate steps</p>
+              <p className="mt-1 max-w-4xl text-sm leading-5 text-emerald-800">
+                Confirm the actual packed quantity here. Once packed, use Farmer Order Map to group stops and choose self-delivery or a delivery-partner route.
+              </p>
+            </div>
           </div>
-          <Button asChild size="sm" className="bg-emerald-600 hover:bg-emerald-700">
+          <Button asChild className="h-10 shrink-0 bg-emerald-700 hover:bg-emerald-800">
             <Link href="/farmer/order-map?delivery=required">
-              <Truck className="mr-2 h-4 w-4" /> Open Farmer Order Map
+              <Truck className="mr-2 h-4 w-4" />Open Farmer Order Map
             </Link>
           </Button>
-        </div>
-      </div>
+        </section>
 
-      <div className="grid gap-3 sm:grid-cols-4">
-          <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Farmer Orders</p><p className="mt-1 text-2xl font-bold">{total}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-slate-500">To Pack</p><p className="mt-1 text-2xl font-bold text-amber-600">{toPack.length}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Packed</p><p className="mt-1 text-2xl font-bold text-emerald-600">{packed.length}</p></CardContent></Card>
-          <Card><CardContent className="p-4"><p className="text-xs text-slate-500">Shortage</p><p className="mt-1 text-2xl font-bold text-red-600">{shortage.length}</p></CardContent></Card>
-        </div>
+        <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {[
+            { label: "Farmer orders", value: total, icon: Package, tone: "bg-slate-100 text-slate-700" },
+            { label: "To pack", value: toPack.length, icon: ClipboardCheck, tone: "bg-amber-50 text-amber-700" },
+            { label: "Packed", value: packed.length, icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-700" },
+            { label: "Shortage", value: shortage.length, icon: AlertTriangle, tone: "bg-red-50 text-red-700" },
+          ].map((stat) => (
+            <Card key={stat.label} className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-center justify-between gap-3 p-4 sm:p-5">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-slate-500">{stat.label}</p>
+                  <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{stat.value}</p>
+                </div>
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${stat.tone}`}>
+                  <stat.icon className="h-5 w-5" />
+                </span>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
 
-        <Card>
-          <CardContent className="p-4">
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-slate-900">Packing progress</p>
@@ -284,29 +329,35 @@ export default function FarmerPackingPage() {
           </CardContent>
         </Card>
 
-        <div className="flex flex-wrap gap-2">
-          {([
-            ["to_pack", `To Pack ${toPack.length}`],
-            ["packed", `Packed ${packed.length}`],
-            ["shortage", `Shortage ${shortage.length}`],
-          ] as const).map(([value, label]) => (
-            <Button key={value} size="sm" variant={tab === value ? "default" : "outline"} onClick={() => setTab(value)} className={tab === value ? "bg-emerald-600 hover:bg-emerald-700" : ""}>
-              {label}
-            </Button>
-          ))}
-        </div>
+        <section className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Packing queue</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{visibleOrders.length} order{visibleOrders.length === 1 ? "" : "s"} in this view</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {([
+              ["to_pack", `To Pack · ${toPack.length}`],
+              ["packed", `Packed · ${packed.length}`],
+              ["shortage", `Shortage · ${shortage.length}`],
+            ] as const).map(([value, label]) => (
+              <Button key={value} size="sm" variant={tab === value ? "default" : "outline"} onClick={() => setTab(value)} className={tab === value ? "bg-emerald-700 hover:bg-emerald-800" : "border-slate-200"}>
+                {label}
+              </Button>
+            ))}
+          </div>
+        </section>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 xl:grid-cols-2">
           {visibleOrders.map((order: any) => {
             const orderId = order.id || order._id;
             const items = Array.isArray(order.items) ? order.items : [];
             const isPacked = packed.includes(order);
             return (
-              <Card key={orderId} className="overflow-hidden border-slate-200 bg-white shadow-sm">
-                <CardHeader className="border-b bg-white pb-3">
+              <Card key={orderId} className="overflow-hidden rounded-2xl border-slate-200 bg-white shadow-sm transition-all hover:border-emerald-200 hover:shadow-md">
+                <CardHeader className="border-b border-slate-100 bg-slate-50/60 pb-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <CardTitle className="text-sm font-bold text-slate-900">{order.orderNumber || `Order #${orderId}`}</CardTitle>
+                      <CardTitle className="text-base font-bold tracking-tight text-slate-950">{order.orderNumber || `Order #${orderId}`}</CardTitle>
                       <p className="mt-1 text-xs text-slate-500">{order.orderDate ? new Date(order.orderDate).toLocaleString() : "Recent order"}</p>
                     </div>
                     <Badge className={shortage.includes(order) ? "bg-red-100 text-red-800 hover:bg-red-100" : isPacked ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100" : "bg-amber-100 text-amber-800 hover:bg-amber-100"}>
@@ -316,30 +367,30 @@ export default function FarmerPackingPage() {
                 </CardHeader>
                 <CardContent className="space-y-4 p-4">
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Customer</p>
-                      <p className="mt-1 text-sm font-semibold text-slate-900">{order.customerName || order.customer?.name || "Customer"}</p>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Customer</p>
+                      <p className="mt-1.5 text-sm font-semibold text-slate-900">{order.customerName || order.customer?.name || "Customer"}</p>
                       <p className="text-xs text-slate-500">{order.customerPhone || order.customer?.phone || "Phone not available"}</p>
                     </div>
-                    <div className="rounded-lg bg-slate-50 p-3">
-                      <p className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400"><MapPin className="h-3 w-3" /> Delivery</p>
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                      <p className="flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500"><MapPin className="h-3 w-3" /> Delivery</p>
                       <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-700">{formatAddress(order)}</p>
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-slate-200">
-                    <div className="flex items-center justify-between border-b px-3 py-2">
-                      <p className="text-xs font-semibold text-slate-700">Items to check</p>
-                      <span className="text-[11px] text-slate-500">{items.length} item(s)</span>
+                  <div className="overflow-hidden rounded-xl border border-slate-200">
+                    <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+                      <p className="text-sm font-semibold text-slate-800">Items to check</p>
+                      <span className="text-xs font-medium text-slate-500">{items.length} item(s)</span>
                     </div>
                     <div className="divide-y">
                       {items.map((item: any, index: number) => {
                         const key = `${item.productId || item.productName || "item"}:${item.variantId || ""}:${index}`;
                         const ordered = Number(item.quantity ?? 0);
                         return (
-                          <div key={key} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 px-3 py-2.5">
-                            <div><p className="text-xs font-medium text-slate-900">{item.productName || "Product"}</p><p className="text-[11px] text-slate-500">Ordered: {ordered}</p></div>
-                            {isPacked ? <span className="text-xs font-semibold text-emerald-700">{item.packedQuantity ?? item.actualPackedQuantity ?? ordered} packed</span> : <label className="text-[11px] text-slate-500">Actual <input aria-label={`Actual packed quantity for ${item.productName || "product"}`} type="number" min="0" max={ordered} step="0.01" value={packedQuantities[key] ?? String(item.quantity ?? 0)} onChange={(e) => setPackedQuantities((prev) => ({ ...prev, [key]: e.target.value }))} className="ml-1 w-20 rounded-md border border-slate-300 px-2 py-1 text-right text-xs text-slate-900 outline-none focus:border-emerald-500" /></label>}
+                          <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-3">
+                            <div><p className="text-sm font-semibold text-slate-900">{item.productName || "Product"}</p><p className="text-[11px] text-slate-500">Ordered: {ordered}</p></div>
+                            {isPacked ? <span className="text-xs font-semibold text-emerald-700">{item.packedQuantity ?? item.actualPackedQuantity ?? ordered} packed</span> : <label className="text-[11px] text-slate-500">Actual <input aria-label={`Actual packed quantity for ${item.productName || "product"}`} type="number" min="0" max={ordered} step="0.01" value={packedQuantities[key] ?? String(item.quantity ?? 0)} onChange={(e) => setPackedQuantities((prev) => ({ ...prev, [key]: e.target.value }))} className="ml-1 h-9 w-24 rounded-lg border border-slate-300 bg-white px-2 text-right text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100" /></label>}
                             <span className="text-[11px] text-slate-500">{item.unit || "kg"}</span>
                           </div>
                         );
@@ -384,7 +435,7 @@ export default function FarmerPackingPage() {
         </div>
 
         {visibleOrders.length === 0 && (
-          <Card><CardContent className="flex flex-col items-center justify-center p-10 text-center">
+          <Card className="border-dashed border-slate-300 shadow-none"><CardContent className="flex flex-col items-center justify-center p-12 text-center">
             {tab === "to_pack" ? <CheckCircle2 className="h-10 w-10 text-emerald-500" /> : <Package className="h-10 w-10 text-slate-300" />}
             <p className="mt-3 text-sm font-semibold text-slate-900">{tab === "to_pack" ? "No orders waiting for packing" : "No orders in this section"}</p>
             <p className="mt-1 max-w-md text-xs text-slate-500">{tab === "to_pack" ? "All available Farmer Fulfillment orders are packed. Continue to the Farmer Order Map when ready." : "Orders will appear here automatically as their packing stage changes."}</p>
@@ -485,7 +536,6 @@ export default function FarmerPackingPage() {
             <p className="mt-2 text-center text-[6.5px] text-gray-600">Verify the order reference before handover.</p>
           </div>
         </div>
-      </div>
     </div>
   );
 }
