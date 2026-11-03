@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -8,11 +8,8 @@ import {
   Plus,
   CalendarDays,
   Wheat,
-  IndianRupee,
   Loader2,
   CheckCircle2,
-  Users,
-  BellRing,
   XCircle,
   ChevronLeft,
   ChevronRight,
@@ -20,9 +17,6 @@ import {
   Filter,
   List,
   CalendarRange,
-  RefreshCw,
-  MapPin,
-  Package,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
@@ -56,6 +50,10 @@ function parseHarvestDate(value: string): Date {
   return new Date(value);
 }
 
+function atLocalDayStart(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function localDayKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -73,19 +71,11 @@ function startOfCalendarWeek(date: Date): Date {
   return result;
 }
 
-function harvestStatusLabel(plan: HarvestPlan, today: Date): string {
-  if (plan.status === "cancelled") return "Cancelled";
-  if (plan.status === "harvested" || plan.productCreated) return "Harvested";
-  if (plan.status === "preorder") return "Pre-order open";
-  if (parseHarvestDate(plan.expectedHarvestDate) <= today) return "Ready for harvest";
-  return "Planned";
-}
-
 function harvestEventClass(plan: HarvestPlan, today: Date): string {
   if (plan.status === "cancelled") return "border-slate-200 bg-slate-100 text-slate-600";
   if (plan.status === "harvested" || plan.productCreated) return "border-violet-200 bg-violet-50 text-violet-800";
   if (plan.status === "preorder") return "border-blue-200 bg-blue-50 text-blue-800";
-  if (parseHarvestDate(plan.expectedHarvestDate) <= today) return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (atLocalDayStart(parseHarvestDate(plan.expectedHarvestDate)) <= today) return "border-emerald-200 bg-emerald-50 text-emerald-800";
   return "border-emerald-100 bg-emerald-50/60 text-emerald-800";
 }
 
