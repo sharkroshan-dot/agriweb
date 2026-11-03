@@ -106,7 +106,7 @@ export default function FarmerOrdersPage() {
   const geocodingRef = useRef<Record<string, any>>({});
 
   const { data: orders, isLoading, refetch } = useQuery({
-    queryKey: ["farmerOrders", statusFilter],
+    queryKey: ["farmerOrders"],
     queryFn: () => api.get("/farmers/me/orders", { params: { limit: 500 } }),
     refetchInterval: 15000,
     refetchOnWindowFocus: true,
@@ -352,21 +352,6 @@ export default function FarmerOrdersPage() {
       </div>
     );
   }
-
-  const workflowStages = [
-    ["Farm Setup", "NOT STARTED"],
-    ["Crop Planning", "NOT STARTED"],
-    ["Growing", "NOT STARTED"],
-    ["Pre-orders", "NOT STARTED"],
-    ["Harvest", "NOT STARTED"],
-    ["Batch", "NOT STARTED"],
-    ["Quality", "NOT STARTED"],
-    ["Product", "NOT STARTED"],
-    ["Inventory", "NOT STARTED"],
-    ["Orders", "NOT STARTED"],
-    ["Delivery", "NOT STARTED"],
-    ["Earnings", "NOT STARTED"],
-  ];
 
   return (
     <div className="farmer-orders-page w-full min-w-0 space-y-5 pb-8">
