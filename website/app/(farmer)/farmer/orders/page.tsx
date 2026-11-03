@@ -481,7 +481,7 @@ export default function FarmerOrdersPage() {
               </Button>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid w-full grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 xl:grid-cols-9">
             {[
               { value: "all", label: "All orders", count: orderStats.total },
               { value: "pending", label: "Pending", count: orderStats.pending },
@@ -497,15 +497,16 @@ export default function FarmerOrdersPage() {
                 key={tab.value}
                 type="button"
                 onClick={() => setStatusFilter(tab.value)}
+                title={`${tab.label}: ${tab.count}`}
                 className={cn(
-                  "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors",
+                  "inline-flex h-10 min-w-0 w-full items-center justify-between gap-1.5 rounded-lg border px-2 text-[11px] font-semibold transition-colors sm:px-2.5 xl:px-2",
                   statusFilter === tab.value
                     ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
                     : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
                 )}
               >
-                {tab.label}
-                <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", statusFilter === tab.value ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{tab.count}</span>
+                <span className="min-w-0 truncate">{tab.label}</span>
+                <span className={cn("shrink-0 rounded-full px-1.5 py-0.5 text-[10px] tabular-nums", statusFilter === tab.value ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{tab.count}</span>
               </button>
             ))}
           </div>
