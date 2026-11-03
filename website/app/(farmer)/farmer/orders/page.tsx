@@ -903,7 +903,7 @@ export default function FarmerOrdersPage() {
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Manual processing</p>
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Available actions</p>
                             {getStatus(order) === "pending" && (
                               <>
                                 <Button size="sm" className="w-full" onClick={() => setConfirmAction({ order, action: 'confirmed' })}>
@@ -941,9 +941,6 @@ export default function FarmerOrdersPage() {
                                         </span>
                                         <span className="min-w-0 flex-1">
                                           <span className="block text-xs font-semibold text-slate-900">Farmer Fulfillment</span>
-                                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
-                                            You pack the order and continue to the Farmer Order Map.
-                                          </span>
                                         </span>
                                       </Button>
                                       <Button
@@ -958,9 +955,6 @@ export default function FarmerOrdersPage() {
                                         </span>
                                         <span className="min-w-0 flex-1">
                                           <span className="block text-xs font-semibold text-slate-900">Warehouse Fulfillment</span>
-                                          <span className="mt-0.5 block text-[11px] font-normal leading-4 text-slate-500">
-                                            Send stock to the warehouse for order allocation and packing.
-                                          </span>
                                         </span>
                                       </Button>
                                     </div>
@@ -974,7 +968,6 @@ export default function FarmerOrdersPage() {
                                             <Package className="mr-2 h-4 w-4" />Open Packing & Checking
                                           </Link>
                                         </Button>
-                                        <p className="text-[11px] text-muted-foreground">Check the order, enter actual quantities, resolve shortages, and prepare the delivery label in the packing workspace.</p>
                                       </div>
                                     )}
                                     {order.fulfillmentStage === "packed" && (
@@ -986,7 +979,6 @@ export default function FarmerOrdersPage() {
                                         >
                                           <Navigation className="mr-2 h-4 w-4" />Open Farmer Order Map
                                         </Button>
-                                        <p className="text-[11px] text-muted-foreground">Packing is complete. Choose self delivery or let distance decide the delivery-partner route.</p>
                                       </div>
                                     )}
                                     {order.deliveryPartnerRoute === "long_distance" && order.warehouseCollectionStatus && (
@@ -1000,20 +992,14 @@ export default function FarmerOrdersPage() {
                                             return <div key={key} className={"rounded-md px-2 py-1.5 " + (complete ? "bg-white font-medium" : "text-amber-600")}>{complete ? "✓ " : "○ "}{label}</div>;
                                           })}
                                         </div>
-                                        <p className="mt-2 border-t border-amber-200 pt-2">These customer orders were already packed by you. The warehouse is a transfer point only and will not repack them.</p>
                                       </div>
                                     )}
                                   </div>
                                 ) : (
-                                  <div className="space-y-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
-                                    <div>
-                                      <strong>Warehouse fulfillment</strong>
-                                      <p className="mt-1">Bulk harvest/product is sent to the assigned warehouse. The warehouse handles receiving, quality checks, allocation, and customer-order packing.</p>
-                                    </div>
-
-                                    <div className="rounded-lg border border-blue-200 bg-white p-3">
-                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">Current Status</p>
-                                      <p className="mt-1 font-semibold text-blue-950">
+                                  <div className="space-y-3">
+                                    <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                      <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Current status</p>
+                                      <p className="mt-1 font-semibold text-slate-900">
                                         {(() => {
                                           const stage = String(order.warehouseFulfillmentStage || "incoming").toLowerCase();
                                           const labels: Record<string, string> = {
@@ -1045,11 +1031,6 @@ export default function FarmerOrdersPage() {
                                       </Button>
                                     )}
 
-                                    {order.warehouseCollectionStatus && (
-                                      <p className="text-[11px] text-blue-700">
-                                        The warehouse collection team will handle pickup and the remaining warehouse operations.
-                                      </p>
-                                    )}
                                   </div>
                                 )}
                               </div>
