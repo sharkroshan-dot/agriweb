@@ -178,34 +178,83 @@ export default function FarmerReviewsPage() {
 
           {products.length > 0 ? (
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-4">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><ShoppingBag className="h-4 w-4" /></span>
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900">Ratings by product</h2>
-                    <p className="mt-0.5 text-sm text-slate-500">Overall average rating and review count for each rated product.</p>
+              <div className="flex flex-col gap-3 border-b border-slate-100 bg-gradient-to-r from-emerald-50/80 via-white to-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-white text-emerald-700 shadow-sm">
+                    <ShoppingBag className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h2 className="text-base font-bold tracking-tight text-slate-950">Ratings by product</h2>
+                    <p className="mt-0.5 text-sm text-slate-500">Compare customer feedback across each product in your catalogue.</p>
                   </div>
                 </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline" className="h-8 border-emerald-200 bg-white px-3 text-emerald-800">
+                    {products.length} rated {products.length === 1 ? "product" : "products"}
+                  </Badge>
+                  <Badge variant="secondary" className="h-8 px-3">
+                    {products.reduce((sum: number, product: any) => sum + Number(product.count || 0), 0)} customer ratings
+                  </Badge>
+                </div>
               </div>
-              <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3 sm:p-5">
-                {products.map((product: any) => (
-                  <article key={product.productId} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:border-emerald-200">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Package className="h-5 w-5" /></span>
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-slate-900">{product.productName || "Product"}</h3>
-                        <p className="mt-0.5 text-xs text-slate-500">{product.count} {product.count === 1 ? "review" : "reviews"}</p>
+
+              <div className="divide-y divide-slate-100">
+                {products.map((product: any, index: number) => {
+                  const average = Math.max(0, Math.min(5, Number(product.average || 0)));
+                  const reviewCount = Number(product.count || 0);
+                  const ratingWidth = `${(average / 5) * 100}%`;
+                  return (
+                    <article
+                      key={product.productId}
+                      className="grid min-w-0 gap-4 px-4 py-4 transition-colors hover:bg-emerald-50/30 sm:grid-cols-[minmax(0,1fr)_minmax(150px,0.7fr)_minmax(125px,0.55fr)] sm:items-center sm:px-5 sm:py-5"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 text-emerald-700">
+                          <Package className="h-5 w-5" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <h3 className="truncate text-sm font-bold text-slate-950 sm:text-base">{product.productName || "Product"}</h3>
+                            {index === 0 ? <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-[10px] text-emerald-800">Highest rated</Badge> : null}
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">Product rating summary</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
-                        <span className="text-lg font-bold text-slate-950">{Number(product.average || 0).toFixed(1)}</span>
+
+                      <div className="flex min-w-0 items-center gap-3 sm:justify-center">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-semibold text-slate-600">Average rating</span>
+                            <span className="text-xs font-bold tabular-nums text-slate-800">{average.toFixed(1)} / 5</span>
+                          </div>
+                          <div
+                            className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"
+                            role="progressbar"
+                            aria-label={`Average rating for ${product.productName || "product"}`}
+                            aria-valuemin={0}
+                            aria-valuemax={5}
+                            aria-valuenow={average}
+                          >
+                            <div className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500" style={{ width: ratingWidth }} />
+                          </div>
+                          <Stars value={average} className="mt-2" />
+                        </div>
                       </div>
-                      <p className="text-[10px] font-medium text-slate-400">out of 5</p>
-                    </div>
-                  </article>
-                ))}
+
+                      <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2.5 sm:justify-end sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+                        <div className="flex items-center gap-2 text-slate-500">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-slate-600 shadow-sm sm:bg-slate-100 sm:shadow-none">
+                            <MessageSquare className="h-4 w-4" />
+                          </span>
+                          <span className="text-xs font-medium">Customer reviews</span>
+                        </div>
+                        <span className="text-lg font-bold tabular-nums text-slate-950">
+                          {reviewCount}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             </section>
           ) : null}
