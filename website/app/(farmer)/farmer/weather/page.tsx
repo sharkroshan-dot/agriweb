@@ -72,6 +72,7 @@ export default function FarmerWeatherPage() {
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationSource, setLocationSource] = useState<"gps" | "approximate" | "manual" | null>(null);
 
   const weatherMutation = useMutation({
     mutationFn: () => api.post("/ai/weather-impact", {
@@ -99,27 +100,50 @@ export default function FarmerWeatherPage() {
   const useCurrentLocation = () => {
     setLocating(true);
     setLocationError(null);
-    const apply = async (lat: number, lng: number) => {
+
+    const apply = async (lat: number, lng: number, source: "gps" | "approximate") => {
       setCoordinates({ lat, lng });
+      setLocationSource(source);
       try {
         const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`, { headers: { "Accept-Language": "en" } });
-        const result = response.ok ? await response.json() : {};
+        if (!response.ok) throw new Error("Could not resolve location name");
+        const result = await response.json();
         const a = result?.address || {};
-        const name = [a.village || a.town || a.city || a.hamlet || a.suburb, a.state_district || a.district, a.state, a.country].filter(Boolean).join(", ");
-        setLocation(name || `GPS ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+        const locality = a.village || a.town || a.city || a.hamlet || a.suburb || a.city_district || a.municipality || "";
+        const name = [locality, a.state_district || a.district, a.state, a.country]
+          .filter(Boolean).filter((part, index, parts) => parts.indexOf(part) === index).join(", ");
+        setLocation(name || `Current location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
       } catch {
-        setLocation(`GPS ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-      } finally { setLocating(false); }
+        setLocation(`Current location (${lat.toFixed(4)}, ${lng.toFixed(4)})`);
+      } finally {
+        setLocating(false);
+      }
     };
+
+    const useApproximateLocation = async () => {
+      try {
+        const response = await fetch("https://ipapi.co/json/");
+        if (!response.ok) throw new Error("Approximate location unavailable");
+        const result = await response.json();
+        const lat = Number(result?.latitude);
+        const lng = Number(result?.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error("Invalid approximate location");
+        await apply(lat, lng, "approximate");
+      } catch {
+        setLocating(false);
+        setLocationError("We couldn't detect your area. Please enter your village or town above.");
+      }
+    };
+
     if (!navigator.geolocation) {
-      setLocating(false);
-      setLocationError("Location is not available in this browser. Enter your village or town instead.");
+      void useApproximateLocation();
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
-      p => { void apply(p.coords.latitude, p.coords.longitude); },
-      () => { setLocating(false); setLocationError("Location permission was not granted. Enter your village or town manually."); },
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 60000 },
+      p => { void apply(p.coords.latitude, p.coords.longitude, "gps"); },
+      () => { void useApproximateLocation(); },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
   };
 
@@ -161,22 +185,22 @@ export default function FarmerWeatherPage() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(200px,0.8fr)_auto] lg:items-end">
+        <CardContent className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(200px,0.8fr)_auto] lg:items-start">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-slate-700">Village / town / city</label>
             <div className="flex gap-2">
               <div className="relative min-w-0 flex-1">
                 <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input value={location} placeholder="Enter your farm location" className="h-10 border-slate-200 pl-9 text-sm" onChange={e => { setCoordinates(null); setLocation(e.target.value); setLocationError(null); }} />
+                <Input value={location} placeholder="Enter your farm location" className="h-10 border-slate-200 pl-9 text-sm" onChange={e => { setCoordinates(null); setLocationSource("manual"); setLocation(e.target.value); setLocationError(null); }} />
               </div>
               <Button type="button" variant="outline" className="h-10 w-10 shrink-0 border-slate-200 px-0" onClick={useCurrentLocation} disabled={locating} title="Use my current location">
                 {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
               </Button>
             </div>
             {locationError && <p className="text-xs text-rose-600">{locationError}</p>}
-            <p className="text-[11px] text-slate-400">{coordinates ? "Using GPS coordinates for your forecast." : "Enter a nearby village or town, or use the location button."}</p>
+            <p className="text-[11px] text-slate-400">{locationSource === "gps" ? "Using your device GPS location." : locationSource === "approximate" ? "Using an approximate area from your internet connection. Enter your village for a more accurate forecast." : "Enter a nearby village or town, or use the location button."}</p>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 lg:pt-0">
             <label className="text-xs font-semibold text-slate-700">Crop</label>
             <Select value={crop} onValueChange={setCrop}>
               <SelectContent>{CROPS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
