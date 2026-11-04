@@ -74,11 +74,11 @@ function startOfCalendarWeek(date: Date): Date {
 }
 
 function harvestEventClass(plan: HarvestPlan, today: Date): string {
-  if (plan.status === "cancelled") return "border-slate-200 bg-slate-100 text-slate-600";
-  if (plan.status === "harvested" || plan.productCreated) return "border-violet-200 bg-violet-50 text-violet-800";
-  if (plan.status === "preorder") return "border-blue-200 bg-blue-50 text-blue-800";
-  if (atLocalDayStart(parseHarvestDate(plan.expectedHarvestDate)) <= today) return "border-emerald-200 bg-emerald-50 text-emerald-800";
-  return "border-emerald-100 bg-emerald-50/60 text-emerald-800";
+  if (plan.status === "cancelled") return "border-slate-200 border-l-slate-400 bg-slate-50 text-slate-600";
+  if (plan.status === "harvested" || plan.productCreated) return "border-violet-200 border-l-violet-500 bg-violet-50 text-violet-900";
+  if (plan.status === "preorder") return "border-blue-200 border-l-blue-500 bg-blue-50 text-blue-900";
+  if (atLocalDayStart(parseHarvestDate(plan.expectedHarvestDate)) <= today) return "border-emerald-200 border-l-emerald-600 bg-emerald-50 text-emerald-900";
+  return "border-emerald-100 border-l-emerald-500 bg-white text-emerald-900";
 }
 
 
@@ -339,7 +339,7 @@ export default function FarmerHarvestsPage() {
             ))}
           </section>
 
-          <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(320px,0.82fr)]">
+          <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1.85fr)_minmax(320px,0.82fr)]">
             <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-col gap-4 border-b border-slate-100 bg-gradient-to-r from-emerald-50/70 via-white to-white p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div className="flex min-w-0 items-center gap-2">
@@ -413,6 +413,19 @@ export default function FarmerHarvestsPage() {
                 </div>
               </div>
 
+              <div className="grid grid-cols-3 gap-2 border-b border-slate-100 bg-slate-50/50 p-3 sm:gap-3 sm:px-5">
+                {[
+                  { label: "Harvest plans", value: monthPlans.length },
+                  { label: "Expected quantity", value: `${monthPlans.reduce((sum, plan) => sum + Number(plan.expectedQuantityKg || 0), 0).toLocaleString("en-IN")} kg` },
+                  { label: "Pre-orders", value: monthPlans.reduce((sum, plan) => sum + Number(plan.preorderCount || 0), 0) },
+                ].map((item) => (
+                  <div key={item.label} className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-4">
+                    <p className="truncate text-[10px] font-semibold uppercase tracking-wide text-slate-500 sm:text-xs">{item.label}</p>
+                    <p className="mt-1 truncate text-base font-extrabold tabular-nums text-slate-950 sm:text-lg">{item.value}</p>
+                  </div>
+                ))}
+              </div>
+
               {calendarView === "list" ? (
                 <div className="space-y-3 p-4 sm:p-5">
                   {monthPlans.length === 0 ? (
@@ -449,10 +462,10 @@ export default function FarmerHarvestsPage() {
                   <div className="min-w-[760px]">
                   <div className="grid grid-cols-7 overflow-hidden rounded-t-xl border border-slate-200 bg-slate-50">
                     {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => (
-                      <div key={day} className={cn("py-3 text-center text-xs font-bold uppercase tracking-[0.12em]", index === 0 || index === 6 ? "bg-emerald-50/70 text-emerald-800" : "text-slate-600")}>{day}</div>
+                      <div key={day} className={cn("py-3.5 text-center text-xs font-extrabold uppercase tracking-[0.14em]", index === 0 || index === 6 ? "bg-emerald-50/70 text-emerald-800" : "text-slate-600")}>{day}</div>
                     ))}
                   </div>
-                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", calendarView === "week" ? "auto-rows-[164px]" : "auto-rows-[132px]")}>
+                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", calendarView === "week" ? "auto-rows-[176px]" : "auto-rows-[148px]")}>
                     {calendarDays.map((date) => {
                       const dayPlans = filteredPlans
                         .filter((plan) => sameCalendarDay(parseHarvestDate(plan.expectedHarvestDate), date) && plan.status !== "cancelled")
@@ -469,36 +482,36 @@ export default function FarmerHarvestsPage() {
                             setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
                           }}
                           className={cn(
-                            "group flex min-w-0 flex-col items-stretch gap-2 border-b border-r border-slate-200 p-2.5 text-left transition-all duration-150 sm:p-3",
-                            !inCurrentMonth && calendarView === "month" && "bg-slate-50/80",
-                            inCurrentMonth && !isSelected && "bg-white hover:bg-emerald-50/40",
-                            isSelected && "relative z-[1] bg-emerald-50/70 shadow-[inset_0_0_0_2px_#059669]",
-                            isToday && !isSelected && "bg-emerald-50/30"
+                            "group relative flex min-w-0 flex-col items-stretch gap-2 border-b border-r border-slate-200 p-2.5 text-left transition-all duration-150 sm:p-3",
+                            !inCurrentMonth && calendarView === "month" && "bg-slate-50/60",
+                            inCurrentMonth && !isSelected && "bg-white hover:bg-emerald-50/50",
+                            isSelected && "z-[1] bg-emerald-50/80 shadow-[inset_0_0_0_2px_#059669]",
+                            isToday && !isSelected && "bg-emerald-50/40"
                           )}
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span className={cn(
-                              "flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold tabular-nums transition-colors",
+                              "flex h-9 w-9 items-center justify-center rounded-xl text-sm font-extrabold tabular-nums transition-colors",
                               isToday ? "bg-emerald-700 text-white shadow-sm" : isSelected ? "bg-emerald-100 text-emerald-900" : inCurrentMonth ? "text-slate-800 group-hover:bg-emerald-100" : "text-slate-300"
                             )}>{date.getDate()}</span>
                             {dayPlans.length > 0 ? (
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold tabular-nums text-slate-600">
+                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold tabular-nums text-slate-600 shadow-sm">
                                 {dayPlans.length} {dayPlans.length === 1 ? "plan" : "plans"}
                               </span>
                             ) : null}
                           </div>
                           <div className="flex min-w-0 flex-col gap-1.5">
                             {dayPlans.slice(0, 2).map((plan) => (
-                              <span key={plan.id} className={cn("block min-w-0 overflow-hidden rounded-lg border border-l-[3px] px-2 py-1.5 text-[11px] font-semibold leading-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:text-xs", harvestEventClass(plan, today))}>
+                              <span key={plan.id} className={cn("block min-w-0 overflow-hidden rounded-lg border border-l-4 px-2.5 py-2 text-xs font-bold leading-4 shadow-sm transition-transform group-hover:translate-x-0.5 sm:text-[13px]", harvestEventClass(plan, today))}>
                                 <span className="block truncate">{plan.cropName}</span>
-                                <span className="mt-0.5 flex items-center justify-between gap-1 text-[10px] font-medium leading-4 opacity-80 sm:text-[11px]">
+                                <span className="mt-1 flex items-center justify-between gap-1 text-[11px] font-semibold leading-4 opacity-85">
                                   <span className="truncate">{plan.expectedQuantityKg} kg</span>
                                   <span className="shrink-0">{plan.status === "harvested" || plan.productCreated ? "Done" : plan.status === "preorder" ? "Pre-order" : "Planned"}</span>
                                 </span>
                               </span>
                             ))}
                             {dayPlans.length > 2 ? (
-                              <span className="px-1 text-[10px] font-bold text-emerald-800">+{dayPlans.length - 2} more</span>
+                              <span className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">+{dayPlans.length - 2} more</span>
                             ) : null}
                           </div>
                           {dayPlans.length === 0 && isSelected ? (
@@ -512,7 +525,7 @@ export default function FarmerHarvestsPage() {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 bg-slate-50/60 px-4 py-3.5 text-xs font-medium text-slate-600 sm:px-5">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 bg-white px-4 py-4 text-xs font-semibold text-slate-600 sm:px-5">
                 {[
                   ["bg-emerald-600", "Planned / ready"],
                   ["bg-blue-500", "Pre-order open"],
@@ -541,12 +554,12 @@ export default function FarmerHarvestsPage() {
                       <p className="mt-1 text-xs text-slate-500">Select a date with a crop event to see its details.</p>
                     </div>
                   ) : selectedDayPlans.map((plan) => (
-                    <div key={plan.id} className="rounded-xl border border-slate-200 p-3">
+                    <div key={plan.id} className="rounded-xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/40 p-4 shadow-sm">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm font-bold text-slate-900">{plan.cropName}</p>
                         {statusBadge(plan.status)}
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-sm">
+                      <div className="mt-3 flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm">
                         <span className="text-slate-500">Planned quantity</span>
                         <span className="font-bold text-slate-900">{plan.expectedQuantityKg} kg</span>
                       </div>
@@ -588,7 +601,7 @@ export default function FarmerHarvestsPage() {
                   {upcomingPlans.length === 0 ? (
                     <p className="py-6 text-center text-sm text-slate-500">No upcoming harvest plans.</p>
                   ) : upcomingPlans.map((plan) => (
-                    <button key={plan.id} type="button" className="flex w-full items-center gap-3 rounded-xl border border-slate-100 p-3 text-left transition-colors hover:border-emerald-200 hover:bg-emerald-50/30" onClick={() => {
+                    <button key={plan.id} type="button" className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 text-left shadow-sm transition-all hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-md" onClick={() => {
                       const date = parseHarvestDate(plan.expectedHarvestDate);
                       setSelectedDate(date);
                       setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
