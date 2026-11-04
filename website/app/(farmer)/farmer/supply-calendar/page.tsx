@@ -4,10 +4,9 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
-  CalendarDays, Wheat, Sprout, Boxes, TrendingUp, IndianRupee,
+  CalendarDays, Sprout, Boxes,
   ChevronLeft, ChevronRight, Plus, List, LayoutGrid, CalendarRange,
-  PackageCheck, Clock3, ClipboardList, ArrowUpRight, CheckCircle2,
-  RefreshCw, AlertCircle, Truck, Store, BriefcaseBusiness, CloudSun, FileText, ShoppingBag,
+  ArrowUpRight, RefreshCw, AlertCircle, Truck, CloudSun, FileText, ShoppingBag,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
@@ -95,7 +94,7 @@ export default function FarmerSupplyCalendarPage() {
   const [cropFilter, setCropFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const { data: plansData, isLoading, isError, refetch, isFetching } = useQuery({
+  const { data: plansData, isLoading, isError } = useQuery({
     queryKey: ["farmerSupplyCalendarFromHarvestPlans"],
     queryFn: () => api.get("/harvests/farmer/plans"),
     retry: 1,
