@@ -155,6 +155,12 @@ export default function FarmerHarvestPlannerPage() {
     retry: 1,
   });
 
+  const { data: farmerProfileData } = useQuery({
+    queryKey: ["farmerHarvestPlannerProfile"],
+    queryFn: () => api.get("/farmers/me/profile"),
+    retry: 1,
+  });
+
   const { data: farmerProductsData, isLoading: farmerProductsLoading } = useQuery({
     queryKey: ["farmerProductsForHarvestBatch"],
     queryFn: () => api.get("/farmers/me/products", { params: { limit: 100 } }),
@@ -408,24 +414,65 @@ export default function FarmerHarvestPlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStageIndex, plans.length]);
 
-  const planMarkers = orderedPlans
-    .map((plan, index) => {
-      const coords = planCoords(plan.location);
-      return coords
-        ? {
-            id: plan.id,
-            lat: coords.lat,
-            lng: coords.lng,
-            title: `${index + 1}. ${plan.cropName}`,
-            info: `${STAGES[getStageIndex(plan)]?.label || "Cancelled"} • Harvest ${formatDate(plan.expectedHarvestDate)}`,
-            address: plan.fieldName || plan.cropName,
-          }
-        : null;
-    })
-    .filter(Boolean) as Array<{ id: string; lat: number; lng: number; title: string; info: string; address: string }>;
-  const planRoute = orderedPlans
-    .map((plan) => planCoords(plan.location))
-    .filter((c): c is { lat: number; lng: number } => c !== null);
+  const farmerProfile = farmerProfileData?.data?.data || farmerProfileData?.data || {};
+  const farmDefaultCoords = planCoords(farmerProfile.farmLocation || farmerProfile.location);
+
+  const locationGroups = new Map<string, {
+    lat: number;
+    lng: number;
+    plans: CropPlan[];
+    usesFarmFallback: boolean;
+  }>();
+
+  orderedPlans.forEach((plan) => {
+    const fieldCoords = planCoords(plan.location);
+    const coords = fieldCoords || farmDefaultCoords;
+    if (!coords) return;
+
+    // Group plans at the same real coordinate so their pins do not hide one another.
+    const key = `${coords.lat.toFixed(5)},${coords.lng.toFixed(5)}`;
+    const existing = locationGroups.get(key);
+    if (existing) {
+      existing.plans.push(plan);
+      existing.usesFarmFallback = existing.usesFarmFallback || !fieldCoords;
+    } else {
+      locationGroups.set(key, {
+        lat: coords.lat,
+        lng: coords.lng,
+        plans: [plan],
+        usesFarmFallback: !fieldCoords,
+      });
+    }
+  });
+
+  const groupedLocations = Array.from(locationGroups.entries());
+  const planMarkers = groupedLocations.map(([key, group], index) => {
+    const cropNames = Array.from(new Set(group.plans.map((plan) => plan.cropName).filter(Boolean)));
+    const cropSummary = cropNames.join(" + ");
+    const detailSummary = group.plans.map((plan) => {
+      const stage = STAGES[getStageIndex(plan)]?.label || "Cancelled";
+      return `${plan.cropName} — ${stage} — ${formatDate(plan.expectedHarvestDate)} — ${Number(plan.expectedQuantityKg || 0)} kg`;
+    }).join(" | ");
+
+    return {
+      id: `harvest-location-${index + 1}-${key}`,
+      lat: group.lat,
+      lng: group.lng,
+      title: cropSummary || `Location ${index + 1}`,
+      label: String(index + 1),
+      color: "#059669",
+      info: `${group.usesFarmFallback ? "Farm base location (field-specific GPS not set for every crop)" : "Field location"} • ${detailSummary}`,
+      address: Array.from(new Set(group.plans.map((plan) => plan.fieldName).filter(Boolean))).join(", ") || "Farm field",
+    };
+  });
+
+  const plansWithoutAnyLocation = orderedPlans.filter(
+    (plan) => !planCoords(plan.location) && !farmDefaultCoords
+  );
+  const plansUsingFarmFallback = orderedPlans.filter(
+    (plan) => !planCoords(plan.location) && Boolean(farmDefaultCoords)
+  );
+  const planRoute = groupedLocations.map(([, group]) => ({ lat: group.lat, lng: group.lng }));
 
   const generateRoute = async (planId: string) => {
     setRouteLoading(true);
@@ -608,24 +655,97 @@ export default function FarmerHarvestPlannerPage() {
         )}
       </div>
 
-      {planMarkers.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <MapPin className="h-5 w-5 text-emerald-600" />
-              Field Map — route through your crops
-            </CardTitle>
-            <CardDescription>Plans are numbered by harvest date. The active plan is highlighted on the cards below.</CardDescription>
+      {plans.length > 0 && (
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/60 pb-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base font-bold text-slate-950">
+                  <MapPin className="h-5 w-5 text-emerald-700" />
+                  Field Map — crop locations
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Each marker includes every crop plan saved at that location. Select a marker to see its crop details.
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                  {orderedPlans.length} crop plans
+                </Badge>
+                <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-800">
+                  {planMarkers.length} mapped locations
+                </Badge>
+                {plansWithoutAnyLocation.length > 0 ? (
+                  <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+                    {plansWithoutAnyLocation.length} need GPS
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
           </CardHeader>
-          <CardContent className="p-0">
-            <Map
-              center={planMarkers[0] ? { lat: planMarkers[0].lat, lng: planMarkers[0].lng } : { lat: 11.2322, lng: 78.8805 }}
-              zoom={13}
-              markers={planMarkers}
-              route={planRoute}
-              height="320px"
-            />
-          </CardContent>
+          {planMarkers.length > 0 ? (
+            <CardContent className="space-y-4 p-3 sm:p-4">
+              <Map
+                center={{ lat: planMarkers[0].lat, lng: planMarkers[0].lng }}
+                zoom={13}
+                markers={planMarkers}
+                route={planRoute}
+                height="340px"
+                drawRoute={planRoute.length > 1}
+              />
+
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {groupedLocations.map(([key, group], index) => (
+                  <div key={key} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-slate-900">Location {index + 1}</p>
+                      <Badge variant="secondary">{group.plans.length} {group.plans.length === 1 ? "crop" : "crops"}</Badge>
+                    </div>
+                    <p className="mt-1 truncate text-xs text-slate-500">
+                      {Array.from(new Set(group.plans.map((plan) => plan.fieldName).filter(Boolean))).join(", ") || (group.usesFarmFallback ? "Registered farm location" : "Field coordinates")}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {group.plans.map((plan) => (
+                        <span key={plan.id} className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                          {plan.cropName}
+                        </span>
+                      ))}
+                    </div>
+                    {group.usesFarmFallback ? (
+                      <p className="mt-2 text-[11px] text-amber-700">Some crops use the registered farm location because their own field GPS is not saved.</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          ) : (
+            <CardContent className="p-5">
+              <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50/50 p-5 text-center">
+                <MapPin className="mx-auto h-8 w-8 text-amber-600" />
+                <p className="mt-2 text-sm font-semibold text-slate-900">No crop locations available</p>
+                <p className="mt-1 text-xs text-slate-600">Add GPS coordinates to a harvest plan or save your farm location in Business Profile to display crops on the map.</p>
+              </div>
+            </CardContent>
+          )}
+
+          {plansWithoutAnyLocation.length > 0 ? (
+            <div className="border-t border-amber-100 bg-amber-50/50 px-4 py-3 sm:px-5">
+              <p className="text-xs font-semibold text-amber-900">Crop plans without a mapped location</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {plansWithoutAnyLocation.map((plan) => (
+                  <Badge key={plan.id} variant="outline" className="border-amber-200 bg-white text-amber-800">
+                    {plan.cropName}{plan.fieldName ? ` · ${plan.fieldName}` : ""}
+                  </Badge>
+                ))}
+              </div>
+              <p className="mt-2 text-[11px] text-amber-800">These plans are not hidden; their field GPS coordinates need to be added before they can appear at an exact map location.</p>
+            </div>
+          ) : null}
+          {plansUsingFarmFallback.length > 0 ? (
+            <div className="border-t border-slate-100 px-4 py-2.5 text-xs text-slate-500 sm:px-5">
+              {plansUsingFarmFallback.length} crop plan(s) use the registered farm location as an approximate position because no separate field location is saved.
+            </div>
+          ) : null}
         </Card>
       )}
 
