@@ -436,9 +436,9 @@ class AIService:
         limits = thresholds.get(crop_key, {"heat": 35, "rain": 75, "wind": 45})
         alerts, forecast = [], []
         risk_points = 0
-        max_rain = max(rain_probs, default=0) or 0
-        max_high = max(highs, default=0) or 0
-        max_wind = max(wind_max, default=0) or 0
+        max_rain = max((float(v) for v in rain_probs if v is not None), default=0)
+        max_high = max((float(v) for v in highs if v is not None), default=0)
+        max_wind = max((float(v) for v in wind_max if v is not None), default=0)
 
         if max_rain >= 70:
             alerts.append({"type": "rain", "level": "warning", "title": "Heavy rain possible",
