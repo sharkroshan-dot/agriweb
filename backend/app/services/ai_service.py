@@ -380,88 +380,123 @@ class AIService:
             product = await product_repository.get_by_id(request.productId)
             product_name = product.get("name") if product else None
 
+        crop = str(getattr(request, "cropName", None) or product_name or "").strip()
         location = request.location or {}
         lat = location.get("latitude", location.get("lat"))
         lng = location.get("longitude", location.get("lng", location.get("lon")))
         city = str(location.get("city") or location.get("name") or "").strip()
 
-        try:
-            if lat is None or lng is None:
-                if not city:
-                    raise ValueError("A city or GPS coordinates are required")
-                async with httpx.AsyncClient(timeout=8) as client:
-                    geo = await client.get(
-                        "https://geocoding-api.open-meteo.com/v1/search",
-                        params={"name": city, "count": 1, "language": "en", "format": "json"},
-                    )
-                    geo.raise_for_status()
-                    results = (geo.json() or {}).get("results") or []
-                    if not results:
-                        raise ValueError(f"Location '{city}' could not be found")
-                    lat = results[0]["latitude"]
-                    lng = results[0]["longitude"]
-                    city = results[0].get("name") or city
-
-            lat = float(lat)
-            lng = float(lng)
-            days = max(1, min(int(request.days or 5), 7))
-            async with httpx.AsyncClient(timeout=8) as client:
-                response = await client.get(
-                    "https://api.open-meteo.com/v1/forecast",
-                    params={
-                        "latitude": lat,
-                        "longitude": lng,
-                        "current": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m",
-                        "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum",
-                        "forecast_days": days,
-                        "timezone": "auto",
-                    },
+        if lat is None or lng is None:
+            if not city:
+                raise ValueError("A village, town, city or GPS coordinates are required")
+            async with httpx.AsyncClient(timeout=10) as client:
+                geo = await client.get(
+                    "https://geocoding-api.open-meteo.com/v1/search",
+                    params={"name": city, "count": 1, "language": "en", "format": "json"},
                 )
-                response.raise_for_status()
-                payload = response.json()
+                geo.raise_for_status()
+                results = (geo.json() or {}).get("results") or []
+                if not results:
+                    raise ValueError(f"Location '{city}' could not be found")
+                lat, lng = results[0]["latitude"], results[0]["longitude"]
+                city = results[0].get("name") or city
 
-            current = payload.get("current") or {}
-            daily = payload.get("daily") or {}
-            times = daily.get("time") or []
-            max_temps = daily.get("temperature_2m_max") or []
-            min_temps = daily.get("temperature_2m_min") or []
-            rain_probs = daily.get("precipitation_probability_max") or []
-            rain_sums = daily.get("precipitation_sum") or []
+        lat, lng = float(lat), float(lng)
+        days = max(1, min(int(request.days or 7), 7))
+        async with httpx.AsyncClient(timeout=12) as client:
+            response = await client.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat, "longitude": lng,
+                    "current": "temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m",
+                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max",
+                    "forecast_days": days, "timezone": "auto",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
 
-            weather = {
-                "temperature": current.get("temperature_2m"),
-                "humidity": current.get("relative_humidity_2m"),
-                "rainfall": current.get("precipitation", 0),
-                "windSpeed": current.get("wind_speed_10m"),
-                "latitude": lat,
-                "longitude": lng,
-            }
-            forecast = [
-                {
-                    "day": i + 1,
-                    "date": times[i] if i < len(times) else None,
-                    "temp": max_temps[i] if i < len(max_temps) else None,
-                    "temperature": max_temps[i] if i < len(max_temps) else None,
-                    "minTemp": min_temps[i] if i < len(min_temps) else None,
-                    "rainChance": rain_probs[i] if i < len(rain_probs) else None,
-                    "rainfall": rain_sums[i] if i < len(rain_sums) else None,
-                    "impact": "favorable",
-                    "source": "Open-Meteo",
-                }
-                for i in range(max(len(times), days))
-            ]
-            return {
-                "location": city or f"{lat:.4f}, {lng:.4f}",
-                "product": product_name,
-                "weather": weather,
-                "impactScore": 0.75,
-                "recommendation": "Live weather conditions retrieved for the selected location.",
-                "forecast": forecast,
-                "timestamp": datetime.utcnow(),
-            }
-        except Exception as exc:
-            logger.warning("Live weather lookup failed: %s", exc)
-            raise ValueError(f"Unable to retrieve live weather for the selected location: {exc}")
+        current, daily = payload.get("current") or {}, payload.get("daily") or {}
+        times = daily.get("time") or []
+        highs, lows = daily.get("temperature_2m_max") or [], daily.get("temperature_2m_min") or []
+        rain_probs = daily.get("precipitation_probability_max") or []
+        rain_sums = daily.get("precipitation_sum") or []
+        wind_max = daily.get("wind_speed_10m_max") or []
+
+        crop_key = crop.lower()
+        thresholds = {
+            "tomato": {"heat": 35, "rain": 70, "wind": 40},
+            "onion": {"heat": 35, "rain": 75, "wind": 45},
+            "potato": {"heat": 30, "rain": 75, "wind": 40},
+            "carrot": {"heat": 30, "rain": 75, "wind": 40},
+            "strawberry": {"heat": 30, "rain": 65, "wind": 35},
+            "spinach": {"heat": 30, "rain": 75, "wind": 40},
+            "capsicum": {"heat": 32, "rain": 70, "wind": 40},
+        }
+        limits = thresholds.get(crop_key, {"heat": 35, "rain": 75, "wind": 45})
+        alerts, forecast = [], []
+        risk_points = 0
+        max_rain = max(rain_probs, default=0) or 0
+        max_high = max(highs, default=0) or 0
+        max_wind = max(wind_max, default=0) or 0
+
+        if max_rain >= 70:
+            alerts.append({"type": "rain", "level": "warning", "title": "Heavy rain possible",
+                           "message": "Protect harvested produce, check field drainage and avoid spraying during rain or strong wind."})
+            risk_points += 30
+        if max_high >= limits["heat"]:
+            alerts.append({"type": "heat", "level": "warning", "title": "High temperature expected",
+                           "message": "Check soil moisture, water crops at cooler times and keep harvested produce shaded."})
+            risk_points += 25
+        if max_wind >= limits["wind"]:
+            alerts.append({"type": "wind", "level": "warning", "title": "Strong wind possible",
+                           "message": "Support tall plants and secure covers, crates and lightweight materials."})
+            risk_points += 20
+        if not alerts:
+            alerts.append({"type": "general", "level": "info", "title": "No major weather warning detected",
+                           "message": "Continue normal field checks. Local conditions can change, so review the forecast daily."})
+
+        for i in range(max(len(times), days)):
+            rain = rain_probs[i] if i < len(rain_probs) else None
+            high = highs[i] if i < len(highs) else None
+            low = lows[i] if i < len(lows) else None
+            wind = wind_max[i] if i < len(wind_max) else None
+            day_alerts = []
+            if rain is not None and rain >= 70: day_alerts.append("Heavy rain possible")
+            if high is not None and high >= limits["heat"]: day_alerts.append("High temperature")
+            if wind is not None and wind >= limits["wind"]: day_alerts.append("Strong wind")
+            forecast.append({
+                "day": i + 1, "date": times[i] if i < len(times) else None,
+                "temp": high, "temperature": high, "minTemp": low,
+                "rainChance": rain, "rainfall": rain_sums[i] if i < len(rain_sums) else None,
+                "windSpeed": wind, "alerts": day_alerts,
+                "impact": "attention_needed" if day_alerts else "normal", "source": "Open-Meteo",
+            })
+
+        current_temp = current.get("temperature_2m")
+        current_humidity = current.get("relative_humidity_2m")
+        recommendation = (
+            "Weather may affect field work or harvested produce. Follow the alerts below and check the forecast each day."
+            if risk_points else
+            "No major weather risk was detected in this forecast. Continue routine crop and harvested-stock checks."
+        )
+        harvest_advice = (
+            "Rain or strong wind is forecast. If produce is ready, consider harvesting during a safe dry window and protect it immediately after picking."
+            if max_rain >= 70 or max_wind >= limits["wind"] else
+            "Use crop maturity and local field conditions to decide harvest timing. Weather alone cannot confirm that a crop is ready."
+        )
+        return {
+            "location": city or f"{lat:.4f}, {lng:.4f}", "product": product_name, "crop": crop or None,
+            "weather": {
+                "temperature": current_temp, "humidity": current_humidity,
+                "rainfall": current.get("precipitation"), "rainChance": max_rain,
+                "windSpeed": current.get("wind_speed_10m"), "latitude": lat, "longitude": lng,
+            },
+            "impactScore": min(1.0, risk_points / 100),
+            "recommendation": recommendation, "alerts": alerts,
+            "harvestAdvice": harvest_advice, "forecast": forecast,
+            "timestamp": datetime.utcnow(),
+        }
 
     @staticmethod
     async def forecast_inventory(request: Any) -> Dict[str, Any]:
