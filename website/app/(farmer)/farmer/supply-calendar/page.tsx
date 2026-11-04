@@ -215,7 +215,9 @@ export default function FarmerSupplyCalendarPage() {
   const monthStart = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
   const calendarStart = new Date(monthStart);
   calendarStart.setDate(calendarStart.getDate() - calendarStart.getDay());
-  const monthCells = Array.from({ length: 42 }, (_, index) => {
+  const daysInMonth = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0).getDate();
+  const calendarCellCount = Math.ceil((monthStart.getDay() + daysInMonth) / 7) * 7;
+  const monthCells = Array.from({ length: calendarCellCount }, (_, index) => {
     const date = new Date(calendarStart);
     date.setDate(calendarStart.getDate() + index);
     return date;
