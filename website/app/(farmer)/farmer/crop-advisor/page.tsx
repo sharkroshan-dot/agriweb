@@ -26,6 +26,8 @@ export default function FarmerCropAdvisorPage() {
     previousCrop: "none",
     season: "kharif",
     areaAcres: "1",
+    waterAvailability: "reliable",
+    irrigationType: "drip",
   });
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationSource, setLocationSource] = useState<"live" | "manual" | null>(null);
@@ -55,7 +57,7 @@ export default function FarmerCropAdvisorPage() {
           ? { latitude: coordinates.lat, longitude: coordinates.lng }
           : { city: form.location.trim(), state: "Tamil Nadu", country: "India" },
         productId: null,
-        days: 5,
+        days: 7,
       }),
     enabled: form.location.trim().length > 0 || Boolean(coordinates),
     staleTime: 10 * 60 * 1000,
@@ -207,6 +209,10 @@ export default function FarmerCropAdvisorPage() {
         previousCrop: form.previousCrop && form.previousCrop !== "none" ? form.previousCrop : null,
         season: form.season,
         areaAcres: Number(form.areaAcres),
+        humidity: weatherQuery.data?.weather?.humidity ?? null,
+        weatherForecast: weatherQuery.data?.forecast || [],
+        waterAvailability: form.waterAvailability,
+        irrigationType: form.irrigationType,
       }),
     onError: (err: any) => toast.error(err?.message || "Failed to get crop recommendations"),
   });
@@ -321,15 +327,42 @@ export default function FarmerCropAdvisorPage() {
                 <p className="text-[11px] text-slate-500">Harvested crops from your farm are listed here.</p>
               </div>
               <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">Expected seasonal rainfall (mm)</label>
+                <Input type="number" min="0" value={form.rainfall} onChange={(e) => setForm({ ...form, rainfall: e.target.value })} className="bg-white" />
+                <p className="text-[11px] text-slate-500">Enter your seasonal estimate; the short-range forecast is analysed separately.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">Water availability</label>
+                <Select value={form.waterAvailability} onValueChange={(v) => setForm({ ...form, waterAvailability: v })}>
+                  <SelectContent>
+                    <SelectItem value="reliable">Reliable irrigation</SelectItem>
+                    <SelectItem value="limited">Limited water</SelectItem>
+                    <SelectItem value="rainfed">Rainfed only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">Irrigation method</label>
+                <Select value={form.irrigationType} onValueChange={(v) => setForm({ ...form, irrigationType: v })}>
+                  <SelectContent>
+                    <SelectItem value="drip">Drip irrigation</SelectItem>
+                    <SelectItem value="sprinkler">Sprinkler</SelectItem>
+                    <SelectItem value="flood">Furrow / flood</SelectItem>
+                    <SelectItem value="rainfed">Rainfed</SelectItem>
+                    <SelectItem value="other">Other / not sure</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600">Cultivation area (acres)</label>
                 <Input type="number" min="0.1" step="0.1" value={form.areaAcres} onChange={(e) => setForm({ ...form, areaAcres: e.target.value })} className="bg-white" />
               </div>
             </div>
             <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-slate-500">Check your inputs before generating crop suggestions.</p>
-              <Button className="h-11 w-full bg-emerald-700 px-6 hover:bg-emerald-800 sm:w-auto" onClick={run} disabled={advisorMutation.isPending || !form.location.trim() || Number(form.areaAcres) <= 0 || Number(form.temperature) < -20 || Number(form.rainfall) < 0}>
+              <Button className="h-11 w-full bg-emerald-700 px-6 hover:bg-emerald-800 sm:w-auto" onClick={run} disabled={advisorMutation.isPending || weatherQuery.isFetching || !form.location.trim() || Number(form.areaAcres) <= 0 || Number(form.temperature) < -20 || Number(form.rainfall) < 0}>
                 {advisorMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sprout className="mr-2 h-4 w-4" />}
-                {advisorMutation.isPending ? "Analysing farm..." : "Get crop recommendations"}
+                {advisorMutation.isPending ? "Analysing farm..." : weatherQuery.isFetching ? "Loading weather..." : "Get crop recommendations"}
               </Button>
             </div>
             {advisorMutation.isError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">We couldn't generate recommendations. Please check your details and try again.</p>}
@@ -348,7 +381,15 @@ export default function FarmerCropAdvisorPage() {
                 <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.weather?.temperature != null ? `${weatherQuery.data.weather.temperature} °C` : `${form.temperature || "—"} °C`}</span>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
-                <span className="text-xs text-slate-600">Rainfall input</span>
+                <span className="text-xs text-slate-600">Humidity</span>
+                <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.weather?.humidity != null ? `${weatherQuery.data.weather.humidity}%` : "—"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
+                <span className="text-xs text-slate-600">7-day forecast</span>
+                <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.forecast?.length ? `${weatherQuery.data.forecast.length} days loaded` : "Not available"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
+                <span className="text-xs text-slate-600">Expected seasonal rainfall</span>
                 <span className="text-sm font-semibold text-slate-900">{form.rainfall || "—"} mm</span>
               </div>
               <div className="flex items-start gap-2 text-xs leading-5 text-slate-500">
@@ -383,6 +424,16 @@ export default function FarmerCropAdvisorPage() {
             </div>
             <Badge variant="outline" className="w-fit border-emerald-200 bg-white text-emerald-800">AI-assisted advisory</Badge>
           </div>
+          {data?.weatherSummary && (
+            <Card className="border-sky-200 bg-sky-50/40 shadow-none">
+              <CardContent className="grid gap-3 p-4 sm:grid-cols-4">
+                <div><p className="text-[11px] font-medium text-slate-500">Current temperature</p><p className="mt-1 text-sm font-semibold text-slate-900">{data.weatherSummary.currentTemperature ?? "—"}°C</p></div>
+                <div><p className="text-[11px] font-medium text-slate-500">Forecast average high</p><p className="mt-1 text-sm font-semibold text-slate-900">{data.weatherSummary.averageForecastMax != null ? `${data.weatherSummary.averageForecastMax}°C` : "Unavailable"}</p></div>
+                <div><p className="text-[11px] font-medium text-slate-500">Forecast rainfall total</p><p className="mt-1 text-sm font-semibold text-slate-900">{data.weatherSummary.forecastRainfallTotal != null ? `${data.weatherSummary.forecastRainfallTotal} mm` : "Unavailable"}</p></div>
+                <div><p className="text-[11px] font-medium text-slate-500">Forecast source</p><p className="mt-1 text-sm font-semibold text-slate-900">{data.weatherSummary.source || "Weather data"}</p></div>
+              </CardContent>
+            </Card>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <Card className="border-emerald-200 shadow-sm">
               <CardContent className="flex items-start gap-3 p-5">
@@ -418,7 +469,12 @@ export default function FarmerCropAdvisorPage() {
                       <span><strong className="text-slate-800">Soil:</strong> {rec.soil || "—"}</span>
                       <span><strong className="text-slate-800">Season:</strong> {rec.season || "—"}</span>
                     </div>
-                    {rec.reasons?.length > 0 && <p className="mt-3 text-xs leading-5 text-slate-500">{rec.reasons.join(" · ")}</p>}
+                    {rec.reasons?.length > 0 && <p className="mt-3 text-xs leading-5 text-slate-600"><strong className="text-slate-800">Why it fits:</strong> {rec.reasons.join(" · ")}</p>}
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
+                      {rec.waterNeed && <span className="rounded-md bg-sky-50 px-2 py-1">Water need: {rec.waterNeed}</span>}
+                      {rec.plantingGuidance && <span className="rounded-md bg-slate-100 px-2 py-1">{rec.plantingGuidance}</span>}
+                    </div>
+                    {rec.risks?.length > 0 && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"><p className="text-xs font-semibold text-amber-900">Consider before planting</p><ul className="mt-1 list-disc space-y-1 pl-4 text-xs leading-5 text-amber-800">{rec.risks.map((risk: string, riskIndex: number) => <li key={riskIndex}>{risk}</li>)}</ul></div>}
                   </div>
                   <div className="rounded-xl bg-slate-50 p-3">
                     <div className="flex items-center justify-between gap-2">
