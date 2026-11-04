@@ -384,16 +384,17 @@ export default function FarmerSupplyCalendarPage() {
                 {selectedDate === dateKey(new Date()) && <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-800">Today</Badge>}
               </div>
               <div className="rounded-xl bg-slate-50 p-3">
-                <div className="flex items-center justify-between text-xs"><span className="text-slate-500">Planned for this date</span><strong className="text-slate-900">{selectedEntries.length} crop plan(s)</strong></div>
-                <div className="mt-1 flex items-center justify-between text-xs"><span className="text-slate-500">Expected / actual quantity</span><strong className="text-slate-900">{selectedEntries.reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0).toLocaleString("en-IN")} kg</strong></div>
+                <div className="flex items-center justify-between text-xs"><span className="text-slate-500">Scheduled activities</span><strong className="text-slate-900">{selectedEntries.length}</strong></div>
+                <div className="mt-1 flex items-center justify-between text-xs"><span className="text-slate-500">Planned / recorded crop quantity</span><strong className="text-slate-900">{selectedEntries.filter(entry => entry.eventType === "harvest" || entry.eventType === "preharvest").reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0).toLocaleString("en-IN")} kg</strong></div>
               </div>
               {selectedEntries.length ? selectedEntries.map(entry => (
                 <div key={entry.id} className="rounded-xl border border-slate-200 p-3">
                   <div className="flex items-start justify-between gap-2"><p className="text-sm font-semibold text-slate-900">{entry.cropName}</p><Badge className={cn("border text-[10px]", statusMeta[entry.status]?.className)}>{statusMeta[entry.status]?.short}</Badge></div>
-                  <p className="mt-1 text-xs text-slate-500">{entry.actualQuantityKg != null ? `Actual: ${entry.actualQuantityKg} kg` : `Expected: ${entry.expectedQuantityKg} kg`}</p>
+                  <p className="mt-1 text-xs text-slate-500">{entry.orderType || statusMeta[entry.status]?.label}</p>
+                  {(entry.actualQuantityKg != null || entry.expectedQuantityKg > 0) && <p className="mt-1 text-xs text-slate-500">{entry.actualQuantityKg != null ? `Actual: ${entry.actualQuantityKg} kg` : `Expected / scheduled: ${entry.expectedQuantityKg} kg`}</p>}
                   {entry.preOrderCount > 0 && <p className="mt-1 text-xs text-blue-700">{entry.preOrderCount} pre-order(s) linked</p>}
                   {entry.batchId && <p className="mt-1 text-xs text-slate-500">Batch: {String(entry.batchId).slice(-8)} · {entry.qualityStatus === "approved" ? "Quality approved" : "Inspection pending"}</p>}
-                  <Link href="/farmer/harvest-planner" className="mt-2 inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">Open harvest plan <ArrowUpRight className="ml-1 h-3 w-3" /></Link>
+                  <Link href={entry.eventType === "harvest" || entry.eventType === "preharvest" ? "/farmer/harvest-planner" : entry.eventType === "business_delivery" || entry.eventType === "warehouse_delivery" ? "/farmer/b2b/contracts" : "/farmer/orders"} className="mt-2 inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">{entry.eventType === "harvest" || entry.eventType === "preharvest" ? "Open harvest plan" : "View order"} <ArrowUpRight className="ml-1 h-3 w-3" /></Link>
                 </div>
               )) : <div className="rounded-xl border border-dashed border-slate-200 px-3 py-6 text-center"><CalendarDays className="mx-auto h-6 w-6 text-slate-300" /><p className="mt-2 text-xs font-medium text-slate-600">No crop plan on this date</p><p className="mt-1 text-[11px] text-slate-400">Choose another date or add a harvest plan.</p></div>}
               <Button asChild className="w-full bg-emerald-700 text-white hover:bg-emerald-800"><Link href="/farmer/harvest-planner"><Plus className="mr-2 h-4 w-4" />Manage harvest plans</Link></Button>
