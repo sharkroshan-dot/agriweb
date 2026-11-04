@@ -7,7 +7,7 @@ import {
   CalendarDays, Wheat, Sprout, Boxes, TrendingUp, IndianRupee,
   ChevronLeft, ChevronRight, Plus, List, LayoutGrid, CalendarRange,
   PackageCheck, Clock3, ClipboardList, ArrowUpRight, CheckCircle2,
-  RefreshCw, AlertCircle,
+  RefreshCw, AlertCircle, Truck, Store, BriefcaseBusiness, CloudSun, FileText, ShoppingBag,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
@@ -29,6 +29,9 @@ type CalendarEntry = {
   status: string;
   batchId?: string;
   qualityStatus: string;
+  eventType?: string;
+  orderType?: string;
+  referenceId?: string;
 };
 
 const dateKey = (date: Date) => {
@@ -64,6 +67,10 @@ const statusMeta: Record<string, { label: string; short: string; className: stri
   harvested: { label: "Harvest recorded", short: "Harvested", className: "border-emerald-200 bg-emerald-50 text-emerald-800", dot: "bg-emerald-500" },
   batched: { label: "Batch created", short: "Batch created", className: "border-amber-200 bg-amber-50 text-amber-800", dot: "bg-amber-500" },
   quality_approved: { label: "Quality approved", short: "Quality approved", className: "border-green-200 bg-green-50 text-green-800", dot: "bg-green-600" },
+  farm_pickup: { label: "Farm pickup", short: "Farm pickup", className: "border-rose-200 bg-rose-50 text-rose-800", dot: "bg-rose-500" },
+  warehouse_delivery: { label: "Warehouse delivery", short: "Warehouse delivery", className: "border-amber-200 bg-amber-50 text-amber-800", dot: "bg-amber-500" },
+  business_delivery: { label: "Business delivery", short: "Business delivery", className: "border-purple-200 bg-purple-50 text-purple-800", dot: "bg-purple-500" },
+  retail_delivery: { label: "Retail delivery", short: "Retail delivery", className: "border-sky-200 bg-sky-50 text-sky-800", dot: "bg-sky-500" },
 };
 
 function Metric({ label, value, unit, hint, icon: Icon, tone }: any) {
@@ -96,6 +103,22 @@ export default function FarmerSupplyCalendarPage() {
   const { data: batchesData } = useQuery({
     queryKey: ["farmerSupplyCalendarBatches"],
     queryFn: () => api.get("/batches"),
+    retry: 1,
+  });
+
+  const { data: farmerOrdersData } = useQuery({
+    queryKey: ["farmerSupplyCalendarOrders"],
+    queryFn: () => api.get("/farmers/me/orders", { params: { limit: 500 } }),
+    retry: 1,
+  });
+  const { data: b2bOrdersData } = useQuery({
+    queryKey: ["farmerSupplyCalendarB2BOrders"],
+    queryFn: () => api.get("/b2b/orders"),
+    retry: 1,
+  });
+  const { data: contractsData } = useQuery({
+    queryKey: ["farmerSupplyCalendarContracts"],
+    queryFn: () => api.get("/b2b/contracts/me"),
     retry: 1,
   });
 
