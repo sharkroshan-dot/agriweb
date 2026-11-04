@@ -313,10 +313,6 @@ export default function FarmerCropAdvisorPage() {
                 <p className="text-[11px] text-slate-500">{weatherQuery.data?.weather?.temperature != null ? "Updated using local weather data." : "Enter manually or fetch using your location."}</p>
               </div>
               <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Droplets className="h-3.5 w-3.5" /> Rainfall (mm)</label>
-                <Input type="number" min="0" value={form.rainfall} onChange={(e) => setForm({ ...form, rainfall: e.target.value })} className="bg-white" />
-              </div>
-              <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600">Previous crop</label>
                 <Select value={form.previousCrop} onValueChange={(v) => setForm({ ...form, previousCrop: v })}>
                   <SelectContent>
