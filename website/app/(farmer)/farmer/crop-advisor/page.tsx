@@ -261,18 +261,18 @@ export default function FarmerCropAdvisorPage() {
           <CardContent className="space-y-5 p-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Soil type</label>
+                <label className="text-xs font-semibold text-slate-600">What type of soil is in your field?</label>
                 <Select value={form.soilType} onValueChange={(v) => setForm({ ...form, soilType: v })}>
                   <SelectContent>
-                    {SOIL_TYPES.map((s) => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
+                    {SOIL_TYPES.map((s) => <SelectItem key={s} value={s}>{({ loamy: "Loamy soil", clay: "Clay soil", sandy: "Sandy soil", black: "Black soil" } as Record<string, string>)[s]}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><RefreshCcw className="h-3.5 w-3.5" /> Season</label>
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><RefreshCcw className="h-3.5 w-3.5" /> Which season will you plant?</label>
                 <Select value={form.season} onValueChange={(v) => setForm({ ...form, season: v })}>
                   <SelectContent>
-                    {SEASONS.map((s) => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
+                    {SEASONS.map((s) => <SelectItem key={s} value={s}>{({ kharif: "Rainy season (Kharif)", rabi: "Cool season (Rabi)", summer: "Hot season (Summer)" } as Record<string, string>)[s]}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -331,29 +331,29 @@ export default function FarmerCropAdvisorPage() {
                 <p className="text-[11px] text-slate-500">If you don't know, leave this empty. Weather forecast rain is checked separately.</p>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Water availability</label>
+                <label className="text-xs font-semibold text-slate-600">How much water is available?</label>
                 <Select value={form.waterAvailability} onValueChange={(v) => setForm({ ...form, waterAvailability: v })}>
                   <SelectContent>
-                    <SelectItem value="reliable">Reliable irrigation</SelectItem>
-                    <SelectItem value="limited">Limited water</SelectItem>
-                    <SelectItem value="rainfed">Rainfed only</SelectItem>
+                    <SelectItem value="reliable">Enough water throughout the crop</SelectItem>
+                    <SelectItem value="limited">Only a little water</SelectItem>
+                    <SelectItem value="rainfed">Rain only (no irrigation)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Irrigation method</label>
+                <label className="text-xs font-semibold text-slate-600">How do you water the field?</label>
                 <Select value={form.irrigationType} onValueChange={(v) => setForm({ ...form, irrigationType: v })}>
                   <SelectContent>
-                    <SelectItem value="drip">Drip irrigation</SelectItem>
-                    <SelectItem value="sprinkler">Sprinkler</SelectItem>
-                    <SelectItem value="flood">Furrow / flood</SelectItem>
-                    <SelectItem value="rainfed">Rainfed</SelectItem>
-                    <SelectItem value="other">Other / not sure</SelectItem>
+                    <SelectItem value="drip">Pipes that drip water near plants</SelectItem>
+                    <SelectItem value="sprinkler">Sprinklers (water sprays)</SelectItem>
+                    <SelectItem value="flood">Water flows through field channels</SelectItem>
+                    <SelectItem value="rainfed">Only rain</SelectItem>
+                    <SelectItem value="other">Other / I am not sure</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Cultivation area (acres)</label>
+                <label className="text-xs font-semibold text-slate-600">How many acres will you plant?</label>
                 <Input type="number" min="0.1" step="0.1" value={form.areaAcres} onChange={(e) => setForm({ ...form, areaAcres: e.target.value })} className="bg-white" />
               </div>
             </div>
