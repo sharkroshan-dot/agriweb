@@ -124,9 +124,9 @@ export default function FarmerSupplyCalendarPage() {
 
   const plans = plansData?.data?.plans || [];
   const batches = batchesData?.data?.batches || [];
-  const farmerOrders = farmerOrdersData?.data?.orders || farmerOrdersData?.orders || [];
-  const b2bOrders = b2bOrdersData?.data?.orders || b2bOrdersData?.orders || b2bOrdersData?.data?.data?.orders || [];
-  const contractPayload = contractsData?.data?.contracts || contractsData?.data || [];
+  const farmerOrders = farmerOrdersData?.data?.data?.orders || farmerOrdersData?.data?.orders || farmerOrdersData?.orders || [];
+  const b2bOrders = b2bOrdersData?.data?.data?.orders || b2bOrdersData?.data?.orders || b2bOrdersData?.orders || [];
+  const contractPayload = contractsData?.data?.data?.contracts || contractsData?.data?.contracts || contractsData?.data || [];
   const contracts = Array.isArray(contractPayload) ? contractPayload : [];
   const activeContracts = contracts.filter((contract: any) => ["active", "confirmed"].includes(String(contract.status || "").toLowerCase()));
 
@@ -178,18 +178,23 @@ export default function FarmerSupplyCalendarPage() {
         } as CalendarEntry;
       }).filter(Boolean) as CalendarEntry[];
 
-    const contractEntries: CalendarEntry[] = activeContracts.map((contract: any) => {
-      const date = parsePlanDate(contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate);
-      if (!date) return null;
+    const contractEntries: CalendarEntry[] = activeContracts.flatMap((contract: any) => {
       const id = String(contract._id || contract.id || contract.contractNumber || "");
-      return {
-        id: "contract-" + id, cropName: String(contract.cropName || "Contract supply"), date, dateKey: dateKey(date),
-        expectedQuantityKg: Number(contract.quantityPerDeliveryKg || contract.quantityPerMonthKg || 0),
-        actualQuantityKg: null, plannedRatePerKg: Number(contract.pricePerKg || 0) || null, finalRatePerKg: null,
-        preOrderCount: 0, status: "business_delivery", qualityStatus: "not_applicable",
-        eventType: "business_delivery", orderType: "Recurring contract", referenceId: id,
-      } as CalendarEntry;
-    }).filter(Boolean) as CalendarEntry[];
+      const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
+      const occurrences = history.filter((item: any) => item.scheduledDate && !["cancelled", "canceled", "skipped"].includes(String(item.status || "").toLowerCase()));
+      const dates = occurrences.length ? occurrences : [{ scheduledDate: contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate, requestedQuantityKg: contract.quantityPerDeliveryKg || contract.quantityPerMonthKg }];
+      return dates.map((occurrence: any, index: number) => {
+        const date = parsePlanDate(occurrence.scheduledDate);
+        if (!date) return null;
+        return {
+          id: "contract-" + id + "-" + dateKey(date) + "-" + index, cropName: String(contract.cropName || "Contract supply"), date, dateKey: dateKey(date),
+          expectedQuantityKg: Number(occurrence.approvedQuantityKg || occurrence.requestedQuantityKg || contract.quantityPerDeliveryKg || contract.quantityPerMonthKg || 0),
+          actualQuantityKg: null, plannedRatePerKg: Number(contract.pricePerKg || 0) || null, finalRatePerKg: null,
+          preOrderCount: 0, status: "business_delivery", qualityStatus: "not_applicable",
+          eventType: "business_delivery", orderType: "Recurring contract", referenceId: id,
+        } as CalendarEntry;
+      }).filter(Boolean) as CalendarEntry[];
+    });
 
     const unique = new Map<string, CalendarEntry>();
     [...harvestEntries, ...mapOrders(farmerOrders, false), ...mapOrders(b2bOrders, true), ...contractEntries].forEach(entry => {
