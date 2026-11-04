@@ -21,8 +21,8 @@ export default function FarmerCropAdvisorPage() {
   const [form, setForm] = useState({
     soilType: "loamy",
     location: "",
-    temperature: "28",
-    rainfall: "100",
+    temperature: "",
+    rainfall: "",
     previousCrop: "none",
     season: "kharif",
     areaAcres: "1",
@@ -204,8 +204,8 @@ export default function FarmerCropAdvisorPage() {
       api.post("/ai/crop-recommendation", {
         soilType: form.soilType,
         location: form.location || "Farm",
-        temperature: Number(form.temperature),
-        rainfall: Number(form.rainfall),
+        temperature: Number(form.temperature || weatherQuery.data?.weather?.temperature),
+        rainfall: form.rainfall.trim() ? Number(form.rainfall) : null,
         previousCrop: form.previousCrop && form.previousCrop !== "none" ? form.previousCrop : null,
         season: form.season,
         areaAcres: Number(form.areaAcres),
@@ -292,25 +292,28 @@ export default function FarmerCropAdvisorPage() {
                   />
                   <Button type="button" variant="outline" className="shrink-0" onClick={useLiveLocation} disabled={locationLoading}>
                     {locationLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-2 h-4 w-4" />}
-                    Use live location
+                    Use my location
                   </Button>
                 </div>
+                <p className="text-xs text-slate-600">
+                  Enter your village or town name, then wait for local weather to load. Or use the GPS button.
+                </p>
                 <p className="text-[11px] text-slate-500">
                   {locationSource === "live"
                     ? locationAccuracy != null
-                      ? `GPS location detected · accuracy ±${Math.round(locationAccuracy)} m`
-                      : "Detecting your current location..."
-                    : "Location helps retrieve local weather conditions."}
+                      ? `Phone location found · accuracy about ${Math.round(locationAccuracy)} metres`
+                      : "Finding your location..."
+                    : weatherQuery.isFetching ? "Getting weather for this place..." : weatherQuery.data ? "Local weather updated." : "Weather appears here after you enter a place."}
                 </p>
                 {locationError && <p role="status" className="text-xs text-rose-600">{locationError}</p>}
               </div>
               <div className="space-y-1.5">
-                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Thermometer className="h-3.5 w-3.5" /> Temperature (°C)</label>
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Thermometer className="h-3.5 w-3.5" /> Today's temperature (°C)</label>
                 <div className="relative">
                   <Input type="number" value={form.temperature} onChange={(e) => setForm({ ...form, temperature: e.target.value })} className="bg-white pr-9" />
                   {weatherQuery.isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-sky-600" />}
                 </div>
-                <p className="text-[11px] text-slate-500">{weatherQuery.data?.weather?.temperature != null ? "Updated using local weather data." : "Enter manually or fetch using your location."}</p>
+                <p className="text-[11px] text-slate-500">{weatherQuery.data?.weather?.temperature != null ? "Live temperature from local weather." : "Enter your village/town first, or type the temperature from a local weather report."}</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600">Previous crop</label>
@@ -323,9 +326,9 @@ export default function FarmerCropAdvisorPage() {
                 <p className="text-[11px] text-slate-500">Harvested crops from your farm are listed here.</p>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-600">Expected seasonal rainfall (mm)</label>
+                <label className="text-xs font-semibold text-slate-600">Expected seasonal rain (mm) – optional</label>
                 <Input type="number" min="0" value={form.rainfall} onChange={(e) => setForm({ ...form, rainfall: e.target.value })} className="bg-white" />
-                <p className="text-[11px] text-slate-500">Enter your seasonal estimate; the short-range forecast is analysed separately.</p>
+                <p className="text-[11px] text-slate-500">If you don't know, leave this empty. Weather forecast rain is checked separately.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-600">Water availability</label>
@@ -356,7 +359,7 @@ export default function FarmerCropAdvisorPage() {
             </div>
             <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-slate-500">Check your inputs before generating crop suggestions.</p>
-              <Button className="h-11 w-full bg-emerald-700 px-6 hover:bg-emerald-800 sm:w-auto" onClick={run} disabled={advisorMutation.isPending || weatherQuery.isFetching || !form.location.trim() || Number(form.areaAcres) <= 0 || Number(form.temperature) < -20 || Number(form.rainfall) < 0}>
+              <Button className="h-11 w-full bg-emerald-700 px-6 hover:bg-emerald-800 sm:w-auto" onClick={run} disabled={advisorMutation.isPending || weatherQuery.isFetching || !form.location.trim() || (!form.temperature && weatherQuery.data?.weather?.temperature == null) || Number(form.areaAcres) <= 0 || (form.temperature !== "" && Number(form.temperature) < -20) || (form.rainfall !== "" && Number(form.rainfall) < 0)}>
                 {advisorMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sprout className="mr-2 h-4 w-4" />}
                 {advisorMutation.isPending ? "Analysing farm..." : weatherQuery.isFetching ? "Loading weather..." : "Get crop recommendations"}
               </Button>
@@ -368,25 +371,42 @@ export default function FarmerCropAdvisorPage() {
         <div className="space-y-4">
           <Card className="border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-sm"><CloudSun className="h-4 w-4 text-sky-600" /> Local weather</CardTitle>
-              <CardDescription>Weather information used to inform your crop advice.</CardDescription>
+              <CardTitle className="flex items-center gap-2 text-sm"><CloudSun className="h-4 w-4 text-sky-600" /> Weather near your farm</CardTitle>
+              <CardDescription>Live weather helps us suggest crops for your area.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
-                <span className="text-xs text-slate-600">Temperature</span>
-                <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.weather?.temperature != null ? `${weatherQuery.data.weather.temperature} °C` : `${form.temperature || "—"} °C`}</span>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-slate-600">Temperature today</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">{weatherQuery.data?.weather?.temperature != null ? `${weatherQuery.data.weather.temperature}°C` : form.temperature ? `${form.temperature}°C (entered)` : "Waiting for location"}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs text-slate-600">Air moisture (humidity)</p>
+                  <p className="mt-1 text-base font-bold text-slate-900">{weatherQuery.data?.weather?.humidity != null ? `${weatherQuery.data.weather.humidity}%` : "Waiting for weather"}</p>
+                </div>
               </div>
+              {weatherQuery.isFetching && <p className="flex items-center gap-2 text-xs text-sky-700"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Getting your local weather...</p>}
+              {weatherQuery.data?.forecast?.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-700">Weather for the next 7 days</p>
+                  <div className="space-y-1.5">
+                    {weatherQuery.data.forecast.slice(0, 7).map((day: any, index: number) => (
+                      <div key={day.date || index} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-xs">
+                        <span className="font-medium text-slate-700">{day.date ? new Date(day.date).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : `Day ${index + 1}`}</span>
+                        <span className="text-slate-600">{day.minTemp != null ? `${day.minTemp}°–` : ""}{day.temp ?? day.temperature ?? "—"}°C</span>
+                        <span className="text-sky-700">{day.rainChance != null ? `${day.rainChance}% rain chance` : day.rainfall != null ? `${day.rainfall} mm rain` : "Rain: —"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                  {weatherQuery.isError ? "Weather could not be loaded. Check the village/town name or try GPS location." : form.location.trim() ? "Waiting for weather details..." : "Enter your village/town or tap Use my location to see today's weather and the 7-day forecast."}
+                </div>
+              )}
               <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
-                <span className="text-xs text-slate-600">Humidity</span>
-                <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.weather?.humidity != null ? `${weatherQuery.data.weather.humidity}%` : "—"}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
-                <span className="text-xs text-slate-600">7-day forecast</span>
-                <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.forecast?.length ? `${weatherQuery.data.forecast.length} days loaded` : "Not available"}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
-                <span className="text-xs text-slate-600">Expected seasonal rainfall</span>
-                <span className="text-sm font-semibold text-slate-900">{form.rainfall || "—"} mm</span>
+                <span className="text-xs text-slate-600">Seasonal rain estimate</span>
+                <span className="text-sm font-semibold text-slate-900">{form.rainfall ? `${form.rainfall} mm` : "Not entered"}</span>
               </div>
               <div className="flex items-start gap-2 text-xs leading-5 text-slate-500">
                 <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
