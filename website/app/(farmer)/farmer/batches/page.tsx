@@ -265,7 +265,9 @@ export default function FarmerBatchesPage() {
 
   const freshnessBadge = (batch: Batch) => {
     const f = batch.freshness?.status;
-    if (f === "expired") return <Badge variant="destructive">Expired</Badge>;
+    // Keep the row status consistent with the Expired summary and filter,
+    // including legacy records that only have an expiresAt timestamp.
+    if (isBatchExpired(batch)) return <Badge variant="destructive">Expired</Badge>;
     if (f === "expiring") return <Badge variant="warning">Expiring ({batch.freshness?.daysRemaining}d left)</Badge>;
     if (f === "fresh") return <Badge variant="success">Fresh ({batch.freshness?.daysRemaining}d left)</Badge>;
     return <Badge variant="secondary">Unknown</Badge>;
