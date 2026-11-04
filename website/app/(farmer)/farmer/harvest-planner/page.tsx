@@ -446,23 +446,51 @@ export default function FarmerHarvestPlannerPage() {
   });
 
   const groupedLocations = Array.from(locationGroups.entries());
+
+  const exactLocationName = (group: { lat: number; lng: number; plans: CropPlan[]; usesFarmFallback: boolean }) => {
+    const savedAddresses = group.plans
+      .map((plan) => {
+        const location = plan.location || {};
+        return location.address || location.formattedAddress || location.displayName || location.placeName;
+      })
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+    const fieldNames = Array.from(new Set(group.plans.map((plan) => plan.fieldName?.trim()).filter(Boolean)));
+    const profileAddress = [
+      farmerProfile.farmAddress,
+      farmerProfile.address,
+      farmerProfile.village,
+      farmerProfile.city,
+      farmerProfile.district,
+      farmerProfile.state,
+    ].filter((value) => typeof value === "string" && value.trim().length > 0).join(", ");
+
+    return savedAddresses[0]
+      || (group.usesFarmFallback ? profileAddress : "")
+      || fieldNames.join(", ")
+      || `GPS ${group.lat.toFixed(6)}, ${group.lng.toFixed(6)}`;
+  };
+
+  const exactLocationCoordinates = (group: { lat: number; lng: number }) =>
+    `${group.lat.toFixed(6)}, ${group.lng.toFixed(6)}`;
+
   const planMarkers = groupedLocations.map(([key, group], index) => {
     const cropNames = Array.from(new Set(group.plans.map((plan) => plan.cropName).filter(Boolean)));
     const cropSummary = cropNames.join(" + ");
     const detailSummary = group.plans.map((plan) => {
       const stage = STAGES[getStageIndex(plan)]?.label || "Cancelled";
-      return `${plan.cropName} — ${stage} — ${formatDate(plan.expectedHarvestDate)} — ${Number(plan.expectedQuantityKg || 0)} kg`;
+      return `${plan.cropName} — ${stage} — Harvest ${formatDate(plan.expectedHarvestDate)} — ${Number(plan.expectedQuantityKg || 0)} kg`;
     }).join(" | ");
+    const locationName = exactLocationName(group);
 
     return {
       id: `harvest-location-${index + 1}-${key}`,
       lat: group.lat,
       lng: group.lng,
-      title: cropSummary || `Location ${index + 1}`,
+      title: locationName,
       label: String(index + 1),
       color: "#059669",
-      info: `${group.usesFarmFallback ? "Farm base location (field-specific GPS not set for every crop)" : "Field location"} • ${detailSummary}`,
-      address: Array.from(new Set(group.plans.map((plan) => plan.fieldName).filter(Boolean))).join(", ") || "Farm field",
+      info: `${group.usesFarmFallback ? "Registered farm location (approximate for crops without field GPS)" : "Saved field location"} • GPS ${exactLocationCoordinates(group)} • ${detailSummary}`,
+      address: locationName,
     };
   });
 
@@ -695,27 +723,62 @@ export default function FarmerHarvestPlannerPage() {
               />
 
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {groupedLocations.map(([key, group], index) => (
-                  <div key={key} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-bold text-slate-900">Location {index + 1}</p>
-                      <Badge variant="secondary">{group.plans.length} {group.plans.length === 1 ? "crop" : "crops"}</Badge>
+                {groupedLocations.map(([key, group]) => {
+                  const locationName = exactLocationName(group);
+                  const coordinates = exactLocationCoordinates(group);
+                  const mapUrl = `https://www.google.com/maps?q=${group.lat},${group.lng}`;
+                  const fieldNames = Array.from(new Set(group.plans.map((plan) => plan.fieldName?.trim()).filter(Boolean)));
+
+                  return (
+                    <div key={key} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            {group.usesFarmFallback ? "Registered farm location" : "Saved field location"}
+                          </p>
+                          <p className="mt-1 break-words text-sm font-bold leading-5 text-slate-950" title={locationName}>
+                            {locationName}
+                          </p>
+                        </div>
+                        <Badge variant="secondary" className="shrink-0">
+                          {group.plans.length} {group.plans.length === 1 ? "crop" : "crops"}
+                        </Badge>
+                      </div>
+
+                      {fieldNames.length > 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">Field: {fieldNames.join(", ")}</p>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Exact GPS coordinates</p>
+                          <p className="mt-0.5 font-mono text-xs font-semibold tabular-nums text-slate-800">{coordinates}</p>
+                        </div>
+                        <a
+                          href={mapUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-2.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-50"
+                          aria-label={`Open ${locationName} in Google Maps`}
+                        >
+                          <MapPin className="h-3.5 w-3.5" />
+                          Open map
+                        </a>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {group.plans.map((plan) => (
+                          <span key={plan.id} className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
+                            {plan.cropName}
+                          </span>
+                        ))}
+                      </div>
+                      {group.usesFarmFallback ? (
+                        <p className="mt-2 text-[11px] leading-4 text-amber-700">Approximate location: these crops use the registered farm GPS because their individual field GPS is not saved.</p>
+                      ) : null}
                     </div>
-                    <p className="mt-1 truncate text-xs text-slate-500">
-                      {Array.from(new Set(group.plans.map((plan) => plan.fieldName).filter(Boolean))).join(", ") || (group.usesFarmFallback ? "Registered farm location" : "Field coordinates")}
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {group.plans.map((plan) => (
-                        <span key={plan.id} className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
-                          {plan.cropName}
-                        </span>
-                      ))}
-                    </div>
-                    {group.usesFarmFallback ? (
-                      <p className="mt-2 text-[11px] text-amber-700">Some crops use the registered farm location because their own field GPS is not saved.</p>
-                    ) : null}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           ) : (
