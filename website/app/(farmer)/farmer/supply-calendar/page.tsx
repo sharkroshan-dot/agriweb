@@ -164,7 +164,7 @@ export default function FarmerSupplyCalendarPage() {
         const deliveryType = String(order.deliveryType || order.fulfillmentMethod || "").toLowerCase();
         const stage = String(order.fulfillmentStage || order.transferStatus || "").toLowerCase();
         const eventType = isB2B
-          ? (stage.includes("warehouse") || stage.includes("transfer") ? "warehouse_delivery" : "business_delivery")
+          ? (orderStatus.includes("pickup") || stage.includes("pickup") ? "farm_pickup" : stage.includes("warehouse") || stage.includes("transfer") ? "warehouse_delivery" : "business_delivery")
           : (orderStatus.includes("pickup") || deliveryType === "pickup" ? "farm_pickup" : "retail_delivery");
         const item = Array.isArray(order.items) ? order.items[0] || {} : {};
         const cropName = String(order.cropName || order.productName || item.productName || item.name || item.product?.name || (isB2B ? "Business supply" : "Customer order"));
@@ -241,7 +241,6 @@ export default function FarmerSupplyCalendarPage() {
   const preHarvestCount = monthEntries.filter(entry => entry.eventType === "preharvest").length;
   const deliveryCount = monthEntries.filter(entry => ["farm_pickup", "warehouse_delivery", "business_delivery", "retail_delivery"].includes(entry.eventType || "")).length;
   const harvestTaskCount = harvestedCount + preHarvestCount;
-  const preorderCount = monthEntries.reduce((sum, entry) => sum + entry.preOrderCount, 0);
   const monthLabel = monthCursor.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 
   const changeMonth = (amount: number) => setMonthCursor(current => new Date(current.getFullYear(), current.getMonth() + amount, 1));
@@ -273,7 +272,7 @@ export default function FarmerSupplyCalendarPage() {
       <FarmerPageHeader
         eyebrow="Farm planning & supply"
         title="Supply Calendar"
-        description="See when crops are expected to be ready, track harvested quantities and stay on top of supply commitments."
+        description="Plan harvests, track farm pickups and warehouse movements, and keep business and customer deliveries on schedule."
         actions={
           <Button asChild className="h-10 bg-emerald-700 text-white hover:bg-emerald-800">
             <Link href="/farmer/harvest-planner"><Plus className="mr-2 h-4 w-4" />Add harvest plan</Link>
@@ -403,7 +402,7 @@ export default function FarmerSupplyCalendarPage() {
 
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between"><div><h3 className="text-sm font-bold text-slate-900">Upcoming supply</h3><p className="text-[11px] text-slate-500">Your next planned harvests</p></div><Badge variant="outline">{upcomingEntries.length} upcoming</Badge></div>
+              <div className="flex items-center justify-between"><div><h3 className="text-sm font-bold text-slate-900">Upcoming schedule</h3><p className="text-[11px] text-slate-500">Harvests, pickups and deliveries coming up</p></div><Badge variant="outline">{upcomingEntries.length} upcoming</Badge></div>
               {upcomingEntries.length ? upcomingEntries.map(entry => (
                 <button key={entry.id} type="button" onClick={() => { setSelectedDate(entry.dateKey); setMonthCursor(new Date(entry.date.getFullYear(), entry.date.getMonth(), 1)); }} className="flex w-full items-center justify-between gap-2 border-b border-slate-100 pb-2 text-left last:border-0 last:pb-0">
                   <div className="flex min-w-0 items-center gap-2"><span className={cn("h-2 w-2 shrink-0 rounded-full", statusMeta[entry.status]?.dot)} /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{entry.cropName}</p><p className="text-[10px] text-slate-500">{formatDate(entry.date)}</p></div></div>
