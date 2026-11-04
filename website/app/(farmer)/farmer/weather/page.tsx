@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CloudSun, CloudRain, Wind, Thermometer, Loader2, Search, AlertTriangle, Snowflake, LocateFixed, MapPin, Sprout, CalendarDays, Truck, Droplets, ShieldCheck } from "lucide-react";
+import {
+  CloudSun, CloudRain, Wind, Thermometer, Loader2, Search, AlertTriangle,
+  Snowflake, LocateFixed, MapPin, CalendarDays, Truck, Droplets, ShieldCheck,
+  Sprout, RefreshCw, Package, ArrowUpRight, Clock3, CheckCircle2,
+} from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -14,18 +18,52 @@ import toast from "react-hot-toast";
 
 const CROPS = ["Tomato", "Onion", "Potato", "Carrot", "Strawberry", "Spinach", "Capsicum"];
 const STORAGE_GUIDE: Record<string, { range: string; tip: string }> = {
-  tomato: { range: "About 10–13°C for mature-green fruit; avoid chilling", tip: "Keep dry, shaded and ventilated. Avoid direct sun and crushing." },
-  onion: { range: "Cool, dry and well ventilated", tip: "Cure fully before long storage. Keep away from moisture." },
-  potato: { range: "Cool, dark and ventilated; avoid freezing", tip: "Keep away from sunlight to reduce greening. Separate damaged tubers." },
-  carrot: { range: "Near 0–4°C with high humidity", tip: "Remove damaged roots and prevent drying. Keep away from ethylene sources." },
-  strawberry: { range: "About 0–2°C; keep the cold chain", tip: "Handle gently, keep dry and cool quickly after harvest." },
+  tomato: { range: "10–13°C for mature-green fruit", tip: "Keep shaded and ventilated. Avoid chilling, direct sun and pressure damage." },
+  onion: { range: "Cool, dry and well ventilated", tip: "Cure fully before long storage and protect from moisture." },
+  potato: { range: "Cool, dark and ventilated", tip: "Keep away from sunlight to reduce greening. Separate damaged tubers." },
+  carrot: { range: "Near 0–4°C with high humidity", tip: "Prevent moisture loss and separate damaged roots." },
+  strawberry: { range: "About 0–2°C; maintain the cold chain", tip: "Handle gently, keep dry and cool quickly after harvest." },
   spinach: { range: "About 0–2°C with high humidity", tip: "Keep leaves cool and humid; remove damaged leaves." },
   capsicum: { range: "About 7–10°C; avoid chilling", tip: "Keep dry, shaded and ventilated; avoid pressure damage." },
 };
 const cropStorage = (name: string) => STORAGE_GUIDE[name.toLowerCase()] || {
-  range: "Use crop-specific local extension guidance",
+  range: "Follow crop-specific local storage guidance",
   tip: "Keep produce shaded, clean, ventilated and protected from rain. Separate damaged produce.",
 };
+
+function SectionHeading({ eyebrow, title, description, icon: Icon }: {
+  eyebrow?: string; title: string; description?: string; icon?: any;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      {Icon && <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700"><Icon className="h-[18px] w-[18px]" /></span>}
+      <div className="min-w-0">
+        {eyebrow && <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">{eyebrow}</p>}
+        <h2 className="text-base font-bold tracking-tight text-slate-900 sm:text-lg">{title}</h2>
+        {description && <p className="mt-0.5 text-xs leading-5 text-slate-500 sm:text-sm">{description}</p>}
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, unit, icon: Icon, tone, hint }: {
+  label: string; value: any; unit?: string; icon: any; tone: string; hint: string;
+}) {
+  return (
+    <Card className="border-slate-200/80 shadow-none">
+      <CardContent className="flex items-start justify-between gap-3 p-4">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-slate-500">{label}</p>
+          <p className="mt-2 flex items-baseline gap-1 text-2xl font-bold tracking-tight text-slate-950">
+            {value ?? "—"}{value != null && unit && <span className="text-sm font-semibold text-slate-500">{unit}</span>}
+          </p>
+          <p className="mt-1 text-[11px] text-slate-400">{hint}</p>
+        </div>
+        <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", tone)}><Icon className="h-[18px] w-[18px]" /></span>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function FarmerWeatherPage() {
   const [location, setLocation] = useState("");
@@ -51,7 +89,6 @@ export default function FarmerWeatherPage() {
     queryFn: () => api.get("/inventory/farmer/summary"),
     retry: 1,
   });
-
   const { data: batchesData, isLoading: batchesLoading, isError: batchesError } = useQuery({
     queryKey: ["farmerWeatherBatches"],
     queryFn: () => api.get("/batches"),
@@ -92,140 +129,221 @@ export default function FarmerWeatherPage() {
     }
     weatherMutation.mutate();
   };
+
   const data = weatherMutation.data as any;
   const weather = data?.weather || {};
   const forecast = Array.isArray(data?.forecast) ? data.forecast : [];
   const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
   const products = (stockData as any)?.data?.products || [];
   const batches = (batchesData as any)?.data?.batches || [];
-  const riskLevel = (data?.impactScore ?? 0) >= 0.7 ? "High attention" : (data?.impactScore ?? 0) >= 0.35 ? "Some attention" : "Low weather risk";
-  const riskClass = (data?.impactScore ?? 0) >= 0.7 ? "bg-rose-100 text-rose-800" : (data?.impactScore ?? 0) >= 0.35 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
+  const riskScore = Number(data?.impactScore ?? 0);
+  const riskLevel = riskScore >= 0.7 ? "High attention" : riskScore >= 0.35 ? "Moderate attention" : "Low weather risk";
+  const riskClass = riskScore >= 0.7 ? "border-rose-200 bg-rose-50 text-rose-800" : riskScore >= 0.35 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800";
+  const remainingBatches = batches.filter((b: any) => Number(b.remainingKg ?? b.quantityKg ?? 0) > 0);
+  const expiringBatches = remainingBatches.filter((b: any) => ["expiring", "expired"].includes(b.freshness?.status)).length;
 
   return (
-    <div className="space-y-6 pb-8">
-      <header className="rounded-2xl border border-sky-100 bg-gradient-to-r from-sky-50 via-white to-emerald-50 p-5 sm:p-6">
-        <div className="flex items-start gap-3">
-          <span className="rounded-xl bg-sky-100 p-3 text-sky-700"><CloudSun className="h-6 w-6" /></span>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Farm protection and produce care</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-950">Weather &amp; Perishability</h1>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Understand weather risks, plan field work and protect harvested vegetables from heat, rain and handling damage.</p>
+    <main className="mx-auto w-full min-w-0 max-w-[1500px] space-y-6 pb-10">
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="grid gap-5 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-5 text-white sm:p-7 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div className="max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold tracking-wide text-emerald-100">
+              <CloudSun className="h-3.5 w-3.5" /> FARM CONDITIONS &amp; PRODUCE CARE
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Weather &amp; Perishability</h1>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">
+              Make informed decisions about field work, harvest timing and post-harvest storage with local weather insights.
+            </p>
+          </div>
+          <div className="hidden h-24 w-24 items-center justify-center rounded-3xl border border-white/10 bg-white/5 text-emerald-200 lg:flex">
+            <Sprout className="h-12 w-12" strokeWidth={1.25} />
           </div>
         </div>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-sky-600" /> Your farm weather</CardTitle>
-          <CardDescription>Enter your village or town and select the crop you want to protect.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 md:grid-cols-[1.4fr_1fr_auto] md:items-end">
+        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(180px,0.8fr)_auto] lg:items-end">
           <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700">Village / town / city</label>
+            <label className="text-xs font-semibold text-slate-700">Farm location</label>
             <div className="flex gap-2">
-              <Input value={location} placeholder="Example: Manachanallur" onChange={e => { setCoordinates(null); setLocation(e.target.value); setLocationError(null); }} />
-              <Button type="button" variant="outline" onClick={useCurrentLocation} disabled={locating} title="Use my location">
+              <div className="relative min-w-0 flex-1">
+                <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <Input value={location} placeholder="Enter village, town or city" className="h-11 border-slate-200 pl-9" onChange={e => { setCoordinates(null); setLocation(e.target.value); setLocationError(null); }} />
+              </div>
+              <Button type="button" variant="outline" className="h-11 w-11 shrink-0 border-slate-200 px-0" onClick={useCurrentLocation} disabled={locating} title="Use my current location">
                 {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
               </Button>
             </div>
             {locationError && <p className="text-xs text-rose-600">{locationError}</p>}
-            <p className="text-xs text-slate-500">{coordinates ? "Using your GPS location." : "Weather is looked up for the place you enter."}</p>
+            <p className="text-[11px] text-slate-400">{coordinates ? "GPS location selected" : "Use your farm village or town for a local forecast"}</p>
           </div>
           <div className="space-y-1.5">
-            <label className="text-sm font-semibold text-slate-700">Which crop are you growing?</label>
+            <label className="text-xs font-semibold text-slate-700">Crop to monitor</label>
             <Select value={crop} onValueChange={setCrop}>
               <SelectContent>{CROPS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="bg-emerald-700 hover:bg-emerald-800">
+          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="h-11 bg-emerald-700 px-5 font-semibold text-white shadow-sm hover:bg-emerald-800">
             {weatherMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-            Check weather
+            {data ? "Refresh forecast" : "Check weather"}
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {weatherMutation.isError && <Card className="border-rose-200 bg-rose-50"><CardContent className="p-4 text-sm text-rose-800">We could not retrieve weather for this place. Check the spelling or try again later. No weather risk has been assumed.</CardContent></Card>}
+      {weatherMutation.isError && (
+        <Card className="border-rose-200 bg-rose-50/70 shadow-none"><CardContent className="flex gap-3 p-4 text-sm text-rose-800"><AlertTriangle className="h-5 w-5 shrink-0" />We could not retrieve weather for this place. Check the spelling or try again later. No weather risk has been assumed.</CardContent></Card>
+      )}
+
+      {!data && !weatherMutation.isPending && (
+        <Card className="border-dashed border-slate-300 bg-slate-50/70 shadow-none">
+          <CardContent className="flex flex-col items-center px-5 py-10 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm"><CloudSun className="h-7 w-7" /></span>
+            <h2 className="mt-4 text-base font-bold text-slate-900">Your local farm forecast starts here</h2>
+            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">Enter your village or use GPS, choose the crop you want to monitor, then check the forecast for practical crop and harvest guidance.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {data && (
         <>
           <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div><h2 className="text-lg font-bold text-slate-900">Weather right now</h2><p className="text-sm text-slate-500">{data.location} · {crop}</p></div>
-              <Badge className={riskClass}>{riskLevel}</Badge>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700">Live conditions</p><h2 className="mt-1 text-lg font-bold tracking-tight text-slate-950">Weather overview</h2><p className="mt-0.5 text-xs text-slate-500">{data.location} <span className="px-1">·</span> {crop} <span className="px-1">·</span> Updated {data.timestamp ? new Date(data.timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }) : "just now"}</p></div>
+              <Badge className={cn("rounded-full border px-3 py-1 text-xs font-semibold", riskClass)}>{riskLevel}</Badge>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <Card><CardContent className="p-4"><p className="flex items-center gap-2 text-sm text-slate-500"><Thermometer className="h-4 w-4 text-amber-600" /> Temperature</p><p className="mt-2 text-2xl font-bold">{weather.temperature ?? "—"}°C</p><p className="text-xs text-slate-500">Current air temperature</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="flex items-center gap-2 text-sm text-slate-500"><Droplets className="h-4 w-4 text-sky-600" /> Air moisture</p><p className="mt-2 text-2xl font-bold">{weather.humidity ?? "—"}%</p><p className="text-xs text-slate-500">Humidity</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="flex items-center gap-2 text-sm text-slate-500"><CloudRain className="h-4 w-4 text-sky-600" /> Rain chance</p><p className="mt-2 text-2xl font-bold">{weather.rainChance ?? "—"}%</p><p className="text-xs text-slate-500">Highest chance in forecast</p></CardContent></Card>
-              <Card><CardContent className="p-4"><p className="flex items-center gap-2 text-sm text-slate-500"><Wind className="h-4 w-4 text-slate-600" /> Wind speed</p><p className="mt-2 text-2xl font-bold">{weather.windSpeed ?? "—"} km/h</p><p className="text-xs text-slate-500">Current wind</p></CardContent></Card>
+              <MetricCard label="Temperature" value={weather.temperature} unit="°C" icon={Thermometer} tone="bg-orange-50 text-orange-700" hint="Current air temperature" />
+              <MetricCard label="Humidity" value={weather.humidity} unit="%" icon={Droplets} tone="bg-sky-50 text-sky-700" hint="Relative air moisture" />
+              <MetricCard label="Rain probability" value={weather.rainChance} unit="%" icon={CloudRain} tone="bg-blue-50 text-blue-700" hint="Highest chance in forecast" />
+              <MetricCard label="Wind speed" value={weather.windSpeed} unit=" km/h" icon={Wind} tone="bg-violet-50 text-violet-700" hint="Current wind conditions" />
             </div>
           </section>
 
-          <section className="space-y-3">
-            <div><h2 className="text-lg font-bold text-slate-900">Crop protection alerts</h2><p className="text-sm text-slate-500">Weather-based precautions for {crop}. These are forecast warnings, not disease diagnoses.</p></div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {alerts.map((a: any, i: number) => <Card key={i} className={cn("shadow-none", a.level === "warning" ? "border-amber-200 bg-amber-50/60" : "border-emerald-200 bg-emerald-50/50")}><CardContent className="flex gap-3 p-4"><AlertTriangle className={cn("mt-0.5 h-5 w-5 shrink-0", a.level === "warning" ? "text-amber-700" : "text-emerald-700")} /><div><p className="font-semibold text-slate-900">{a.title}</p><p className="mt-1 text-sm leading-6 text-slate-700">{a.message}</p></div></CardContent></Card>)}
-            </div>
-            <Card className="border-sky-200 bg-sky-50/50 shadow-none"><CardContent className="flex gap-3 p-4"><CalendarDays className="h-5 w-5 shrink-0 text-sky-700" /><div><p className="font-semibold text-slate-900">Harvest planning guidance</p><p className="mt-1 text-sm leading-6 text-slate-700">{data.harvestAdvice}</p><p className="mt-1 text-xs text-slate-500">Check crop maturity and field conditions; weather alone cannot determine harvest readiness.</p></div></CardContent></Card>
-          </section>
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(300px,0.85fr)]">
+            <Card className="border-slate-200/80 shadow-none">
+              <CardHeader className="pb-3">
+                <SectionHeading eyebrow="Next 7 days" title="Forecast & field planning" description="Use the daily outlook to plan irrigation, spraying and field activities." icon={CalendarDays} />
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-4">
+                  {forecast.map((f: any, i: number) => (
+                    <div key={f.date || i} className={cn("rounded-xl border p-3", f.alerts?.length ? "border-amber-200 bg-amber-50/50" : "border-slate-100 bg-slate-50/70")}>
+                      <p className="text-xs font-semibold text-slate-700">{f.date ? new Date(f.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }) : `Day ${i + 1}`}</p>
+                      <div className="my-3 flex items-center justify-between gap-1">
+                        <CloudSun className="h-6 w-6 text-amber-500" />
+                        <p className="text-sm font-bold text-slate-900">{f.minTemp ?? "—"}° <span className="font-normal text-slate-400">/</span> {f.temp ?? "—"}°</p>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500"><span>Rain chance</span><strong className="text-slate-800">{f.rainChance ?? "—"}%</strong></div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.max(0, Math.min(100, Number(f.rainChance) || 0))}%` }} /></div>
+                      {f.alerts?.length > 0 && <p className="mt-2 line-clamp-2 text-[10px] font-semibold leading-4 text-amber-800">{f.alerts.join(" · ")}</p>}
+                    </div>
+                  ))}
+                </div>
+                {forecast.length === 0 && <p className="py-5 text-center text-sm text-slate-500">Forecast details are not available for this location.</p>}
+              </CardContent>
+            </Card>
 
-          <section className="space-y-3">
-            <div><h2 className="text-lg font-bold text-slate-900">Weather for the next 7 days</h2><p className="text-sm text-slate-500">Plan watering, spraying, harvesting and field work around the forecast.</p></div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              {forecast.map((f: any, i: number) => <Card key={f.date || i} className="shadow-none"><CardContent className="p-3"><p className="text-sm font-semibold text-slate-800">{f.date || `Day ${i + 1}`}</p><div className="mt-2 flex items-center justify-between"><span className="text-lg font-bold">{f.minTemp ?? "—"}° / {f.temp ?? "—"}°C</span><CloudSun className="h-5 w-5 text-amber-500" /></div><div className="mt-2 flex justify-between text-xs text-slate-600"><span>Rain chance</span><strong>{f.rainChance ?? "—"}%</strong></div><div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-sky-500" style={{ width: `${Math.max(0, Math.min(100, Number(f.rainChance) || 0))}%` }} /></div>{f.rainfall != null && <p className="mt-2 text-xs text-slate-500">Expected rain: {f.rainfall} mm</p>}{f.alerts?.length > 0 && <p className="mt-2 text-xs font-medium text-amber-700">{f.alerts.join(" · ")}</p>}</CardContent></Card>)}
-            </div>
+            <Card className="border-slate-200/80 shadow-none">
+              <CardHeader className="pb-3"><SectionHeading eyebrow="Crop watch" title="Weather risk & actions" description={data.recommendation} icon={AlertTriangle} /></CardHeader>
+              <CardContent className="space-y-2">
+                {alerts.map((a: any, i: number) => (
+                  <div key={i} className={cn("rounded-xl border p-3", a.level === "warning" ? "border-amber-200 bg-amber-50/70" : "border-emerald-100 bg-emerald-50/60")}>
+                    <div className="flex items-start gap-2.5">
+                      {a.level === "warning" ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />}
+                      <div><p className="text-sm font-semibold text-slate-900">{a.title}</p><p className="mt-1 text-xs leading-5 text-slate-600">{a.message}</p></div>
+                    </div>
+                  </div>
+                ))}
+                <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-3">
+                  <p className="flex items-center gap-2 text-xs font-bold text-sky-900"><Sprout className="h-4 w-4" /> Harvest guidance</p>
+                  <p className="mt-1.5 text-xs leading-5 text-slate-700">{data.harvestAdvice}</p>
+                </div>
+              </CardContent>
+            </Card>
           </section>
         </>
       )}
 
       <section className="space-y-3">
-        <div><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Snowflake className="h-5 w-5 text-sky-700" /> Perishable stock and storage</h2><p className="text-sm text-slate-500">Your listed product stock and practical storage precautions.</p></div>
-        {stockLoading ? <Card><CardContent className="p-5 text-sm text-slate-500">Loading your stock…</CardContent></Card> : stockError ? <Card><CardContent className="p-5 text-sm text-amber-700">Stock information is temporarily unavailable. Check the Inventory page for current quantities.</CardContent></Card> : products.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {products.slice(0, 8).map((p: any) => {
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <SectionHeading eyebrow="Post-harvest care" title="Perishable stock & storage" description="Monitor available product quantities and follow suitable handling guidance." icon={Snowflake} />
+          <div className="flex items-center gap-2 text-xs text-slate-500"><Package className="h-4 w-4" /> {products.length} products</div>
+        </div>
+        {stockLoading ? <Card className="shadow-none"><CardContent className="p-5 text-sm text-slate-500">Loading your stock…</CardContent></Card> : stockError ? <Card className="shadow-none"><CardContent className="p-5 text-sm text-amber-700">Stock information is temporarily unavailable. Check the Inventory page for current quantities.</CardContent></Card> : products.length ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {products.slice(0, 9).map((p: any) => {
               const guide = cropStorage(p.product_name || "");
               const low = Number(p.available_stock) > 0 && Number(p.available_stock) <= 5;
-              return <Card key={p.product_id} className="shadow-none"><CardContent className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-semibold text-slate-900">{p.product_name}</p><p className="text-xs text-slate-500">Available quantity</p></div><div className="text-right"><p className="text-lg font-bold">{p.available_stock} {p.unit || "kg"}</p><Badge className={p.is_out_of_stock ? "bg-rose-100 text-rose-800" : low ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}>{p.is_out_of_stock ? "Out of stock" : low ? "Low stock" : "In stock"}</Badge></div></div><div className="mt-3 rounded-lg bg-sky-50 p-3"><p className="text-xs font-semibold text-sky-900">Storage temperature / condition</p><p className="mt-1 text-sm text-slate-800">{guide.range}</p><p className="mt-1 text-xs leading-5 text-slate-600">{guide.tip}</p></div></CardContent></Card>;
+              return (
+                <Card key={p.product_id} className="border-slate-200/80 shadow-none transition-shadow hover:shadow-sm">
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{p.product_name}</p><p className="mt-0.5 text-[11px] text-slate-400">Available stock</p></div>
+                      <Badge className={cn("shrink-0 border", p.is_out_of_stock ? "border-rose-200 bg-rose-50 text-rose-700" : low ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-200 bg-emerald-50 text-emerald-700")}>{p.is_out_of_stock ? "Out of stock" : low ? "Low stock" : "In stock"}</Badge>
+                    </div>
+                    <p className="mt-2 text-2xl font-bold tracking-tight text-slate-950">{p.available_stock} <span className="text-sm font-medium text-slate-500">{p.unit || "kg"}</span></p>
+                    <div className="mt-3 rounded-lg bg-slate-50 p-3">
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Storage condition</p>
+                      <p className="mt-1 text-xs font-semibold text-slate-800">{guide.range}</p>
+                      <p className="mt-1 text-[11px] leading-5 text-slate-500">{guide.tip}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
             })}
           </div>
-        ) : <Card><CardContent className="p-5 text-sm text-slate-600">No product stock is currently listed. Add products and stock in Inventory to see them here.</CardContent></Card>}
-        <p className="text-xs text-slate-500">Storage ranges are general guidance and vary by variety, maturity, packaging and storage duration. Confirm the correct conditions with local agricultural or post-harvest guidance.</p>
+        ) : <Card className="border-dashed shadow-none"><CardContent className="p-6 text-center text-sm text-slate-500">No product stock is currently listed. Add products and stock in Inventory to see them here.</CardContent></Card>}
+        <p className="text-[11px] leading-5 text-slate-400">Storage ranges are general guidance and vary by variety, maturity, packaging and storage duration. Confirm suitable conditions with local agricultural or post-harvest guidance.</p>
       </section>
 
       <section className="space-y-3">
-        <div><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><CalendarDays className="h-5 w-5 text-amber-700" /> Harvest batch freshness and expiry</h2><p className="text-sm text-slate-500">These dates come from your Batches &amp; Traceability records.</p></div>
-        {batchesLoading ? <Card><CardContent className="p-4 text-sm text-slate-500">Checking your harvest batches…</CardContent></Card> : batchesError ? <Card><CardContent className="p-4 text-sm text-amber-700">Batch freshness information is temporarily unavailable. Open Batches &amp; Traceability to verify expiry dates.</CardContent></Card> : batches.length ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {batches.filter((b: any) => Number(b.remainingKg ?? b.quantityKg ?? 0) > 0).slice(0, 8).map((b: any) => {
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <SectionHeading eyebrow="Freshness monitoring" title="Harvest batch expiry" description="Use your recorded harvest date and shelf life to prioritize batches." icon={Clock3} />
+          {remainingBatches.length > 0 && <Badge className={cn("border", expiringBatches ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>{expiringBatches} need attention</Badge>}
+        </div>
+        {batchesLoading ? <Card className="shadow-none"><CardContent className="p-4 text-sm text-slate-500">Checking your harvest batches…</CardContent></Card> : batchesError ? <Card className="shadow-none"><CardContent className="p-4 text-sm text-amber-700">Batch freshness information is temporarily unavailable. Open Batches &amp; Traceability to verify expiry dates.</CardContent></Card> : remainingBatches.length ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {remainingBatches.slice(0, 8).map((b: any) => {
               const status = b.freshness?.status || "unknown";
               const days = b.freshness?.daysRemaining;
               const expired = status === "expired";
               const urgent = status === "expiring" || (typeof days === "number" && days <= 2);
-              return <Card key={b.id || b._id} className={cn("shadow-none", expired ? "border-rose-200 bg-rose-50/40" : urgent ? "border-amber-200 bg-amber-50/40" : "border-slate-200")}>
-                <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
-                  <div><p className="font-semibold text-slate-900">{b.cropName || "Harvest batch"}</p><p className="text-xs text-slate-500">{b.lotNumber || "Batch"} · {b.remainingKg ?? b.quantityKg ?? "—"} kg remaining</p><p className="mt-1 text-xs text-slate-600">Expires: {b.expiresAt ? new Date(b.expiresAt).toLocaleDateString("en-IN") : "Not recorded"}</p></div>
-                  <Badge className={expired ? "bg-rose-100 text-rose-800" : urgent ? "bg-amber-100 text-amber-800" : status === "fresh" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}>{expired ? "Expired" : urgent ? `Expiring · ${days ?? "soon"} day(s)` : status === "fresh" ? `Fresh · ${days ?? "—"} day(s) left` : "Check batch record"}</Badge>
-                </CardContent>
-              </Card>;
+              return (
+                <div key={b.id || b._id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", expired ? "bg-rose-50 text-rose-700" : urgent ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-700")}><Package className="h-5 w-5" /></span>
+                    <div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-900">{b.cropName || "Harvest batch"}</p><p className="mt-0.5 text-[11px] text-slate-500">{b.lotNumber || "Batch"} · {b.remainingKg ?? b.quantityKg ?? "—"} kg remaining</p><p className="mt-0.5 text-[11px] text-slate-400">Expiry: {b.expiresAt ? new Date(b.expiresAt).toLocaleDateString("en-IN") : "Not recorded"}</p></div>
+                  </div>
+                  <Badge className={cn("border", expired ? "border-rose-200 bg-rose-50 text-rose-700" : urgent ? "border-amber-200 bg-amber-50 text-amber-800" : status === "fresh" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-600")}>{expired ? "Expired" : urgent ? `Expiring · ${days ?? "soon"}d` : status === "fresh" ? `Fresh · ${days ?? "—"}d left` : "Check record"}</Badge>
+                </div>
+              );
             })}
           </div>
-        ) : <Card><CardContent className="p-4 text-sm text-slate-600">No harvest batches found yet. Create batches from harvested crops to monitor their freshness and expiry here.</CardContent></Card>}
-        <p className="text-xs text-slate-500">Expiry estimates use the harvest date and shelf life recorded when the batch was created. Inspect produce physically before selling or discarding it.</p>
+        ) : <Card className="border-dashed shadow-none"><CardContent className="p-6 text-center"><p className="text-sm font-semibold text-slate-800">No active harvest batches</p><p className="mt-1 text-xs text-slate-500">Create batches from harvested crops to monitor their freshness and expiry here.</p></CardContent></Card>}
+        <p className="text-[11px] leading-5 text-slate-400">Expiry estimates use the harvest date and shelf life recorded when the batch was created. Inspect produce physically before selling or discarding it.</p>
       </section>
 
       <section className="space-y-3">
-        <div><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><Truck className="h-5 w-5 text-emerald-700" /> Delivery and transport precautions</h2><p className="text-sm text-slate-500">Use weather warnings to protect produce while it is being moved.</p></div>
-        {data ? (
-          <Card className="shadow-none"><CardContent className="grid gap-3 p-4 sm:grid-cols-2">
-            <div className="flex gap-2"><ShieldCheck className="h-5 w-5 shrink-0 text-emerald-700" /><div><p className="text-sm font-semibold text-slate-900">Protect produce from heat</p><p className="text-sm text-slate-600">Keep harvested produce shaded, ventilated and out of direct sunlight while waiting for pickup.</p></div></div>
-            <div className="flex gap-2"><CloudRain className="h-5 w-5 shrink-0 text-sky-700" /><div><p className="text-sm font-semibold text-slate-900">Protect from rain</p><p className="text-sm text-slate-600">{(weather.rainChance ?? 0) >= 60 ? "Rain is likely during the forecast period. Use clean waterproof covers without trapping heat or moisture." : "Keep crates covered during unexpected rain and avoid leaving produce in standing water."}</p></div></div>
-            <div className="flex gap-2"><Truck className="h-5 w-5 shrink-0 text-slate-700" /><div><p className="text-sm font-semibold text-slate-900">Move delicate produce carefully</p><p className="text-sm text-slate-600">Use clean crates, avoid over-stacking and separate bruised or damaged items.</p></div></div>
-            <div className="flex gap-2"><Snowflake className="h-5 w-5 shrink-0 text-sky-700" /><div><p className="text-sm font-semibold text-slate-900">Use cooling when required</p><p className="text-sm text-slate-600">Arrange suitable cooling for crops that need a cold chain; do not assume every crop should be stored at the same temperature.</p></div></div>
-          </CardContent></Card>
-        ) : <Card><CardContent className="p-4 text-sm text-slate-600">Check the weather above to receive location-specific transport precautions. General advice: shade produce, use clean crates and avoid delays after harvest.</CardContent></Card>}
+        <SectionHeading eyebrow="Dispatch readiness" title="Delivery & transport care" description="Simple steps to protect produce from harvest until customer handover." icon={Truck} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { icon: ShieldCheck, title: "Protect from heat", text: "Keep harvested produce shaded and ventilated while waiting for pickup.", tone: "bg-amber-50 text-amber-700" },
+            { icon: CloudRain, title: "Keep it dry", text: (weather.rainChance ?? 0) >= 60 ? "Rain is likely. Use clean waterproof covers without trapping heat or moisture." : "Cover crates during unexpected rain and keep produce away from standing water.", tone: "bg-sky-50 text-sky-700" },
+            { icon: Truck, title: "Handle carefully", text: "Use clean crates, avoid over-stacking and separate bruised or damaged items.", tone: "bg-violet-50 text-violet-700" },
+            { icon: Snowflake, title: "Maintain cooling", text: "Arrange suitable cooling for crops that require a cold chain; avoid one temperature for every crop.", tone: "bg-cyan-50 text-cyan-700" },
+          ].map((item) => (
+            <Card key={item.title} className="border-slate-200/80 shadow-none">
+              <CardContent className="p-4">
+                <span className={cn("flex h-9 w-9 items-center justify-center rounded-xl", item.tone)}><item.icon className="h-[18px] w-[18px]" /></span>
+                <p className="mt-3 text-sm font-bold text-slate-900">{item.title}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">{item.text}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       </section>
 
-      <p className="text-xs leading-5 text-slate-500">Weather data source: Open-Meteo. Forecasts are estimates and may change. Alerts are based on general crop-weather thresholds, not a farm inspection or plant-disease diagnosis. Check local conditions before spraying, irrigating or harvesting.</p>
-    </div>
+      <footer className="flex flex-col gap-1 border-t border-slate-200 pt-4 text-[11px] leading-5 text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+        <span>Weather data: Open-Meteo · Forecasts are estimates and may change.</span>
+        <span>Weather alerts are precautions, not disease diagnoses or crop inspections.</span>
+      </footer>
+    </main>
   );
 }
