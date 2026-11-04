@@ -498,132 +498,113 @@ export default function FarmerBatchesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           {filteredBatches.length === 0 ? (
-            <Card className="border-dashed border-slate-300 shadow-none">
-              <CardContent className="flex flex-col items-center py-12 text-center">
-                <Search className="h-8 w-8 text-slate-300" />
-                <p className="mt-3 text-sm font-semibold text-slate-900">No matching batches</p>
-                <p className="mt-1 text-sm text-slate-500">Try another search or filter.</p>
-                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setActiveFilter("all"); }}>Clear filters</Button>
-              </CardContent>
-            </Card>
-          ) : filteredBatches.map((batch) => (
-            <Card key={batch.id} className="overflow-hidden rounded-2xl border-slate-200 shadow-sm transition-all hover:border-emerald-200 hover:shadow-md">
-              <CardContent className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:p-5">
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
-                    <span className="font-mono text-sm font-bold tracking-tight text-slate-950">{batch.lotNumber}</span>
-                    {batch.productId ? (
-                      <Badge variant="outline">
-                        <Link2 className="mr-1 h-3 w-3" /> Listed
-                      </Badge>
-                    ) : batch.status === "created" ? (
-                      <Badge variant="secondary">Unlisted</Badge>
-                    ) : null}
-                    {freshnessBadge(batch)}
-                    {qualityBadge(batch)}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-700">
-                    <span className="flex items-center gap-1">
-                      <Wheat className="h-3.5 w-3.5 text-slate-400" /> {batch.cropName}
-                    </span>
-                    <span>{batch.quantityKg} kg{Number(batch.remainingKg) > 0 ? ` (${batch.remainingKg} kg remaining)` : ""}</span>
-                    <span className="flex items-center gap-1">
-                      <Snowflake className="h-3.5 w-3.5 text-slate-400" /> {storageLabel(batch.storageType)}
-                    </span>
-                    {batch.qualityGrade && (
-                      <span className="flex items-center gap-1">
-                        <FlaskConical className="h-3.5 w-3.5 text-slate-400" /> Grade: {batch.qualityGrade}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="flex items-start gap-2">
-                      <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Harvested</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{formatDate(batch.harvestDate)}</p></div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Default shelf life</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{batch.defaultShelfLifeDays ?? "—"} days</p></div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <PackageCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Actual shelf life</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days</p></div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Safe delivery by</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "Not set"}</p></div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-row flex-wrap items-start justify-start gap-2 sm:flex-col sm:items-end">
-                  <a
-                    href={`/trace/${encodeURIComponent(batch.lotNumber)}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
-                  >
-                    <QrCode className="h-4 w-4" /> QR / Trace
-                  </a>
-                  {!batch.productId && batch.status === "created" && batch.qualityStatus === "approved" && (
-                    <Button size="sm" className="h-10 bg-emerald-700 hover:bg-emerald-800" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
-                      <PackagePlus className="mr-1.5 h-4 w-4" /> Add to Inventory
-                    </Button>
-                  )}
-                  {batch.qualityStatus === "pending_inspection" && batch.inspectionId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-10 border-amber-200 text-amber-800 hover:bg-amber-50"
-                      disabled={urgentMutation.isPending}
-                      onClick={() => urgentMutation.mutate(batch.inspectionId!)}
-                    >
-                      {urgentMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-1.5 h-4 w-4" />}
-                      Request Urgent Inspection
-                    </Button>
-                  )}
-                </div>
-
-                {converting?.batchId === batch.id && (
-                  <div className="sm:col-span-2 flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                    <div className="flex items-center gap-2">
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <Select value={converting.productId} onValueChange={(v) => setConverting({ batchId: batch.id, productId: v })}>
-                        <SelectContent>
-                          <SelectItem value="">Select a product...</SelectItem>
-                          {products.map((p) => (
-                            <SelectItem key={p._id} value={p._id}>
-                              {p.name} ({(p as any).availableQuantity ?? p.quantity} {p.unit})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={!converting.productId || convertMutation.isPending}
-                        onClick={() => convertMutation.mutate({ batchId: batch.id, productId: converting.productId })}
-                      >
-                        {convertMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
-                        Add
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setConverting(null)}>
-                        Cancel
-                      </Button>
-                      </div>
-                    </div>
-                    {products.length === 0 && (
-                      <p className="text-xs text-slate-500">
-                        You have no products. Create one first under Products, then link this batch to it.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+            <div className="flex flex-col items-center px-5 py-12 text-center">
+              <Search className="h-8 w-8 text-slate-300" />
+              <p className="mt-3 text-sm font-semibold text-slate-900">No matching batches</p>
+              <p className="mt-1 text-sm text-slate-500">Try another search or filter.</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setActiveFilter("all"); }}>Clear filters</Button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1080px] border-collapse text-left">
+                <thead className="bg-slate-50">
+                  <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <th className="px-4 py-3">Batch / product</th>
+                    <th className="px-4 py-3">Harvest date</th>
+                    <th className="px-4 py-3">Quantity</th>
+                    <th className="px-4 py-3">Storage</th>
+                    <th className="px-4 py-3">Quality grade</th>
+                    <th className="px-4 py-3">Shelf life</th>
+                    <th className="px-4 py-3">Batch status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredBatches.map((batch) => (
+                    <React.Fragment key={batch.id}>
+                      <tr className="align-top transition-colors hover:bg-slate-50/70">
+                        <td className="px-4 py-4">
+                          <div className="flex items-start gap-3">
+                            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
+                            <div className="min-w-0">
+                              <p className="font-mono text-xs font-bold text-slate-900">{batch.lotNumber}</p>
+                              <p className="mt-1 text-sm font-semibold text-slate-800">{batch.cropName}</p>
+                              <p className="mt-1 text-xs text-slate-500">{batch.productId ? "Linked to marketplace" : "Not listed yet"}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-4 text-sm text-slate-700">{formatDate(batch.harvestDate)}</td>
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <p className="text-sm font-semibold tabular-nums text-slate-900">{Number(batch.quantityKg || 0).toLocaleString("en-IN")} kg</p>
+                          <p className="mt-1 text-xs text-slate-500">{Number(batch.remainingKg || 0).toLocaleString("en-IN")} kg remaining</p>
+                        </td>
+                        <td className="px-4 py-4 text-sm text-slate-700">{storageLabel(batch.storageType)}</td>
+                        <td className="px-4 py-4 text-sm text-slate-700">{batch.qualityGrade || "—"}</td>
+                        <td className="px-4 py-4">
+                          <p className="text-sm font-medium text-slate-800">{batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days actual</p>
+                          <p className="mt-1 text-xs text-slate-500">Default: {batch.defaultShelfLifeDays ?? "—"} days</p>
+                          <p className="mt-1 text-xs text-slate-500">Safe by: {batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "Not set"}</p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col items-start gap-1.5">
+                            {freshnessBadge(batch)}
+                            {qualityBadge(batch)}
+                            {batch.productId ? <Badge variant="outline"><Link2 className="mr-1 h-3 w-3" /> Listed</Badge> : <Badge variant="secondary">Unlisted</Badge>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex justify-end gap-2">
+                            <a href={`/trace/${encodeURIComponent(batch.lotNumber)}`} target="_blank" rel="noreferrer" aria-label={`Open traceability for ${batch.lotNumber}`} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800">
+                              <QrCode className="h-4 w-4" /> Trace
+                            </a>
+                            {!batch.productId && batch.status === "created" && batch.qualityStatus === "approved" && (
+                              <Button size="sm" className="h-9 bg-emerald-700 px-2.5 text-xs hover:bg-emerald-800" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
+                                <PackagePlus className="mr-1 h-3.5 w-3.5" /> List
+                              </Button>
+                            )}
+                            {batch.qualityStatus === "pending_inspection" && batch.inspectionId && (
+                              <Button size="sm" variant="outline" className="h-9 border-amber-200 px-2.5 text-xs text-amber-800 hover:bg-amber-50" disabled={urgentMutation.isPending} onClick={() => urgentMutation.mutate(batch.inspectionId!)}>
+                                {urgentMutation.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="mr-1 h-3.5 w-3.5" />} Urgent
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                      {converting?.batchId === batch.id && (
+                        <tr className="bg-emerald-50/40">
+                          <td colSpan={8} className="px-4 py-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">Link {batch.lotNumber} to a marketplace product</p>
+                                <p className="mt-1 text-xs text-slate-600">Choose the product that should receive this approved batch inventory.</p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Select value={converting.productId} onValueChange={(value) => setConverting({ batchId: batch.id, productId: value })}>
+                                  <SelectContent>
+                                    <SelectItem value="">Select a product...</SelectItem>
+                                    {products.map((product) => (
+                                      <SelectItem key={product._id} value={product._id}>{product.name} ({(product as any).availableQuantity ?? product.quantity} {product.unit})</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <Button size="sm" disabled={!converting.productId || convertMutation.isPending} onClick={() => convertMutation.mutate({ batchId: batch.id, productId: converting.productId })}>
+                                  {convertMutation.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />} Add
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setConverting(null)}>Cancel</Button>
+                              </div>
+                            </div>
+                            {products.length === 0 && <p className="mt-2 text-xs text-slate-500">You have no products. Create one first under Products, then link this batch to it.</p>}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
