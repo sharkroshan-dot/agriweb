@@ -465,7 +465,7 @@ export default function FarmerHarvestsPage() {
                       <div key={day} className={cn("py-3.5 text-center text-xs font-extrabold uppercase tracking-[0.14em]", index === 0 || index === 6 ? "bg-emerald-50/70 text-emerald-800" : "text-slate-600")}>{day}</div>
                     ))}
                   </div>
-                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", calendarView === "week" ? "auto-rows-[176px]" : "auto-rows-[148px]")}>
+                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", calendarView === "week" ? "auto-rows-[176px]" : "auto-rows-[112px]")}>
                     {calendarDays.map((date) => {
                       const dayPlans = filteredPlans
                         .filter((plan) => sameCalendarDay(parseHarvestDate(plan.expectedHarvestDate), date) && plan.status !== "cancelled")
@@ -482,7 +482,7 @@ export default function FarmerHarvestsPage() {
                             setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
                           }}
                           className={cn(
-                            "group relative flex min-w-0 flex-col items-stretch gap-2 border-b border-r border-slate-200 p-2.5 text-left transition-all duration-150 sm:p-3",
+                            "group relative flex min-w-0 flex-col items-stretch gap-1.5 border-b border-r border-slate-200 p-2 text-left transition-all duration-150 sm:p-2",
                             !inCurrentMonth && calendarView === "month" && "bg-slate-50/60",
                             inCurrentMonth && !isSelected && "bg-white hover:bg-emerald-50/50",
                             isSelected && "z-[1] bg-emerald-50/80 shadow-[inset_0_0_0_2px_#059669]",
@@ -491,27 +491,27 @@ export default function FarmerHarvestsPage() {
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span className={cn(
-                              "flex h-9 w-9 items-center justify-center rounded-xl text-sm font-extrabold tabular-nums transition-colors",
+                              "flex h-7 w-7 items-center justify-center rounded-lg text-xs font-extrabold tabular-nums transition-colors",
                               isToday ? "bg-emerald-700 text-white shadow-sm" : isSelected ? "bg-emerald-100 text-emerald-900" : inCurrentMonth ? "text-slate-800 group-hover:bg-emerald-100" : "text-slate-300"
                             )}>{date.getDate()}</span>
                             {dayPlans.length > 0 ? (
-                              <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-bold tabular-nums text-slate-600 shadow-sm">
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold tabular-nums text-slate-600 shadow-sm">
                                 {dayPlans.length} {dayPlans.length === 1 ? "plan" : "plans"}
                               </span>
                             ) : null}
                           </div>
-                          <div className="flex min-w-0 flex-col gap-1.5">
+                          <div className="flex min-w-0 flex-col gap-1">
                             {dayPlans.slice(0, 2).map((plan) => (
-                              <span key={plan.id} className={cn("block min-w-0 overflow-hidden rounded-lg border border-l-4 px-2.5 py-2 text-xs font-bold leading-4 shadow-sm transition-transform group-hover:translate-x-0.5 sm:text-[13px]", harvestEventClass(plan, today))}>
+                              <span key={plan.id} className={cn("block min-w-0 overflow-hidden rounded-md border border-l-[3px] px-2 py-1 text-xs font-bold leading-4 shadow-sm transition-colors", harvestEventClass(plan, today))}>
                                 <span className="block truncate">{plan.cropName}</span>
-                                <span className="mt-1 flex items-center justify-between gap-1 text-[11px] font-semibold leading-4 opacity-85">
+                                <span className="mt-0.5 flex items-center justify-between gap-1 text-[10px] font-semibold leading-3 opacity-85">
                                   <span className="truncate">{plan.expectedQuantityKg} kg</span>
                                   <span className="shrink-0">{plan.status === "harvested" || plan.productCreated ? "Done" : plan.status === "preorder" ? "Pre-order" : "Planned"}</span>
                                 </span>
                               </span>
                             ))}
                             {dayPlans.length > 2 ? (
-                              <span className="rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-800">+{dayPlans.length - 2} more</span>
+                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-800">+{dayPlans.length - 2} more</span>
                             ) : null}
                           </div>
                           {dayPlans.length === 0 && isSelected ? (
