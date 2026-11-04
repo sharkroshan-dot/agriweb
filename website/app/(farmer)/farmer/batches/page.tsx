@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,7 +16,17 @@ import {
   FlaskConical,
   PackagePlus,
   QrCode,
+  Search,
+  RefreshCw,
+  CalendarDays,
+  Clock3,
+  ShieldCheck,
+  AlertTriangle,
+  Filter,
+  PackageCheck,
+  CircleCheck,
 } from "lucide-react";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
@@ -75,6 +85,8 @@ export default function FarmerBatchesPage() {
   const searchParams = useSearchParams();
   const fromHarvestId = searchParams.get("fromHarvest") || "";
   const [showForm, setShowForm] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<"all" | "inspection" | "attention" | "fresh" | "listed">("all");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedHarvestId, setSelectedHarvestId] = useState("");
   const [form, setForm] = useState({
@@ -89,7 +101,7 @@ export default function FarmerBatchesPage() {
   const [converting, setConverting] = useState<{ batchId: string; productId: string } | null>(null);
   const storageShelfLifeDefaults: Record<string, number> = { normal: 3, refrigerated: 5, cold_storage: 7, frozen: 30 };
 
-  const { data: batchesData, isLoading } = useQuery({
+  const { data: batchesData, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["farmerBatches"],
     queryFn: () => api.get("/batches"),
   });
@@ -151,6 +163,49 @@ export default function FarmerBatchesPage() {
   const batches: Batch[] = (batchesData?.data?.batches || []).map((b: any) => ({ ...b, id: b._id || b.id }));
   const products: FarmerProduct[] = productsData?.data?.products || productsData?.data || [];
   const harvestedPlans: any[] = harvestedData?.data?.plans || harvestedData?.plans || [];
+
+  const batchSummary = useMemo(() => ({
+    total: batches.length,
+    awaitingInspection: batches.filter((batch) => batch.qualityStatus !== "approved" && batch.qualityStatus !== "rejected").length,
+    approved: batches.filter((batch) => batch.qualityStatus === "approved").length,
+    attention: batches.filter((batch) =>
+      batch.freshness?.status === "expired" ||
+      batch.freshness?.status === "expiring" ||
+      batch.inspectionPriority === "critical" ||
+      batch.inspectionPriority === "urgent" ||
+      batch.qualityStatus === "rejected"
+    ).length,
+    remainingKg: batches.reduce((sum, batch) => sum + Math.max(0, Number(batch.remainingKg || 0)), 0),
+  }), [batches]);
+
+  const filteredBatches = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return batches.filter((batch) => {
+      const matchesSearch = !query || [
+        batch.lotNumber,
+        batch.cropName,
+        batch.qualityGrade,
+        batch.storageType,
+        batch.status,
+        batch.qualityStatus,
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+
+      const matchesFilter =
+        activeFilter === "all" ||
+        (activeFilter === "inspection" && batch.qualityStatus !== "approved" && batch.qualityStatus !== "rejected") ||
+        (activeFilter === "attention" && (
+          batch.freshness?.status === "expired" ||
+          batch.freshness?.status === "expiring" ||
+          batch.inspectionPriority === "critical" ||
+          batch.inspectionPriority === "urgent" ||
+          batch.qualityStatus === "rejected"
+        )) ||
+        (activeFilter === "fresh" && batch.freshness?.status === "fresh") ||
+        (activeFilter === "listed" && Boolean(batch.productId));
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [batches, searchQuery, activeFilter]);
 
   // Batch creation is one-to-one with a product. Once a product has a batch,
   // it must never appear again in the batch-creation selector.
@@ -230,30 +285,63 @@ export default function FarmerBatchesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Batches &amp; Traceability</h1>
-          <p className="text-gray-500">
-            Create traceable harvest lots, record the actual shelf life for each harvested batch, and send every batch through independent quality inspection before listing. Delivery deadlines and priority are calculated automatically.
-          </p>
-        </div>
-        <Button onClick={() => setShowForm((v) => !v)}>
+    <div className="w-full min-w-0 space-y-5 pb-8">
+      <FarmerPageHeader
+        eyebrow="Harvest lots & product traceability"
+        title="Batches & Traceability"
+        description="Track harvested lots, monitor freshness and shelf life, complete quality inspection and link approved batches to marketplace products."
+      >
+        <Button
+          type="button"
+          className="h-10 bg-emerald-700 shadow-sm hover:bg-emerald-800"
+          onClick={() => setShowForm((v) => !v)}
+        >
           {showForm ? <XCircle className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-          {showForm ? "Cancel" : "New Batch"}
+          {showForm ? "Close form" : "New batch"}
         </Button>
-      </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-50"
+          onClick={() => refetch()}
+          disabled={isFetching}
+        >
+          <RefreshCw className={cn("mr-2 h-4 w-4", isFetching && "animate-spin")} />
+          Refresh
+        </Button>
+      </FarmerPageHeader>
+
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        {[
+          { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-slate-100 text-slate-700" },
+          { label: "Awaiting inspection", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-50 text-amber-700" },
+          { label: "Quality approved", value: batchSummary.approved, icon: ShieldCheck, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Needs attention", value: batchSummary.attention, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
+        ].map((stat) => (
+          <Card key={stat.label} className="border-slate-200 shadow-sm">
+            <CardContent className="flex min-w-0 items-center justify-between gap-3 p-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-500">{stat.label}</p>
+                <p className="mt-1 text-2xl font-bold tracking-tight text-slate-950">{isLoading || isError ? "—" : stat.value}</p>
+              </div>
+              <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", stat.tone)}>
+                <stat.icon className="h-5 w-5" />
+              </span>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
 
       {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Create Batch from Harvested Crop</CardTitle>
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/60">
+            <CardTitle className="text-base font-semibold text-slate-950">Create batch from harvested crop</CardTitle>
             <CardDescription>
               Select a completed harvest to create its traceable batch. The marketplace product can be linked after quality approval.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+            <form onSubmit={submit} className="grid gap-4 rounded-xl sm:grid-cols-2">
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-gray-500">Harvested crop *</label>
                 <Select value={selectedHarvestId} onValueChange={(v) => {
@@ -323,7 +411,7 @@ export default function FarmerBatchesPage() {
                 <label className="text-xs font-medium text-gray-500">Notes</label>
                 <Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="variety, field plot, remarks..." />
               </div>
-              <div className="sm:col-span-2 flex justify-end">
+              <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
                 <Button type="submit" disabled={createMutation.isPending || !selectedHarvest}>
                   {createMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   Create Batch
@@ -334,26 +422,99 @@ export default function FarmerBatchesPage() {
         </Card>
       )}
 
-      {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      {!isLoading && !isError && batches.length > 0 ? (
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/60 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">Harvest batches</h2>
+              <p className="mt-1 text-sm text-slate-500">{filteredBatches.length} of {batches.length} batches shown · {batchSummary.remainingKg.toLocaleString("en-IN")} kg remaining in stock</p>
+            </div>
+            <div className="relative w-full sm:max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search lot number, crop or grade..."
+                aria-label="Search harvest batches"
+                className="h-10 w-full bg-white pl-9 text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3 sm:px-5">
+            <span className="mr-1 inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <Filter className="h-3.5 w-3.5" />Filter
+            </span>
+            {([
+              ["all", "All batches", batches.length],
+              ["inspection", "Awaiting inspection", batchSummary.awaitingInspection],
+              ["attention", "Needs attention", batchSummary.attention],
+              ["fresh", "Fresh", batches.filter((batch) => batch.freshness?.status === "fresh").length],
+              ["listed", "Listed", batches.filter((batch) => Boolean(batch.productId)).length],
+            ] as const).map(([value, label, count]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={activeFilter === value}
+                onClick={() => setActiveFilter(value)}
+                className={cn(
+                  "inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors",
+                  activeFilter === value
+                    ? "border-emerald-700 bg-emerald-700 text-white shadow-sm"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
+                )}
+              >
+                {label}
+                <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums", activeFilter === value ? "bg-white/20 text-white" : "bg-slate-100 text-slate-600")}>{count}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {isError ? (
+        <Card className="border-red-200 shadow-sm">
+          <CardContent className="flex flex-col items-center px-5 py-14 text-center">
+            <AlertTriangle className="h-10 w-10 text-red-600" />
+            <h2 className="mt-3 text-base font-semibold text-slate-900">Unable to load batches</h2>
+            <p className="mt-1 max-w-lg text-sm text-slate-600">{(error as any)?.response?.data?.detail || (error as any)?.message || "Check your connection and try again."}</p>
+            <Button className="mt-4 bg-emerald-700 hover:bg-emerald-800" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" />Try again
+            </Button>
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
+        <div className="grid gap-3" aria-label="Loading batches">
+          {[0, 1, 2].map((item) => <div key={item} className="h-36 animate-pulse rounded-2xl border border-slate-200 bg-white" />)}
         </div>
       ) : batches.length === 0 ? (
-        <Card>
+        <Card className="border-dashed border-slate-300 shadow-none">
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-            <Package className="h-10 w-10 text-slate-300" />
-            <p className="text-sm text-slate-500">No batches yet. Create your first harvest lot to enable traceability.</p>
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><Package className="h-7 w-7" /></span>
+            <h2 className="text-base font-semibold text-slate-900">No batches created yet</h2>
+            <p className="max-w-md text-sm leading-6 text-slate-500">Create a traceable lot from a completed harvest to record shelf life, complete quality inspection and prepare the produce for listing.</p>
+            <Button className="mt-2 bg-emerald-700 hover:bg-emerald-800" onClick={() => setShowForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />Create first batch
+            </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
-          {batches.map((batch) => (
-            <Card key={batch.id}>
-              <CardContent className="grid gap-4 p-4 sm:grid-cols-[1fr_auto]">
+          {filteredBatches.length === 0 ? (
+            <Card className="border-dashed border-slate-300 shadow-none">
+              <CardContent className="flex flex-col items-center py-12 text-center">
+                <Search className="h-8 w-8 text-slate-300" />
+                <p className="mt-3 text-sm font-semibold text-slate-900">No matching batches</p>
+                <p className="mt-1 text-sm text-slate-500">Try another search or filter.</p>
+                <Button variant="outline" size="sm" className="mt-4" onClick={() => { setSearchQuery(""); setActiveFilter("all"); }}>Clear filters</Button>
+              </CardContent>
+            </Card>
+          ) : filteredBatches.map((batch) => (
+            <Card key={batch.id} className="overflow-hidden rounded-2xl border-slate-200 shadow-sm transition-all hover:border-emerald-200 hover:shadow-md">
+              <CardContent className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:p-5">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Layers className="h-4 w-4 text-primary" />
-                    <span className="font-mono text-sm font-semibold">{batch.lotNumber}</span>
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><Layers className="h-4 w-4" /></span>
+                    <span className="font-mono text-sm font-bold tracking-tight text-slate-950">{batch.lotNumber}</span>
                     {batch.productId ? (
                       <Badge variant="outline">
                         <Link2 className="mr-1 h-3 w-3" /> Listed
@@ -361,9 +522,10 @@ export default function FarmerBatchesPage() {
                     ) : batch.status === "created" ? (
                       <Badge variant="secondary">Unlisted</Badge>
                     ) : null}
-                    {freshnessBadge(batch)}\n                    {qualityBadge(batch)}
+                    {freshnessBadge(batch)}
+                    {qualityBadge(batch)}
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-slate-600">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-slate-700">
                     <span className="flex items-center gap-1">
                       <Wheat className="h-3.5 w-3.5 text-slate-400" /> {batch.cropName}
                     </span>
@@ -377,21 +539,36 @@ export default function FarmerBatchesPage() {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-400">
-                    Harvested {formatDate(batch.harvestDate)} · Default shelf life {batch.defaultShelfLifeDays ?? "—"} days · Actual shelf life {batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days · Safe delivery by {batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "—"}
+                  <div className="grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="flex items-start gap-2">
+                      <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Harvested</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{formatDate(batch.harvestDate)}</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Default shelf life</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{batch.defaultShelfLifeDays ?? "—"} days</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <PackageCheck className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Actual shelf life</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{batch.actualShelfLifeDays ?? batch.shelfLifeDays ?? "—"} days</p></div>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                      <div><p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Safe delivery by</p><p className="mt-0.5 text-xs font-semibold text-slate-800">{batch.safeDeliveryDate ? formatDate(batch.safeDeliveryDate) : "Not set"}</p></div>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-start justify-end gap-2">
+                <div className="flex flex-row flex-wrap items-start justify-start gap-2 sm:flex-col sm:items-end">
                   <a
                     href={`/trace/${encodeURIComponent(batch.lotNumber)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+                    className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-800"
                   >
                     <QrCode className="h-4 w-4" /> QR / Trace
                   </a>
                   {!batch.productId && batch.status === "created" && batch.qualityStatus === "approved" && (
-                    <Button size="sm" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
+                    <Button size="sm" className="h-10 bg-emerald-700 hover:bg-emerald-800" onClick={() => setConverting({ batchId: batch.id, productId: "" })}>
                       <PackagePlus className="mr-1.5 h-4 w-4" /> Add to Inventory
                     </Button>
                   )}
@@ -399,6 +576,7 @@ export default function FarmerBatchesPage() {
                     <Button
                       size="sm"
                       variant="outline"
+                      className="h-10 border-amber-200 text-amber-800 hover:bg-amber-50"
                       disabled={urgentMutation.isPending}
                       onClick={() => urgentMutation.mutate(batch.inspectionId!)}
                     >
@@ -409,8 +587,9 @@ export default function FarmerBatchesPage() {
                 </div>
 
                 {converting?.batchId === batch.id && (
-                  <div className="sm:col-span-2 flex flex-col gap-2 rounded-md border bg-slate-50 p-3">
+                  <div className="sm:col-span-2 flex flex-col gap-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
                     <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <Select value={converting.productId} onValueChange={(v) => setConverting({ batchId: batch.id, productId: v })}>
                         <SelectContent>
                           <SelectItem value="">Select a product...</SelectItem>
@@ -433,6 +612,7 @@ export default function FarmerBatchesPage() {
                       <Button size="sm" variant="ghost" onClick={() => setConverting(null)}>
                         Cancel
                       </Button>
+                      </div>
                     </div>
                     {products.length === 0 && (
                       <p className="text-xs text-slate-500">
