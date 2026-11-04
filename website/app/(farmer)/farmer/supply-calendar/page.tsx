@@ -159,6 +159,8 @@ export default function FarmerSupplyCalendarPage() {
         const id = String(order.id || order._id || order.orderId || "");
         const orderStatus = String(order.status || order.orderStatus || "").toLowerCase();
         if (!id || ["cancelled", "canceled", "rejected", "completed", "delivered"].includes(orderStatus)) return null;
+        // Recurring occurrences are represented by contract delivery history; keep separately assigned replacement supplies.
+        if (isB2B && order.contractId && order.isReplacementSupply !== true) return null;
         const date = parsePlanDate(order.deliveryDeadline || order.requiredDate || order.scheduledDeliveryDate || order.deliveryDate || order.expectedDeliveryDate);
         if (!date) return null;
         const deliveryType = String(order.deliveryType || order.fulfillmentMethod || "").toLowerCase();
