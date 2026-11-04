@@ -86,7 +86,7 @@ export default function FarmerBatchesPage() {
   const fromHarvestId = searchParams.get("fromHarvest") || "";
   const [showForm, setShowForm] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeFilter, setActiveFilter] = useState<"all" | "inspection" | "attention" | "fresh" | "listed">("all");
+  const [activeFilter, setActiveFilter] = useState<"all" | "inspection" | "listed" | "expired">("all");
   const [selectedProductId, setSelectedProductId] = useState("");
   const [selectedHarvestId, setSelectedHarvestId] = useState("");
   const [form, setForm] = useState({
@@ -164,17 +164,21 @@ export default function FarmerBatchesPage() {
   const products: FarmerProduct[] = productsData?.data?.products || productsData?.data || [];
   const harvestedPlans: any[] = harvestedData?.data?.plans || harvestedData?.plans || [];
 
+  // Use the API freshness state when available, with the expiry timestamp as a
+  // fallback so older batch records still appear in the Expired dashboard view.
+  const isBatchExpired = (batch: Batch) => {
+    if (batch.freshness?.status === "expired") return true;
+    const expiry = batch.expiresAt || batch.freshness?.expiresAt;
+    if (!expiry) return false;
+    const expiryTime = new Date(expiry).getTime();
+    return Number.isFinite(expiryTime) && expiryTime <= Date.now();
+  };
+
   const batchSummary = useMemo(() => ({
     total: batches.length,
     awaitingInspection: batches.filter((batch) => batch.qualityStatus !== "approved" && batch.qualityStatus !== "rejected").length,
-    approved: batches.filter((batch) => batch.qualityStatus === "approved").length,
-    attention: batches.filter((batch) =>
-      batch.freshness?.status === "expired" ||
-      batch.freshness?.status === "expiring" ||
-      batch.inspectionPriority === "critical" ||
-      batch.inspectionPriority === "urgent" ||
-      batch.qualityStatus === "rejected"
-    ).length,
+    listed: batches.filter((batch) => Boolean(batch.productId)).length,
+    expired: batches.filter(isBatchExpired).length,
     remainingKg: batches.reduce((sum, batch) => sum + Math.max(0, Number(batch.remainingKg || 0)), 0),
   }), [batches]);
 
@@ -193,15 +197,8 @@ export default function FarmerBatchesPage() {
       const matchesFilter =
         activeFilter === "all" ||
         (activeFilter === "inspection" && batch.qualityStatus !== "approved" && batch.qualityStatus !== "rejected") ||
-        (activeFilter === "attention" && (
-          batch.freshness?.status === "expired" ||
-          batch.freshness?.status === "expiring" ||
-          batch.inspectionPriority === "critical" ||
-          batch.inspectionPriority === "urgent" ||
-          batch.qualityStatus === "rejected"
-        )) ||
-        (activeFilter === "fresh" && batch.freshness?.status === "fresh") ||
-        (activeFilter === "listed" && Boolean(batch.productId));
+        (activeFilter === "listed" && Boolean(batch.productId)) ||
+        (activeFilter === "expired" && isBatchExpired(batch));
 
       return matchesSearch && matchesFilter;
     });
@@ -315,8 +312,8 @@ export default function FarmerBatchesPage() {
         {[
           { label: "Total batches", value: batchSummary.total, icon: Layers, tone: "bg-slate-100 text-slate-700" },
           { label: "Awaiting inspection", value: batchSummary.awaitingInspection, icon: FlaskConical, tone: "bg-amber-50 text-amber-700" },
-          { label: "Quality approved", value: batchSummary.approved, icon: ShieldCheck, tone: "bg-emerald-50 text-emerald-700" },
-          { label: "Needs attention", value: batchSummary.attention, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
+          { label: "Listed", value: batchSummary.listed, icon: PackageCheck, tone: "bg-emerald-50 text-emerald-700" },
+          { label: "Expired", value: batchSummary.expired, icon: AlertTriangle, tone: "bg-rose-50 text-rose-700" },
         ].map((stat) => (
           <Card key={stat.label} className="border-slate-200 shadow-sm">
             <CardContent className="flex min-w-0 items-center justify-between gap-3 p-4 sm:p-5">
@@ -446,10 +443,9 @@ export default function FarmerBatchesPage() {
             </span>
             {([
               ["all", "All batches", batches.length],
-              ["inspection", "Awaiting inspection", batchSummary.awaitingInspection],
-              ["attention", "Needs attention", batchSummary.attention],
-              ["fresh", "Fresh", batches.filter((batch) => batch.freshness?.status === "fresh").length],
-              ["listed", "Listed", batches.filter((batch) => Boolean(batch.productId)).length],
+              ["inspection", "Needs inspection", batchSummary.awaitingInspection],
+              ["listed", "Listed", batchSummary.listed],
+              ["expired", "Expired", batchSummary.expired],
             ] as const).map(([value, label, count]) => (
               <button
                 key={value}
