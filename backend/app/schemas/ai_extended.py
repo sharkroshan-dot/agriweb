@@ -20,6 +20,9 @@ class CropRecommendationResponse(BaseModel):
     topCrop: str
     soilHealth: str
     seasonInfo: str
+    weatherSummary: Optional[dict] = None
+    waterAvailability: Optional[str] = None
+    areaAcres: Optional[float] = None
     timestamp: datetime
 
 class ChatbotRequest(BaseModel):
