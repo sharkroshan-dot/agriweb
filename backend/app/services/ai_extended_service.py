@@ -187,11 +187,15 @@ class AIExtendedService:
                     score += 4
                     risks.append("Forecast unavailable; temperature assessment uses current conditions only")
 
-                if info["min_rain"] <= float(request.rainfall) <= info["max_rain"]:
-                    score += 10
-                    reasons.append("Expected seasonal rainfall estimate is within the crop's broad range")
+                seasonal_rainfall = getattr(request, "rainfall", None)
+                if seasonal_rainfall is not None:
+                    if info["min_rain"] <= float(seasonal_rainfall) <= info["max_rain"]:
+                        score += 10
+                        reasons.append("Farmer's seasonal rainfall estimate is within the crop's broad range")
+                    else:
+                        risks.append("Farmer's seasonal rainfall estimate is outside the crop's broad range")
                 else:
-                    risks.append("Expected seasonal rainfall estimate is outside the crop's broad range")
+                    risks.append("Seasonal rainfall estimate was not provided; rainfall suitability is not scored")
 
                 need = water_needs.get(crop_key, "medium")
                 water_fit = (
