@@ -10,6 +10,10 @@ class CropRecommendationRequest(BaseModel):
     previousCrop: Optional[str] = None
     season: str = "kharif"
     areaAcres: float = 1.0
+    humidity: Optional[float] = None
+    weatherForecast: List[dict] = Field(default_factory=list)
+    waterAvailability: str = "reliable"
+    irrigationType: Optional[str] = None
 
 class CropRecommendationResponse(BaseModel):
     recommendations: List[dict]
