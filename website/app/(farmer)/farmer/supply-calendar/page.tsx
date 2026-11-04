@@ -409,7 +409,20 @@ export default function FarmerSupplyCalendarPage() {
                   <div className="flex min-w-0 items-center gap-2"><span className={cn("h-2 w-2 shrink-0 rounded-full", statusMeta[entry.status]?.dot)} /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{entry.cropName}</p><p className="text-[10px] text-slate-500">{formatDate(entry.date)}</p></div></div>
                   <span className="shrink-0 text-xs font-semibold text-slate-700">{entry.actualQuantityKg ?? entry.expectedQuantityKg} kg</span>
                 </button>
-              )) : <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No upcoming harvest plans. Create one in Harvest Planner to see it here.</p>}
+              )) : <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No upcoming activities. Your harvest plans, pickups and supply orders will appear here when scheduled.</p>}
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="space-y-3 p-4">
+              <h3 className="text-sm font-bold text-slate-900">Quick actions</h3>
+              <div className="grid grid-cols-2 gap-2">
+                <Button asChild variant="outline" className="h-auto justify-start border-emerald-200 px-3 py-2 text-xs text-emerald-800"><Link href="/farmer/harvest-planner"><Sprout className="mr-2 h-4 w-4" />Harvest plan</Link></Button>
+                <Button asChild variant="outline" className="h-auto justify-start border-purple-200 px-3 py-2 text-xs text-purple-800"><Link href="/farmer/b2b/rfqs"><FileText className="mr-2 h-4 w-4" />Farmer RFQs</Link></Button>
+                <Button asChild variant="outline" className="h-auto justify-start border-blue-200 px-3 py-2 text-xs text-blue-800"><Link href="/farmer/b2b/contracts"><RefreshCw className="mr-2 h-4 w-4" />Contracts</Link></Button>
+                <Button asChild variant="outline" className="h-auto justify-start border-amber-200 px-3 py-2 text-xs text-amber-800"><Link href="/farmer/orders"><ShoppingBag className="mr-2 h-4 w-4" />Orders</Link></Button>
+              </div>
+              <Link href="/farmer/weather" className="flex items-center gap-2 rounded-lg bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800 hover:bg-sky-100"><CloudSun className="h-4 w-4" />Check weather before planning harvest</Link>
             </CardContent>
           </Card>
 
