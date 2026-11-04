@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -523,7 +523,7 @@ export default function FarmerBatchesPage() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredBatches.map((batch) => (
-                    <React.Fragment key={batch.id}>
+                    <Fragment key={batch.id}>
                       <tr className="align-top transition-colors hover:bg-slate-50/70">
                         <td className="px-4 py-4">
                           <div className="flex items-start gap-3">
@@ -599,7 +599,7 @@ export default function FarmerBatchesPage() {
                           </td>
                         </tr>
                       )}
-                    </React.Fragment>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
