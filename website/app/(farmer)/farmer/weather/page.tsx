@@ -17,7 +17,6 @@ import { Badge } from "../../../components/ui/badge";
 import { Select, SelectContent, SelectItem } from "../../../components/ui/select";
 import toast from "react-hot-toast";
 
-const CROPS = ["Tomato", "Onion", "Potato", "Carrot", "Strawberry", "Spinach", "Capsicum"];
 const STORAGE_GUIDE: Record<string, { range: string; tip: string }> = {
   tomato: { range: "10–13°C for mature-green fruit", tip: "Keep shaded and ventilated. Avoid chilling, direct sun and pressure damage." },
   onion: { range: "Cool, dry and well ventilated", tip: "Cure fully before long storage and protect from moisture." },
@@ -68,7 +67,7 @@ function MetricCard({ label, value, unit, icon: Icon, tone, hint }: {
 
 export default function FarmerWeatherPage() {
   const [location, setLocation] = useState("");
-  const [crop, setCrop] = useState("Tomato");
+  const [crop, setCrop] = useState("");
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -79,7 +78,7 @@ export default function FarmerWeatherPage() {
       location: coordinates
         ? { latitude: coordinates.lat, longitude: coordinates.lng }
         : { city: location, state: "Tamil Nadu", country: "India" },
-      cropName: crop,
+      cropName: selectedCrop,
       productId: null,
       days: 7,
     }),
@@ -94,6 +93,12 @@ export default function FarmerWeatherPage() {
   const { data: batchesData, isLoading: batchesLoading, isError: batchesError } = useQuery({
     queryKey: ["farmerWeatherBatches"],
     queryFn: () => api.get("/batches"),
+    retry: 1,
+  });
+
+  const { data: harvestPlansData, isLoading: harvestPlansLoading, isError: harvestPlansError } = useQuery({
+    queryKey: ["farmerWeatherHarvestPlans"],
+    queryFn: () => api.get("/harvests/farmer/plans", { params: { source: "planner" } }),
     retry: 1,
   });
 
@@ -148,7 +153,7 @@ export default function FarmerWeatherPage() {
   };
 
   const run = () => {
-    if (!coordinates && !location.trim()) {
+    if (!cropOptions.length) {\n      toast.error("Add a pre-harvest crop in Harvest Planner or record a harvested crop batch first.");\n      return;\n    }\n    if (!coordinates && !location.trim()) {
       setLocationError("Enter your village or town, or use the location button.");
       return;
     }
@@ -161,6 +166,30 @@ export default function FarmerWeatherPage() {
   const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
   const products = (stockData as any)?.data?.products || [];
   const batches = (batchesData as any)?.data?.batches || [];
+  const harvestPlans = (harvestPlansData as any)?.data?.plans || [];
+  const cropOptionMap = new Map<string, { name: string; stages: Set<string> }>();
+  harvestPlans
+    .filter((plan: any) => !["cancelled", "deleted"].includes(String(plan.status || "").toLowerCase()))
+    .forEach((plan: any) => {
+      const name = String(plan.cropName || "").trim();
+      if (!name) return;
+      const key = name.toLocaleLowerCase();
+      const current = cropOptionMap.get(key) || { name, stages: new Set<string>() };
+      current.stages.add(String(plan.status || "").toLowerCase() === "harvested" || String(plan.stage || "").toLowerCase() === "harvested" ? "Harvested" : "Pre-harvest");
+      cropOptionMap.set(key, current);
+    });
+  batches
+    .filter((batch: any) => !["expired", "cancelled"].includes(String(batch.status || "").toLowerCase()) && Number(batch.remainingKg ?? batch.quantityKg ?? 0) > 0)
+    .forEach((batch: any) => {
+      const name = String(batch.cropName || "").trim();
+      if (!name) return;
+      const key = name.toLocaleLowerCase();
+      const current = cropOptionMap.get(key) || { name, stages: new Set<string>() };
+      current.stages.add("Harvested");
+      cropOptionMap.set(key, current);
+    });
+  const cropOptions = Array.from(cropOptionMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const selectedCrop = cropOptions.find(option => option.name.toLocaleLowerCase() === crop.toLocaleLowerCase())?.name || cropOptions[0]?.name || "";
   const riskScore = Number(data?.impactScore ?? 0);
   const riskLevel = riskScore >= 0.7 ? "High attention" : riskScore >= 0.35 ? "Moderate attention" : "Low weather risk";
   const riskClass = riskScore >= 0.7 ? "border-rose-200 bg-rose-50 text-rose-800" : riskScore >= 0.35 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-200 bg-emerald-50 text-emerald-800";
@@ -201,12 +230,19 @@ export default function FarmerWeatherPage() {
             <p className="text-[11px] text-slate-400">{locationSource === "gps" ? "Using your device GPS location." : locationSource === "approximate" ? "Using an approximate area from your internet connection. Enter your village for a more accurate forecast." : "Enter a nearby village or town, or use the location button."}</p>
           </div>
           <div className="space-y-1.5 lg:pt-0">
-            <label className="text-xs font-semibold text-slate-700">Crop</label>
-            <Select value={crop} onValueChange={setCrop}>
-              <SelectContent>{CROPS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            <label className="text-xs font-semibold text-slate-700">Your crops</label>
+            <Select value={selectedCrop} onValueChange={setCrop} disabled={harvestPlansLoading || batchesLoading || cropOptions.length === 0}>
+              <SelectContent>{cropOptions.map(option => (
+                <SelectItem key={option.name} value={option.name}>
+                  {option.name} — {Array.from(option.stages).join(" & ")}
+                </SelectItem>
+              ))}</SelectContent>
             </Select>
+            <p className="text-[11px] text-slate-400">
+              {harvestPlansLoading || batchesLoading ? "Loading your crops…" : cropOptions.length ? "Only your planned and harvested crops are shown." : "No crops found. Add a crop in Harvest Planner or create a harvest batch."}
+            </p>
           </div>
-          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="h-10 self-start bg-emerald-700 px-5 text-sm font-semibold text-white shadow-none hover:bg-emerald-800 lg:mt-[22px]">
+          <Button onClick={run} disabled={weatherMutation.isPending || locating || harvestPlansLoading || batchesLoading || cropOptions.length === 0} className="h-10 self-start bg-emerald-700 px-5 text-sm font-semibold text-white shadow-none hover:bg-emerald-800 lg:mt-[22px]">
             {weatherMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
             {data ? "Refresh weather" : "Check weather"}
           </Button>
@@ -222,7 +258,7 @@ export default function FarmerWeatherPage() {
           <CardContent className="flex flex-col items-center px-5 py-10 text-center">
             <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-sky-700 shadow-sm"><CloudSun className="h-7 w-7" /></span>
             <h2 className="mt-4 text-base font-bold text-slate-900">Your local farm forecast starts here</h2>
-            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">Enter your village or use GPS, choose the crop you want to monitor, then check the forecast for practical crop and harvest guidance.</p>
+            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">Enter your village or use GPS, then choose one of your pre-harvest or harvested crops to get weather and produce-care guidance.</p>
           </CardContent>
         </Card>
       )}
