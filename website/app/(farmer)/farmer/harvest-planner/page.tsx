@@ -417,7 +417,7 @@ export default function FarmerHarvestPlannerPage() {
   const farmerProfile = farmerProfileData?.data?.data || farmerProfileData?.data || {};
   const farmDefaultCoords = planCoords(farmerProfile.farmLocation || farmerProfile.location);
 
-  const locationGroups = new Map<string, {
+  const locationGroups = new globalThis.Map<string, {
     lat: number;
     lng: number;
     plans: CropPlan[];
