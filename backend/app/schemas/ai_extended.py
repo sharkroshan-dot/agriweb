@@ -6,7 +6,7 @@ class CropRecommendationRequest(BaseModel):
     soilType: str = "loamy"
     location: str
     temperature: float = 28.0
-    rainfall: float = 100.0
+    rainfall: Optional[float] = None
     previousCrop: Optional[str] = None
     season: str = "kharif"
     areaAcres: float = 1.0
