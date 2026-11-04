@@ -416,17 +416,6 @@ export default function FarmerCropAdvisorPage() {
               {weatherQuery.data?.weather?.temperature != null && <Badge variant="success">Weather data received</Badge>}
             </CardContent>
           </Card>
-          <Card className="border-emerald-100 bg-emerald-50/50 shadow-none">
-            <CardContent className="p-4">
-              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-900"><Sprout className="h-4 w-4" /> Better recommendations</p>
-              <ul className="mt-2 space-y-2 text-xs leading-5 text-emerald-900/80">
-                <li>• Select the correct soil type for your field.</li>
-                <li>• Use your current location for local weather context.</li>
-                <li>• Choose the previous crop to support crop-rotation guidance.</li>
-                <li>• Enter the actual area you plan to cultivate.</li>
-              </ul>
-            </CardContent>
-          </Card>
         </div>
       </div>
 
