@@ -8,6 +8,7 @@ import {
   Sprout, RefreshCw, Package, ArrowUpRight, Clock3, CheckCircle2,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -143,49 +144,50 @@ export default function FarmerWeatherPage() {
   const expiringBatches = remainingBatches.filter((b: any) => ["expiring", "expired"].includes(b.freshness?.status)).length;
 
   return (
-    <main className="mx-auto w-full min-w-0 max-w-[1500px] space-y-6 pb-10">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid gap-5 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 p-5 text-white sm:p-7 lg:grid-cols-[1fr_auto] lg:items-center">
-          <div className="max-w-2xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold tracking-wide text-emerald-100">
-              <CloudSun className="h-3.5 w-3.5" /> FARM CONDITIONS &amp; PRODUCE CARE
+    <main className="w-full min-w-0 space-y-5 pb-8">
+      <FarmerPageHeader
+        eyebrow="Farm weather & post-harvest care"
+        title="Weather & Perishability"
+        description="Check local weather, protect crops, plan harvest work and keep harvested produce in good condition."
+      />
+
+      <Card className="overflow-hidden border-slate-200 shadow-sm">
+        <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700"><MapPin className="h-4 w-4" /></span>
+            <div>
+              <CardTitle className="text-sm font-semibold text-slate-900">Check your farm weather</CardTitle>
+              <CardDescription className="text-xs">Choose your location and the crop you want to monitor.</CardDescription>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Weather &amp; Perishability</h1>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">
-              Make informed decisions about field work, harvest timing and post-harvest storage with local weather insights.
-            </p>
           </div>
-          <div className="hidden h-24 w-24 items-center justify-center rounded-3xl border border-white/10 bg-white/5 text-emerald-200 lg:flex">
-            <Sprout className="h-12 w-12" strokeWidth={1.25} />
-          </div>
-        </div>
-        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(180px,0.8fr)_auto] lg:items-end">
+        </CardHeader>
+        <CardContent className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(200px,0.8fr)_auto] lg:items-end">
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700">Farm location</label>
+            <label className="text-xs font-semibold text-slate-700">Village / town / city</label>
             <div className="flex gap-2">
               <div className="relative min-w-0 flex-1">
                 <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input value={location} placeholder="Enter village, town or city" className="h-11 border-slate-200 pl-9" onChange={e => { setCoordinates(null); setLocation(e.target.value); setLocationError(null); }} />
+                <Input value={location} placeholder="Enter your farm location" className="h-10 border-slate-200 pl-9 text-sm" onChange={e => { setCoordinates(null); setLocation(e.target.value); setLocationError(null); }} />
               </div>
-              <Button type="button" variant="outline" className="h-11 w-11 shrink-0 border-slate-200 px-0" onClick={useCurrentLocation} disabled={locating} title="Use my current location">
+              <Button type="button" variant="outline" className="h-10 w-10 shrink-0 border-slate-200 px-0" onClick={useCurrentLocation} disabled={locating} title="Use my current location">
                 {locating ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
               </Button>
             </div>
             {locationError && <p className="text-xs text-rose-600">{locationError}</p>}
-            <p className="text-[11px] text-slate-400">{coordinates ? "GPS location selected" : "Use your farm village or town for a local forecast"}</p>
+            <p className="text-[11px] text-slate-400">{coordinates ? "Using GPS coordinates for your forecast." : "Enter a nearby village or town, or use the location button."}</p>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700">Crop to monitor</label>
+            <label className="text-xs font-semibold text-slate-700">Crop</label>
             <Select value={crop} onValueChange={setCrop}>
               <SelectContent>{CROPS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="h-11 bg-emerald-700 px-5 font-semibold text-white shadow-sm hover:bg-emerald-800">
+          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="h-10 bg-emerald-700 px-5 text-sm font-semibold text-white shadow-none hover:bg-emerald-800">
             {weatherMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
-            {data ? "Refresh forecast" : "Check weather"}
+            {data ? "Refresh weather" : "Check weather"}
           </Button>
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
       {weatherMutation.isError && (
         <Card className="border-rose-200 bg-rose-50/70 shadow-none"><CardContent className="flex gap-3 p-4 text-sm text-rose-800"><AlertTriangle className="h-5 w-5 shrink-0" />We could not retrieve weather for this place. Check the spelling or try again later. No weather risk has been assumed.</CardContent></Card>
