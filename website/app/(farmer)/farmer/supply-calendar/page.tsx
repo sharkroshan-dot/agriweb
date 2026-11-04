@@ -124,9 +124,14 @@ export default function FarmerSupplyCalendarPage() {
 
   const plans = plansData?.data?.plans || [];
   const batches = batchesData?.data?.batches || [];
+  const farmerOrders = farmerOrdersData?.data?.orders || farmerOrdersData?.orders || [];
+  const b2bOrders = b2bOrdersData?.data?.orders || b2bOrdersData?.orders || b2bOrdersData?.data?.data?.orders || [];
+  const contractPayload = contractsData?.data?.contracts || contractsData?.data || [];
+  const contracts = Array.isArray(contractPayload) ? contractPayload : [];
+  const activeContracts = contracts.filter((contract: any) => ["active", "confirmed"].includes(String(contract.status || "").toLowerCase()));
 
   const entries = useMemo<CalendarEntry[]>(() => {
-    return plans
+    const harvestEntries = plans
       .filter((plan: any) => !["cancelled", "deleted"].includes(String(plan.status || "").toLowerCase()))
       .map((plan: any) => {
         const id = String(plan._id || plan.id || "");
@@ -134,28 +139,71 @@ export default function FarmerSupplyCalendarPage() {
         const date = parsePlanDate(plan.expectedHarvestDate || plan.harvestDate || plan.harvestedAt);
         if (!date) return null;
         const status = statusFor(plan, batch);
+        const harvested = ["harvested", "batched", "quality_approved"].includes(status);
         return {
-          id,
-          cropName: String(plan.cropName || "Crop"),
-          date,
-          dateKey: dateKey(date),
+          id, cropName: String(plan.cropName || "Crop"), date, dateKey: dateKey(date),
           expectedQuantityKg: Number(plan.expectedQuantityKg || 0),
           actualQuantityKg: plan.actualQuantityKg != null ? Number(plan.actualQuantityKg) : null,
           plannedRatePerKg: plan.preOrderPricePerKg != null ? Number(plan.preOrderPricePerKg) : null,
           finalRatePerKg: plan.finalRatePerKg != null ? Number(plan.finalRatePerKg) : null,
-          preOrderCount: Number(plan.preorderCount || 0),
-          status,
-          batchId: batch?._id || batch?.id,
-          qualityStatus: batch?.qualityStatus || "not_created",
-        };
-      })
-      .filter(Boolean) as CalendarEntry[];
-  }, [plans, batches]);
+          preOrderCount: Number(plan.preorderCount || 0), status,
+          batchId: batch?._id || batch?.id, qualityStatus: batch?.qualityStatus || "not_created",
+          eventType: harvested ? "harvest" : "preharvest",
+          orderType: harvested ? "Harvest" : "Pre-harvest",
+          referenceId: id,
+        } as CalendarEntry;
+      }).filter(Boolean) as CalendarEntry[];
+
+    const mapOrders = (orders: any[], isB2B: boolean): CalendarEntry[] => (Array.isArray(orders) ? orders : [])
+      .map((order: any) => {
+        const id = String(order.id || order._id || order.orderId || "");
+        const orderStatus = String(order.status || order.orderStatus || "").toLowerCase();
+        if (!id || ["cancelled", "canceled", "rejected", "completed", "delivered"].includes(orderStatus)) return null;
+        const date = parsePlanDate(order.deliveryDeadline || order.requiredDate || order.scheduledDeliveryDate || order.deliveryDate || order.expectedDeliveryDate);
+        if (!date) return null;
+        const deliveryType = String(order.deliveryType || order.fulfillmentMethod || "").toLowerCase();
+        const stage = String(order.fulfillmentStage || order.transferStatus || "").toLowerCase();
+        const eventType = isB2B
+          ? (stage.includes("warehouse") || stage.includes("transfer") ? "warehouse_delivery" : "business_delivery")
+          : (orderStatus.includes("pickup") || deliveryType === "pickup" ? "farm_pickup" : "retail_delivery");
+        const item = Array.isArray(order.items) ? order.items[0] || {} : {};
+        const cropName = String(order.cropName || order.productName || item.productName || item.name || item.product?.name || (isB2B ? "Business supply" : "Customer order"));
+        const quantity = Number(order.quantityKg || order.totalQuantityKg || item.quantityKg || item.quantity || order.packedQuantityKg || 0);
+        return {
+          id: (isB2B ? "b2b-" : "retail-") + id, cropName, date, dateKey: dateKey(date),
+          expectedQuantityKg: quantity, actualQuantityKg: null, plannedRatePerKg: null, finalRatePerKg: null,
+          preOrderCount: 0, status: eventType, qualityStatus: "not_applicable",
+          eventType, orderType: isB2B ? "Business delivery" : eventType === "farm_pickup" ? "Farm pickup" : "Retail delivery",
+          referenceId: id,
+        } as CalendarEntry;
+      }).filter(Boolean) as CalendarEntry[];
+
+    const contractEntries: CalendarEntry[] = activeContracts.map((contract: any) => {
+      const date = parsePlanDate(contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate);
+      if (!date) return null;
+      const id = String(contract._id || contract.id || contract.contractNumber || "");
+      return {
+        id: "contract-" + id, cropName: String(contract.cropName || "Contract supply"), date, dateKey: dateKey(date),
+        expectedQuantityKg: Number(contract.quantityPerDeliveryKg || contract.quantityPerMonthKg || 0),
+        actualQuantityKg: null, plannedRatePerKg: Number(contract.pricePerKg || 0) || null, finalRatePerKg: null,
+        preOrderCount: 0, status: "business_delivery", qualityStatus: "not_applicable",
+        eventType: "business_delivery", orderType: "Recurring contract", referenceId: id,
+      } as CalendarEntry;
+    }).filter(Boolean) as CalendarEntry[];
+
+    const unique = new Map<string, CalendarEntry>();
+    [...harvestEntries, ...mapOrders(farmerOrders, false), ...mapOrders(b2bOrders, true), ...contractEntries].forEach(entry => {
+      if (!unique.has(entry.id)) unique.set(entry.id, entry);
+    });
+    return Array.from(unique.values());
+  }, [plans, batches, farmerOrders, b2bOrders, activeContracts]);
 
   const crops = useMemo(() => Array.from(new Set(entries.map(entry => entry.cropName))).sort(), [entries]);
   const filteredEntries = useMemo(() => entries.filter(entry =>
     (cropFilter === "all" || entry.cropName === cropFilter) &&
-    (statusFilter === "all" || (statusFilter === "preharvest" ? ["planned", "preorder"].includes(entry.status) : ["harvested", "batched", "quality_approved"].includes(entry.status)))
+    (statusFilter === "all" ||
+      (statusFilter === "preharvest" ? entry.eventType === "preharvest" :
+      statusFilter === "harvested" ? entry.eventType === "harvest" : entry.eventType === statusFilter))
   ), [entries, cropFilter, statusFilter]);
 
   const monthStart = new Date(monthCursor.getFullYear(), monthCursor.getMonth(), 1);
