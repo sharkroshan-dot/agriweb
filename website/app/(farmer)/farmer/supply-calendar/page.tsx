@@ -216,7 +216,7 @@ export default function FarmerSupplyCalendarPage() {
   const calendarStart = new Date(monthStart);
   calendarStart.setDate(calendarStart.getDate() - calendarStart.getDay());
   const daysInMonth = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 0).getDate();
-  const calendarCellCount = Math.ceil((monthStart.getDay() + daysInMonth) / 7) * 7;
+  const calendarCellCount = 42;
   const monthCells = Array.from({ length: calendarCellCount }, (_, index) => {
     const date = new Date(calendarStart);
     date.setDate(calendarStart.getDate() + index);
@@ -348,45 +348,75 @@ export default function FarmerSupplyCalendarPage() {
                 )) : <div className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">No crop plans match these filters for {monthLabel}.</div>}
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-7 gap-2">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => (
-                    <div key={day} className="rounded-md bg-slate-50 py-2 text-center text-[10px] font-bold uppercase tracking-wide text-slate-500 sm:text-[11px]">{day}</div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-2">
-                  {visibleDates.map(date => {
-                    const key = dateKey(date);
-                    const dayEntries = filteredEntries.filter(entry => entry.dateKey === key);
-                    const inMonth = date.getMonth() === monthCursor.getMonth();
-                    const isSelected = key === selectedDate;
-                    const isToday = key === dateKey(new Date());
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => { setSelectedDate(key); if (view === "week") setMonthCursor(new Date(date.getFullYear(), date.getMonth(), 1)); }}
-                        className={cn(
-                          "flex min-h-[126px] min-w-0 flex-col rounded-lg border p-1.5 text-left transition sm:min-h-[150px] sm:p-2",
-                          inMonth || view === "week" ? "border-slate-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/30" : "border-slate-100 bg-slate-50/70",
-                          isSelected && "border-emerald-500 bg-emerald-50/50 ring-2 ring-inset ring-emerald-500",
-                          isToday && !isSelected && "border-emerald-300 bg-emerald-50/40"
-                        )}
-                      >
-                        <span className={cn(
-                          "mb-1.5 inline-flex h-6 min-w-6 shrink-0 items-center justify-center self-start rounded-full px-1.5 text-[11px] font-bold",
-                          isToday ? "bg-emerald-700 text-white" : inMonth || view === "week" ? "bg-slate-100 text-slate-700" : "text-slate-300"
-                        )}>{date.getDate()}</span>
-                        <div className="flex w-full min-w-0 flex-1 flex-col gap-1">
-                          {dayEntries.slice(0, 3).map(entry => renderEntry(entry, true))}
-                          {dayEntries.length > 3 && (
-                            <span className="mt-auto block rounded bg-slate-100 px-1.5 py-1 text-[9px] font-semibold text-slate-600">+{dayEntries.length - 3} more</span>
+              <div className="overflow-x-auto p-3 sm:p-4">
+                <div className="min-w-[760px]">
+                  <div className="grid grid-cols-7 overflow-hidden rounded-t-xl border border-slate-200 bg-slate-50">
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => (
+                      <div key={day} className={cn("py-3.5 text-center text-xs font-extrabold uppercase tracking-[0.14em]", index === 0 || index === 6 ? "bg-emerald-50/70 text-emerald-800" : "text-slate-600")}>{day}</div>
+                    ))}
+                  </div>
+                  <div className={cn("grid grid-cols-7 overflow-hidden rounded-b-xl border-x border-b border-slate-200", view === "week" ? "auto-rows-[176px]" : "auto-rows-[112px]")}>
+                    {visibleDates.map(date => {
+                      const key = dateKey(date);
+                      const dayEntries = filteredEntries
+                        .filter(entry => entry.dateKey === key)
+                        .sort((a, b) => a.cropName.localeCompare(b.cropName));
+                      const inMonth = date.getMonth() === monthCursor.getMonth();
+                      const isSelected = key === selectedDate;
+                      const isToday = key === dateKey(new Date());
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => { setSelectedDate(key); if (view === "week") setMonthCursor(new Date(date.getFullYear(), date.getMonth(), 1)); }}
+                          className={cn(
+                            "group relative flex min-w-0 flex-col items-stretch gap-1.5 border-b border-r border-slate-200 p-2 text-left transition-all duration-150",
+                            !inMonth && view === "month" && "bg-slate-50/60",
+                            inMonth && !isSelected && "bg-white hover:bg-emerald-50/50",
+                            isSelected && "z-[1] bg-emerald-50/80 shadow-[inset_0_0_0_2px_#059669]",
+                            isToday && !isSelected && "bg-emerald-50/40"
                           )}
-                        </div>
-                        {dayEntries.length === 0 && <span className="mt-1 text-[9px] text-slate-300">No activities</span>}
-                      </button>
-                    );
-                  })}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded-lg text-xs font-extrabold tabular-nums transition-colors",
+                              isToday ? "bg-emerald-700 text-white shadow-sm" : isSelected ? "bg-emerald-100 text-emerald-900" : inMonth || view === "week" ? "text-slate-800 group-hover:bg-emerald-100" : "text-slate-300"
+                            )}>{date.getDate()}</span>
+                            {dayEntries.length > 0 && (
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[9px] font-bold tabular-nums text-slate-600 shadow-sm">
+                                {dayEntries.length} {dayEntries.length === 1 ? "item" : "items"}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex min-w-0 flex-col gap-1">
+                            {dayEntries.slice(0, 2).map(entry => {
+                              const meta = statusMeta[entry.status] || statusMeta.planned;
+                              const quantity = entry.actualQuantityKg ?? entry.expectedQuantityKg;
+                              return (
+                                <span key={entry.id} title={`${entry.cropName} · ${entry.orderType || meta.short}`} className={cn(
+                                  "block min-w-0 overflow-hidden rounded-md border border-l-[3px] px-2 py-1 text-xs font-bold leading-4 shadow-sm",
+                                  meta.className,
+                                  entry.status === "planned" ? "border-l-violet-500" : entry.status === "preorder" ? "border-l-blue-500" : entry.status === "harvested" ? "border-l-emerald-500" : entry.status === "batched" ? "border-l-amber-500" : "border-l-green-600"
+                                )}>
+                                  <span className="block truncate">{entry.cropName}</span>
+                                  <span className="mt-0.5 flex items-center justify-between gap-1 text-[10px] font-semibold leading-3 opacity-85">
+                                    <span className="truncate">{quantity > 0 ? `${quantity} kg` : entry.orderType || meta.short}</span>
+                                    <span className="shrink-0">{entry.orderType || meta.short}</span>
+                                  </span>
+                                </span>
+                              );
+                            })}
+                            {dayEntries.length > 2 && (
+                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold text-emerald-800">+{dayEntries.length - 2} more</span>
+                            )}
+                          </div>
+                          {dayEntries.length === 0 && isSelected && (
+                            <span className="mt-auto text-[10px] font-medium text-emerald-700">Selected day</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
