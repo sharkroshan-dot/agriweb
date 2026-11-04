@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Sprout, Loader2, CloudSun, Thermometer, Droplets, TreePine, RefreshCcw, MapPin, LocateFixed } from "lucide-react";
 import { api } from "../../../lib/api/client";
+import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
 import { cn } from "../../../lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../components/ui/card";
 import { Button } from "../../../components/ui/button";
@@ -221,168 +222,232 @@ export default function FarmerCropAdvisorPage() {
         : "bg-slate-100 text-slate-600";
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Crop Advisor</h1>
-        <p className="text-gray-500">
-          AI recommends the best crops for your soil, season, weather and field.
-        </p>
-      </div>
+    <div className="w-full min-w-0 space-y-5 pb-8">
+      <FarmerPageHeader
+        eyebrow="Farm planning & decision support"
+        title="Crop Advisor"
+        description="Get crop suggestions based on your soil, local climate, season and field size."
+      >
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 border-slate-200 bg-white"
+          onClick={() => advisorMutation.reset()}
+          disabled={!advisorMutation.data && !advisorMutation.isError}
+        >
+          <RefreshCcw className="mr-2 h-4 w-4" /> Reset results
+        </Button>
+      </FarmerPageHeader>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TreePine className="h-5 w-5 text-emerald-600" />
-            Field &amp; Climate Inputs
-          </CardTitle>
-          <CardDescription>Enter your field conditions to get personalised crop suggestions.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Soil type</label>
-            <Select value={form.soilType} onValueChange={(v) => setForm({ ...form, soilType: v })}>
-              <SelectContent>
-                {SOIL_TYPES.map((s) => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-              <MapPin className="h-3 w-3" /> Location
-            </label>
-            <div className="flex gap-2">
-              <Input
-                className="min-w-0"
-                value={form.location}
-                onChange={(e) => {
-                  setLocationSource("manual");
-                  setCoordinates(null);
-                  setForm({ ...form, location: e.target.value });
-                }}
-                placeholder="e.g. Coimbatore"
-              />
-              <Button type="button" variant="outline" onClick={useLiveLocation} disabled={locationLoading} title="Use live location">
-                {locationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LocateFixed className="h-4 w-4" />}
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.75fr)]">
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardHeader className="border-b border-slate-100 bg-slate-50/70 p-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                <TreePine className="h-5 w-5" />
+              </span>
+              <div>
+                <CardTitle className="text-base text-slate-950">Your farm conditions</CardTitle>
+                <CardDescription className="mt-1">Add accurate field details for more relevant recommendations.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5 p-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">Soil type</label>
+                <Select value={form.soilType} onValueChange={(v) => setForm({ ...form, soilType: v })}>
+                  <SelectContent>
+                    {SOIL_TYPES.map((s) => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><RefreshCcw className="h-3.5 w-3.5" /> Season</label>
+                <Select value={form.season} onValueChange={(v) => setForm({ ...form, season: v })}>
+                  <SelectContent>
+                    {SEASONS.map((s) => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPin className="h-3.5 w-3.5" /> Farm location</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    className="min-w-0 bg-white"
+                    value={form.location}
+                    onChange={(e) => {
+                      setLocationSource("manual");
+                      setCoordinates(null);
+                      setLocationAccuracy(null);
+                      setForm({ ...form, location: e.target.value });
+                    }}
+                    placeholder="Enter village, town or city"
+                  />
+                  <Button type="button" variant="outline" className="shrink-0" onClick={useLiveLocation} disabled={locationLoading}>
+                    {locationLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LocateFixed className="mr-2 h-4 w-4" />}
+                    Use live location
+                  </Button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  {locationSource === "live"
+                    ? locationAccuracy != null
+                      ? `GPS location detected · accuracy ±${Math.round(locationAccuracy)} m`
+                      : "Detecting your current location..."
+                    : "Location helps retrieve local weather conditions."}
+                </p>
+                {locationError && <p role="status" className="text-xs text-rose-600">{locationError}</p>}
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Thermometer className="h-3.5 w-3.5" /> Temperature (°C)</label>
+                <div className="relative">
+                  <Input type="number" value={form.temperature} onChange={(e) => setForm({ ...form, temperature: e.target.value })} className="bg-white pr-9" />
+                  {weatherQuery.isFetching && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-sky-600" />}
+                </div>
+                <p className="text-[11px] text-slate-500">{weatherQuery.data?.weather?.temperature != null ? "Updated using local weather data." : "Enter manually or fetch using your location."}</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600"><Droplets className="h-3.5 w-3.5" /> Rainfall (mm)</label>
+                <Input type="number" min="0" value={form.rainfall} onChange={(e) => setForm({ ...form, rainfall: e.target.value })} className="bg-white" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">Previous crop</label>
+                <Select value={form.previousCrop} onValueChange={(v) => setForm({ ...form, previousCrop: v })}>
+                  <SelectContent>
+                    <SelectItem value="none">None / no previous crop</SelectItem>
+                    {previousCrops.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-slate-500">Harvested crops from your farm are listed here.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-600">Cultivation area (acres)</label>
+                <Input type="number" min="0.1" step="0.1" value={form.areaAcres} onChange={(e) => setForm({ ...form, areaAcres: e.target.value })} className="bg-white" />
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-slate-500">Check your inputs before generating crop suggestions.</p>
+              <Button className="h-11 w-full bg-emerald-700 px-6 hover:bg-emerald-800 sm:w-auto" onClick={run} disabled={advisorMutation.isPending || !form.location.trim() || Number(form.areaAcres) <= 0 || Number(form.temperature) < -20 || Number(form.rainfall) < 0}>
+                {advisorMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sprout className="mr-2 h-4 w-4" />}
+                {advisorMutation.isPending ? "Analysing farm..." : "Get crop recommendations"}
               </Button>
             </div>
-            <p className="text-[11px] text-gray-400">
-              {locationSource === "live"
-                ? locationAccuracy != null
-                  ? `Fresh GPS location • accuracy ±${Math.round(locationAccuracy)} m`
-                  : "Getting a fresh GPS location..."
-                : "Use live location to automatically get local weather."}
-            </p>
-            {locationError && <p className="text-[11px] text-red-500">{locationError}</p>}
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
-              <Thermometer className="h-3 w-3" /> Temperature (°C)
-            </label>
-            <div className="relative">
-              <Input type="number" value={form.temperature} onChange={(e) => setForm({ ...form, temperature: e.target.value })} />
-              {weatherQuery.isFetching && (
-                <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-sky-500" />
-              )}
-            </div>
-            <p className="text-[11px] text-gray-400">
-              {weatherQuery.data?.weather?.temperature != null
-                ? "Automatically updated from current local weather."
-                : "Enter a location or use live location to fetch temperature."}
-            </p>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500 flex items-center gap-1"><Droplets className="h-3 w-3" /> Rainfall (mm)</label>
-            <Input type="number" value={form.rainfall} onChange={(e) => setForm({ ...form, rainfall: e.target.value })} />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Season</label>
-            <Select value={form.season} onValueChange={(v) => setForm({ ...form, season: v })}>
-              <SelectContent>
-                {SEASONS.map((s) => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Previous crop</label>
-            <Select value={form.previousCrop} onValueChange={(v) => setForm({ ...form, previousCrop: v })}>
-              <SelectContent>
-                <SelectItem value="none">None / no previous crop</SelectItem>
-                {previousCrops.map((crop) => (
-                  <SelectItem key={crop} value={crop}>{crop}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">Area (acres)</label>
-            <Input type="number" min={0.1} step={0.1} value={form.areaAcres} onChange={(e) => setForm({ ...form, areaAcres: e.target.value })} />
-          </div>
-          <div className="flex items-end">
-            <Button className="w-full" onClick={run} disabled={advisorMutation.isPending}>
-              {advisorMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sprout className="mr-2 h-4 w-4" />}
-              Recommend Crops
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {advisorMutation.data && (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50/60 to-teal-50/40">
-              <CardContent className="p-4">
-                <p className="text-xs font-medium text-gray-500 flex items-center gap-1"><Sprout className="h-3 w-3 text-emerald-600" /> Best crop for you</p>
-                <p className="mt-1 text-2xl font-bold text-emerald-700">{data?.topCrop}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <p className="text-xs font-medium text-gray-500 flex items-center gap-1"><CloudSun className="h-3 w-3 text-sky-600" /> Soil health</p>
-                <p className="mt-1 text-sm text-slate-700">{data?.soilHealth}</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardContent className="space-y-2 p-4">
-              <p className="text-xs font-medium text-gray-500 flex items-center gap-1"><RefreshCcw className="h-3 w-3 text-violet-600" /> {data?.seasonInfo}</p>
-              <div className="space-y-2 pt-1">
-                {(data?.recommendations || []).map((rec: any, i: number) => (
-                  <div key={i} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{rec.crop}</p>
-                        <Badge className={cn("border", suitColor(rec.suitability))}>{rec.suitability}</Badge>
-                      </div>
-                      <p className="text-xs text-gray-500">Duration {rec.duration} · Soil {rec.soil} · Season {rec.season}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex flex-col items-end">
-                        <p className="text-sm font-bold text-emerald-600">{rec.score}/100</p>
-                        <div className="h-1.5 w-28 overflow-hidden rounded-full bg-gray-100">
-                          <div className={cn("h-full rounded-full", rec.score >= 70 ? "bg-emerald-500" : rec.score >= 50 ? "bg-amber-500" : "bg-red-500")} style={{ width: `${rec.score}%` }} />
-                        </div>
-                      </div>
-                    </div>
-                    {rec.reasons?.length > 0 && (
-                      <p className="w-full text-xs text-gray-500">{rec.reasons.join(" · ")}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </>
-      )}
-
-      {!advisorMutation.data && !advisorMutation.isPending && (
-        <Card>
-          <CardContent className="flex flex-col items-center py-16 text-center">
-            <Sprout className="h-10 w-10 text-gray-300" />
-            <p className="mt-3 font-medium text-gray-600">No recommendations yet</p>
-            <p className="text-sm text-gray-400">Fill in your field details and click "Recommend Crops".</p>
+            {advisorMutation.isError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">We couldn't generate recommendations. Please check your details and try again.</p>}
           </CardContent>
         </Card>
+
+        <div className="space-y-4">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm"><CloudSun className="h-4 w-4 text-sky-600" /> Local weather</CardTitle>
+              <CardDescription>Weather information used to inform your crop advice.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
+                <span className="text-xs text-slate-600">Temperature</span>
+                <span className="text-sm font-semibold text-slate-900">{weatherQuery.data?.weather?.temperature != null ? `${weatherQuery.data.weather.temperature} °C` : `${form.temperature || "—"} °C`}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-3">
+                <span className="text-xs text-slate-600">Rainfall input</span>
+                <span className="text-sm font-semibold text-slate-900">{form.rainfall || "—"} mm</span>
+              </div>
+              <div className="flex items-start gap-2 text-xs leading-5 text-slate-500">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{form.location.trim() || "Add your farm location to retrieve local weather."}</span>
+              </div>
+              {weatherQuery.isError && <p className="text-xs text-amber-700">Live weather is unavailable. You can still enter conditions manually.</p>}
+              {weatherQuery.data?.weather?.temperature != null && <Badge variant="success">Weather data received</Badge>}
+            </CardContent>
+          </Card>
+          <Card className="border-emerald-100 bg-emerald-50/50 shadow-none">
+            <CardContent className="p-4">
+              <p className="flex items-center gap-2 text-sm font-semibold text-emerald-900"><Sprout className="h-4 w-4" /> Better recommendations</p>
+              <ul className="mt-2 space-y-2 text-xs leading-5 text-emerald-900/80">
+                <li>• Select the correct soil type for your field.</li>
+                <li>• Use your current location for local weather context.</li>
+                <li>• Choose the previous crop to support crop-rotation guidance.</li>
+                <li>• Enter the actual area you plan to cultivate.</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {advisorMutation.data ? (
+        <section className="space-y-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Your farm analysis</p>
+              <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-950">Recommended crops</h2>
+              <p className="mt-1 text-sm text-slate-500">{data?.seasonInfo || "Suggestions based on the field conditions you entered."}</p>
+            </div>
+            <Badge variant="outline" className="w-fit border-emerald-200 bg-white text-emerald-800">AI-assisted advisory</Badge>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="border-emerald-200 shadow-sm">
+              <CardContent className="flex items-start gap-3 p-5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700"><Sprout className="h-5 w-5" /></span>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Top crop suggestion</p>
+                  <p className="mt-1 text-2xl font-bold text-emerald-800">{data?.topCrop || "Review recommendations"}</p>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="flex items-start gap-3 p-5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700"><CloudSun className="h-5 w-5" /></span>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Soil health insight</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700">{data?.soilHealth || "No soil health insight returned."}</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="grid gap-3">
+            {(data?.recommendations || []).map((rec: any, i: number) => (
+              <Card key={rec.crop || i} className="border-slate-200 shadow-sm transition-shadow hover:shadow-md">
+                <CardContent className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center sm:p-5">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Sprout className="h-4 w-4" /></span>
+                      <h3 className="text-base font-semibold text-slate-950">{rec.crop}</h3>
+                      <Badge className={cn("border-0 capitalize", suitColor(rec.suitability))}>{rec.suitability || "Suitability not rated"}</Badge>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
+                      <span><strong className="text-slate-800">Duration:</strong> {rec.duration || "—"}</span>
+                      <span><strong className="text-slate-800">Soil:</strong> {rec.soil || "—"}</span>
+                      <span><strong className="text-slate-800">Season:</strong> {rec.season || "—"}</span>
+                    </div>
+                    {rec.reasons?.length > 0 && <p className="mt-3 text-xs leading-5 text-slate-500">{rec.reasons.join(" · ")}</p>}
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-slate-600">Suitability score</span>
+                      <span className="text-sm font-bold tabular-nums text-slate-900">{Number.isFinite(Number(rec.score)) ? `${rec.score}/100` : "—"}</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                      <div className={cn("h-full rounded-full", Number(rec.score) >= 70 ? "bg-emerald-500" : Number(rec.score) >= 50 ? "bg-amber-500" : "bg-rose-500")} style={{ width: `${Math.max(0, Math.min(100, Number(rec.score) || 0))}%` }} />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+            {(!data?.recommendations || data.recommendations.length === 0) && (
+              <Card className="border-dashed border-slate-300 shadow-none"><CardContent className="py-10 text-center text-sm text-slate-500">No crop recommendations were returned for these inputs. Adjust your field conditions and try again.</CardContent></Card>
+            )}
+          </div>
+          <p className="text-xs leading-5 text-slate-500">These suggestions are decision-support guidance, not a guarantee of yield or profit. Confirm local suitability, seed availability and advice from an agricultural extension professional before planting.</p>
+        </section>
+      ) : !advisorMutation.isPending ? (
+        <Card className="border-dashed border-slate-300 bg-white shadow-none">
+          <CardContent className="flex flex-col items-center px-5 py-12 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700"><Sprout className="h-7 w-7" /></span>
+            <h2 className="mt-3 text-base font-semibold text-slate-900">Your crop recommendations will appear here</h2>
+            <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">Complete your farm conditions and select Get crop recommendations to see suitable crops, suitability scores and growing details.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-slate-200 shadow-none"><CardContent className="flex items-center justify-center gap-3 py-10 text-sm text-slate-600"><Loader2 className="h-5 w-5 animate-spin text-emerald-700" /> Analysing your farm conditions...</CardContent></Card>
       )}
     </div>
   );
