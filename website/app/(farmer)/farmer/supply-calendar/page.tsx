@@ -256,8 +256,8 @@ export default function FarmerSupplyCalendarPage() {
         onClick={() => setSelectedDate(entry.dateKey)}
         className={cn("w-full min-w-0 rounded-lg border-l-[3px] px-2 py-1.5 text-left transition hover:shadow-sm", meta.className, entry.status === "planned" ? "border-l-violet-500" : entry.status === "preorder" ? "border-l-blue-500" : entry.status === "harvested" ? "border-l-emerald-500" : entry.status === "batched" ? "border-l-amber-500" : "border-l-green-600")}
       >
-        <span className="block truncate text-[11px] font-semibold">{entry.cropName}</span>
-        <span className="mt-0.5 block truncate text-[10px] opacity-80">{quantity > 0 ? `${quantity} kg` : "Quantity not set"} · {meta.short}</span>
+        <span className="block truncate text-[11px] font-semibold">{quantity > 0 ? `${quantity} kg ` : ""}{entry.cropName}</span>
+        <span className="mt-0.5 block truncate text-[10px] opacity-80">{entry.orderType || meta.short}</span>
         {!compact && entry.preOrderCount > 0 && <span className="block truncate text-[10px] opacity-75">{entry.preOrderCount} pre-order(s)</span>}
       </button>
     );
@@ -301,9 +301,13 @@ export default function FarmerSupplyCalendarPage() {
                   {crops.map(crop => <option key={crop} value={crop}>{crop}</option>)}
                 </select>
                 <select aria-label="Filter by stage" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="h-9 min-w-[145px] rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-emerald-500">
-                  <option value="all">All stages</option>
+                  <option value="all">All event types</option>
                   <option value="preharvest">Pre-harvest</option>
-                  <option value="harvested">Harvested &amp; batched</option>
+                  <option value="harvested">Harvested</option>
+                  <option value="farm_pickup">Farm pickup</option>
+                  <option value="warehouse_delivery">Warehouse delivery</option>
+                  <option value="business_delivery">Business delivery</option>
+                  <option value="retail_delivery">Retail delivery</option>
                 </select>
                 <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
                   {(["month", "week", "list"] as const).map(mode => (
