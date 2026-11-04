@@ -206,7 +206,7 @@ export default function FarmerWeatherPage() {
               <SelectContent>{CROPS.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="h-10 bg-emerald-700 px-5 text-sm font-semibold text-white shadow-none hover:bg-emerald-800">
+          <Button onClick={run} disabled={weatherMutation.isPending || locating} className="h-10 self-start bg-emerald-700 px-5 text-sm font-semibold text-white shadow-none hover:bg-emerald-800 lg:mt-[22px]">
             {weatherMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
             {data ? "Refresh weather" : "Check weather"}
           </Button>
