@@ -533,7 +533,7 @@ export default function FarmerCropAdvisorPage() {
                       {rec.plantingGuidance && (
                         <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                           <p className="text-sm font-bold text-emerald-900">Before you start</p>
-                          <p className="mt-1 text-sm leading-6 text-emerald-900">{rec.plantingGuidance}</p>
+                          <p className="mt-1 text-xs leading-5 text-emerald-900">{rec.plantingGuidance}</p>
                         </div>
                       )}
                     </div>
