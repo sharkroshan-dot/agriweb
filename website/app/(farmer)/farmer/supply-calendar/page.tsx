@@ -277,10 +277,10 @@ export default function FarmerSupplyCalendarPage() {
       />
 
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Metric label="Planned supply" value={monthSupplyKg.toLocaleString("en-IN")} unit="kg" hint={monthLabel} icon={Boxes} tone="bg-emerald-50 text-emerald-700" />
-        <Metric label="Pre-harvest plans" value={preHarvestCount} hint="Expected this month" icon={Sprout} tone="bg-violet-50 text-violet-700" />
-        <Metric label="Harvested crops" value={harvestedCount} hint="Recorded this month" icon={Wheat} tone="bg-blue-50 text-blue-700" />
-        <Metric label="Pre-orders" value={preorderCount} hint="Linked to harvest plans" icon={TrendingUp} tone="bg-amber-50 text-amber-700" />
+        <Metric label="Total planned supply" value={monthSupplyKg.toLocaleString("en-IN")} unit="kg" hint={monthLabel} icon={Boxes} tone="bg-emerald-50 text-emerald-700" />
+        <Metric label="Harvest tasks" value={harvestTaskCount} hint={`${preHarvestCount} pre-harvest · ${harvestedCount} harvested`} icon={Sprout} tone="bg-blue-50 text-blue-700" />
+        <Metric label="Deliveries & pickups" value={deliveryCount} hint="Scheduled this month" icon={Truck} tone="bg-amber-50 text-amber-700" />
+        <Metric label="Recurring contracts" value={activeContracts.length} hint="Active supply agreements" icon={CalendarDays} tone="bg-violet-50 text-violet-700" />
       </section>
 
       <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
