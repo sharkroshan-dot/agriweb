@@ -52,6 +52,12 @@ export default function FarmerWeatherPage() {
     retry: 1,
   });
 
+  const { data: batchesData, isLoading: batchesLoading, isError: batchesError } = useQuery({
+    queryKey: ["farmerWeatherBatches"],
+    queryFn: () => api.get("/batches"),
+    retry: 1,
+  });
+
   const useCurrentLocation = () => {
     setLocating(true);
     setLocationError(null);
@@ -91,6 +97,7 @@ export default function FarmerWeatherPage() {
   const forecast = Array.isArray(data?.forecast) ? data.forecast : [];
   const alerts = Array.isArray(data?.alerts) ? data.alerts : [];
   const products = (stockData as any)?.data?.products || [];
+  const batches = (batchesData as any)?.data?.batches || [];
   const riskLevel = (data?.impactScore ?? 0) >= 0.7 ? "High attention" : (data?.impactScore ?? 0) >= 0.35 ? "Some attention" : "Low weather risk";
   const riskClass = (data?.impactScore ?? 0) >= 0.7 ? "bg-rose-100 text-rose-800" : (data?.impactScore ?? 0) >= 0.35 ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800";
 
@@ -183,6 +190,27 @@ export default function FarmerWeatherPage() {
           </div>
         ) : <Card><CardContent className="p-5 text-sm text-slate-600">No product stock is currently listed. Add products and stock in Inventory to see them here.</CardContent></Card>}
         <p className="text-xs text-slate-500">Storage ranges are general guidance and vary by variety, maturity, packaging and storage duration. Confirm the correct conditions with local agricultural or post-harvest guidance.</p>
+      </section>
+
+      <section className="space-y-3">
+        <div><h2 className="flex items-center gap-2 text-lg font-bold text-slate-900"><CalendarDays className="h-5 w-5 text-amber-700" /> Harvest batch freshness and expiry</h2><p className="text-sm text-slate-500">These dates come from your Batches &amp; Traceability records.</p></div>
+        {batchesLoading ? <Card><CardContent className="p-4 text-sm text-slate-500">Checking your harvest batches…</CardContent></Card> : batchesError ? <Card><CardContent className="p-4 text-sm text-amber-700">Batch freshness information is temporarily unavailable. Open Batches &amp; Traceability to verify expiry dates.</CardContent></Card> : batches.length ? (
+          <div className="grid gap-3 md:grid-cols-2">
+            {batches.filter((b: any) => Number(b.remainingKg ?? b.quantityKg ?? 0) > 0).slice(0, 8).map((b: any) => {
+              const status = b.freshness?.status || "unknown";
+              const days = b.freshness?.daysRemaining;
+              const expired = status === "expired";
+              const urgent = status === "expiring" || (typeof days === "number" && days <= 2);
+              return <Card key={b.id || b._id} className={cn("shadow-none", expired ? "border-rose-200 bg-rose-50/40" : urgent ? "border-amber-200 bg-amber-50/40" : "border-slate-200")}>
+                <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+                  <div><p className="font-semibold text-slate-900">{b.cropName || "Harvest batch"}</p><p className="text-xs text-slate-500">{b.lotNumber || "Batch"} · {b.remainingKg ?? b.quantityKg ?? "—"} kg remaining</p><p className="mt-1 text-xs text-slate-600">Expires: {b.expiresAt ? new Date(b.expiresAt).toLocaleDateString("en-IN") : "Not recorded"}</p></div>
+                  <Badge className={expired ? "bg-rose-100 text-rose-800" : urgent ? "bg-amber-100 text-amber-800" : status === "fresh" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}>{expired ? "Expired" : urgent ? `Expiring · ${days ?? "soon"} day(s)` : status === "fresh" ? `Fresh · ${days ?? "—"} day(s) left` : "Check batch record"}</Badge>
+                </CardContent>
+              </Card>;
+            })}
+          </div>
+        ) : <Card><CardContent className="p-4 text-sm text-slate-600">No harvest batches found yet. Create batches from harvested crops to monitor their freshness and expiry here.</CardContent></Card>}
+        <p className="text-xs text-slate-500">Expiry estimates use the harvest date and shelf life recorded when the batch was created. Inspect produce physically before selling or discarding it.</p>
       </section>
 
       <section className="space-y-3">
