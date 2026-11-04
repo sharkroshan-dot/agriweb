@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sprout,
   CalendarDays,
@@ -447,24 +447,34 @@ export default function FarmerHarvestPlannerPage() {
 
   const groupedLocations = Array.from(locationGroups.entries());
 
-  const reverseGeocodeQueries = useQueries({
-    queries: groupedLocations.map(([key, group]) => ({
-      queryKey: ["harvestPlannerReverseGeocode", key],
-      queryFn: async () => {
-        const response = await api.get("/delivery-slots/reverse-geocode", {
-          params: { lat: group.lat, lng: group.lng },
-        });
-        return response?.data?.data?.area || response?.data?.area || null;
-      },
-      enabled: Number.isFinite(group.lat) && Number.isFinite(group.lng),
-      staleTime: 24 * 60 * 60 * 1000,
-      gcTime: 7 * 24 * 60 * 60 * 1000,
-      retry: 1,
-    })),
+  const reverseGeocodeQuery = useQuery({
+    queryKey: ["harvestPlannerReverseGeocode", groupedLocations.map(([key]) => key)],
+    queryFn: async () => {
+      const resolved: Record<string, string | null> = {};
+      for (let index = 0; index < groupedLocations.length; index += 1) {
+        const [key, group] = groupedLocations[index];
+        // Public Nominatim requires at most one request per second per application.
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, 1100));
+        try {
+          const response = await api.get("/delivery-slots/reverse-geocode", {
+            params: { lat: group.lat, lng: group.lng },
+          });
+          const area = response?.data?.data?.area || response?.data?.area || null;
+          resolved[key] = typeof area === "string" && !isCoordinateOnlyLabel(area) ? area : null;
+        } catch {
+          resolved[key] = null;
+        }
+      }
+      return resolved;
+    },
+    enabled: groupedLocations.length > 0,
+    staleTime: 24 * 60 * 60 * 1000,
+    gcTime: 7 * 24 * 60 * 60 * 1000,
+    retry: false,
   });
 
   const isCoordinateOnlyLabel = (value: unknown) =>
-    typeof value === "string" && /^-?\\d+(?:\\.\\d+)?\\s*,\\s*-?\\d+(?:\\.\\d+)?$/.test(value.trim());
+    typeof value === "string" && /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(value.trim());
 
   const exactLocationName = (
     group: { lat: number; lng: number; plans: CropPlan[]; usesFarmFallback: boolean },
@@ -478,7 +488,7 @@ export default function FarmerHarvestPlannerPage() {
       .filter((value): value is string =>
         typeof value === "string" && value.trim().length > 0 && !isCoordinateOnlyLabel(value)
       );
-    const reverseGeocodedName = reverseGeocodeQueries[groupIndex]?.data;
+    const reverseGeocodedName = reverseGeocodeQuery.data?.[groupedLocations[groupIndex]?.[0]];
     const fieldNames = Array.from(new Set(group.plans.map((plan) => plan.fieldName?.trim()).filter(Boolean)));
     const profileAddress = [
       farmerProfile.farmAddress,
