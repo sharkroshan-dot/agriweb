@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useQueries } from "@tanstack/react-query";
 import {
   Sprout,
   CalendarDays,
@@ -447,13 +447,38 @@ export default function FarmerHarvestPlannerPage() {
 
   const groupedLocations = Array.from(locationGroups.entries());
 
-  const exactLocationName = (group: { lat: number; lng: number; plans: CropPlan[]; usesFarmFallback: boolean }) => {
+  const reverseGeocodeQueries = useQueries({
+    queries: groupedLocations.map(([key, group]) => ({
+      queryKey: ["harvestPlannerReverseGeocode", key],
+      queryFn: async () => {
+        const response = await api.get("/delivery-slots/reverse-geocode", {
+          params: { lat: group.lat, lng: group.lng },
+        });
+        return response?.data?.data?.area || response?.data?.area || null;
+      },
+      enabled: Number.isFinite(group.lat) && Number.isFinite(group.lng),
+      staleTime: 24 * 60 * 60 * 1000,
+      gcTime: 7 * 24 * 60 * 60 * 1000,
+      retry: 1,
+    })),
+  });
+
+  const isCoordinateOnlyLabel = (value: unknown) =>
+    typeof value === "string" && /^-?\\d+(?:\\.\\d+)?\\s*,\\s*-?\\d+(?:\\.\\d+)?$/.test(value.trim());
+
+  const exactLocationName = (
+    group: { lat: number; lng: number; plans: CropPlan[]; usesFarmFallback: boolean },
+    groupIndex: number
+  ) => {
     const savedAddresses = group.plans
       .map((plan) => {
         const location = plan.location || {};
         return location.address || location.formattedAddress || location.displayName || location.placeName;
       })
-      .filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+      .filter((value): value is string =>
+        typeof value === "string" && value.trim().length > 0 && !isCoordinateOnlyLabel(value)
+      );
+    const reverseGeocodedName = reverseGeocodeQueries[groupIndex]?.data;
     const fieldNames = Array.from(new Set(group.plans.map((plan) => plan.fieldName?.trim()).filter(Boolean)));
     const profileAddress = [
       farmerProfile.farmAddress,
@@ -465,6 +490,7 @@ export default function FarmerHarvestPlannerPage() {
     ].filter((value) => typeof value === "string" && value.trim().length > 0).join(", ");
 
     return savedAddresses[0]
+      || (typeof reverseGeocodedName === "string" && reverseGeocodedName.trim() ? reverseGeocodedName : "")
       || (group.usesFarmFallback ? profileAddress : "")
       || fieldNames.join(", ")
       || `GPS ${group.lat.toFixed(6)}, ${group.lng.toFixed(6)}`;
@@ -480,7 +506,7 @@ export default function FarmerHarvestPlannerPage() {
       const stage = STAGES[getStageIndex(plan)]?.label || "Cancelled";
       return `${plan.cropName} — ${stage} — Harvest ${formatDate(plan.expectedHarvestDate)} — ${Number(plan.expectedQuantityKg || 0)} kg`;
     }).join(" | ");
-    const locationName = exactLocationName(group);
+    const locationName = exactLocationName(group, index);
 
     return {
       id: `harvest-location-${index + 1}-${key}`,
@@ -723,8 +749,8 @@ export default function FarmerHarvestPlannerPage() {
               />
 
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {groupedLocations.map(([key, group]) => {
-                  const locationName = exactLocationName(group);
+                {groupedLocations.map(([key, group], groupIndex) => {
+                  const locationName = exactLocationName(group, groupIndex);
                   const coordinates = exactLocationCoordinates(group);
                   const mapUrl = `https://www.google.com/maps?q=${group.lat},${group.lng}`;
                   const fieldNames = Array.from(new Set(group.plans.map((plan) => plan.fieldName?.trim()).filter(Boolean)));
