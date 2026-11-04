@@ -230,9 +230,12 @@ export default function FarmerSupplyCalendarPage() {
     .slice(0, 6);
 
   const monthEntries = filteredEntries.filter(entry => entry.date.getMonth() === monthCursor.getMonth() && entry.date.getFullYear() === monthCursor.getFullYear());
-  const monthSupplyKg = monthEntries.reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0);
-  const harvestedCount = monthEntries.filter(entry => ["harvested", "batched", "quality_approved"].includes(entry.status)).length;
-  const preHarvestCount = monthEntries.filter(entry => ["planned", "preorder"].includes(entry.status)).length;
+  const cropPlanEntries = monthEntries.filter(entry => entry.eventType === "harvest" || entry.eventType === "preharvest");
+  const monthSupplyKg = cropPlanEntries.reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0);
+  const harvestedCount = monthEntries.filter(entry => entry.eventType === "harvest").length;
+  const preHarvestCount = monthEntries.filter(entry => entry.eventType === "preharvest").length;
+  const deliveryCount = monthEntries.filter(entry => ["farm_pickup", "warehouse_delivery", "business_delivery", "retail_delivery"].includes(entry.eventType || "")).length;
+  const harvestTaskCount = harvestedCount + preHarvestCount;
   const preorderCount = monthEntries.reduce((sum, entry) => sum + entry.preOrderCount, 0);
   const monthLabel = monthCursor.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
 
