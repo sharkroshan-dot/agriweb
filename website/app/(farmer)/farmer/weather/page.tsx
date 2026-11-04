@@ -153,7 +153,11 @@ export default function FarmerWeatherPage() {
   };
 
   const run = () => {
-    if (!cropOptions.length) {\n      toast.error("Add a pre-harvest crop in Harvest Planner or record a harvested crop batch first.");\n      return;\n    }\n    if (!coordinates && !location.trim()) {
+    if (!cropOptions.length) {
+      toast.error("Add a pre-harvest crop in Harvest Planner or record a harvested crop batch first.");
+      return;
+    }
+    if (!coordinates && !location.trim()) {
       setLocationError("Enter your village or town, or use the location button.");
       return;
     }
