@@ -470,37 +470,90 @@ export default function FarmerCropAdvisorPage() {
               </CardContent>
             </Card>
           </div>
-          <div className="space-y-5">
+          <div className="space-y-4">
             {(data?.recommendations || []).map((rec: any, i: number) => (
-              <Card key={rec.crop || i} className="border-slate-200 shadow-sm transition-shadow hover:shadow-md">
-                <CardContent className="grid gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center sm:p-5">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700"><Sprout className="h-4 w-4" /></span>
-                      <h3 className="text-base font-semibold text-slate-950">{rec.crop}</h3>
-                      <Badge className={cn("border-0 capitalize", suitColor(rec.suitability))}>{rec.suitability || "Suitability not rated"}</Badge>
+              <Card key={rec.crop || i} className="overflow-hidden border-slate-200 shadow-sm">
+                <CardContent className="p-4 sm:p-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+                        <Sprout className="h-5 w-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Crop suggestion {i + 1}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-bold text-slate-950">{rec.crop}</h3>
+                          <Badge className={cn("border-0 capitalize", suitColor(rec.suitability))}>{rec.suitability === "high" ? "Good match" : rec.suitability === "moderate" ? "Possible match" : rec.suitability === "low" ? "Less suitable" : "Not rated"}</Badge>
+                        </div>
+                      </div>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600">
-                      <span><strong className="text-slate-800">Duration:</strong> {rec.duration || "—"}</span>
-                      <span><strong className="text-slate-800">Soil:</strong> {rec.soil || "—"}</span>
-                      <span><strong className="text-slate-800">Season:</strong> {rec.season || "—"}</span>
-                    </div>
-                    {rec.reasons?.length > 0 && <p className="mt-3 text-xs leading-5 text-slate-600"><strong className="text-slate-800">Why it fits:</strong> {rec.reasons.join(" · ")}</p>}
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-600">
-                      {rec.waterNeed && <span className="rounded-md bg-sky-50 px-2 py-1">Water need: {rec.waterNeed}</span>}
-                      {rec.plantingGuidance && <span className="rounded-md bg-slate-100 px-2 py-1">{rec.plantingGuidance}</span>}
-                    </div>
-                    {rec.risks?.length > 0 && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2"><p className="text-xs font-semibold text-amber-900">Consider before planting</p><ul className="mt-1 list-disc space-y-1 pl-4 text-xs leading-5 text-amber-800">{rec.risks.map((risk: string, riskIndex: number) => <li key={riskIndex}>{risk}</li>)}</ul></div>}
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-slate-600">Suitability score</span>
-                      <span className="text-sm font-bold tabular-nums text-slate-900">{Number.isFinite(Number(rec.score)) ? `${rec.score}/100` : "—"}</span>
-                    </div>
-                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-                      <div className={cn("h-full rounded-full", Number(rec.score) >= 70 ? "bg-emerald-500" : Number(rec.score) >= 50 ? "bg-amber-500" : "bg-rose-500")} style={{ width: `${Math.max(0, Math.min(100, Number(rec.score) || 0))}%` }} />
+                    <div className="w-full rounded-xl bg-slate-50 p-3 sm:w-44 sm:shrink-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-slate-600">Suitability score</span>
+                        <span className="text-sm font-bold tabular-nums text-slate-900">{Number.isFinite(Number(rec.score)) ? `${rec.score}/100` : "—"}</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+                        <div className={cn("h-full rounded-full", Number(rec.score) >= 70 ? "bg-emerald-500" : Number(rec.score) >= 50 ? "bg-amber-500" : "bg-rose-500")} style={{ width: `${Math.max(0, Math.min(100, Number(rec.score) || 0))}%` }} />
+                      </div>
                     </div>
                   </div>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg bg-slate-50 px-3 py-3">
+                      <p className="text-xs font-medium text-slate-500">Growing time</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-900">{rec.duration || "Not available"}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 px-3 py-3">
+                      <p className="text-xs font-medium text-slate-500">Suitable soil</p>
+                      <p className="mt-1 text-sm font-semibold capitalize text-slate-900">{rec.soil || "Not available"}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 px-3 py-3">
+                      <p className="text-xs font-medium text-slate-500">Planting season</p>
+                      <p className="mt-1 text-sm font-semibold capitalize text-slate-900">{rec.season || "Not available"}</p>
+                    </div>
+                    <div className="rounded-lg bg-sky-50 px-3 py-3">
+                      <p className="text-xs font-medium text-sky-800">Water needed</p>
+                      <p className="mt-1 text-sm font-semibold text-sky-950">{rec.waterNeed === "high" ? "A lot of water" : rec.waterNeed === "medium" ? "Medium amount" : rec.waterNeed === "low" ? "Less water" : "Not available"}</p>
+                    </div>
+                  </div>
+
+                  {rec.reasons?.length > 0 && (
+                    <div className="mt-4 rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                      <h4 className="text-sm font-semibold text-emerald-950">Why this crop is suggested</h4>
+                      <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {rec.reasons.map((reason: string, reasonIndex: number) => (
+                          <li key={reasonIndex} className="flex items-start gap-2 text-sm leading-5 text-slate-700">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-600" />
+                            <span>{reason}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {rec.risks?.length > 0 && (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <h4 className="text-sm font-semibold text-amber-950">Please check before planting</h4>
+                      <ul className="mt-2 space-y-1.5">
+                        {rec.risks.map((risk: string, riskIndex: number) => (
+                          <li key={riskIndex} className="flex items-start gap-2 text-sm leading-5 text-amber-900">
+                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-600" />
+                            <span>{risk}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {rec.plantingGuidance && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-white p-3">
+                      <span className="mt-0.5 text-emerald-700"><Sprout className="h-4 w-4" /></span>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-700">What to do next</p>
+                        <p className="mt-1 text-sm leading-5 text-slate-700">{rec.plantingGuidance}</p>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
