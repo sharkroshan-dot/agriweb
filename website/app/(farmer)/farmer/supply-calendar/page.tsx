@@ -192,9 +192,6 @@ export default function FarmerSupplyCalendarPage() {
   const activeContracts = contracts.filter((contract: any) => ["active", "confirmed"].includes(String(contract.status || "").toLowerCase()));
   const inventorySummary = inventoryData?.data || {};
   const inventoryProducts = Array.isArray(inventorySummary.products) ? inventorySummary.products : [];
-  const inventoryByProductName = new Map<string, any>(inventoryProducts.map((product: any) => [String(product.product_name || "").trim().toLocaleLowerCase(), product]));
-  const inventoryAvailableKg = Number(inventorySummary.total_available || 0);
-  const inventoryReservedKg = Number(inventorySummary.total_reserved || 0);
 
   const entries = useMemo<CalendarEntry[]>(() => {
     const harvestEntries = plans
@@ -344,19 +341,10 @@ export default function FarmerSupplyCalendarPage() {
     return totals;
   }, new Map<string, number>());
   const supplyDemandRows = topUpcomingProducts.map(([name, required]) => {
-    const stock = inventoryByProductName.get(String(name).trim().toLocaleLowerCase());
-    const available = stock ? Math.max(0, Number(stock.available_stock || 0)) : null;
-    return {
-      name,
-      required,
-      harvested: harvestedByProduct.get(String(name).trim().toLocaleLowerCase()) || 0,
-      available,
-      reserved: stock ? Math.max(0, Number(stock.reserved_stock || 0)) : null,
-      gap: available == null ? null : Math.max(0, required - available),
-      inventoryMatched: Boolean(stock),
-    };
+    const harvested = harvestedByProduct.get(String(name).trim().toLocaleLowerCase()) || 0;
+    return { name, required, harvested, gap: Math.max(0, required - harvested) };
   });
-  const totalInventoryGapKg = supplyDemandRows.reduce((sum, row) => sum + (row.gap ?? 0), 0);
+  const totalHarvestPlanGapKg = supplyDemandRows.reduce((sum, row) => sum + row.gap, 0);
 
   const completedOrderStatuses = ["delivered", "completed", "fulfilled", "received"];
   const allFarmerOrders = [...farmerOrders, ...b2bOrders];
@@ -442,7 +430,7 @@ export default function FarmerSupplyCalendarPage() {
   const selectedDayRetailCount = selectedDayOrders.filter(entry => entry.id.startsWith("retail-")).length;
   const selectedDayB2BCount = selectedDayOrders.filter(entry => entry.id.startsWith("b2b-") || entry.id.startsWith("contract-")).length;
   const selectedDayOrderQuantity = selectedDayOrders.reduce((sum, entry) => sum + Math.max(0, entry.expectedQuantityKg || 0), 0);
-  const inventoryShortageRows = supplyDemandRows.filter(row => row.gap != null && row.gap > 0);
+  const inventoryShortageRows = supplyDemandRows.filter(row => row.gap > 0);
   const overdueContracts = activeContracts.filter((contract: any) => {
     const due = parsePlanDate(contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate);
     return due && due < todayStart;
@@ -551,8 +539,8 @@ export default function FarmerSupplyCalendarPage() {
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Metric label="Deliveries & pickups" value={deliveryCount} hint="Scheduled this month" icon={Truck} tone="bg-sky-50 text-sky-700" />
         <Metric label="Active contracts" value={activeContracts.length} hint="Recurring supply agreements" icon={CalendarDays} tone="bg-violet-50 text-violet-700" />
-        <Metric label="Available inventory" value={inventoryLoading ? "…" : inventoryAvailableKg.toLocaleString("en-IN")} hint="Available across listed product units" icon={PackageCheck} tone="bg-emerald-50 text-emerald-700" />
-        <Metric label="Reserved inventory" value={inventoryLoading ? "…" : inventoryReservedKg.toLocaleString("en-IN")} hint="Reserved across listed product units" icon={Boxes} tone="bg-orange-50 text-orange-700" />
+        <Metric label="Orders awaiting preparation" value={ordersAwaitingPreparation.length} hint="Farmer action required" icon={PackageCheck} tone="bg-emerald-50 text-emerald-700" />
+        <Metric label="Orders ready for pickup" value={ordersReadyForPickup.length} hint="Packed and awaiting collection" icon={Boxes} tone="bg-orange-50 text-orange-700" />
       </section>
 
       <section className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_320px]">
@@ -761,11 +749,11 @@ export default function FarmerSupplyCalendarPage() {
                 <Badge variant="outline">Planning view</Badge>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Live available stock</p><p className="text-lg font-bold text-slate-900">{inventoryLoading ? "…" : `${inventoryAvailableKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg`}</p><p className="text-[10px] text-slate-500">Inventory service</p></div>
-                <div className="rounded-lg bg-amber-50 p-3"><p className="text-[10px] text-amber-800">Matched demand gap</p><p className="text-lg font-bold text-amber-900">{inventoryLoading ? "…" : `${totalInventoryGapKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg`}</p><p className="text-[10px] text-amber-800">For matched products only</p></div>
+                <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Upcoming demand</p><p className="text-lg font-bold text-slate-900">{inventoryLoading ? "…" : `${upcomingOrderQuantityKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg`}</p><p className="text-[10px] text-slate-500">Scheduled orders and contracts</p></div>
+                <div className="rounded-lg bg-amber-50 p-3"><p className="text-[10px] text-amber-800">Harvest planning gap</p><p className="text-lg font-bold text-amber-900">{inventoryLoading ? "…" : `${totalHarvestPlanGapKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg`}</p><p className="text-[10px] text-amber-800">Demand minus recorded harvest</p></div>
               </div>
-              {supplyDemandRows.length ? <div className="space-y-2">{supplyDemandRows.slice(0, 5).map(row => <div key={row.name} className="space-y-1"><div className="flex items-center justify-between gap-2 text-xs"><span className="truncate font-medium text-slate-700">{row.name}</span><span className="shrink-0 text-slate-600">{row.available == null ? "Inventory not matched" : `${row.available.toLocaleString("en-IN")} available`} / {row.required.toLocaleString("en-IN")} kg needed</span></div>{row.available != null && <div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: row.required > 0 ? Math.min(100, row.available / row.required * 100) + "%" : "0%" }} /></div>}{row.gap != null && row.gap > 0 && <p className="text-[10px] text-amber-700">{row.gap.toLocaleString("en-IN")} kg shortage against current available stock</p>}</div>)}</div> : <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No upcoming order quantities to compare yet.</p>}
-              {inventoryError ? <p className="text-[10px] text-rose-700">Live inventory could not be loaded. Refresh or open Inventory Health to verify stock.</p> : <p className="text-[10px] leading-4 text-slate-500">Inventory totals combine the units used by your listed products, so they are shown without a kg suffix. Product-level comparisons are only meaningful when the order quantity and inventory unit use the same unit. Unmatched products are not treated as zero stock.</p>}
+              {supplyDemandRows.length ? <div className="space-y-2">{supplyDemandRows.slice(0, 5).map(row => <div key={row.name} className="space-y-1"><div className="flex items-center justify-between gap-2 text-xs"><span className="truncate font-medium text-slate-700">{row.name}</span><span className="shrink-0 text-slate-600">{`${row.harvested.toLocaleString("en-IN")} kg harvested`} / {row.required.toLocaleString("en-IN")} kg needed</span></div>{<div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: row.required > 0 ? Math.min(100, row.harvested / row.required * 100) + "%" : "0%" }} /></div>}{row.gap != null && row.gap > 0 && <p className="text-[10px] text-amber-700">{row.gap.toLocaleString("en-IN")} kg shortage against current available stock</p>}</div>)}</div> : <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No upcoming order quantities to compare yet.</p>}
+              {inventoryError ? <p className="text-[10px] text-rose-700">Live inventory could not be loaded. Refresh or open Inventory Health to verify stock.</p> : <p className="text-[10px] leading-4 text-slate-500">This is a harvest-planning comparison, not live sellable inventory. It compares recorded harvested quantities with scheduled demand. Reservations, quality holds and available stock are managed separately by Inventory.</p>}
             </CardContent>
           </Card>
 
