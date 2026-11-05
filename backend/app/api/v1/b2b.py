@@ -2690,6 +2690,31 @@ async def list_b2b_orders(current_user: dict = Depends(get_current_user)):
     return {"success": True, "data": {"orders": orders, "count": len(orders)}}
 
 
+
+@router.get("/orders/{order_id}")
+async def get_b2b_order(order_id: str, current_user: dict = Depends(get_current_user)):
+    """Get one B2B order for its owning farmer or business buyer."""
+    if not ObjectId.is_valid(order_id):
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    role = str(current_user.get("role") or "").lower()
+    if role == "farmer":
+        ownership = {"farmerId": ObjectId(str(current_user["_id"]))}
+    elif role == "business":
+        ownership = {"businessUserId": ObjectId(str(current_user["_id"]))}
+    else:
+        raise HTTPException(status_code=403, detail="Only the farmer or business buyer can view this B2B order")
+    order = await order_repo.find_one({
+        "$and": [
+            {"_id": ObjectId(order_id), "deletedAt": None},
+            ownership,
+        ]
+    })
+    if not order:
+        raise HTTPException(status_code=404, detail="B2B order not found")
+    await _enrich_order(order)
+    return {"success": True, "data": order}
+
+
 class OrderStatusUpdate(BaseModel):
     status: str
     qualityCheck: Optional[str] = None
