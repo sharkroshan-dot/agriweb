@@ -42,7 +42,7 @@ export default function FarmerLayout({ children }: { children: React.ReactNode }
       <RoleMobileNav role="farmer" />
       <div className="flex flex-1 bg-transparent">
         <FarmerSidebar />
-        <main className="site-main min-w-0 flex-1 overflow-x-hidden px-3 py-4 sm:px-5 sm:py-5 lg:px-7">
+        <main className={`site-main min-w-0 flex-1 overflow-x-hidden py-3 sm:py-4 ${isOrderPage ? "px-2 sm:px-3 lg:px-4" : "px-3 sm:px-5 lg:px-7"}`}>
           <div className={`site-content role-workspace role-farmer mx-auto w-full max-w-[1440px] ${isOrderPage ? "" : "farmer-workspace"}`}><WorkflowGuide role="farmer" compact /><RolePageFrame role="farmer">{children}</RolePageFrame></div>
         </main>
       </div>
