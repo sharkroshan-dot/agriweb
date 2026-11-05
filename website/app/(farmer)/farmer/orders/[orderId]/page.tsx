@@ -4,7 +4,7 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Package, MapPin, Clock, CreditCard, User, Phone, Hash, ShoppingBag, ChevronDown, ChevronUp, Store, CheckCircle, Loader2, ScanLine, X } from "lucide-react";
+import { ArrowLeft, Package, MapPin, Clock, CreditCard, User, Phone, Hash, ShoppingBag, ChevronDown, ChevronUp, Store, CheckCircle, Loader2, ScanLine, X, Truck, CheckCircle2, CalendarDays, Mail, ExternalLink, ClipboardList } from "lucide-react";
 import { Button } from "../../../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../../../components/ui/card";
 import { Badge } from "../../../../components/ui/badge";
@@ -30,6 +30,23 @@ const statusColors: Record<string, string> = {
 const humanizeRole = (role: string) => String(role || "")
   .replace(/_/g, " ")
   .replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+
+const getOrderProgress = (status: string, deliveryType: string) => {
+  const isPickup = String(deliveryType || "").toLowerCase() === "pickup";
+  const steps = [
+    { label: "Order placed", description: "Order received", icon: ShoppingBag },
+    { label: "Confirmed", description: "Order accepted", icon: CheckCircle2 },
+    { label: "Preparing", description: "Getting products ready", icon: Package },
+    { label: isPickup ? "Ready for pickup" : "Ready for delivery", description: isPickup ? "Waiting for collection" : "Waiting for dispatch", icon: isPickup ? Store : Package },
+    { label: isPickup ? "Picked up" : "Delivered", description: isPickup ? "Handed over to customer" : "Order delivered", icon: isPickup ? CheckCircle2 : Truck },
+  ];
+  const ranks: Record<string, number> = {
+    pending: 0, confirmed: 1, processing: 2, quality_check: 2,
+    ready_for_pickup: 3, ready_for_delivery: 3, dispatched: 4,
+    in_transit: 4, picked_up: 5, delivered: 5,
+  };
+  return { steps, activeIndex: ranks[status] ?? 0, terminal: status === "cancelled" || status === "refunded" };
+};
 
 const pickupPaymentLabel = (method: string) => {
   const m = (method || "").toLowerCase();
@@ -182,9 +199,13 @@ export default function FarmerOrderDetailPage() {
       customerName: o.customer?.name || "Customer",
       customerPhone: o.customer?.phone || "",
       customerEmail: o.customer?.email || "",
-      address: o.deliveryAddress
-        ? [o.deliveryAddress.addressLine1, o.deliveryAddress.addressLine2, o.deliveryAddress.city, o.deliveryAddress.state, o.deliveryAddress.zipCode].filter(Boolean).join(", ")
-        : "Address not available",
+      address: typeof o.deliveryAddress === "string"
+        ? o.deliveryAddress
+        : o.deliveryAddress
+          ? [o.deliveryAddress.addressLine1, o.deliveryAddress.addressLine2, o.deliveryAddress.city || o.deliveryAddress.town, o.deliveryAddress.district, o.deliveryAddress.state, o.deliveryAddress.zipCode || o.deliveryAddress.postalCode].filter(Boolean).join(", ")
+          : o.shippingAddress
+            ? (typeof o.shippingAddress === "string" ? o.shippingAddress : [o.shippingAddress.addressLine1, o.shippingAddress.addressLine2, o.shippingAddress.city, o.shippingAddress.state, o.shippingAddress.zipCode].filter(Boolean).join(", "))
+            : "Address not available",
       paymentMethod: o.paymentMethod || "cash",
       paymentStatus: o.paymentStatus || "pending",
       specialInstructions: o.specialInstructions,
@@ -283,85 +304,127 @@ export default function FarmerOrderDetailPage() {
     );
   }
 
+  const progress = getOrderProgress(order.status, order.deliveryType);
+  const mapUrl = order.address && order.address !== "Address not available"
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`
+    : null;
+  const paymentMethodLabel = pickupPaymentLabel(order.paymentMethod);
+  const statusLabel = order.status.replace(/_/g, " ").replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="mx-auto w-full max-w-[1440px] space-y-5 p-4 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="space-y-2">
-          <Button variant="ghost" size="sm" asChild className="-ml-3 text-slate-500 hover:text-slate-900">
+        <div className="min-w-0">
+          <Button variant="ghost" size="sm" asChild className="-ml-3 mb-2 text-slate-500 hover:text-slate-900">
             <Link href="/farmer/orders" className="flex items-center gap-2"><ArrowLeft className="h-4 w-4" /> Back to orders</Link>
           </Button>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Order management</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Order details</h1>
-            <p className="mt-1 text-sm text-slate-500">{order.orderNumber} <span className="mx-1.5 text-slate-300">•</span> Placed {formatDate(order.date)}</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Package className="h-7 w-7" /></div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Orders / Order details</p>
+              <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Order #{order.orderNumber}</h1>
+              <p className="mt-1 text-sm text-slate-500">Placed on {formatDate(order.date)}</p>
+            </div>
+            <Badge className={`ml-0 sm:ml-2 border px-3 py-1 text-xs ${statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}`}>{statusLabel}</Badge>
           </div>
         </div>
-        <Badge className={statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}>
-          {order.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
-        </Badge>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><ShoppingBag className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Products</p><p className="mt-0.5 text-lg font-semibold text-slate-900">{order.items.length} <span className="text-xs font-normal text-slate-500">items</span></p></div></CardContent></Card>
-        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-blue-50 p-2.5 text-blue-700"><CreditCard className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Order total</p><p className="mt-0.5 truncate text-lg font-semibold text-slate-900">{formatPrice(order.total)}</p></div></CardContent></Card>
-        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Clock className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Order date</p><p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{formatDate(order.date)}</p></div></CardContent></Card>
-        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-amber-50 p-2.5 text-amber-700"><CreditCard className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Payment</p><p className="mt-0.5 truncate text-sm font-semibold capitalize text-slate-900">{order.paymentStatus || "Pending"}</p></div></CardContent></Card>
-      </div>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.75fr)_minmax(300px,0.8fr)]">
+        <div className="min-w-0 space-y-5">
+          {!progress.terminal ? (
+            <Card className="border-slate-200 shadow-sm">
+              <CardContent className="p-5 sm:p-6">
+                <div className="mb-5 flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-slate-900">Order progress</h2>
+                    <p className="mt-1 text-xs text-slate-500">Follow each step until the order is complete.</p>
+                  </div>
+                  <span className="text-xs font-medium text-emerald-700">{progress.activeIndex >= 5 ? "Completed" : `Step ${Math.min(progress.activeIndex + 1, 5)} of 5`}</span>
+                </div>
+                <div className="grid grid-cols-5 gap-1 sm:gap-3">
+                  {progress.steps.map((step: any, index: number) => {
+                    const StepIcon = step.icon;
+                    const complete = order.status === "delivered" || order.status === "picked_up" || index < progress.activeIndex;
+                    const active = index === progress.activeIndex && !complete;
+                    return (
+                      <div key={step.label} className="relative min-w-0 text-center">
+                        {index > 0 && <div className={`absolute left-[-50%] top-4 h-0.5 w-full ${complete || index <= progress.activeIndex ? "bg-emerald-500" : "bg-slate-200"}`} />}
+                        <div className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-emerald-600 bg-emerald-50 text-emerald-700 ring-4 ring-emerald-50" : "border-slate-200 bg-white text-slate-400"}`}>
+                          {complete ? <CheckCircle2 className="h-4 w-4" /> : <StepIcon className="h-4 w-4" />}
+                        </div>
+                        <p className={`mt-2 text-[11px] font-semibold leading-tight sm:text-xs ${complete || active ? "text-slate-900" : "text-slate-400"}`}>{step.label}</p>
+                        <p className="mt-1 hidden text-[10px] text-slate-400 sm:block">{complete ? "Completed" : active ? "In progress" : "Pending"}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-amber-200 bg-amber-50/60 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-full bg-amber-100 p-2 text-amber-700"><Package className="h-5 w-5" /></div><div><p className="font-semibold capitalize text-amber-900">Order {order.status}</p><p className="text-sm text-amber-800">This order is no longer moving through the regular delivery steps.</p></div></CardContent></Card>
+          )}
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.85fr)]">
-        <div className="space-y-6">
-          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
-            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
-              <CardTitle className="flex items-center gap-2 text-base text-slate-900"><Package className="h-4 w-4 text-emerald-700" /> Order items</CardTitle>
-              <CardDescription>{order.items.length} product(s) included in this order</CardDescription>
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-base text-slate-900"><ShoppingBag className="h-5 w-5 text-emerald-700" /> Order items</CardTitle>
+              <CardDescription>{order.items.length} product{order.items.length === 1 ? "" : "s"} in this order</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 p-5">
-              {order.items.map((item: any, i: number) => (
-                <div key={i} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:bg-slate-50/70">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-slate-900">{item.name}</p>
-                    <p className="text-sm text-muted-foreground">Qty: {item.quantity} &times; {formatPrice(Number(item.unitPrice))}</p>
+              <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px_120px] gap-3 rounded-lg bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+                <span>Product</span><span className="text-center">Quantity</span><span className="text-right">Unit price</span><span className="text-right">Amount</span>
+              </div>
+              {order.items.map((item: any, index: number) => (
+                <div key={index} className="grid grid-cols-2 items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-3 sm:border-0 sm:px-4">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900">{item.name}</p>
+                    <p className="text-xs text-slate-500 sm:hidden">Qty: {item.quantity}</p>
                   </div>
-                  <span className="ml-4 font-semibold">{formatPrice(Number(item.price))}</span>
+                  <span className="hidden text-center text-sm text-slate-700 sm:block">{item.quantity}</span>
+                  <span className="text-right text-sm text-slate-600 sm:text-right">{formatPrice(Number(item.unitPrice))}</span>
+                  <span className="text-right text-sm font-semibold text-slate-900">{formatPrice(Number(item.price))}</span>
                 </div>
               ))}
-              <div className="space-y-2 border-t border-slate-100 pt-4">
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
-                  <span>{formatPrice(order.subtotal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Delivery</span>
-                  <span>{formatPrice(order.delivery)}</span>
-                </div>
-                {order.platformFee > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span>Platform fee</span>
-                    <span>{formatPrice(order.platformFee)}</span>
-                  </div>
-                )}
-                {order.discount > 0 && (
-                  <div className="flex justify-between text-sm text-emerald-600">
-                    <span>Discount</span>
-                    <span>-{formatPrice(order.discount)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between border-t border-slate-200 pt-3 text-base font-bold text-slate-900">
-                  <span>Total</span>
-                  <span>{formatPrice(order.total)}</span>
-                </div>
+              <div className="ml-auto max-w-sm space-y-2 border-t border-slate-100 pt-4 text-sm">
+                <div className="flex justify-between gap-4 text-slate-600"><span>Subtotal</span><span>{formatPrice(order.subtotal)}</span></div>
+                <div className="flex justify-between gap-4 text-slate-600"><span>Delivery</span><span>{formatPrice(order.delivery)}</span></div>
+                {order.platformFee > 0 && <div className="flex justify-between gap-4 text-slate-600"><span>Platform fee</span><span>{formatPrice(order.platformFee)}</span></div>}
+                {order.discount > 0 && <div className="flex justify-between gap-4 text-emerald-700"><span>Discount</span><span>-{formatPrice(order.discount)}</span></div>}
+                <div className="flex justify-between gap-4 border-t border-slate-200 pt-3 text-base font-bold text-slate-950"><span>Total</span><span>{formatPrice(order.total)}</span></div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
-            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><MapPin className="h-4 w-4 text-emerald-700" /> Delivery address</CardTitle></CardHeader>
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="flex flex-row items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Clock className="h-5 w-5 text-emerald-700" /> Tracking & activity</CardTitle><CardDescription className="mt-1">Updates recorded for this order, newest first</CardDescription></div>
+              {order.tracking.length > 0 && <Button type="button" variant="outline" size="sm" onClick={() => setShowAllTracking(!showAllTracking)}>{showAllTracking ? "Show latest" : "View all activity"} <ChevronDown className="ml-1 h-4 w-4" /></Button>}
+            </CardHeader>
             <CardContent className="p-5">
-              <p className="text-sm text-muted-foreground">{order.address}</p>
-              {order.specialInstructions && (
-                <div className="mt-3 rounded-md bg-gray-50 p-3 text-sm">
-                  <p className="text-xs font-medium text-gray-500">Special Instructions</p>
-                  <p className="mt-1 text-gray-700">{order.specialInstructions}</p>
+              {order.tracking.length > 0 ? (
+                <div className="space-y-0">
+                  {(showAllTracking ? order.tracking : order.tracking.slice(0, 4)).map((event: any, index: number, visibleEvents: any[]) => (
+                    <div key={event.key} className="flex gap-3 pb-5 last:pb-0">
+                      <div className="flex w-5 shrink-0 flex-col items-center">
+                        <span className={`mt-1 h-3 w-3 rounded-full border-2 ${index === 0 ? "border-emerald-600 bg-emerald-600" : "border-slate-300 bg-white"}`} />
+                        {index < visibleEvents.length - 1 && <span className="mt-1 w-px flex-1 bg-slate-200" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <p className={`text-sm font-semibold ${index === 0 ? "text-emerald-800" : "text-slate-800"}`}>{event.label || "Order update"}</p>
+                          {event.date && <time className="text-xs text-slate-500">{formatDate(event.date)}</time>}
+                        </div>
+                        {event.description && <p className="mt-1 text-sm leading-relaxed text-slate-600">{event.description}</p>}
+                        {event.actorRole && <p className="mt-1 text-xs text-slate-500">Updated by {humanizeRole(event.actorRole)}</p>}
+                        {event.isDerived && <p className="mt-1 text-[11px] text-slate-400">Reconstructed from saved order details</p>}
+                      </div>
+                    </div>
+                  ))}
+                  {order.tracking.length > 4 && <button type="button" onClick={() => setShowAllTracking(!showAllTracking)} className="mt-4 text-sm font-semibold text-emerald-700 hover:text-emerald-800">{showAllTracking ? "Show fewer updates" : `Show all ${order.tracking.length} updates`}</button>}
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
+                  <Clock className="mx-auto h-7 w-7 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No tracking updates yet</p><p className="mt-1 text-xs text-slate-500">New activity will appear here when the order progresses.</p>
                 </div>
               )}
             </CardContent>
@@ -369,106 +432,46 @@ export default function FarmerOrderDetailPage() {
 
           {fulfillmentCheck && (
             <Card className={fulfillmentCheck.readyForDispatch ? "border-emerald-200 bg-emerald-50/40" : "border-amber-200 bg-amber-50/40"}>
-              <CardHeader className="pb-2"><CardTitle className="text-base">Packing & Dispatch Check</CardTitle><CardDescription>Every customer-order item must be packed before this order can leave the farm.</CardDescription></CardHeader>
+              <CardHeader className="pb-2"><CardTitle className="text-base">Packing & dispatch check</CardTitle><CardDescription>Every item must be packed before this order can leave the farm.</CardDescription></CardHeader>
               <CardContent className="space-y-2 text-sm">
-                <div className="flex items-center justify-between"><span>Order items</span><b>{fulfillmentCheck.packedItemCount || 0} / {fulfillmentCheck.itemCount || 0} packed</b></div>
-                <div className="flex items-center justify-between"><span>Dispatch gate</span><Badge variant={fulfillmentCheck.readyForDispatch ? "success" : "warning"}>{fulfillmentCheck.readyForDispatch ? "Ready" : "Blocked"}</Badge></div>
+                <div className="flex items-center justify-between"><span>Order items packed</span><b>{fulfillmentCheck.packedItemCount || 0} / {fulfillmentCheck.itemCount || 0}</b></div>
+                <div className="flex items-center justify-between"><span>Dispatch status</span><Badge variant={fulfillmentCheck.readyForDispatch ? "success" : "warning"}>{fulfillmentCheck.readyForDispatch ? "Ready" : "Not ready"}</Badge></div>
                 {!fulfillmentCheck.readyForDispatch && <p className="text-xs text-amber-800">Complete packing for every item before dispatch.</p>}
               </CardContent>
             </Card>
           )}
 
-          {order.tracking && order.tracking.length > 0 && (
-            <Card className="overflow-hidden border-slate-200/80 shadow-sm">
-              <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
-                <button
-                  onClick={() => setShowAllTracking(!showAllTracking)}
-                  className="flex w-full items-center justify-between text-left"
-                >
-                  <div><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Clock className="h-4 w-4 text-emerald-700" /> Order activity</CardTitle><CardDescription className="mt-1">Latest fulfillment updates and status history</CardDescription></div>
-                  {showAllTracking ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-              </CardHeader>
-              <CardContent className="p-5">
-                <div className="relative space-y-0">
-                  {(showAllTracking ? order.tracking : order.tracking.slice(0, 2)).map((event: any, i: number, visibleEvents: any[]) => (
-                    <div key={event.key} className="flex gap-4 pb-4 last:pb-0">
-                      <div className="flex flex-col items-center">
-                        <div className={`h-3 w-3 rounded-full border-2 ${i === 0 ? "border-emerald-500 bg-emerald-500" : "border-gray-300 bg-white"}`} />
-                        {i < visibleEvents.length - 1 && (
-                          <div className="mt-1 w-0.5 flex-1 bg-gray-200" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1 pt-0.5">
-                        <p className={`text-sm font-medium ${i === 0 ? "text-emerald-700" : "text-gray-500"}`}>
-                          {event.label || "Order update"}
-                          {event.isDerived && <span className="ml-2 text-[10px] font-normal text-slate-400">Reconstructed from saved order details</span>}
-                        </p>
-                        {event.description && <p className="mt-1 text-xs text-muted-foreground">{event.description}</p>}
-                        <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                          {event.actorRole && <span>Updated by {humanizeRole(event.actorRole)}</span>}
-                          {event.date && <span>{formatDate(event.date)}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {order.tracking.length > 2 && (
-                    <button
-                      onClick={() => setShowAllTracking(!showAllTracking)}
-                      className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
-                    >
-                      {showAllTracking ? "Show less" : `Show all ${order.tracking.length} updates`}
-                    </button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><MapPin className="h-5 w-5 text-emerald-700" /> Delivery address</CardTitle></CardHeader>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+              <p className="min-w-0 flex-1 text-sm leading-relaxed text-slate-700">{order.address}</p>
+              {mapUrl && <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"><MapPin className="h-4 w-4" /> View map <ExternalLink className="h-3.5 w-3.5" /></a>}
+              {order.specialInstructions && <div className="w-full rounded-lg bg-slate-50 p-3 text-sm"><p className="text-xs font-semibold text-slate-500">Delivery instructions</p><p className="mt-1 text-slate-700">{order.specialInstructions}</p></div>}
+            </CardContent>
+          </Card>
         </div>
 
-        <div className="space-y-6">
-          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
-            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><User className="h-4 w-4 text-emerald-700" /> Customer details</CardTitle></CardHeader>
-            <CardContent className="space-y-3 p-5 text-sm">
-              <div className="flex items-center gap-2">
-                <User className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-medium">{order.customerName}</span>
-              </div>
-              {order.customerPhone && (
-                <div className="flex items-center gap-2">
-                  <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
-                  <span>{order.customerPhone}</span>
-                </div>
-              )}
-              {order.customerEmail && (
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">{order.customerEmail}</span>
-                </div>
-              )}
+        <aside className="space-y-5">
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-emerald-50/50 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><User className="h-5 w-5 text-emerald-700" /> Customer details</CardTitle></CardHeader>
+            <CardContent className="space-y-4 p-5 text-sm">
+              <div className="flex items-center gap-3"><User className="h-4 w-4 shrink-0 text-slate-400" /><span className="font-medium text-slate-800">{order.customerName}</span></div>
+              {order.customerPhone && <a href={`tel:${order.customerPhone}`} className="flex items-center gap-3 text-slate-700 hover:text-emerald-700"><Phone className="h-4 w-4 shrink-0 text-slate-400" />{order.customerPhone}</a>}
+              {order.customerEmail && <a href={`mailto:${order.customerEmail}`} className="flex items-center gap-3 break-all text-slate-700 hover:text-emerald-700"><Mail className="h-4 w-4 shrink-0 text-slate-400" />{order.customerEmail}</a>}
             </CardContent>
           </Card>
 
-          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
-            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Hash className="h-4 w-4 text-emerald-700" /> Order information</CardTitle></CardHeader>
+          <Card className="overflow-hidden border-slate-200 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><ClipboardList className="h-5 w-5 text-emerald-700" /> Order summary</CardTitle></CardHeader>
             <CardContent className="space-y-3 p-5 text-sm">
-              <div className="flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="font-medium">{order.orderNumber}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span>{formatDate(order.date)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="capitalize">{order.paymentMethod.replace(/_/g, " ")}</span>
-                {order.paymentStatus === "paid" && <Badge variant="success">Paid</Badge>}
-                {order.paymentStatus !== "paid" && <Badge variant="secondary">Pending</Badge>}
-              </div>
+              <div className="flex items-start justify-between gap-3"><span className="text-slate-500">Order ID</span><span className="break-all text-right font-medium text-slate-800">{order.orderNumber}</span></div>
+              <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-slate-500"><CalendarDays className="h-4 w-4" /> Date</span><span className="text-right font-medium text-slate-800">{formatDate(order.date)}</span></div>
+              <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-slate-500"><CreditCard className="h-4 w-4" /> Payment</span><span className="text-right font-medium capitalize text-slate-800">{paymentMethodLabel}</span></div>
+              <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-3"><span className="text-slate-500">Payment status</span><Badge variant={order.paymentStatus === "paid" ? "success" : "secondary"}>{String(order.paymentStatus || "pending").replace(/_/g, " ")}</Badge></div>
             </CardContent>
           </Card>
 
-          {order.deliveryType === "pickup" && order.status === "ready_for_pickup" && (
+                    {order.deliveryType === "pickup" && order.status === "ready_for_pickup" && (
             <Card className="border-amber-200 bg-amber-50/40">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -576,7 +579,11 @@ export default function FarmerOrderDetailPage() {
               </CardContent>
             </Card>
           )}
-        </div>
+
+          {order.deliveryType === "pickup" && order.status === "picked_up" && (
+            <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm"><CardContent className="flex flex-col items-center gap-2 p-6 text-center"><CheckCircle className="h-8 w-8 text-emerald-600" /><p className="font-semibold text-emerald-900">Pickup completed</p><p className="text-sm text-emerald-700">The order has been handed over to the customer.</p></CardContent></Card>
+          )}
+        </aside>
       </div>
     </div>
   );
