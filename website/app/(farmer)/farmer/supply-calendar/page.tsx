@@ -158,12 +158,14 @@ export default function FarmerSupplyCalendarPage() {
     onError: (error: any) => toast.error(error?.message || "Could not create batch"),
   });
 
-  const plans = plansData?.data?.plans || [];
-  const batches = batchesData?.data?.batches || [];
-  const farmerOrders = farmerOrdersData?.data?.data?.orders || farmerOrdersData?.data?.orders || farmerOrdersData?.orders || [];
-  const b2bOrders = b2bOrdersData?.data?.data?.orders || b2bOrdersData?.data?.orders || b2bOrdersData?.orders || [];
-  const contractPayload = contractsData?.data?.data?.contracts || contractsData?.data?.contracts || contractsData?.data || [];
-  const contracts = Array.isArray(contractPayload) ? contractPayload : [];
+  const plans = useMemo(() => plansData?.data?.plans || [], [plansData]);
+  const batches = useMemo(() => batchesData?.data?.batches || [], [batchesData]);
+  const farmerOrders = useMemo(() => farmerOrdersData?.data?.data?.orders || farmerOrdersData?.data?.orders || farmerOrdersData?.orders || [], [farmerOrdersData]);
+  const b2bOrders = useMemo(() => b2bOrdersData?.data?.data?.orders || b2bOrdersData?.data?.orders || b2bOrdersData?.orders || [], [b2bOrdersData]);
+  const contracts = useMemo(() => {
+    const payload = contractsData?.data?.data?.contracts || contractsData?.data?.contracts || contractsData?.data || [];
+    return Array.isArray(payload) ? payload : [];
+  }, [contractsData]);
   const activeContracts = contracts.filter((contract: any) => ["active", "confirmed"].includes(String(contract.status || "").toLowerCase()));
 
   const entries = useMemo<CalendarEntry[]>(() => {
