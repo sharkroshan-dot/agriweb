@@ -36,6 +36,7 @@ type CalendarEntry = {
   eventType?: string;
   orderType?: string;
   referenceId?: string;
+  productBreakdown?: { name: string; quantityKg: number }[];
 };
 
 const dateKey = (date: Date) => {
@@ -206,15 +207,25 @@ export default function FarmerSupplyCalendarPage() {
         const eventType = isB2B
           ? (orderStatus.includes("pickup") || stage.includes("pickup") ? "farm_pickup" : stage.includes("warehouse") || stage.includes("transfer") ? "warehouse_delivery" : "business_delivery")
           : (orderStatus.includes("pickup") || deliveryType === "pickup" ? "farm_pickup" : "retail_delivery");
-        const item = Array.isArray(order.items) ? order.items[0] || {} : {};
-        const cropName = String(order.cropName || order.productName || item.productName || item.name || item.product?.name || (isB2B ? "Business supply" : "Customer order"));
-        const quantity = Number(order.quantityKg || order.totalQuantityKg || item.quantityKg || item.quantity || order.packedQuantityKg || 0);
+        const items = Array.isArray(order.items) ? order.items : [];
+        const productBreakdown = items.map((item: any) => ({
+          name: String(item.productName || item.name || item.product?.name || order.cropName || order.productName || (isB2B ? "Business supply" : "Customer order")),
+          quantityKg: Number(item.quantityKg ?? item.quantity ?? item.packedQuantityKg ?? 0),
+        })).filter((item: any) => Number.isFinite(item.quantityKg) && item.quantityKg > 0);
+        const fallbackName = String(order.cropName || order.productName || (isB2B ? "Business supply" : "Customer order"));
+        const fallbackQuantity = Number(order.quantityKg ?? order.totalQuantityKg ?? order.packedQuantityKg ?? 0);
+        const quantity = productBreakdown.length
+          ? productBreakdown.reduce((sum: number, item: any) => sum + item.quantityKg, 0)
+          : (Number.isFinite(fallbackQuantity) ? fallbackQuantity : 0);
+        const cropNames = productBreakdown.length
+          ? Array.from(new Set(productBreakdown.map((item: any) => item.name))).join(", ")
+          : fallbackName;
         return {
-          id: (isB2B ? "b2b-" : "retail-") + id, cropName, date, dateKey: dateKey(date),
+          id: (isB2B ? "b2b-" : "retail-") + id, cropName: cropNames, date, dateKey: dateKey(date),
           expectedQuantityKg: quantity, actualQuantityKg: null, plannedRatePerKg: null, finalRatePerKg: null,
           preOrderCount: 0, status: eventType, qualityStatus: "not_applicable",
           eventType, orderType: isB2B ? "Business delivery" : eventType === "farm_pickup" ? "Farm pickup" : "Retail delivery",
-          referenceId: id,
+          referenceId: id, productBreakdown: productBreakdown.length ? productBreakdown : [{ name: fallbackName, quantityKg: quantity }],
         } as CalendarEntry;
       }).filter(Boolean) as CalendarEntry[];
 
@@ -271,10 +282,25 @@ export default function FarmerSupplyCalendarPage() {
   });
   const visibleDates = view === "week" ? weekDates : monthCells;
   const selectedEntries = filteredEntries.filter(entry => entry.dateKey === selectedDate);
-  const upcomingEntries = filteredEntries
+  const allUpcomingEntries = filteredEntries
     .filter(entry => entry.date.getTime() >= new Date(new Date().setHours(0, 0, 0, 0)).getTime())
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
-    .slice(0, 6);
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+  const upcomingEntries = allUpcomingEntries.slice(0, 6);
+  const upcomingOrderEntries = allUpcomingEntries.filter(entry =>
+    ["farm_pickup", "warehouse_delivery", "business_delivery", "retail_delivery"].includes(entry.eventType || "")
+  );
+  const upcomingOrderCount = new Set(upcomingOrderEntries.map(entry => entry.referenceId || entry.id)).size;
+  const upcomingOrderQuantityKg = upcomingOrderEntries.reduce((sum, entry) => sum + Math.max(0, entry.expectedQuantityKg || 0), 0);
+  const upcomingPickupCount = upcomingOrderEntries.filter(entry => entry.eventType === "farm_pickup").length;
+  const upcomingDeliveryCount = upcomingOrderEntries.filter(entry => ["warehouse_delivery", "business_delivery", "retail_delivery"].includes(entry.eventType || "")).length;
+  const upcomingProductQuantities = upcomingOrderEntries.reduce((totals, entry) => {
+    (entry.productBreakdown || [{ name: entry.cropName, quantityKg: entry.expectedQuantityKg }]).forEach(product => {
+      const name = product.name || "Other produce";
+      totals.set(name, (totals.get(name) || 0) + Math.max(0, Number(product.quantityKg) || 0));
+    });
+    return totals;
+  }, new Map<string, number>());
+  const topUpcomingProducts = Array.from(upcomingProductQuantities.entries()).sort((a, b) => b[1] - a[1]);
 
   const monthEntries = filteredEntries.filter(entry => entry.date.getMonth() === monthCursor.getMonth() && entry.date.getFullYear() === monthCursor.getFullYear());
   const cropPlanEntries = monthEntries.filter(entry => entry.eventType === "harvest" || entry.eventType === "preharvest");
@@ -556,7 +582,13 @@ export default function FarmerSupplyCalendarPage() {
 
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between"><div><h3 className="text-sm font-bold text-slate-900">Upcoming schedule</h3><p className="text-[11px] text-slate-500">Harvests, pickups and deliveries coming up</p></div><Badge variant="outline">{upcomingEntries.length} upcoming</Badge></div>
+              <div className="flex items-center justify-between"><div><h3 className="text-sm font-bold text-slate-900">Upcoming schedule</h3><p className="text-[11px] text-slate-500">Orders, quantities, harvests and deliveries</p></div><Badge variant="outline">{allUpcomingEntries.length} activities</Badge></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-[10px] font-medium text-slate-500">Upcoming orders</p><p className="mt-1 text-xl font-bold tabular-nums text-slate-900">{upcomingOrderCount}</p><p className="text-[10px] text-slate-500">{upcomingPickupCount} pickups · {upcomingDeliveryCount} deliveries</p></div>
+                <div className="rounded-lg border border-slate-200 bg-emerald-50/70 p-3"><p className="text-[10px] font-medium text-emerald-800">Quantity required</p><p className="mt-1 text-xl font-bold tabular-nums text-emerald-900">{upcomingOrderQuantityKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg</p><p className="text-[10px] text-emerald-800">Across upcoming orders</p></div>
+              </div>
+              {topUpcomingProducts.length > 0 && <div className="space-y-2"><p className="text-xs font-semibold text-slate-700">Quantity by product</p>{topUpcomingProducts.slice(0, 4).map(([name, quantity]) => <div key={name} className="flex items-center justify-between gap-2 text-xs"><span className="truncate text-slate-600">{name}</span><span className="shrink-0 font-semibold text-slate-800">{quantity.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg</span></div>)}</div>}
+              <div className="border-t border-slate-100 pt-2"><p className="mb-2 text-xs font-semibold text-slate-700">Next activities</p></div>
               {upcomingEntries.length ? upcomingEntries.map(entry => (
                 <button key={entry.id} type="button" onClick={() => { setSelectedDate(entry.dateKey); setMonthCursor(new Date(entry.date.getFullYear(), entry.date.getMonth(), 1)); }} className="flex w-full items-center justify-between gap-2 border-b border-slate-100 pb-2 text-left last:border-0 last:pb-0">
                   <div className="flex min-w-0 items-center gap-2"><span className={cn("h-2 w-2 shrink-0 rounded-full", statusMeta[entry.status]?.dot)} /><div className="min-w-0"><p className="truncate text-xs font-semibold text-slate-800">{entry.cropName}</p><p className="text-[10px] text-slate-500">{formatDate(entry.date)}</p></div></div>
