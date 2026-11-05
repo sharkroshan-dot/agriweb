@@ -302,6 +302,47 @@ export default function FarmerSupplyCalendarPage() {
   }, new Map<string, number>());
   const topUpcomingProducts = Array.from(upcomingProductQuantities.entries()).sort((a, b) => b[1] - a[1]);
 
+  // Compare upcoming commitments with recorded harvest. This is an indicative planning
+  // comparison only; it is not live sellable stock because reservations/allocations are
+  // not exposed by the inventory API used on this page.
+  const harvestedByProduct = plans.reduce((totals: Map<string, number>, plan: any) => {
+    if (!isHarvested(plan)) return totals;
+    const name = String(plan.cropName || "Other produce").trim();
+    const quantity = Math.max(0, Number(plan.actualQuantityKg ?? plan.expectedQuantityKg ?? 0) || 0);
+    totals.set(name, (totals.get(name) || 0) + quantity);
+    return totals;
+  }, new Map<string, number>());
+  const supplyDemandRows = topUpcomingProducts.map(([name, required]) => ({
+    name,
+    required,
+    harvested: harvestedByProduct.get(name) || 0,
+    gap: Math.max(0, required - (harvestedByProduct.get(name) || 0)),
+  }));
+  const totalRecordedHarvestKg = Array.from(harvestedByProduct.values()).reduce((sum, value) => sum + value, 0);
+  const totalIndicativeGapKg = supplyDemandRows.reduce((sum, row) => sum + row.gap, 0);
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const threeDaysAhead = new Date(todayStart);
+  threeDaysAhead.setDate(threeDaysAhead.getDate() + 3);
+  const overdueHarvestPlans = plans.filter((plan: any) => {
+    const due = parsePlanDate(plan.expectedHarvestDate);
+    return due && due < todayStart && !isHarvested(plan) && !["cancelled", "deleted"].includes(String(plan.status || "").toLowerCase());
+  });
+  const soonHarvestPlans = plans.filter((plan: any) => {
+    const due = parsePlanDate(plan.expectedHarvestDate);
+    return due && due >= todayStart && due <= threeDaysAhead && !isHarvested(plan);
+  });
+  const batchesAwaitingInspection = batches.filter((batch: any) =>
+    !["approved", "passed"].includes(String(batch.qualityStatus || batch.inspectionStatus || "").toLowerCase()) &&
+    !["rejected", "cancelled", "expired"].includes(String(batch.status || "").toLowerCase())
+  );
+  const contractsDueSoon = activeContracts.filter((contract: any) => {
+    const due = parsePlanDate(contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate);
+    return due && due >= todayStart && due <= threeDaysAhead;
+  });
+  const farmerActionCount = overdueHarvestPlans.length + soonHarvestPlans.length + batchesAwaitingInspection.length + contractsDueSoon.length;
+
   const monthEntries = filteredEntries.filter(entry => entry.date.getMonth() === monthCursor.getMonth() && entry.date.getFullYear() === monthCursor.getFullYear());
   const cropPlanEntries = monthEntries.filter(entry => entry.eventType === "harvest" || entry.eventType === "preharvest");
   const monthSupplyKg = cropPlanEntries.reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0);
@@ -595,6 +636,32 @@ export default function FarmerSupplyCalendarPage() {
                   <span className="shrink-0 text-xs font-semibold text-slate-700">{entry.actualQuantityKg ?? entry.expectedQuantityKg} kg</span>
                 </button>
               )) : <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No upcoming activities. Your harvest plans, pickups and supply orders will appear here when scheduled.</p>}
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div><h3 className="text-sm font-bold text-slate-900">Supply versus demand</h3><p className="text-[11px] text-slate-500">Upcoming order needs compared with recorded harvest</p></div>
+                <Badge variant="outline">Planning view</Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-slate-50 p-3"><p className="text-[10px] text-slate-500">Recorded harvest</p><p className="text-lg font-bold text-slate-900">{totalRecordedHarvestKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg</p></div>
+                <div className="rounded-lg bg-amber-50 p-3"><p className="text-[10px] text-amber-800">Indicative quantity gap</p><p className="text-lg font-bold text-amber-900">{totalIndicativeGapKg.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg</p></div>
+              </div>
+              {supplyDemandRows.length ? <div className="space-y-2">{supplyDemandRows.slice(0, 5).map(row => <div key={row.name} className="space-y-1"><div className="flex items-center justify-between gap-2 text-xs"><span className="truncate font-medium text-slate-700">{row.name}</span><span className="shrink-0 text-slate-600">{row.harvested.toLocaleString("en-IN")} / {row.required.toLocaleString("en-IN")} kg</span></div><div className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: row.required > 0 ? Math.min(100, row.harvested / row.required * 100) + "%" : "0%" }} /></div>{row.gap > 0 && <p className="text-[10px] text-amber-700">{row.gap.toLocaleString("en-IN")} kg more harvest indicated</p>}</div>)}</div> : <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">No upcoming order quantities to compare yet.</p>}
+              <p className="text-[10px] leading-4 text-slate-500">This compares planned order demand with recorded harvest only. It does not represent available stock or account for reservations, quality holds or other allocations.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-bold text-slate-900">Farmer action centre</h3><p className="text-[11px] text-slate-500">Tasks that may need your attention</p></div><Badge className={farmerActionCount ? "border border-amber-200 bg-amber-50 text-amber-800" : "border border-emerald-200 bg-emerald-50 text-emerald-800"}>{farmerActionCount} items</Badge></div>
+              {overdueHarvestPlans.length > 0 && <Link href="/farmer/harvest-planner" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs hover:bg-rose-100"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700"/><span><strong className="text-rose-900">{overdueHarvestPlans.length} overdue harvest plan(s)</strong><span className="block text-rose-800">Review expected harvest dates that have passed.</span></span></Link>}
+              {soonHarvestPlans.length > 0 && <Link href="/farmer/harvest-planner" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs hover:bg-amber-100"><Wheat className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"/><span><strong className="text-amber-900">{soonHarvestPlans.length} harvest plan(s) due within 3 days</strong><span className="block text-amber-800">Check crop readiness and record the actual harvest.</span></span></Link>}
+              {batchesAwaitingInspection.length > 0 && <Link href="/farmer/batches" className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-xs hover:bg-blue-100"><FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-blue-700"/><span><strong className="text-blue-900">{batchesAwaitingInspection.length} batch(es) awaiting quality status</strong><span className="block text-blue-800">Check batch inspection progress.</span></span></Link>}
+              {contractsDueSoon.length > 0 && <Link href="/farmer/b2b/contracts" className="flex items-start gap-2 rounded-lg border border-violet-200 bg-violet-50 p-2.5 text-xs hover:bg-violet-100"><CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-violet-700"/><span><strong className="text-violet-900">{contractsDueSoon.length} contract(s) due within 3 days</strong><span className="block text-violet-800">Confirm available and packed quantity for the next supply.</span></span></Link>}
+              {farmerActionCount === 0 && <p className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">No immediate harvest, inspection or contract reminders from the records currently loaded.</p>}
             </CardContent>
           </Card>
 
