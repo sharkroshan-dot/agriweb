@@ -383,7 +383,6 @@ export default function FarmerSupplyCalendarPage() {
       missed,
     };
   });
-  const missedContractOccurrences = contractProgress.reduce((sum, item) => sum + item.missed.length, 0);
   const threeDaysAhead = new Date(todayStart);
   threeDaysAhead.setDate(threeDaysAhead.getDate() + 3);
   const overdueHarvestPlans = plans.filter((plan: any) => {
