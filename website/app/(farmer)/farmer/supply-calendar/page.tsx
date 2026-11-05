@@ -447,7 +447,25 @@ export default function FarmerSupplyCalendarPage() {
                   {(entry.actualQuantityKg != null || entry.expectedQuantityKg > 0) && <p className="mt-1 text-xs text-slate-500">{entry.actualQuantityKg != null ? `Actual: ${entry.actualQuantityKg} kg` : `Expected / scheduled: ${entry.expectedQuantityKg} kg`}</p>}
                   {entry.preOrderCount > 0 && <p className="mt-1 text-xs text-blue-700">{entry.preOrderCount} pre-order(s) linked</p>}
                   {entry.batchId && <p className="mt-1 text-xs text-slate-500">Batch: {String(entry.batchId).slice(-8)} · {entry.qualityStatus === "approved" ? "Quality approved" : "Inspection pending"}</p>}
-                  <Link href={entry.eventType === "harvest" || entry.eventType === "preharvest" ? "/farmer/harvest-planner" : entry.eventType === "business_delivery" || entry.eventType === "warehouse_delivery" ? "/farmer/b2b/contracts" : "/farmer/orders"} className="mt-2 inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">{entry.eventType === "harvest" || entry.eventType === "preharvest" ? "Open harvest plan" : "View order"} <ArrowUpRight className="ml-1 h-3 w-3" /></Link>
+                  <Link
+                    href={
+                      entry.eventType === "harvest" || entry.eventType === "preharvest"
+                        ? "/farmer/harvest-planner"
+                        : entry.id.startsWith("contract-")
+                          ? "/farmer/b2b/contracts"
+                          : entry.referenceId
+                            ? `/farmer/orders/${encodeURIComponent(entry.referenceId)}`
+                            : "/farmer/orders"
+                    }
+                    className="mt-2 inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800"
+                  >
+                    {entry.eventType === "harvest" || entry.eventType === "preharvest"
+                      ? "Open harvest plan"
+                      : entry.id.startsWith("contract-")
+                        ? "View contract"
+                        : "View this order"}
+                    <ArrowUpRight className="ml-1 h-3 w-3" />
+                  </Link>
                 </div>
               )) : <div className="rounded-xl border border-dashed border-slate-200 px-3 py-6 text-center"><CalendarDays className="mx-auto h-6 w-6 text-slate-300" /><p className="mt-2 text-xs font-medium text-slate-600">No crop plan on this date</p><p className="mt-1 text-[11px] text-slate-400">Choose another date or add a harvest plan.</p></div>}
               <Button asChild className="w-full bg-emerald-700 text-white hover:bg-emerald-800"><Link href="/farmer/harvest-planner"><Plus className="mr-2 h-4 w-4" />Manage harvest plans</Link></Button>
