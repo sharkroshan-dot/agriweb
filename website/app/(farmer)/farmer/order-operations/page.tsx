@@ -16,7 +16,7 @@ import {
   MapPinned,\n  Route,
   Package,
   PackageCheck,
-  RefreshCw,\n  Route,
+  RefreshCw,
   ShoppingCart,
   Truck,
   Warehouse,
