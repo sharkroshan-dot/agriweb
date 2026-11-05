@@ -73,12 +73,12 @@ const cropEmoji = (name: string) => {
 function OrderProductThumbnail({ name, image }: { name: string; image?: string }) {
   const [imageFailed, setImageFailed] = useState(false);
   return (
-    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-emerald-50">
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-emerald-100 bg-emerald-50 shadow-sm">
       {image && !imageFailed ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={image} alt={name} className="h-full w-full object-cover" onError={() => setImageFailed(true)} />
       ) : (
-        <span className="text-3xl" role="img" aria-label={name}>{cropEmoji(name)}</span>
+        <span className="text-4xl" role="img" aria-label={name}>{cropEmoji(name)}</span>
       )}
     </div>
   );
@@ -221,7 +221,7 @@ export default function FarmerOrderDetailPage() {
       date: o.orderDate || o.createdAt,
       items: items.map((i: any) => ({
         name: i.productName || i.cropName || i.name || "Product",
-        image: i.productImage || i.images?.[0] || i.image || i.imageUrl || "",
+        image: i.productImage || i.images?.[0] || i.image || i.imageUrl || i.product?.images?.[0] || i.product?.image || i.productDetails?.images?.[0] || i.productSnapshot?.images?.[0] || "",
         quantity: String(i.quantity ?? i.quantityKg ?? i.approvedQuantityKg ?? 0),
         price: Number(i.totalPrice || i.lineTotal || i.unitPrice * (i.quantity ?? i.quantityKg ?? 0) || 0),
         unitPrice: Number(i.unitPrice || i.pricePerKg || 0),
@@ -414,7 +414,7 @@ export default function FarmerOrderDetailPage() {
               {order.items.map((item: any, index: number) => (
                 <div key={index} className="grid grid-cols-2 items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-3 sm:border-0 sm:px-4">
                   <div className="flex min-w-0 items-center gap-3">
-                    <OrderProductThumbnail name={item.name} image={item.image} />
+                    <OrderProductThumbnail key={`${item.productId || item.name}-${item.image || "crop-fallback"}`} name={item.name} image={item.image} />
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-900">{item.name}</p>
                       <p className="text-sm text-slate-500 sm:hidden">Qty: {item.quantity}</p>
