@@ -613,7 +613,7 @@ async def approve_join_request(cooperative_id: str, data: ManagerAction, current
     result = await member_repo.collection.update_one({"cooperativeId": cid, "userId": target, "status": "pending", "deletedAt": None}, {"$set": {"status": "active", "joinedAt": datetime.utcnow(), "approvedAt": datetime.utcnow(), "deletedAt": None}})
     if not result.modified_count: raise HTTPException(404, "Pending join request not found")
     target_user = await user_repo.find_one({"_id": target})
-    target_name = f"{(target_user or {}).get("firstName", "")} {(target_user or {}).get("lastName", "")}".strip() or "A farmer"
+    target_name = "{} {}".format((target_user or {}).get("firstName", ""), (target_user or {}).get("lastName", "")).strip() or "A farmer"
     await _create_cooperative_system_message(cid, f"{target_name} joined the cooperative.")
     return {"success": True, "message": "Farmer approved and added to the cooperative"}
 
@@ -859,6 +859,7 @@ async def list_cooperative_messages(
             "content": message.get("content", ""),
             "createdAt": message.get("createdAt"),
             "replyTo": message.get("replyTo"),
+            "isMine": str(sender_id) == str(uid) if sender_id else False,
         })
     return {"success": True, "data": {"messages": rows, "hasMore": len(rows) == limit}}
 
