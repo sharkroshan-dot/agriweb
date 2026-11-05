@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarDays, Sprout, Boxes,
   ChevronLeft, ChevronRight, Plus, List, LayoutGrid, CalendarRange,
   ArrowUpRight, RefreshCw, AlertCircle, Truck, CloudSun, FileText, ShoppingBag,
+  Wheat, PackageCheck, FlaskConical, Loader2, CheckCircle2, X,
 } from "lucide-react";
 import { api } from "../../../lib/api/client";
 import { formatDate, cn } from "../../../lib/utils";
@@ -14,6 +16,7 @@ import { Card, CardContent } from "../../../components/ui/card";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { FarmerPageHeader } from "../../../components/farmer/farmer-page-header";
+import toast from "react-hot-toast";
 
 type CalendarEntry = {
   id: string;
@@ -93,6 +96,14 @@ export default function FarmerSupplyCalendarPage() {
   const [view, setView] = useState<"month" | "week" | "list">("month");
   const [cropFilter, setCropFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [harvestEntry, setHarvestEntry] = useState<CalendarEntry | null>(null);
+  const [harvestQuantity, setHarvestQuantity] = useState("");
+  const [harvestRate, setHarvestRate] = useState("");
+  const [batchEntry, setBatchEntry] = useState<CalendarEntry | null>(null);
+  const [batchGrade, setBatchGrade] = useState("Standard");
+  const [batchStorage, setBatchStorage] = useState("normal");
+  const [batchShelfLife, setBatchShelfLife] = useState("3");
+
 
   const { data: plansData, isLoading, isError } = useQuery({
     queryKey: ["farmerSupplyCalendarFromHarvestPlans"],
@@ -120,6 +131,40 @@ export default function FarmerSupplyCalendarPage() {
     queryFn: () => api.get("/b2b/contracts/me"),
     retry: 1,
   });
+  const queryClient = useQueryClient();
+  const harvestMutation = useMutation({
+    mutationFn: (payload: { planId: string; actualQuantityKg: number; finalRatePerKg: number }) =>
+      api.post("/harvests/plans/" + payload.planId + "/harvest", { actualQuantityKg: payload.actualQuantityKg, finalRatePerKg: payload.finalRatePerKg }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarFromHarvestPlans"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestPlans"] });
+      setHarvestEntry(null);
+      toast.success("Harvest recorded. Next, create a traceable batch.");
+    },
+    onError: (error: any) => toast.error(error?.message || "Could not record harvest"),
+  });
+  const batchMutation = useMutation({
+    mutationFn: (payload: any) => api.post("/batches", payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarFromHarvestPlans"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerHarvestBatches"] });
+      setBatchEntry(null);
+      toast.success("Batch created. Request its quality inspection next.");
+    },
+    onError: (error: any) => toast.error(error?.message || "Could not create batch"),
+  });
+  const inspectionMutation = useMutation({
+    mutationFn: (batchId: string) => api.post("/quality/inspections/request", { batchId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarBatches"] });
+      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarFromHarvestPlans"] });
+      toast.success("Quality inspection requested. An authorized verifier will review the batch.");
+    },
+    onError: (error: any) => toast.error(error?.message || "Could not request quality inspection"),
+  });
+
 
   const plans = plansData?.data?.plans || [];
   const batches = batchesData?.data?.batches || [];
@@ -252,6 +297,47 @@ export default function FarmerSupplyCalendarPage() {
     setMonthCursor(new Date(today.getFullYear(), today.getMonth(), 1));
     setSelectedDate(dateKey(today));
   };
+  const openHarvestForm = (entry: CalendarEntry) => {
+    setHarvestEntry(entry);
+    setHarvestQuantity(String(entry.expectedQuantityKg || ""));
+    setHarvestRate(String(entry.plannedRatePerKg || ""));
+  };
+  const submitHarvest = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!harvestEntry?.referenceId) return;
+    const quantity = Number(harvestQuantity);
+    const rate = Number(harvestRate);
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(rate) || rate <= 0) {
+      toast.error("Enter a valid harvested quantity and selling rate.");
+      return;
+    }
+    harvestMutation.mutate({ planId: harvestEntry.referenceId, actualQuantityKg: quantity, finalRatePerKg: rate });
+  };
+  const openBatchForm = (entry: CalendarEntry) => {
+    setBatchEntry(entry);
+    setBatchGrade("Standard");
+    setBatchStorage("normal");
+    setBatchShelfLife("3");
+  };
+  const submitBatch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!batchEntry?.referenceId) return;
+    const quantity = Number(batchEntry.actualQuantityKg ?? batchEntry.expectedQuantityKg);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("A valid harvested quantity is required before creating a batch.");
+      return;
+    }
+    batchMutation.mutate({
+      cropName: batchEntry.cropName,
+      quantityKg: quantity,
+      harvestDate: batchEntry.date.toISOString(),
+      qualityGrade: batchGrade,
+      storageType: batchStorage,
+      shelfLifeDays: batchShelfLife ? Number(batchShelfLife) : undefined,
+      sourceHarvestPlanId: batchEntry.referenceId,
+    });
+  };
+
 
   const renderEntry = (entry: CalendarEntry, compact = false) => {
     const meta = statusMeta[entry.status] || statusMeta.planned;
