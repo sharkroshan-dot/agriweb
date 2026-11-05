@@ -580,9 +580,6 @@ export default function FarmerOrderDetailPage() {
             </Card>
           )}
 
-          {order.deliveryType === "pickup" && order.status === "picked_up" && (
-            <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm"><CardContent className="flex flex-col items-center gap-2 p-6 text-center"><CheckCircle className="h-8 w-8 text-emerald-600" /><p className="font-semibold text-emerald-900">Pickup completed</p><p className="text-sm text-emerald-700">The order has been handed over to the customer.</p></CardContent></Card>
-          )}
         </aside>
       </div>
     </div>
