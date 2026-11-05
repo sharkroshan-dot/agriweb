@@ -27,6 +27,10 @@ const statusColors: Record<string, string> = {
   refunded: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
+const humanizeRole = (role: string) => String(role || "")
+  .replace(/_/g, " ")
+  .replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+
 const pickupPaymentLabel = (method: string) => {
   const m = (method || "").toLowerCase();
   if (m === "cash" || m === "cod" || m === "cash_on_delivery") return "Cash on Pickup";
@@ -45,6 +49,9 @@ export default function FarmerOrderDetailPage() {
     queryFn: () => api.get(isB2BOrder ? `/b2b/orders/${orderId}` : `/orders/${orderId}`),
     enabled: !!orderId,
     refetchInterval: 10000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 
   const { data: fulfillmentCheckData } = useQuery({
@@ -181,12 +188,44 @@ export default function FarmerOrderDetailPage() {
       paymentMethod: o.paymentMethod || "cash",
       paymentStatus: o.paymentStatus || "pending",
       specialInstructions: o.specialInstructions,
-      tracking: (o.statusHistory || []).map((h: any) => ({
-        status: (h.status || "").toLowerCase(),
-        eventType: h.eventType || "",
-        date: h.timestamp || h.createdAt || h.date,
-        description: h.title || h.note || String(h.status || "Status update").replace(/_/g, " ").replace(/\\b\\w/g, (c: string) => c.toUpperCase()),
-      })).sort((a: any, b: any) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()),
+      tracking: (Array.isArray(o.statusHistory) ? o.statusHistory : [])
+        .filter((h: any) => h && typeof h === "object" && h.isInvalidTransition !== true)
+        .map((h: any, index: number) => {
+          const action = String(h.action || h.eventType || "").trim().toLowerCase();
+          const status = String(h.status || o.status || o.orderStatus || "updated").trim().toLowerCase();
+          const actionLabels: Record<string, string> = {
+            order_created: "Order placed",
+            quality_check: "Quality inspection updated",
+            assign_pickup: "Farm pickup team assigned",
+            confirm_pickup: "Produce collected from farm",
+            receive_stock: "Produce received at warehouse",
+            set_fulfillment_route: "Delivery route selected",
+            dispatch_transfer: "Warehouse transfer dispatched",
+            receive_at_destination: "Received at destination warehouse",
+            complete_consolidation: "Farmer orders consolidated",
+            dispatch_to_buyer: "Final delivery assigned and dispatched",
+            confirm_delivery: "Delivered to business",
+            reschedule_delivery: "Delivery schedule changed",
+            complete_order: "Order completed",
+            cancel_order: "Order cancelled",
+          };
+          const humanize = (value: string) => value
+            .replace(/_/g, " ")
+            .replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+          const date = h.timestamp || h.createdAt || h.date || h.updatedAt || null;
+          const parsedDate = date ? new Date(date).getTime() : 0;
+          return {
+            key: String(h._id || h.id || `${action || status}-${date || index}-${index}`),
+            status,
+            label: String(h.title || actionLabels[action] || (action ? humanize(action) : humanize(status))),
+            actorRole: h.actorRole || "",
+            date,
+            sortTime: Number.isFinite(parsedDate) ? parsedDate : 0,
+            description: String(h.details || h.description || h.note || h.message || ""),
+            isDerived: h.isDerived === true,
+          };
+        })
+        .sort((a: any, b: any) => b.sortTime - a.sortTime),
     };
   }, [data]);
 
@@ -353,20 +392,24 @@ export default function FarmerOrderDetailPage() {
               </CardHeader>
               <CardContent>
                 <div className="relative space-y-0">
-                  {(showAllTracking ? order.tracking : order.tracking.slice(-2)).map((event: any, i: number) => (
-                    <div key={i} className="flex gap-4 pb-4 last:pb-0">
+                  {(showAllTracking ? order.tracking : order.tracking.slice(0, 2)).map((event: any, i: number, visibleEvents: any[]) => (
+                    <div key={event.key} className="flex gap-4 pb-4 last:pb-0">
                       <div className="flex flex-col items-center">
                         <div className={`h-3 w-3 rounded-full border-2 ${i === 0 ? "border-emerald-500 bg-emerald-500" : "border-gray-300 bg-white"}`} />
-                        {i < (showAllTracking ? order.tracking.length : Math.min(2, order.tracking.length)) - 1 && (
+                        {i < visibleEvents.length - 1 && (
                           <div className="mt-1 w-0.5 flex-1 bg-gray-200" />
                         )}
                       </div>
                       <div className="min-w-0 flex-1 pt-0.5">
                         <p className={`text-sm font-medium ${i === 0 ? "text-emerald-700" : "text-gray-500"}`}>
-                          {event.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                          {event.label || "Order update"}
+                          {event.isDerived && <span className="ml-2 text-[10px] font-normal text-slate-400">Reconstructed from saved order details</span>}
                         </p>
-                        {event.description && <p className="text-xs text-muted-foreground">{event.description}</p>}
-                        {event.date && <p className="mt-0.5 text-xs text-muted-foreground">{formatDate(event.date)}</p>}
+                        {event.description && <p className="mt-1 text-xs text-muted-foreground">{event.description}</p>}
+                        <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                          {event.actorRole && <span>Updated by {humanizeRole(event.actorRole)}</span>}
+                          {event.date && <span>{formatDate(event.date)}</span>}
+                        </div>
                       </div>
                     </div>
                   ))}
