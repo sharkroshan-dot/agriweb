@@ -13,7 +13,7 @@ import {
   ClipboardList,
   FlaskConical,
   Layers,
-  MapPinned,
+  MapPinned,\n  Route,
   Package,
   PackageCheck,
   RefreshCw,
@@ -116,6 +116,33 @@ const workflows = [
     icon: Warehouse,
     tone: "bg-teal-50 text-teal-700",
     tags: ["Supply contracts", "Recurring supply", "Preparation"],
+  },
+  {
+    title: "Smart Route",
+    description: "Optimize selected delivery stops and review the planned sequence before dispatch.",
+    href: "/farmer/smart-route",
+    action: "Optimize route",
+    icon: Route,
+    tone: "bg-indigo-50 text-indigo-700",
+    tags: ["Stop sequence", "Route planning", "Delivery efficiency"],
+  },
+  {
+    title: "Delivery Slots",
+    description: "Review delivery slot availability and manage the farmer's delivery schedule.",
+    href: "/farmer/delivery-slots",
+    action: "Manage delivery slots",
+    icon: CalendarDays,
+    tone: "bg-sky-50 text-sky-700",
+    tags: ["Availability", "Time slots", "Scheduling"],
+  },
+  {
+    title: "Warehouse Returns",
+    description: "Review produce returned from warehouse handling and follow the available return actions.",
+    href: "/farmer/warehouse-returns",
+    action: "Review returns",
+    icon: Package,
+    tone: "bg-orange-50 text-orange-700",
+    tags: ["Returned stock", "Inspection", "Resolution"],
   },
 ];
 
@@ -227,7 +254,7 @@ export default function FarmerOrderOperationsPage() {
           <h2 className="text-lg font-bold text-slate-950">Order fulfillment workspace</h2>
           <p className="mt-1 text-sm text-slate-500">Choose the operation you need. Each workspace keeps its existing order actions and validation.</p>
         </div>
-        <Badge variant="secondary">8 workspaces</Badge>
+        <Badge variant="secondary">{workflows.length} workspaces</Badge>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
