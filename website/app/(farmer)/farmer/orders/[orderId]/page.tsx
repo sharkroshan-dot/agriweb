@@ -48,6 +48,42 @@ const getOrderProgress = (status: string, deliveryType: string) => {
   return { steps, activeIndex: ranks[status] ?? 0, terminal: status === "cancelled" || status === "refunded" };
 };
 
+const cropEmoji = (name: string) => {
+  const crop = String(name || '').toLowerCase();
+  if (/brinjal|eggplant|aubergine/.test(crop)) return '🍆';
+  if (/tomato/.test(crop)) return '🍅';
+  if (/potato/.test(crop)) return '🥔';
+  if (/onion/.test(crop)) return '🧅';
+  if (/carrot/.test(crop)) return '🥕';
+  if (/cabbage|lettuce/.test(crop)) return '🥬';
+  if (/broccoli/.test(crop)) return '🥦';
+  if (/chilli|chili|pepper/.test(crop)) return '🌶️';
+  if (/cucumber/.test(crop)) return '🥒';
+  if (/corn|maize/.test(crop)) return '🌽';
+  if (/garlic/.test(crop)) return '🧄';
+  if (/mango/.test(crop)) return '🥭';
+  if (/banana/.test(crop)) return '🍌';
+  if (/apple/.test(crop)) return '🍎';
+  if (/orange/.test(crop)) return '🍊';
+  if (/grape/.test(crop)) return '🍇';
+  if (/rice|paddy/.test(crop)) return '🌾';
+  return '🌱';
+};
+
+function OrderProductThumbnail({ name, image }: { name: string; image?: string }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  return (
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-emerald-50">
+      {image && !imageFailed ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={image} alt={name} className="h-full w-full object-cover" onError={() => setImageFailed(true)} />
+      ) : (
+        <span className="text-3xl" role="img" aria-label={name}>{cropEmoji(name)}</span>
+      )}
+    </div>
+  );
+}
+
 const pickupPaymentLabel = (method: string) => {
   const m = (method || "").toLowerCase();
   if (m === "cash" || m === "cod" || m === "cash_on_delivery") return "Cash on Pickup";
@@ -185,6 +221,7 @@ export default function FarmerOrderDetailPage() {
       date: o.orderDate || o.createdAt,
       items: items.map((i: any) => ({
         name: i.productName || i.cropName || i.name || "Product",
+        image: i.productImage || i.images?.[0] || i.image || i.imageUrl || "",
         quantity: String(i.quantity ?? i.quantityKg ?? i.approvedQuantityKg ?? 0),
         price: Number(i.totalPrice || i.lineTotal || i.unitPrice * (i.quantity ?? i.quantityKg ?? 0) || 0),
         unitPrice: Number(i.unitPrice || i.pricePerKg || 0),
@@ -376,9 +413,12 @@ export default function FarmerOrderDetailPage() {
               </div>
               {order.items.map((item: any, index: number) => (
                 <div key={index} className="grid grid-cols-2 items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-3 sm:border-0 sm:px-4">
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-sm text-slate-500 sm:hidden">Qty: {item.quantity}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <OrderProductThumbnail name={item.name} image={item.image} />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900">{item.name}</p>
+                      <p className="text-sm text-slate-500 sm:hidden">Qty: {item.quantity}</p>
+                    </div>
                   </div>
                   <span className="hidden text-center text-sm text-slate-700 sm:block">{item.quantity}</span>
                   <span className="text-right text-sm text-slate-600 sm:text-right">{formatPrice(Number(item.unitPrice))}</span>
