@@ -374,7 +374,8 @@ export default function FarmerSupplyCalendarPage() {
       ? occurrenceQuantities.reduce((sum: number, value: number) => sum + value, 0)
       : null;
     const remainingKg = totalKg == null ? null : Math.max(0, totalKg - suppliedKg);
-    const missed = scheduleDates.filter((scheduleKey: string) => {\n      const item = history.find((row: any) => String(row.scheduledDate || "").slice(0, 10) === scheduleKey) || {};
+    const missed = scheduleDates.filter((scheduleKey: string) => {
+      const item = history.find((row: any) => String(row.scheduledDate || "").slice(0, 10) === scheduleKey) || {};
       const scheduled = parsePlanDate(scheduleKey);
       const state = String(item.fulfillmentStatus || "").toLowerCase();
       return scheduled && scheduled < todayStart
