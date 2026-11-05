@@ -362,6 +362,30 @@ export default function FarmerSupplyCalendarPage() {
   });
   const farmerActionCount = overdueHarvestPlans.length + soonHarvestPlans.length + batchesAwaitingInspection.length + contractsDueSoon.length;
 
+  const farmerOrderRows = [
+    ...farmerOrders.map((order: any) => ({ ...order, __kind: "retail" })),
+    ...b2bOrders.map((order: any) => ({ ...order, __kind: "b2b" })),
+  ];
+  const ordersAwaitingPreparation = farmerOrderRows.filter((order: any) =>
+    ["confirmed", "preparing", "quality_check"].includes(String(order.status || order.orderStatus || "").toLowerCase())
+  );
+  const ordersReadyForPickup = farmerOrderRows.filter((order: any) =>
+    String(order.status || order.orderStatus || "").toLowerCase() === "ready_for_pickup"
+  );
+  const selectedDayOrders = selectedEntries.filter(entry =>
+    ["farm_pickup", "warehouse_delivery", "business_delivery", "retail_delivery"].includes(entry.eventType || "")
+  );
+  const selectedDayRetailCount = selectedDayOrders.filter(entry => entry.id.startsWith("retail-")).length;
+  const selectedDayB2BCount = selectedDayOrders.filter(entry => entry.id.startsWith("b2b-") || entry.id.startsWith("contract-")).length;
+  const selectedDayOrderQuantity = selectedDayOrders.reduce((sum, entry) => sum + Math.max(0, entry.expectedQuantityKg || 0), 0);
+  const inventoryShortageRows = supplyDemandRows.filter(row => row.gap != null && row.gap > 0);
+  const overdueContracts = activeContracts.filter((contract: any) => {
+    const due = parsePlanDate(contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate);
+    return due && due < todayStart;
+  });
+  const smartAlertCount = overdueHarvestPlans.length + inventoryShortageRows.length + overdueContracts.length
+    + ordersAwaitingPreparation.length + ordersReadyForPickup.length;
+
   const monthEntries = filteredEntries.filter(entry => entry.date.getMonth() === monthCursor.getMonth() && entry.date.getFullYear() === monthCursor.getFullYear());
   const cropPlanEntries = monthEntries.filter(entry => entry.eventType === "harvest" || entry.eventType === "preharvest");
   const monthSupplyKg = cropPlanEntries.reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0);
@@ -607,6 +631,8 @@ export default function FarmerSupplyCalendarPage() {
               <div className="rounded-xl bg-slate-50 p-3">
                 <div className="flex items-center justify-between text-xs"><span className="text-slate-500">Scheduled activities</span><strong className="text-slate-900">{selectedEntries.length}</strong></div>
                 <div className="mt-1 flex items-center justify-between text-xs"><span className="text-slate-500">Planned / recorded crop quantity</span><strong className="text-slate-900">{selectedEntries.filter(entry => entry.eventType === "harvest" || entry.eventType === "preharvest").reduce((sum, entry) => sum + (entry.actualQuantityKg ?? entry.expectedQuantityKg), 0).toLocaleString("en-IN")} kg</strong></div>
+                <div className="mt-1 flex items-center justify-between text-xs"><span className="text-slate-500">Retail / B2B orders</span><strong className="text-slate-900">{selectedDayRetailCount} retail · {selectedDayB2BCount} B2B</strong></div>
+                <div className="mt-1 flex items-center justify-between text-xs"><span className="text-slate-500">Order quantity scheduled</span><strong className="text-slate-900">{selectedDayOrderQuantity.toLocaleString("en-IN", { maximumFractionDigits: 2 })} kg</strong></div>
               </div>
               {selectedEntries.length ? selectedEntries.map(entry => (
                 <div key={entry.id} className="rounded-xl border border-slate-200 p-3">
@@ -675,7 +701,9 @@ export default function FarmerSupplyCalendarPage() {
 
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-4">
-              <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-bold text-slate-900">Farmer action centre</h3><p className="text-[11px] text-slate-500">Tasks that may need your attention</p></div><Badge className={farmerActionCount ? "border border-amber-200 bg-amber-50 text-amber-800" : "border border-emerald-200 bg-emerald-50 text-emerald-800"}>{farmerActionCount} items</Badge></div>
+              <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-bold text-slate-900">Farmer action centre</h3>
+              {ordersAwaitingPreparation.length > 0 && <Link href="/farmer/b2b/contracts#preparation" className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-2.5 text-xs hover:bg-orange-100"><ShoppingBag className="mt-0.5 h-4 w-4 shrink-0 text-orange-700"/><span><strong className="text-orange-900">{ordersAwaitingPreparation.length} order(s) need preparation or quality action</strong><span className="block text-orange-800">Open the supply workspace to prepare, pack and complete farmer quality checks.</span></span></Link>}
+              {ordersReadyForPickup.length > 0 && <Link href="/farmer/orders" className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-2.5 text-xs hover:bg-sky-100"><Truck className="mt-0.5 h-4 w-4 shrink-0 text-sky-700"/><span><strong className="text-sky-900">{ordersReadyForPickup.length} order(s) ready for farm pickup</strong><span className="block text-sky-800">Keep packed produce available for the assigned collection.</span></span></Link>}<p className="text-[11px] text-slate-500">Tasks that may need your attention</p></div><Badge className={farmerActionCount + ordersAwaitingPreparation.length + ordersReadyForPickup.length ? "border border-amber-200 bg-amber-50 text-amber-800" : "border border-emerald-200 bg-emerald-50 text-emerald-800"}>{farmerActionCount + ordersAwaitingPreparation.length + ordersReadyForPickup.length} items</Badge></div>
               {overdueHarvestPlans.length > 0 && <Link href="/farmer/harvest-planner" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs hover:bg-rose-100"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-700"/><span><strong className="text-rose-900">{overdueHarvestPlans.length} overdue harvest plan(s)</strong><span className="block text-rose-800">Review expected harvest dates that have passed.</span></span></Link>}
               {soonHarvestPlans.length > 0 && <Link href="/farmer/harvest-planner" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs hover:bg-amber-100"><Wheat className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"/><span><strong className="text-amber-900">{soonHarvestPlans.length} harvest plan(s) due within 3 days</strong><span className="block text-amber-800">Check crop readiness and record the actual harvest.</span></span></Link>}
               {batchesAwaitingInspection.length > 0 && <Link href="/farmer/batches" className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2.5 text-xs hover:bg-blue-100"><FlaskConical className="mt-0.5 h-4 w-4 shrink-0 text-blue-700"/><span><strong className="text-blue-900">{batchesAwaitingInspection.length} batch(es) awaiting quality status</strong><span className="block text-blue-800">Check batch inspection progress.</span></span></Link>}
@@ -686,7 +714,19 @@ export default function FarmerSupplyCalendarPage() {
 
           <Card className="border-slate-200 shadow-sm">
             <CardContent className="space-y-3 p-4">
-              <h3 className="text-sm font-bold text-slate-900">Quick actions</h3>
+              <Card className="border-slate-200 shadow-sm">
+            <CardContent className="space-y-3 p-4">
+              <div className="flex items-center justify-between gap-2"><div><h3 className="text-sm font-bold text-slate-900">Smart alerts</h3><p className="text-[11px] text-slate-500">Exceptions detected from current farmer records</p></div><Badge variant="outline">{smartAlertCount} alerts</Badge></div>
+              {inventoryShortageRows.slice(0, 4).map(row => <div key={"gap-"+row.name} className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900"><strong>{row.name}: {row.gap?.toLocaleString("en-IN")} kg demand gap</strong><span className="block text-amber-800">Compare available stock with upcoming scheduled commitments.</span></div>)}
+              {overdueContracts.length > 0 && <Link href="/farmer/b2b/contracts" className="block rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-900"><strong>{overdueContracts.length} recurring contract(s) have a past scheduled date</strong><span className="block text-rose-800">Review the next occurrence and update stock or shortage status.</span></Link>}
+              {ordersAwaitingPreparation.length > 0 && <Link href="/farmer/b2b/contracts#preparation" className="block rounded-lg border border-orange-200 bg-orange-50 p-2.5 text-xs text-orange-900"><strong>{ordersAwaitingPreparation.length} order(s) need farmer preparation or quality action</strong><span className="block text-orange-800">Complete preparation and quality actions before pickup.</span></Link>}
+              {ordersReadyForPickup.length > 0 && <Link href="/farmer/orders" className="block rounded-lg border border-sky-200 bg-sky-50 p-2.5 text-xs text-sky-900"><strong>{ordersReadyForPickup.length} order(s) are ready for farm pickup</strong><span className="block text-sky-800">Keep packed produce available for collection.</span></Link>}
+              {overdueHarvestPlans.length > 0 && <Link href="/farmer/harvest-planner" className="block rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-900"><strong>{overdueHarvestPlans.length} harvest plan(s) are overdue</strong><span className="block text-rose-800">Record actual harvest or revise the plan.</span></Link>}
+              {smartAlertCount === 0 && <p className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">No exceptions detected in the records currently loaded.</p>}
+              <p className="text-[10px] leading-4 text-slate-500">Alerts are reminders only; they do not change orders, inventory or contract status.</p>
+            </CardContent>
+          </Card>
+          <h3 className="text-sm font-bold text-slate-900">Quick actions</h3>
               <div className="grid grid-cols-2 gap-2">
                 <Button asChild variant="outline" className="h-auto justify-start border-emerald-200 px-3 py-2 text-xs text-emerald-800"><Link href="/farmer/harvest-planner"><Sprout className="mr-2 h-4 w-4" />Harvest plan</Link></Button>
                 <Button asChild variant="outline" className="h-auto justify-start border-purple-200 px-3 py-2 text-xs text-purple-800"><Link href="/farmer/b2b/rfqs"><FileText className="mr-2 h-4 w-4" />Farmer RFQs</Link></Button>
