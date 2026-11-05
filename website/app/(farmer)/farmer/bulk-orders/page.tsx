@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -307,6 +307,8 @@ export default function FarmerBulkOrdersPage() {
     queryKey: ["b2b", "farmer", "orders"],
     queryFn: () => api.get("/b2b/orders"),
   });
+  const b2bOrders = useMemo(() => b2bData?.data?.orders || [], [b2bData]);
+
 
   const advanceMutation = useMutation({
     mutationFn: (payload: { id: string; status: string }) => api.put(`/bulk-orders/orders/${payload.id}/status`, { status: payload.status }),
@@ -338,6 +340,21 @@ export default function FarmerBulkOrdersPage() {
     onError: (err: any) => toast.error(err?.message || "Failed to update order"),
   });
 
+  useEffect(() => {
+    if (!targetB2bOrderId) return;
+    setTab("b2b");
+    setB2bFilter("");
+    if (b2bLoading) return;
+    const matchingOrder = b2bOrders.find((order: any) =>
+      String(order.id || order._id || order.orderId || "") === targetB2bOrderId
+    );
+    if (!matchingOrder) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("b2b-order-" + targetB2bOrderId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [targetB2bOrderId, b2bLoading, b2bOrders]);
+
   if (bulkLoading || b2bLoading || eventFulfillmentLoading) {
     return (
       <div className="flex h-40 items-center justify-center">
@@ -361,8 +378,6 @@ export default function FarmerBulkOrdersPage() {
   }));
   const allBulkOrders = [...orders, ...eventOrders];
 
-  const b2bOrders = b2bData?.data?.orders || [];
-
   const filterBulk = (list: any[]) => {
     if (bulkFilter === "active") return list.filter((o) => !["delivered", "completed", "cancelled"].includes(o.status));
     if (bulkFilter === "completed") return list.filter((o) => ["delivered", "completed"].includes(o.status));
@@ -380,20 +395,7 @@ export default function FarmerBulkOrdersPage() {
   const visibleOrders = filterBulk(allBulkOrders);
   const visibleB2bOrders = filterB2b(b2bOrders);
 
-  useEffect(() => {
-    if (!targetB2bOrderId) return;
-    setTab("b2b");
-    setB2bFilter("");
-    if (b2bLoading) return;
-    const matchingOrder = b2bOrders.find((order: any) =>
-      String(order.id || order._id || order.orderId || "") === targetB2bOrderId
-    );
-    if (!matchingOrder) return;
-    const frame = window.requestAnimationFrame(() => {
-      document.getElementById("b2b-order-" + targetB2bOrderId)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [targetB2bOrderId, b2bLoading, b2bOrders]);
+
 
   const nextOfB2b = (status: string) => {
     const i = b2bFlow.indexOf(status);
