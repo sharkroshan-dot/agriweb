@@ -30,6 +30,8 @@ type CalendarEntry = {
   preOrderCount: number;
   status: string;
   batchId?: string;
+  masterCropId?: string;
+  farmerCropId?: string;
   qualityStatus: string;
   eventType?: string;
   orderType?: string;
@@ -155,16 +157,6 @@ export default function FarmerSupplyCalendarPage() {
     },
     onError: (error: any) => toast.error(error?.message || "Could not create batch"),
   });
-  const inspectionMutation = useMutation({
-    mutationFn: (batchId: string) => api.post("/quality/inspections/request", { batchId }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarBatches"] });
-      queryClient.invalidateQueries({ queryKey: ["farmerSupplyCalendarFromHarvestPlans"] });
-      toast.success("Quality inspection requested. An authorized verifier will review the batch.");
-    },
-    onError: (error: any) => toast.error(error?.message || "Could not request quality inspection"),
-  });
-
 
   const plans = plansData?.data?.plans || [];
   const batches = batchesData?.data?.batches || [];
@@ -191,7 +183,7 @@ export default function FarmerSupplyCalendarPage() {
           plannedRatePerKg: plan.preOrderPricePerKg != null ? Number(plan.preOrderPricePerKg) : null,
           finalRatePerKg: plan.finalRatePerKg != null ? Number(plan.finalRatePerKg) : null,
           preOrderCount: Number(plan.preorderCount || 0), status,
-          batchId: batch?._id || batch?.id, qualityStatus: batch?.qualityStatus || "not_created",
+          batchId: batch?._id || batch?.id, masterCropId: plan.masterCropId, farmerCropId: plan.farmerCropId, qualityStatus: batch?.qualityStatus || "not_created",
           eventType: harvested ? "harvest" : "preharvest",
           orderType: harvested ? "Harvest" : "Pre-harvest",
           referenceId: id,
@@ -329,8 +321,10 @@ export default function FarmerSupplyCalendarPage() {
     }
     batchMutation.mutate({
       cropName: batchEntry.cropName,
+      masterCropId: batchEntry.masterCropId,
+      farmerCropId: batchEntry.farmerCropId,
       quantityKg: quantity,
-      harvestDate: batchEntry.date.toISOString(),
+      harvestDate: new Date().toISOString(),
       qualityGrade: batchGrade,
       storageType: batchStorage,
       shelfLifeDays: batchShelfLife ? Number(batchShelfLife) : undefined,
@@ -540,7 +534,7 @@ export default function FarmerSupplyCalendarPage() {
                       ) : !entry.batchId ? (
                         <Button type="button" className="w-full bg-emerald-700 text-white hover:bg-emerald-800" onClick={() => openBatchForm(entry)}><PackageCheck className="mr-2 h-4 w-4" />Create traceability batch</Button>
                       ) : entry.qualityStatus !== "approved" ? (
-                        <Button type="button" className="w-full bg-emerald-700 text-white hover:bg-emerald-800" onClick={() => inspectionMutation.mutate(String(entry.batchId))} disabled={inspectionMutation.isPending}>{inspectionMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FlaskConical className="mr-2 h-4 w-4" />}Request quality inspection</Button>
+                        <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><FlaskConical className="mt-0.5 h-4 w-4 shrink-0" /><span><strong>Quality inspection queued</strong><br />Your batch was automatically added to the authorized warehouse / admin verification queue.</span></div>
                       ) : <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800"><CheckCircle2 className="h-4 w-4" />Quality approved</div>}
                       <Link href="/farmer/harvest-planner" className="inline-flex items-center text-xs font-semibold text-emerald-700 hover:text-emerald-800">Open full harvest plan <ArrowUpRight className="ml-1 h-3 w-3" /></Link>
                     </div>
@@ -616,7 +610,7 @@ export default function FarmerSupplyCalendarPage() {
             <div className="flex items-start justify-between gap-3"><div><h2 id="supply-batch-title" className="text-lg font-bold text-slate-900">Create traceability batch</h2><p className="mt-1 text-sm text-slate-500">{batchEntry.cropName} · {batchEntry.actualQuantityKg ?? batchEntry.expectedQuantityKg} kg</p></div><button type="button" onClick={() => setBatchEntry(null)} className="rounded-lg p-2 text-slate-500" aria-label="Close"><X className="h-5 w-5" /></button></div>
             <label className="block space-y-1 text-sm font-medium text-slate-700">Quality grade<select value={batchGrade} onChange={event => setBatchGrade(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3"><option>Premium</option><option>Standard</option><option>Economy</option></select></label>
             <label className="block space-y-1 text-sm font-medium text-slate-700">Storage method<select value={batchStorage} onChange={event => setBatchStorage(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 bg-white px-3"><option value="normal">Normal / ambient</option><option value="cold_storage">Cold storage</option><option value="refrigerated">Refrigerated</option><option value="frozen">Frozen</option></select></label>
-            <label className="block space-y-1 text-sm font-medium text-slate-700">Shelf life (days)<input required min="1" max="365" type="number" value={batchShelfLife} onChange={event => setBatchShelfLife(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3" /></label>
+            <label className="block space-y-1 text-sm font-medium text-slate-700">Shelf life (days)<input required min="1" max="90" type="number" value={batchShelfLife} onChange={event => setBatchShelfLife(event.target.value)} className="h-11 w-full rounded-lg border border-slate-300 px-3" /></label>
             <p className="rounded-lg bg-blue-50 p-3 text-xs text-blue-800">The batch receives a traceability lot number. An authorized verifier completes quality approval.</p>
             <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setBatchEntry(null)}>Cancel</Button><Button type="submit" disabled={batchMutation.isPending} className="bg-emerald-700 text-white">{batchMutation.isPending ? "Creating..." : "Create batch"}</Button></div>
           </form>
