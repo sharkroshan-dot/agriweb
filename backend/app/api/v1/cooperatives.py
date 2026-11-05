@@ -24,6 +24,7 @@ batch_repo = BaseRepository("batches")
 order_repo = BaseRepository("orders")
 delivery_assignment_repo = BaseRepository("delivery_assignments")
 cooperative_allocation_repo = BaseRepository("cooperative_allocations")
+cooperative_message_repo = BaseRepository("cooperative_messages")
 
 
 def _require_farmer(user: dict) -> None:
@@ -611,6 +612,9 @@ async def approve_join_request(cooperative_id: str, data: ManagerAction, current
     target = _oid(data.userId, "farmer id")
     result = await member_repo.collection.update_one({"cooperativeId": cid, "userId": target, "status": "pending", "deletedAt": None}, {"$set": {"status": "active", "joinedAt": datetime.utcnow(), "approvedAt": datetime.utcnow(), "deletedAt": None}})
     if not result.modified_count: raise HTTPException(404, "Pending join request not found")
+    target_user = await user_repo.find_one({"_id": target})
+    target_name = f"{(target_user or {}).get("firstName", "")} {(target_user or {}).get("lastName", "")}".strip() or "A farmer"
+    await _create_cooperative_system_message(cid, f"{target_name} joined the cooperative.")
     return {"success": True, "message": "Farmer approved and added to the cooperative"}
 
 
@@ -789,6 +793,112 @@ async def cooperative_dashboard(cooperative_id: str, current_user: dict = Depend
     allocations = await cooperative_allocation_repo.find_many({"cooperativeId": cid, "deletedAt": None}, limit=2000, sort=[("createdAt", -1)])
     allocated_kg = round(sum(float(x.get("quantityKg") or 0) for x in allocations), 2)
     return {"success": True, "data": {"cooperativeId": str(cid), "role": "manager" if str((coop or {}).get("managerId")) == str(uid) else "member", "production": {"plans": production_rows, "expectedKg": round(expected_kg, 2), "harvestedKg": round(harvested_kg, 2), "batchCounts": batch_counts}, "inventory": {k: v for k, v in stock.items() if k != "farmerAvailableKg"}, "orders": {"summary": order_summary, "recent": order_rows[:20]}, "distribution": distribution, "earnings": {"grossSales": round(order_summary["revenue"], 2), "allocatedB2BKg": allocated_kg}, "reports": {"members": len(member_ids), "productionPlans": len(plans), "batches": len(batches), "products": stock["productCount"], "orders": len(orders), "deliveries": len(assignments)}}}
+
+
+class CooperativeMessageCreate(BaseModel):
+    content: str = Field(..., min_length=1, max_length=4000)
+    replyTo: str | None = Field(default=None, max_length=64)
+
+
+async def _create_cooperative_system_message(cooperative_id: ObjectId, content: str) -> None:
+    now = datetime.utcnow()
+    await cooperative_message_repo.create({
+        "cooperativeId": cooperative_id,
+        "senderId": None,
+        "senderName": "AgriConnect",
+        "messageType": "system",
+        "content": content[:1000],
+        "createdAt": now,
+        "deletedAt": None,
+    })
+
+
+@router.get("/{cooperative_id}/messages")
+async def list_cooperative_messages(
+    cooperative_id: str,
+    limit: int = Query(60, ge=1, le=100),
+    before: str | None = Query(None, max_length=64),
+    current_user: dict = Depends(get_current_user),
+):
+    """List recent group messages. Only active cooperative members can read them."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    membership = await member_repo.find_one({
+        "cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None
+    })
+    if not membership:
+        raise HTTPException(403, "Only active cooperative members can view group messages")
+    query: Dict[str, Any] = {"cooperativeId": cid, "deletedAt": None}
+    if before:
+        try:
+            cursor_message = await cooperative_message_repo.find_one({"_id": ObjectId(before), "cooperativeId": cid})
+        except Exception:
+            cursor_message = None
+        if not cursor_message:
+            raise HTTPException(400, "Invalid message cursor")
+        query["createdAt"] = {"$lt": cursor_message.get("createdAt")}
+    messages = await cooperative_message_repo.find_many(query, limit=limit, sort=[("createdAt", -1)])
+    messages.reverse()
+    sender_ids = []
+    for message in messages:
+        sender = message.get("senderId")
+        if isinstance(sender, ObjectId):
+            sender_ids.append(sender)
+    senders = await user_repo.find_many({"_id": {"$in": sender_ids}}, limit=100) if sender_ids else []
+    sender_by_id = {str(user["_id"]): user for user in senders}
+    rows = []
+    for message in messages:
+        sender_id = message.get("senderId")
+        sender = sender_by_id.get(str(sender_id), {}) if sender_id else {}
+        rows.append({
+            "id": str(message["_id"]),
+            "senderId": str(sender_id) if sender_id else None,
+            "senderName": message.get("senderName") or (f"{sender.get('firstName', '')} {sender.get('lastName', '')}".strip() or "Farmer"),
+            "messageType": message.get("messageType", "text"),
+            "content": message.get("content", ""),
+            "createdAt": message.get("createdAt"),
+            "replyTo": message.get("replyTo"),
+        })
+    return {"success": True, "data": {"messages": rows, "hasMore": len(rows) == limit}}
+
+
+@router.post("/{cooperative_id}/messages", status_code=201)
+async def send_cooperative_message(
+    cooperative_id: str,
+    data: CooperativeMessageCreate,
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a text message to the cooperative's private group."""
+    _require_farmer(current_user)
+    cid = _oid(cooperative_id, "cooperative id")
+    uid = _oid(current_user["_id"], "farmer id")
+    membership = await member_repo.find_one({
+        "cooperativeId": cid, "userId": uid, "status": "active", "deletedAt": None
+    })
+    if not membership:
+        raise HTTPException(403, "Only active cooperative members can send group messages")
+    content = data.content.strip()
+    if not content:
+        raise HTTPException(400, "Message cannot be empty")
+    now = datetime.utcnow()
+    sender_name = f"{current_user.get('firstName', '')} {current_user.get('lastName', '')}".strip() or "Farmer"
+    message_id = await cooperative_message_repo.create({
+        "cooperativeId": cid,
+        "senderId": uid,
+        "senderName": sender_name,
+        "messageType": "text",
+        "content": content,
+        "replyTo": data.replyTo,
+        "createdAt": now,
+        "updatedAt": now,
+        "deletedAt": None,
+    })
+    if not message_id:
+        raise HTTPException(500, "Could not send message")
+    return {"success": True, "data": {"id": str(message_id), "senderId": str(uid), "senderName": sender_name, "messageType": "text", "content": content, "createdAt": now, "replyTo": data.replyTo}}
+
+
 @router.post("/{cooperative_id}/b2b-allocation")
 async def allocate_b2b_supply(
     cooperative_id: str,
@@ -825,4 +935,5 @@ async def allocate_b2b_supply(
     if result:
         now = datetime.utcnow()
         await cooperative_allocation_repo.create({"cooperativeId": cid, "managerId": uid, "allocations": result, "quantityKg": round(sum(x["quantityKg"] for x in result), 2), "status": "approved", "createdAt": now, "updatedAt": now, "deletedAt": None})
+        await _create_cooperative_system_message(cid, f"Manager recorded a cooperative supply allocation of {round(sum(x['quantityKg'] for x in result), 2)} kg. Check Inventory for the farmer-wise breakdown.")
     return {"success": True, "data": {"cooperativeId": str(cid), "allocations": result, "totalQuantityKg": round(sum(x["quantityKg"] for x in result), 2), "status": "approved"}}
