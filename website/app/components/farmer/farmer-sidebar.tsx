@@ -5,7 +5,7 @@ import { PrefetchLink as Link } from "../shared/prefetch-link";
 import { useSession } from "next-auth/react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  LayoutDashboard,
+  LayoutDashboard,\n  ClipboardList,\n  FlaskConical,
   Package,
   ShoppingCart,
   Truck,
@@ -53,15 +53,27 @@ const navGroups = [
       { name: "Dashboard", href: "/farmer/dashboard", icon: LayoutDashboard },
       { name: "Products", href: "/farmer/products", icon: Package },
       { name: "Restock & Inventory", href: "/farmer/restock", icon: PackagePlus },
-      { name: "Orders", href: "/farmer/orders", icon: ShoppingCart },
-      { name: "Warehouse Returns", href: "/farmer/warehouse-returns", icon: PackageCheck },
-      { name: "Packing & Checking", href: "/farmer/packing", icon: PackageCheck },
       { name: "Farm Baskets", href: "/farmer/farm-baskets", icon: ShoppingBasket },
       { name: "Customers", href: "/farmer/customers", icon: Users },
       { name: "Ratings & Reviews", href: "/farmer/reviews", icon: Star },
       { name: "Harvest Calendar", href: "/farmer/harvests", icon: Sprout },
       { name: "Harvest Planner", href: "/farmer/harvest-planner", icon: CalendarClock },
+    ],
+  },
+  {
+    label: "Order Operations",
+    items: [
+      { name: "Operations Overview", href: "/farmer/order-operations", icon: ClipboardList },
+      { name: "Orders", href: "/farmer/orders", icon: ShoppingCart },
+      { name: "Packing & Checking", href: "/farmer/packing", icon: PackageCheck },
+      { name: "Quality Inspection", href: "/farmer/quality", icon: FlaskConical },
       { name: "Batches & Traceability", href: "/farmer/batches", icon: Layers },
+      { name: "Order Map", href: "/farmer/order-map", icon: MapPin },
+      { name: "Delivery Calendar", href: "/farmer/delivery-calendar", icon: Calendar },
+      { name: "Smart Route", href: "/farmer/smart-route", icon: Map },
+      { name: "Delivery Slots", href: "/farmer/delivery-slots", icon: Truck },
+      { name: "Warehouse Returns", href: "/farmer/warehouse-returns", icon: PackageCheck },
+      { name: "Bulk & B2B Orders", href: "/farmer/bulk-orders", icon: Truck },
     ],
   },
   {
@@ -78,10 +90,6 @@ const navGroups = [
     label: "Deliveries",
     items: [
       { name: "Route", href: "/farmer/route", icon: Truck },
-      { name: "Order Map", href: "/farmer/order-map", icon: MapPin },
-      { name: "Delivery Calendar", href: "/farmer/delivery-calendar", icon: Calendar },
-      { name: "Smart Route", href: "/farmer/smart-route", icon: Map },
-      { name: "Delivery Slots", href: "/farmer/delivery-slots", icon: Truck },
     ],
   },
   {
