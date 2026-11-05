@@ -454,7 +454,7 @@ export default function FarmerSupplyCalendarPage() {
                         : entry.id.startsWith("contract-")
                           ? "/farmer/b2b/contracts"
                           : entry.id.startsWith("b2b-") && entry.referenceId
-                            ? `/farmer/bulk-orders?tab=b2b&orderId=${encodeURIComponent(entry.referenceId)}`
+                            ? `/farmer/orders/${encodeURIComponent(entry.referenceId)}?source=b2b`
                             : entry.referenceId
                               ? `/farmer/orders/${encodeURIComponent(entry.referenceId)}`
                               : "/farmer/orders"
