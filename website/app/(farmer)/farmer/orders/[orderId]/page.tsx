@@ -271,8 +271,8 @@ export default function FarmerOrderDetailPage() {
             <Package className="h-10 w-10 text-destructive" />
             <p className="font-medium text-destructive">Failed to load order</p>
             <p className="text-sm text-muted-foreground">{(error as any)?.message || "An unexpected error occurred"}</p>
-            <p className="mt-2 text-xs text-muted-foreground">orderId: {orderId}</p>
-            <p className="mt-2 text-xs text-muted-foreground">API: http://localhost:8000/api/v1/{isB2BOrder ? "b2b/orders" : "orders"}/{orderId}</p>
+            <p className="mt-2 text-sm text-muted-foreground">orderId: {orderId}</p>
+            <p className="mt-2 text-sm text-muted-foreground">API: http://localhost:8000/api/v1/{isB2BOrder ? "b2b/orders" : "orders"}/{orderId}</p>
             <Button asChild>
               <Link href="/farmer/orders">Back to orders</Link>
             </Button>
@@ -312,35 +312,35 @@ export default function FarmerOrderDetailPage() {
   const statusLabel = order.status.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] space-y-5 p-4 sm:p-6">
+    <div className="farmer-order-detail mx-0 w-full min-w-0 max-w-none space-y-4 px-2 py-3 text-sm sm:px-3 sm:py-4 lg:px-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="min-w-0">
           <Button variant="ghost" size="sm" asChild className="-ml-3 mb-2 text-slate-500 hover:text-slate-900">
             <Link href="/farmer/orders" className="flex items-center gap-2"><ArrowLeft className="h-4 w-4" /> Back to orders</Link>
           </Button>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Package className="h-7 w-7" /></div>
+            <div className="rounded-xl bg-emerald-50 p-3 text-emerald-700"><Package className="h-6 w-6" /></div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Orders / Order details</p>
-              <h1 className="mt-0.5 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Order #{order.orderNumber}</h1>
+              <p className="text-sm font-semibold uppercase tracking-wider text-slate-500">Orders / Order details</p>
+              <h1 className="mt-0.5 text-xl font-bold tracking-tight text-slate-950 sm:text-2xl">Order #{order.orderNumber}</h1>
               <p className="mt-1 text-sm text-slate-500">Placed on {formatDate(order.date)}</p>
             </div>
-            <Badge className={`ml-0 sm:ml-2 border px-3 py-1 text-xs ${statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}`}>{statusLabel}</Badge>
+            <Badge className={`ml-0 sm:ml-2 border px-3 py-1 text-sm ${statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}`}>{statusLabel}</Badge>
           </div>
         </div>
       </div>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.75fr)_minmax(300px,0.8fr)]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2.1fr)_minmax(320px,0.9fr)]">
         <div className="min-w-0 space-y-5">
           {!progress.terminal ? (
             <Card className="border-slate-200 shadow-sm">
-              <CardContent className="p-5 sm:p-6">
+              <CardContent className="p-4 sm:p-5">
                 <div className="mb-5 flex items-center justify-between gap-3">
                   <div>
                     <h2 className="font-semibold text-slate-900">Order progress</h2>
-                    <p className="mt-1 text-xs text-slate-500">Follow each step until the order is complete.</p>
+                    <p className="mt-1 text-sm text-slate-500">Follow each step until the order is complete.</p>
                   </div>
-                  <span className="text-xs font-medium text-emerald-700">{progress.activeIndex >= 5 ? "Completed" : `Step ${Math.min(progress.activeIndex + 1, 5)} of 5`}</span>
+                  <span className="text-sm font-medium text-emerald-700">{progress.activeIndex >= 5 ? "Completed" : `Step ${Math.min(progress.activeIndex + 1, 5)} of 5`}</span>
                 </div>
                 <div className="grid grid-cols-5 gap-1 sm:gap-3">
                   {progress.steps.map((step: any, index: number) => {
@@ -353,8 +353,8 @@ export default function FarmerOrderDetailPage() {
                         <div className={`relative mx-auto flex h-8 w-8 items-center justify-center rounded-full border-2 ${complete ? "border-emerald-600 bg-emerald-600 text-white" : active ? "border-emerald-600 bg-emerald-50 text-emerald-700 ring-4 ring-emerald-50" : "border-slate-200 bg-white text-slate-400"}`}>
                           {complete ? <CheckCircle2 className="h-4 w-4" /> : <StepIcon className="h-4 w-4" />}
                         </div>
-                        <p className={`mt-2 text-[11px] font-semibold leading-tight sm:text-xs ${complete || active ? "text-slate-900" : "text-slate-400"}`}>{step.label}</p>
-                        <p className="mt-1 hidden text-[10px] text-slate-400 sm:block">{complete ? "Completed" : active ? "In progress" : "Pending"}</p>
+                        <p className={`mt-2 text-sm font-semibold leading-tight sm:text-sm ${complete || active ? "text-slate-900" : "text-slate-400"}`}>{step.label}</p>
+                        <p className="mt-1 hidden text-sm text-slate-400 sm:block">{complete ? "Completed" : active ? "In progress" : "Pending"}</p>
                       </div>
                     );
                   })}
@@ -370,15 +370,15 @@ export default function FarmerOrderDetailPage() {
               <CardTitle className="flex items-center gap-2 text-base text-slate-900"><ShoppingBag className="h-5 w-5 text-emerald-700" /> Order items</CardTitle>
               <CardDescription>{order.items.length} product{order.items.length === 1 ? "" : "s"} in this order</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4 p-5">
-              <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px_120px] gap-3 rounded-lg bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-slate-500 sm:grid">
+            <CardContent className="space-y-4 p-4">
+              <div className="hidden grid-cols-[minmax(0,1fr)_100px_120px_120px] gap-3 rounded-lg bg-slate-50 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-500 sm:grid">
                 <span>Product</span><span className="text-center">Quantity</span><span className="text-right">Unit price</span><span className="text-right">Amount</span>
               </div>
               {order.items.map((item: any, index: number) => (
                 <div key={index} className="grid grid-cols-2 items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_100px_120px_120px] sm:gap-3 sm:border-0 sm:px-4">
                   <div className="min-w-0">
                     <p className="font-semibold text-slate-900">{item.name}</p>
-                    <p className="text-xs text-slate-500 sm:hidden">Qty: {item.quantity}</p>
+                    <p className="text-sm text-slate-500 sm:hidden">Qty: {item.quantity}</p>
                   </div>
                   <span className="hidden text-center text-sm text-slate-700 sm:block">{item.quantity}</span>
                   <span className="text-right text-sm text-slate-600 sm:text-right">{formatPrice(Number(item.unitPrice))}</span>
@@ -400,7 +400,7 @@ export default function FarmerOrderDetailPage() {
               <div><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Clock className="h-5 w-5 text-emerald-700" /> Tracking & activity</CardTitle><CardDescription className="mt-1">Updates recorded for this order, newest first</CardDescription></div>
               {order.tracking.length > 0 && <Button type="button" variant="outline" size="sm" onClick={() => setShowAllTracking(!showAllTracking)}>{showAllTracking ? "Show latest" : "View all activity"} <ChevronDown className="ml-1 h-4 w-4" /></Button>}
             </CardHeader>
-            <CardContent className="p-5">
+            <CardContent className="p-4">
               {order.tracking.length > 0 ? (
                 <div className="space-y-0">
                   {(showAllTracking ? order.tracking : order.tracking.slice(0, 4)).map((event: any, index: number, visibleEvents: any[]) => (
@@ -412,11 +412,11 @@ export default function FarmerOrderDetailPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <p className={`text-sm font-semibold ${index === 0 ? "text-emerald-800" : "text-slate-800"}`}>{event.label || "Order update"}</p>
-                          {event.date && <time className="text-xs text-slate-500">{formatDate(event.date)}</time>}
+                          {event.date && <time className="text-sm text-slate-500">{formatDate(event.date)}</time>}
                         </div>
                         {event.description && <p className="mt-1 text-sm leading-relaxed text-slate-600">{event.description}</p>}
-                        {event.actorRole && <p className="mt-1 text-xs text-slate-500">Updated by {humanizeRole(event.actorRole)}</p>}
-                        {event.isDerived && <p className="mt-1 text-[11px] text-slate-400">Reconstructed from saved order details</p>}
+                        {event.actorRole && <p className="mt-1 text-sm text-slate-500">Updated by {humanizeRole(event.actorRole)}</p>}
+                        {event.isDerived && <p className="mt-1 text-sm text-slate-400">Reconstructed from saved order details</p>}
                       </div>
                     </div>
                   ))}
@@ -424,7 +424,7 @@ export default function FarmerOrderDetailPage() {
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-8 text-center">
-                  <Clock className="mx-auto h-7 w-7 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No tracking updates yet</p><p className="mt-1 text-xs text-slate-500">New activity will appear here when the order progresses.</p>
+                  <Clock className="mx-auto h-7 w-7 text-slate-400" /><p className="mt-2 text-sm font-medium text-slate-700">No tracking updates yet</p><p className="mt-1 text-sm text-slate-500">New activity will appear here when the order progresses.</p>
                 </div>
               )}
             </CardContent>
@@ -436,17 +436,17 @@ export default function FarmerOrderDetailPage() {
               <CardContent className="space-y-2 text-sm">
                 <div className="flex items-center justify-between"><span>Order items packed</span><b>{fulfillmentCheck.packedItemCount || 0} / {fulfillmentCheck.itemCount || 0}</b></div>
                 <div className="flex items-center justify-between"><span>Dispatch status</span><Badge variant={fulfillmentCheck.readyForDispatch ? "success" : "warning"}>{fulfillmentCheck.readyForDispatch ? "Ready" : "Not ready"}</Badge></div>
-                {!fulfillmentCheck.readyForDispatch && <p className="text-xs text-amber-800">Complete packing for every item before dispatch.</p>}
+                {!fulfillmentCheck.readyForDispatch && <p className="text-sm text-amber-800">Complete packing for every item before dispatch.</p>}
               </CardContent>
             </Card>
           )}
 
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><MapPin className="h-5 w-5 text-emerald-700" /> Delivery address</CardTitle></CardHeader>
-            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
               <p className="min-w-0 flex-1 text-sm leading-relaxed text-slate-700">{order.address}</p>
               {mapUrl && <a href={mapUrl} target="_blank" rel="noopener noreferrer" className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 px-3 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50"><MapPin className="h-4 w-4" /> View map <ExternalLink className="h-3.5 w-3.5" /></a>}
-              {order.specialInstructions && <div className="w-full rounded-lg bg-slate-50 p-3 text-sm"><p className="text-xs font-semibold text-slate-500">Delivery instructions</p><p className="mt-1 text-slate-700">{order.specialInstructions}</p></div>}
+              {order.specialInstructions && <div className="w-full rounded-lg bg-slate-50 p-3 text-sm"><p className="text-sm font-semibold text-slate-500">Delivery instructions</p><p className="mt-1 text-slate-700">{order.specialInstructions}</p></div>}
             </CardContent>
           </Card>
         </div>
@@ -454,7 +454,7 @@ export default function FarmerOrderDetailPage() {
         <aside className="space-y-5">
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 bg-emerald-50/50 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><User className="h-5 w-5 text-emerald-700" /> Customer details</CardTitle></CardHeader>
-            <CardContent className="space-y-4 p-5 text-sm">
+            <CardContent className="space-y-4 p-4 text-sm">
               <div className="flex items-center gap-3"><User className="h-4 w-4 shrink-0 text-slate-400" /><span className="font-medium text-slate-800">{order.customerName}</span></div>
               {order.customerPhone && <a href={`tel:${order.customerPhone}`} className="flex items-center gap-3 text-slate-700 hover:text-emerald-700"><Phone className="h-4 w-4 shrink-0 text-slate-400" />{order.customerPhone}</a>}
               {order.customerEmail && <a href={`mailto:${order.customerEmail}`} className="flex items-center gap-3 break-all text-slate-700 hover:text-emerald-700"><Mail className="h-4 w-4 shrink-0 text-slate-400" />{order.customerEmail}</a>}
@@ -463,7 +463,7 @@ export default function FarmerOrderDetailPage() {
 
           <Card className="overflow-hidden border-slate-200 shadow-sm">
             <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><ClipboardList className="h-5 w-5 text-emerald-700" /> Order summary</CardTitle></CardHeader>
-            <CardContent className="space-y-3 p-5 text-sm">
+            <CardContent className="space-y-3 p-4 text-sm">
               <div className="flex items-start justify-between gap-3"><span className="text-slate-500">Order ID</span><span className="break-all text-right font-medium text-slate-800">{order.orderNumber}</span></div>
               <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-slate-500"><CalendarDays className="h-4 w-4" /> Date</span><span className="text-right font-medium text-slate-800">{formatDate(order.date)}</span></div>
               <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-slate-500"><CreditCard className="h-4 w-4" /> Payment</span><span className="text-right font-medium capitalize text-slate-800">{paymentMethodLabel}</span></div>
@@ -484,19 +484,19 @@ export default function FarmerOrderDetailPage() {
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-3 rounded-lg border bg-white p-3 text-sm">
                   <div>
-                    <p className="text-xs text-muted-foreground">Customer</p>
+                    <p className="text-sm text-muted-foreground">Customer</p>
                     <p className="font-medium">{order.customerName}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Order</p>
+                    <p className="text-sm text-muted-foreground">Order</p>
                     <p className="font-medium">{order.orderNumber}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Amount</p>
+                    <p className="text-sm text-muted-foreground">Amount</p>
                     <p className="font-medium">{formatPrice(order.total)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Payment</p>
+                    <p className="text-sm text-muted-foreground">Payment</p>
                     <p className="font-medium">{pickupPaymentLabel(order.paymentMethod)}</p>
                   </div>
                 </div>
@@ -506,7 +506,7 @@ export default function FarmerOrderDetailPage() {
                     <div className="overflow-hidden rounded-lg border bg-slate-900">
                       <div id="farmer-qr-reader" className="mx-auto max-w-xs" />
                     </div>
-                    <p className="text-center text-xs text-muted-foreground">
+                    <p className="text-center text-sm text-muted-foreground">
                       Point the camera at the QR code on the customer's phone.
                     </p>
                     <Button
@@ -524,7 +524,7 @@ export default function FarmerOrderDetailPage() {
                 )}
 
                 {scanError && (
-                  <p className="rounded-md bg-red-50 p-2 text-xs text-red-700">{scanError}</p>
+                  <p className="rounded-md bg-red-50 p-2 text-sm text-red-700">{scanError}</p>
                 )}
 
                 <div className="flex gap-2">
@@ -536,12 +536,12 @@ export default function FarmerOrderDetailPage() {
                   >
                     <ScanLine className="mr-2 h-4 w-4" /> Scan QR
                   </Button>
-                  <div className="flex items-center text-xs font-medium text-muted-foreground">
+                  <div className="flex items-center text-sm font-medium text-muted-foreground">
                     or enter code
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-gray-600">Pickup Code</label>
+                  <label className="mb-1 block text-sm font-medium text-gray-600">Pickup Code</label>
                   <Input
                     value={pickupCode}
                     onChange={(e) => setPickupCode(e.target.value.trim())}
