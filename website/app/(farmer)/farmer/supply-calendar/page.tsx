@@ -93,6 +93,23 @@ function Metric({ label, value, unit, hint, icon: Icon, tone }: any) {
   );
 }
 
+const buildContractScheduleDates = (contract: any): string[] => {
+  const start = parsePlanDate(contract.startDate);
+  const end = parsePlanDate(contract.endDate);
+  if (!start || !end || end < start) return [];
+  const frequency = String(contract.frequency || "weekly").toLowerCase();
+  const interval = Math.max(1, Math.min(12, Number(contract.recurrenceInterval || 1)));
+  const dates: string[] = [];
+  const cursor = new Date(start);
+  for (let guard = 0; cursor <= end && guard < 1200; guard += 1) {
+    dates.push(dateKey(cursor));
+    if (frequency === "daily") cursor.setDate(cursor.getDate() + interval);
+    else if (frequency === "monthly") cursor.setMonth(cursor.getMonth() + interval);
+    else cursor.setDate(cursor.getDate() + 7 * interval);
+  }
+  return dates;
+};
+
 export default function FarmerSupplyCalendarPage() {
   const [monthCursor, setMonthCursor] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => dateKey(new Date()));
@@ -242,16 +259,20 @@ export default function FarmerSupplyCalendarPage() {
     const contractEntries: CalendarEntry[] = activeContracts.flatMap((contract: any) => {
       const id = String(contract._id || contract.id || contract.contractNumber || "");
       const history = Array.isArray(contract.deliveryHistory) ? contract.deliveryHistory : [];
-      const occurrences = history.filter((item: any) => item.scheduledDate && !["cancelled", "canceled", "skipped"].includes(String(item.status || "").toLowerCase()));
-      const dates = occurrences.length ? occurrences : [{ scheduledDate: contract.nextDeliveryAt || contract.pendingFarmerDeliveryDate || contract.pendingRescheduledDeliveryDate, requestedQuantityKg: contract.quantityPerDeliveryKg || contract.quantityPerMonthKg }];
-      return dates.map((occurrence: any, index: number) => {
-        const date = parsePlanDate(occurrence.scheduledDate);
+      const historyByDate = new Map(history.filter((item: any) => item.scheduledDate).map((item: any) => [String(item.scheduledDate).slice(0, 10), item]));
+      const scheduledDates = buildContractScheduleDates(contract);
+      const dates = Array.from(new Set([...scheduledDates, ...historyByDate.keys()]));
+      return dates.map((scheduleKey: string) => {
+        const occurrence: any = historyByDate.get(scheduleKey) || {};
+        if (["cancelled", "canceled", "skipped"].includes(String(occurrence.status || "").toLowerCase())) return null;
+        const date = parsePlanDate(scheduleKey);
         if (!date) return null;
         return {
-          id: "contract-" + id + "-" + dateKey(date) + "-" + index, cropName: String(contract.cropName || "Contract supply"), date, dateKey: dateKey(date),
-          expectedQuantityKg: Number(occurrence.approvedQuantityKg || occurrence.requestedQuantityKg || contract.quantityPerDeliveryKg || contract.quantityPerMonthKg || 0),
-          actualQuantityKg: null, plannedRatePerKg: Number(contract.pricePerKg || 0) || null, finalRatePerKg: null,
-          preOrderCount: 0, status: "business_delivery", qualityStatus: "not_applicable",
+          id: "contract-" + id + "-" + scheduleKey, cropName: String(contract.cropName || "Contract supply"), date, dateKey: dateKey(date),
+          expectedQuantityKg: Number(occurrence.requestedQuantityKg || occurrence.approvedQuantityKg || contract.quantityPerDeliveryKg || 0),
+          actualQuantityKg: Number(occurrence.fulfilledQuantityKg || 0) || null,
+          plannedRatePerKg: Number(contract.pricePerKg || 0) || null, finalRatePerKg: null,
+          preOrderCount: 0, status: String(occurrence.fulfillmentStatus || "").toLowerCase() === "delivered" ? "business_delivery" : "business_delivery", qualityStatus: "not_applicable",
           eventType: "business_delivery", orderType: "Recurring contract", referenceId: id,
         } as CalendarEntry;
       }).filter(Boolean) as CalendarEntry[];
@@ -356,15 +377,17 @@ export default function FarmerSupplyCalendarPage() {
     const suppliedKg = completed.reduce((sum: number, item: any) =>
       sum + Math.max(0, Number(item.fulfilledQuantityKg || 0)), 0
     );
-    const occurrenceQuantities = history.map((item: any) =>
-      Math.max(0, Number(item.requestedQuantityKg || item.approvedQuantityKg || contract.quantityPerDeliveryKg || 0))
-    );
+    const scheduleDates = buildContractScheduleDates(contract);
+    const occurrenceQuantities = scheduleDates.map((scheduleKey: string) => {
+      const occurrence = history.find((item: any) => String(item.scheduledDate || "").slice(0, 10) === scheduleKey);
+      return Math.max(0, Number(occurrence?.requestedQuantityKg || occurrence?.approvedQuantityKg || contract.quantityPerDeliveryKg || 0));
+    });
     const totalKg = occurrenceQuantities.length
       ? occurrenceQuantities.reduce((sum: number, value: number) => sum + value, 0)
       : null;
     const remainingKg = totalKg == null ? null : Math.max(0, totalKg - suppliedKg);
-    const missed = history.filter((item: any) => {
-      const scheduled = parsePlanDate(item.scheduledDate);
+    const missed = scheduleDates.filter((scheduleKey: string) => {\n      const item = history.find((row: any) => String(row.scheduledDate || "").slice(0, 10) === scheduleKey) || {};
+      const scheduled = parsePlanDate(scheduleKey);
       const state = String(item.fulfillmentStatus || "").toLowerCase();
       return scheduled && scheduled < todayStart
         && !completedStatuses.includes(state)
