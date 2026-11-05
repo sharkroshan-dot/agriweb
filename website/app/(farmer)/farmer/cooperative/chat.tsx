@@ -33,7 +33,7 @@ export default function CooperativeChat({ cooperativeId, cooperativeName, member
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [messages.length]);
   const grouped = useMemo(() => messages, [messages]);
   const submit = () => { const content = draft.trim(); if (content && !send.isPending) send.mutate(content); };
-  return <Card className="overflow-hidden rounded-2xl border-slate-200 shadow-sm">
+  return <Card className="coop-chat-card overflow-hidden rounded-2xl border-slate-200 shadow-sm">
     <CardHeader className="border-b border-slate-100 bg-white px-4 py-4 sm:px-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
