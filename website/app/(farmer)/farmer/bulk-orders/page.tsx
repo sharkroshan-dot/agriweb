@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
@@ -246,9 +245,17 @@ function RateBusinessModal({ order, onClose }: { order: any; onClose: () => void
 
 export default function FarmerBulkOrdersPage() {
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
-  const targetB2bOrderId = searchParams.get("orderId") || "";
-  const [tab, setTab] = useState<"bulk" | "b2b">(searchParams.get("tab") === "b2b" || targetB2bOrderId ? "b2b" : "bulk");
+  const [targetB2bOrderId, setTargetB2bOrderId] = useState("");
+  const [tab, setTab] = useState<"bulk" | "b2b">("bulk");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get("orderId") || "";
+    if (params.get("tab") === "b2b" || orderId) {
+      setTargetB2bOrderId(orderId);
+      setTab("b2b");
+    }
+  }, []);
   const [bulkFilter, setBulkFilter] = useState("");
   const [b2bFilter, setB2bFilter] = useState("");
   const [weighingFor, setWeighingFor] = useState<string | null>(null);
