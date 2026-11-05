@@ -125,7 +125,7 @@ export default function FarmerWeatherPage() {
       }
     };
 
-    const useApproximateLocation = async () => {
+    const resolveApproximateLocation = async () => {
       try {
         const response = await fetch("https://ipapi.co/json/");
         if (!response.ok) throw new Error("Approximate location unavailable");
@@ -141,13 +141,13 @@ export default function FarmerWeatherPage() {
     };
 
     if (!navigator.geolocation) {
-      void useApproximateLocation();
+      void resolveApproximateLocation();
       return;
     }
 
     navigator.geolocation.getCurrentPosition(
       p => { void apply(p.coords.latitude, p.coords.longitude, "gps"); },
-      () => { void useApproximateLocation(); },
+      () => { void resolveApproximateLocation(); },
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 },
     );
   };
