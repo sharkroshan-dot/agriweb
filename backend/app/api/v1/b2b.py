@@ -6764,10 +6764,50 @@ async def list_business_supply_contracts(current_user: dict = Depends(get_curren
 async def list_farmer_supply_contracts(current_user: dict = Depends(get_current_user)):
     if current_user.get("role") != "farmer":
         raise HTTPException(status_code=403, detail="Only farmers can view their supply contracts")
+    farmer_oid = ObjectId(current_user["_id"])
     rows = await contract_repo.find_many({
-        "farmerId": ObjectId(current_user["_id"]), "deletedAt": None
+        "farmerId": farmer_oid, "deletedAt": None
     }, sort=[("createdAt", -1)], limit=500) or []
-    return {"success": True, "data": {"contracts": [_contract_public(row) for row in rows]}}
+
+    # Stock confirmation is not proof of delivery. Join the farmer's original
+    # scheduled B2B orders so the calendar can report fulfillment only after
+    # the actual order reaches a delivered/completed state.
+    public_contracts = []
+    for row in rows:
+        public_contract = _contract_public(row)
+        contract_id = row.get("_id")
+        scheduled_orders = await order_repo.find_many({
+            "contractId": contract_id,
+            "farmerId": farmer_oid,
+            "isReplacementSupply": {"$ne": True},
+            "deletedAt": None,
+        }, sort=[("scheduledDeliveryDate", 1)], limit=1000) or []
+        orders_by_date = {}
+        for order in scheduled_orders:
+            scheduled_date = str(order.get("scheduledDeliveryDate") or "")[:10]
+            if scheduled_date:
+                orders_by_date[scheduled_date] = order
+
+        for occurrence in public_contract.get("deliveryHistory") or []:
+            schedule_key = str(occurrence.get("scheduledDate") or "")[:10]
+            order = orders_by_date.get(schedule_key)
+            if not order:
+                occurrence["fulfillmentStatus"] = "not_created"
+                continue
+            order_status = str(order.get("status") or "").lower()
+            occurrence["fulfillmentStatus"] = order_status
+            occurrence["fulfillmentOrderId"] = str(order.get("_id"))
+            occurrence["fulfillmentOrderNumber"] = order.get("orderNumber")
+            occurrence["fulfilledQuantityKg"] = (
+                float(order.get("deliveredQuantityKg") or order.get("quantityKg") or 0)
+                if order_status in (ORDER_DELIVERED, ORDER_COMPLETED) else 0
+            )
+            delivered_at = order.get("deliveredAt") or order.get("completedAt")
+            if isinstance(delivered_at, datetime):
+                occurrence["fulfilledAt"] = delivered_at.isoformat()
+        public_contracts.append(public_contract)
+
+    return {"success": True, "data": {"contracts": public_contracts}}
 
 
 @router.post("/contracts")
