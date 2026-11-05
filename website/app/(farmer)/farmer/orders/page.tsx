@@ -876,9 +876,18 @@ export default function FarmerOrdersPage() {
                                   <MoreVertical className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem asChild><Link href={`/farmer/orders/${orderId}`}><Eye className="mr-2 h-4 w-4" />View full order</Link></DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}><Navigation className="mr-2 h-4 w-4" />Open in order map</DropdownMenuItem>
+                              <DropdownMenuContent align="end" className="min-w-[200px] w-max whitespace-nowrap">
+                                <DropdownMenuItem asChild className="whitespace-nowrap">
+                                  <Link href={`/farmer/orders/${orderId}`} className="flex w-full items-center whitespace-nowrap">
+                                    <Eye className="mr-2 h-4 w-4 shrink-0" />View full order
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="whitespace-nowrap"
+                                  onClick={() => router.push(`/farmer/order-map?delivery=required&orderId=${encodeURIComponent(orderId)}`)}
+                                >
+                                  <Navigation className="mr-2 h-4 w-4 shrink-0" />Open in order map
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
