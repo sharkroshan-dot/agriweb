@@ -892,8 +892,8 @@ class OrderService:
             )
             and not order.get("deliveryVerificationCode")
         ):
-            from app.core.security import SecurityService
-            code = SecurityService.generate_otp(6)
+            from app.core.security import Security
+            code = Security.generate_otp(6)
             token = secrets.token_urlsafe(32)
             issued_at = datetime.utcnow()
             try:
@@ -1274,8 +1274,8 @@ class OrderService:
                 logger.warning(f"Failed to send ready notification: {e}")
         elif new_status == OrderStatus.READY_FOR_PICKUP and is_pickup:
             try:
-                from app.core.security import SecurityService
-                code = SecurityService.generate_otp(6)
+                from app.core.security import Security
+                code = Security.generate_otp(6)
                 await order_repository.update_order_field(order_id, "pickupCode", code)
             except Exception as e:
                 logger.warning(f"Failed to generate pickup code: {e}")
