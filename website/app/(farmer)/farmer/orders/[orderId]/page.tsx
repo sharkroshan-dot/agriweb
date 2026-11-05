@@ -284,35 +284,40 @@ export default function FarmerOrderDetailPage() {
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <Button variant="ghost" asChild>
-        <Link href="/farmer/orders" className="flex items-center gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back to orders
-        </Link>
-      </Button>
-
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Order {order.orderNumber.slice(-8)}</h1>
-          <p className="text-sm text-muted-foreground">Placed on {formatDate(order.date)}</p>
+    <div className="mx-auto w-full max-w-[1440px] space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="space-y-2">
+          <Button variant="ghost" size="sm" asChild className="-ml-3 text-slate-500 hover:text-slate-900">
+            <Link href="/farmer/orders" className="flex items-center gap-2"><ArrowLeft className="h-4 w-4" /> Back to orders</Link>
+          </Button>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">Order management</p>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Order details</h1>
+            <p className="mt-1 text-sm text-slate-500">{order.orderNumber} <span className="mx-1.5 text-slate-300">•</span> Placed {formatDate(order.date)}</p>
+          </div>
         </div>
-        <Badge className={statusColors[order.status] || "border-gray-200 bg-gray-50 text-gray-700"}>
+        <Badge className={statusColors[order.status] || "border-slate-200 bg-slate-50 text-slate-700"}>
           {order.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
         </Badge>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-700"><ShoppingBag className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Products</p><p className="mt-0.5 text-lg font-semibold text-slate-900">{order.items.length} <span className="text-xs font-normal text-slate-500">items</span></p></div></CardContent></Card>
+        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-blue-50 p-2.5 text-blue-700"><CreditCard className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Order total</p><p className="mt-0.5 truncate text-lg font-semibold text-slate-900">{formatPrice(order.total)}</p></div></CardContent></Card>
+        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-violet-50 p-2.5 text-violet-700"><Clock className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Order date</p><p className="mt-0.5 truncate text-sm font-semibold text-slate-900">{formatDate(order.date)}</p></div></CardContent></Card>
+        <Card className="border-slate-200/80 shadow-sm"><CardContent className="flex items-center gap-3 p-4"><div className="rounded-xl bg-amber-50 p-2.5 text-amber-700"><CreditCard className="h-4 w-4" /></div><div className="min-w-0"><p className="text-xs text-slate-500">Payment</p><p className="mt-0.5 truncate text-sm font-semibold capitalize text-slate-900">{order.paymentStatus || "Pending"}</p></div></CardContent></Card>
+      </div>
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.85fr)]">
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" /> Items
-              </CardTitle>
-              <CardDescription>{order.items.length} product(s) in this order</CardDescription>
+          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+            <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
+              <CardTitle className="flex items-center gap-2 text-base text-slate-900"><Package className="h-4 w-4 text-emerald-700" /> Order items</CardTitle>
+              <CardDescription>{order.items.length} product(s) included in this order</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4 p-5">
               {order.items.map((item: any, i: number) => (
-                <div key={i} className="flex items-center justify-between rounded-lg border p-3">
+                <div key={i} className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4 transition-colors hover:bg-slate-50/70">
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-900">{item.name}</p>
                     <p className="text-sm text-muted-foreground">Qty: {item.quantity} &times; {formatPrice(Number(item.unitPrice))}</p>
@@ -320,7 +325,7 @@ export default function FarmerOrderDetailPage() {
                   <span className="ml-4 font-semibold">{formatPrice(Number(item.price))}</span>
                 </div>
               ))}
-              <div className="border-t pt-3 space-y-1.5">
+              <div className="space-y-2 border-t border-slate-100 pt-4">
                 <div className="flex justify-between text-sm">
                   <span>Subtotal</span>
                   <span>{formatPrice(order.subtotal)}</span>
@@ -341,7 +346,7 @@ export default function FarmerOrderDetailPage() {
                     <span>-{formatPrice(order.discount)}</span>
                   </div>
                 )}
-                <div className="flex justify-between border-t pt-2 font-semibold">
+                <div className="flex justify-between border-t border-slate-200 pt-3 text-base font-bold text-slate-900">
                   <span>Total</span>
                   <span>{formatPrice(order.total)}</span>
                 </div>
@@ -349,13 +354,9 @@ export default function FarmerOrderDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <MapPin className="h-5 w-5" /> Delivery Address
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><MapPin className="h-4 w-4 text-emerald-700" /> Delivery address</CardTitle></CardHeader>
+            <CardContent className="p-5">
               <p className="text-sm text-muted-foreground">{order.address}</p>
               {order.specialInstructions && (
                 <div className="mt-3 rounded-md bg-gray-50 p-3 text-sm">
@@ -378,19 +379,17 @@ export default function FarmerOrderDetailPage() {
           )}
 
           {order.tracking && order.tracking.length > 0 && (
-            <Card>
-              <CardHeader className="pb-3">
+            <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+              <CardHeader className="border-b border-slate-100 bg-slate-50/70 px-5 py-4">
                 <button
                   onClick={() => setShowAllTracking(!showAllTracking)}
                   className="flex w-full items-center justify-between text-left"
                 >
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="h-5 w-5" /> Tracking
-                  </CardTitle>
+                  <div><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Clock className="h-4 w-4 text-emerald-700" /> Order activity</CardTitle><CardDescription className="mt-1">Latest fulfillment updates and status history</CardDescription></div>
                   {showAllTracking ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                 </button>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-5">
                 <div className="relative space-y-0">
                   {(showAllTracking ? order.tracking : order.tracking.slice(0, 2)).map((event: any, i: number, visibleEvents: any[]) => (
                     <div key={event.key} className="flex gap-4 pb-4 last:pb-0">
@@ -428,13 +427,9 @@ export default function FarmerOrderDetailPage() {
         </div>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <User className="h-5 w-5" /> Customer Details
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
+          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><User className="h-4 w-4 text-emerald-700" /> Customer details</CardTitle></CardHeader>
+            <CardContent className="space-y-3 p-5 text-sm">
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="font-medium">{order.customerName}</span>
@@ -453,13 +448,9 @@ export default function FarmerOrderDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Hash className="h-5 w-5" /> Order Info
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
+          <Card className="overflow-hidden border-slate-200/80 shadow-sm">
+            <CardHeader className="border-b border-slate-100 px-5 py-4"><CardTitle className="flex items-center gap-2 text-base text-slate-900"><Hash className="h-4 w-4 text-emerald-700" /> Order information</CardTitle></CardHeader>
+            <CardContent className="space-y-3 p-5 text-sm">
               <div className="flex items-center gap-2">
                 <ShoppingBag className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="font-medium">{order.orderNumber}</span>
