@@ -29,7 +29,7 @@ const statusColors: Record<string, string> = {
 
 const humanizeRole = (role: string) => String(role || "")
   .replace(/_/g, " ")
-  .replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+  .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 
 const getOrderProgress = (status: string, deliveryType: string) => {
   const isPickup = String(deliveryType || "").toLowerCase() === "pickup";
@@ -232,7 +232,7 @@ export default function FarmerOrderDetailPage() {
           };
           const humanize = (value: string) => value
             .replace(/_/g, " ")
-            .replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+            .replace(/\b\w/g, (letter: string) => letter.toUpperCase());
           const date = h.timestamp || h.createdAt || h.date || h.updatedAt || null;
           const parsedDate = date ? new Date(date).getTime() : 0;
           return {
@@ -309,7 +309,7 @@ export default function FarmerOrderDetailPage() {
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(order.address)}`
     : null;
   const paymentMethodLabel = pickupPaymentLabel(order.paymentMethod);
-  const statusLabel = order.status.replace(/_/g, " ").replace(/\\b\\w/g, (letter: string) => letter.toUpperCase());
+  const statusLabel = order.status.replace(/_/g, " ").replace(/\b\w/g, (letter: string) => letter.toUpperCase());
 
   return (
     <div className="mx-auto w-full max-w-[1440px] space-y-5 p-4 sm:p-6">
