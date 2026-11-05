@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../..
 import { Badge } from "../../../components/ui/badge";
 import toast from "react-hot-toast";
 
-type Message = { id: string; senderId: string | null; senderName: string; messageType: string; content: string; createdAt: string; };
+type Message = { id: string; senderId: string | null; senderName: string; messageType: string; content: string; createdAt: string; isMine?: boolean; };
 export default function CooperativeChat({ cooperativeId, cooperativeName, memberCount, currentUserId }: { cooperativeId: string; cooperativeName: string; memberCount: number; currentUserId?: string }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
@@ -48,7 +48,7 @@ export default function CooperativeChat({ cooperativeId, cooperativeName, member
       <div className="h-[min(58vh,620px)] min-h-[360px] space-y-3 overflow-y-auto px-3 py-4 sm:px-5">
         {isLoading ? <div className="py-12 text-center text-sm text-slate-500">Loading cooperative conversation…</div> : isError ? <div className="py-12 text-center"><p className="text-sm text-slate-600">Could not load group messages.</p><Button className="mt-3" size="sm" variant="outline" onClick={() => refetch()}>Try again</Button></div> : grouped.length === 0 ? <div className="mx-auto mt-12 max-w-sm rounded-2xl border border-dashed bg-white p-6 text-center"><MessageCircle className="mx-auto h-8 w-8 text-emerald-600"/><p className="mt-3 font-semibold text-slate-800">Start your cooperative conversation</p><p className="mt-1 text-sm text-slate-500">Share harvest updates, discuss orders and coordinate collections with your members.</p></div> : grouped.map((message) => {
           const system = message.messageType === "system";
-          const mine = message.senderId === currentUserId;
+          const mine = Boolean(message.isMine) || Boolean(currentUserId && message.senderId === currentUserId);
           const time = message.createdAt ? new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
           if (system) return <div key={message.id} className="mx-auto max-w-[90%] rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-center"><p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">AgriConnect update</p><p className="mt-1 text-sm text-amber-950">{message.content}</p><p className="mt-1 text-[10px] text-amber-700">{time}</p></div>;
           return <div key={message.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}><div className={`max-w-[85%] rounded-2xl px-3 py-2 shadow-sm sm:max-w-[72%] ${mine ? "rounded-br-md bg-[#d9fdd3]" : "rounded-bl-md border bg-white"}`}><p className={`mb-1 text-xs font-semibold ${mine ? "text-emerald-800" : "text-sky-700"}`}>{mine ? "You" : message.senderName}</p><p className="whitespace-pre-wrap break-words text-sm text-slate-800">{message.content}</p><p className="mt-1 text-right text-[10px] text-slate-500">{time}</p></div></div>;
